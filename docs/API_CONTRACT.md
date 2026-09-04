@@ -18,6 +18,16 @@ fields are omitted when they have no value unless a route explicitly documents
 - `GET /api/v1` is public discovery and returns `{ "name": "helm", "version": "v1" }`, plus `revision` when configured.
 - `GET /openapi.json` returns the OpenAPI 3.1 contract and is served with
   `Cache-Control: no-store`, like the JSON API responses.
+- `GET /metrics` returns bounded Prometheus text. Unauthenticated collection is
+  allowed only from a loopback peer; non-loopback scrapes require a normal
+  Helm session or scoped bearer token. The endpoint never includes task text,
+  request bodies, credentials, or user-provided labels.
+- `GET /readyz` (and `/ready`) returns bounded machine-readable database,
+  schema, migration, writable-capacity, and storage checks. It returns 200
+  with `ready: true` when all checks pass and 503 with `ready: false` and
+  `status: "degraded"` when a check fails. See
+  [`docs/OBSERVABILITY.md`](OBSERVABILITY.md) for thresholds and operator
+  responses.
 - Every response includes `X-Request-ID`. Deployments with a release SHA also include `X-Roadmap-Revision`.
 - API responses are `Cache-Control: no-store`. Clients may send `X-Request-ID` (up to 128 characters); otherwise the server generates one.
 - Cookie- and Cloudflare-authenticated mutations require an `Origin` exactly equal to the configured public origin. Missing or different origins return `403` (`csrf_origin`). Bearer-token requests are exempt from this Origin check. `GET`, `HEAD`, and `OPTIONS` do not require Origin.

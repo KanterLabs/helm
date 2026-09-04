@@ -414,6 +414,7 @@ jq -e --arg host "$PUBLIC_HOST" --arg target "$tunnel_id.cfargotunnel.com" \
 # Health and OpenAPI deliberately remain behind Access. This check must fail
 # if somebody adds a public bypass to either endpoint.
 expect_access /healthz
+expect_access /readyz
 expect_access /openapi.json
 expect_access /
 expect_access /api/v1/roadmap

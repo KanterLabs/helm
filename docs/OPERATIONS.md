@@ -33,7 +33,7 @@ The complete design and promotion gates are in
 
 The Compose file runs exactly one unprivileged Helm container. It publishes
 only `127.0.0.1:8080`, mounts a persistent `/data` volume, drops all Linux
-capabilities, uses a read-only root filesystem, and has a `/healthz`
+capabilities, uses a read-only root filesystem, and has `/healthz` and `/readyz`
 healthcheck.
 
 ```sh
@@ -43,6 +43,9 @@ make vet
 make lint
 docker compose up --build -d
 curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+# Metrics are loopback-only unless a normal Helm session or bearer token is used.
+curl http://127.0.0.1:8080/metrics
 docker compose down
 ```
 
@@ -212,7 +215,7 @@ After a successful deploy, create the proxied CNAME and validate it:
 
 The live validator checks both Access applications and their policies, the
 named tunnel status, the proxied CNAME, and Access responses for `/`,
-`/api/v1/roadmap`, `/healthz`, and `/openapi.json`. Health and OpenAPI are not
+`/api/v1/roadmap`, `/healthz`, `/readyz`, and `/openapi.json`. Health and OpenAPI are not
 bypassed; an unauthenticated request must receive an Access redirect (or the
 configured service-auth 401 for the API path). In CI, the validator also sends
 `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` to `/api/v1/roadmap`
@@ -383,6 +386,7 @@ pct status 103
 pct exec 103 -- systemctl is-active helm.service roadmap.service cloudflared.service
 pct exec 103 -- ss -ltn
 pct exec 103 -- curl --fail http://127.0.0.1:8080/healthz
+pct exec 103 -- curl --fail http://127.0.0.1:8080/readyz
 pct exec 103 -- nft list ruleset
 ```
 

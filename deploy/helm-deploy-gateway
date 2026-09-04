@@ -386,6 +386,7 @@ if [[ "$ACTION" = rollback ]]; then
 	pct start "$CTID" >/dev/null 2>&1 || true
 	pct exec "$CTID" -- /usr/local/sbin/roadmap-rollback "$SHA"
 	pct exec "$CTID" -- curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null
+	pct exec "$CTID" -- curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null
 	log "rolled back to $SHA"
 	exit 0
 fi
@@ -528,6 +529,7 @@ pct exec "$CTID" -- bash -c '
 '
 
 pct exec "$CTID" -- curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null
+pct exec "$CTID" -- curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null
 pct exec "$CTID" -- systemctl is-active --quiet roadmap.service
 pct exec "$CTID" -- systemctl is-active --quiet cloudflared.service
 healthy=1

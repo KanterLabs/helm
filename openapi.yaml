@@ -426,7 +426,7 @@ paths:
     get:
       operationId: getReadiness
       summary: Check service readiness
-      description: Returns 200 when the database and required dependencies are ready to serve traffic.
+      description: Returns bounded machine-readable database, schema, migration, writable-capacity, and storage checks. It returns 200 when all checks pass and 503 with status degraded when a check fails.
       tags:
         - Health
       security:
@@ -444,7 +444,12 @@ paths:
                 service: helm
                 revision: 0123456789abcdef0123456789abcdef01234567
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          description: Service is not ready
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
 
@@ -488,7 +493,35 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthStatus'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          description: Service is not ready
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Fetch production metrics
+      description: Returns bounded Prometheus text. Unauthenticated requests are accepted only from a loopback peer; non-loopback scrapes require a Helm session or scoped bearer token. Metrics never contain task text, request bodies, credentials, or user-provided labels.
+      tags:
+        - Health
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Prometheus metrics
+          headers: *commonResponseHeaders
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
 
@@ -5913,14 +5946,24 @@ components:
       type: object
       required:
         - status
+        - service
       properties:
         status:
           type: string
           enum:
             - ok
+            - degraded
         service:
           type: string
           example: helm
+        ready:
+          type: boolean
+          description: Whether every readiness check passed.
+        checks:
+          type: object
+          description: Bounded readiness diagnostics. Present on readiness responses.
+          additionalProperties:
+            $ref: '#/components/schemas/ReadinessCheck'
         revision:
           type: string
           pattern: '^[0-9a-f]{40}$'
@@ -5975,6 +6018,83 @@ components:
             - live
             - assigned
           description: My Work view used for the my_work count.
+
+    ReadinessCheck:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+        message:
+          type: string
+          description: Safe bounded diagnostic message; paths and database errors are omitted.
+        latency_ms:
+          type: integer
+          minimum: 0
+        lock_latency_ms:
+          type: integer
+          minimum: 0
+          description: SQLite writer-lock probe latency when the database check runs.
+        schema_version:
+          type: integer
+          minimum: 0
+        expected_schema_version:
+          type: integer
+          minimum: 0
+        migration_state:
+          type: string
+          enum:
+            - current
+            - pending
+            - unknown
+            - unreadable
+        pending_count:
+          type: integer
+          minimum: 0
+        unknown_count:
+          type: integer
+          minimum: 0
+        pending_versions:
+          type: array
+          maxItems: 16
+          items:
+            type: integer
+            minimum: 1
+        unknown_versions:
+          type: array
+          maxItems: 16
+          items:
+            type: integer
+            minimum: 1
+        available_bytes:
+          type: integer
+          minimum: 0
+        required_free_bytes:
+          type: integer
+          minimum: 0
+        writable:
+          type: boolean
+        database_bytes:
+          type: integer
+          minimum: 0
+        wal_bytes:
+          type: integer
+          minimum: 0
+        page_count:
+          type: integer
+          minimum: 0
+        max_page_count:
+          type: integer
+          minimum: 0
+        page_usage_ratio:
+          type: number
+          minimum: 0
+        journal_mode:
+          type: string
       additionalProperties: false
 
     ApiDiscovery:
