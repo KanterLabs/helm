@@ -5,7 +5,7 @@ export type BugSeverity = 's1' | 's2' | 's3' | 's4';
 export type BugResolution = 'fixed' | 'duplicate' | 'not_planned' | 'cannot_reproduce' | 'works_as_designed';
 export type ActorKind = 'human' | 'agent';
 export type ChecklistCompletionPolicy = 'warn' | 'require';
-export type Scope = 'projects:read' | 'projects:write' | 'tasks:read' | 'tasks:write' | 'tasks:claim' | 'events:read';
+export type Scope = 'projects:read' | 'projects:write' | 'tasks:read' | 'tasks:write' | 'tasks:claim' | 'events:read' | 'notifications:read' | 'notifications:write';
 
 /** States published by an agent while it is actively working a task. */
 export type AgentWorkState = 'working' | 'waiting' | 'verifying' | 'handoff';
@@ -369,6 +369,43 @@ export interface ActivityEvent {
   metadata?: never;
 }
 
+/** A project- or task-scoped inbox watch owned by the current actor. */
+export interface Watch {
+  id: string;
+  actor_id: string;
+  project_id: string;
+  task_id?: string | null;
+  created_at: string;
+}
+
+/** Durable in-app notification emitted by an event or watched task change. */
+export interface Notification {
+  id: string;
+  recipient_id: string;
+  actor_id?: string | null;
+  event_type: string;
+  type?: string;
+  project_id?: string | null;
+  task_id?: string | null;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  dedupe_key: string;
+  read_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationPreferences {
+  actor_id: string;
+  assignments: boolean;
+  mentions: boolean;
+  blockers: boolean;
+  state_changes: boolean;
+  updated_at: string;
+}
+
+/** A bounded, explicitly attributed rule stored by the API. */
 /** The discriminated payload kinds returned by the durable task timeline. */
 export type TaskTimelineKind = 'agent_progress' | 'comment' | 'task_change';
 export type TaskTimelineFilter = 'all' | TaskTimelineKind;

@@ -146,7 +146,8 @@
     type Priority,
     type SemanticState,
     type PortableArchive,
-    type PortableImportReport
+    type PortableImportReport,
+    type Notification
   } from './lib/types';
   import AgentPulse from './lib/components/AgentPulse.svelte';
   import AgentWorkPanel from './lib/components/AgentWorkPanel.svelte';
@@ -155,6 +156,7 @@
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import HelmMark from './lib/components/HelmMark.svelte';
   import LiveWorkRow from './lib/components/LiveWorkRow.svelte';
+  import NotificationsInbox from './lib/components/NotificationsInbox.svelte';
   import RoadmapActivity from './lib/components/RoadmapActivity.svelte';
   import RoadmapLiveWork from './lib/components/RoadmapLiveWork.svelte';
   import TaskActivityTimeline from './lib/components/TaskActivityTimeline.svelte';
@@ -5558,7 +5560,38 @@
     return projects.find((project) => project.id === task.project_id);
   }
 
-  async function openWorkTask(task: Task, returnFocus: DialogReturnFocus | null = null) {
+  async function openNotification(notification: Notification): Promise<void> {
+    const requestedSession = sessionGeneration;
+    const projectId = notification.project_id || '';
+    const taskId = notification.task_id || '';
+    if (!user || !projectId || !taskId) {
+      toast('info', 'This notification has no task to open.');
+      return;
+    }
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) {
+      toast('error', 'The project for this notification is no longer available.');
+      return;
+    }
+    const knownTask = [...tasks, ...myWorkTasks, ...roadmapLiveTasks, ...issueTasks].find((item) => item.id === taskId);
+    try {
+      const task = knownTask || await api.getTask(taskId);
+      if (requestedSession !== sessionGeneration || !user || task.project_id !== projectId) {
+        if (requestedSession === sessionGeneration && user) toast('error', 'This notification points to a task that is no longer available.');
+        return;
+      }
+      await openWorkTask(task, null, 'details');
+    } catch (error) {
+      if (requestedSession === sessionGeneration && user) toast('error', friendlyError(error, 'This notification points to a task that is no longer available.'));
+    }
+  }
+
+  async function openWorkTask(
+    task: Task,
+    returnFocus: DialogReturnFocus | null = null,
+    intent: TaskRouteIntent = taskRouteIntent
+  ) {
+    const requestedSession = sessionGeneration;
     if (!confirmDrawerTaskSwitch(task)) return;
     const project = projectForTask(task);
     const origin = window.location.pathname + window.location.search;
@@ -5576,7 +5609,8 @@
       // There is no stable project route to push until the project metadata is
       // available, so leave the current URL untouched.
     }
-    await openTask(task, taskRouteIntent, { skipDiscardGuard: true, returnFocus });
+    if (requestedSession !== sessionGeneration || !user) return;
+    await openTask(task, intent, { skipDiscardGuard: true, returnFocus });
   }
 
   async function openRoadmapTask(task: Task): Promise<void> {
@@ -5966,6 +6000,12 @@
         </div>
         <div class="topbar-actions">
           <button class="command-trigger" type="button" aria-label="Search anything" data-command-trigger on:click={openCommandPalette}><span>⌕</span><span class="command-trigger-label">Search anything</span><kbd data-command-shortcut>{commandShortcut}</kbd></button>
+          <NotificationsInbox
+            sessionKey={`${user.id}:${sessionGeneration}`}
+            {activeProject}
+            activeTask={drawerTask}
+            onOpenNotification={openNotification}
+          />
           <button class="icon-button" type="button" aria-label={theme === 'dark' ? 'Use light theme' : 'Use dark theme'} on:click={toggleTheme}>{theme === 'dark' ? '☼' : '◐'}</button>
           <button class="avatar top-avatar" type="button" aria-label="Open settings" on:click={() => setView('settings')}>{projectInitials({ name: user.name, key: user.name })}</button>
         </div>
