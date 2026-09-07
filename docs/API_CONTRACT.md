@@ -23,6 +23,8 @@ fields are omitted when they have no value unless a route explicitly documents
   headers; a loopback request carrying those headers is treated as proxied and
   requires a normal Helm session or scoped bearer token. The endpoint never
   includes task text, request bodies, credentials, or user-provided labels.
+  Remote authenticated collection uses the normal auth path and may update
+  the existing throttled session `last_seen_at` or token `last_used_at` fields.
 - `GET /readyz` (and `/ready`) returns bounded machine-readable database,
   schema, migration, writable-capacity, and storage checks. It returns 200
   with `ready: true` when all checks pass and 503 with `ready: false` and

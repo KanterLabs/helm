@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -817,18 +818,46 @@ func acquireWriterLock(ctx context.Context, database *sql.DB) error {
 	// The probe deliberately uses a short timeout, but the pooled connection
 	// must be restored before it is returned to application traffic. Otherwise
 	// each readiness request would silently make one writer connection more
-	// likely to fail under normal contention.
-	defer func() {
-		_, _ = connection.ExecContext(context.Background(), fmt.Sprintf("PRAGMA busy_timeout = %d", previousBusyTimeout))
-	}()
+	// likely to fail under normal contention. Mark the connection as tainted if
+	// either cleanup operation fails; returning it to database/sql would leak a
+	// transaction or the probe's short timeout into application traffic.
 	if _, err := connection.ExecContext(ctx, "PRAGMA busy_timeout = 250"); err != nil {
-		return err
+		return discardWriterConnection(connection, err)
 	}
+	var beginErr error
 	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return err
+		beginErr = err
 	}
-	_, rollbackErr := connection.ExecContext(context.Background(), "ROLLBACK")
-	return rollbackErr
+	cleanupContext, cancel := context.WithTimeout(context.Background(), readinessLockWarn)
+	defer cancel()
+	_, rollbackErr := connection.ExecContext(cleanupContext, "ROLLBACK")
+	_, resetErr := connection.ExecContext(cleanupContext, fmt.Sprintf("PRAGMA busy_timeout = %d", previousBusyTimeout))
+	if beginErr != nil || rollbackErr != nil || resetErr != nil {
+		probeErr := errors.Join(beginErr, rollbackErr, resetErr)
+		if rollbackErr != nil || resetErr != nil {
+			return discardWriterConnection(connection, probeErr)
+		}
+		return probeErr
+	}
+	return nil
+}
+
+// discardWriterConnection marks the physical driver connection as bad before
+// its sql.Conn wrapper is returned to the pool. database/sql then closes that
+// driver connection instead of reusing it. The caller retains the original
+// cleanup error so readiness reports the probe as degraded without exposing
+// driver details to clients.
+func discardWriterConnection(connection *sql.Conn, cause error) error {
+	if connection == nil {
+		return cause
+	}
+	rawErr := connection.Raw(func(any) error {
+		return driver.ErrBadConn
+	})
+	if rawErr != nil && !errors.Is(rawErr, driver.ErrBadConn) {
+		return errors.Join(cause, rawErr)
+	}
+	return cause
 }
 
 type filesystemCapacity struct {
@@ -838,18 +867,26 @@ type filesystemCapacity struct {
 	Err            error
 }
 
+// filesystemWritable is a cheap readiness preflight, not proof that the
+// effective service user can write. ACLs, id-mapped mounts, privilege, and a
+// race after this check can still change the result. The actual database open
+// and write path remains authoritative.
+func filesystemWritable(isDirectory bool, mode os.FileMode, readOnlyMount bool) bool {
+	return isDirectory && !readOnlyMount && mode.Perm()&0222 != 0
+}
+
 func writableCapacityReadinessCheck(capacity filesystemCapacity) readinessCheck {
 	check := readinessCheck{Status: "ok", RequiredFreeBytes: readinessMinFreeBytes}
 	if capacity.Applicable {
 		check.AvailableBytes = nonNegativeInt64(capacity.AvailableBytes)
 		writable := capacity.Writable
 		check.Writable = &writable
-		if !capacity.Writable {
-			check.Status = "degraded"
-			check.Message = "database directory is not writable"
-		} else if capacity.Err != nil {
+		if capacity.Err != nil {
 			check.Status = "degraded"
 			check.Message = "database filesystem capacity is unavailable"
+		} else if !capacity.Writable {
+			check.Status = "degraded"
+			check.Message = "database directory is not writable"
 		} else if check.AvailableBytes < readinessMinFreeBytes {
 			check.Status = "degraded"
 			check.Message = "database filesystem capacity is low"
@@ -909,12 +946,12 @@ func inspectFilesystemCapacity(databasePath string) filesystemCapacity {
 		result.Err = err
 		return result
 	}
-	result.Writable = info.IsDir() && info.Mode().Perm()&0222 != 0
 	var stats syscall.Statfs_t
 	if err := syscall.Statfs(directory, &stats); err != nil {
 		result.Err = err
 		return result
 	}
+	result.Writable = filesystemWritable(info.IsDir(), info.Mode(), stats.Flags&syscall.MS_RDONLY != 0)
 	if stats.Bsize > 0 && stats.Bavail > 0 {
 		blocks := uint64(stats.Bavail)
 		blockSize := uint64(stats.Bsize)

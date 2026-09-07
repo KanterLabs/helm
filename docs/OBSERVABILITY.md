@@ -29,9 +29,15 @@ The readiness checks are:
 - `schema` and `schema_compatibility`: the embedded schema version, pending
   migrations, and unknown newer migrations;
 - `migration`: whether the embedded migration set is current;
-- `writable_capacity`: mode, filesystem availability, and the free-space
-  reserve for the database directory; and
+- `writable_capacity`: a read-only preflight of directory mode bits, mount
+  state, filesystem availability, and the free-space reserve for the database
+  directory; and
 - `storage`: SQLite page usage, database bytes, and WAL bytes.
+
+The writable flag checks directory mode bits and the filesystem read-only
+mount flag; it cannot prove effective write access through ACLs, id-mapped
+mounts, service privileges, or a later filesystem state change. The database
+open/write path remains authoritative.
 
 `GET /metrics` returns Prometheus text format. Unauthenticated collection is
 allowed only when the TCP peer is loopback (`127.0.0.0/8` or `::1`) and the
@@ -41,6 +47,12 @@ session or a scoped bearer token. The endpoint never trusts
 `X-Forwarded-For` or other proxy headers for identity; keep it behind the
 existing loopback service boundary or an authenticated private monitoring
 path.
+
+Remote authenticated scrapes use the normal Helm authentication path. As with
+other authenticated requests, an eligible session or bearer token may update
+the existing throttled `last_seen_at` or `last_used_at` bookkeeping. A
+direct loopback scrape without proxy headers avoids that authentication
+bookkeeping.
 
 The primary metric families are:
 
