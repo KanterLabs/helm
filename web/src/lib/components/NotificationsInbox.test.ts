@@ -2,9 +2,8 @@
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
-import type { Collection, Notification, NotificationPreferences, Project, Task, Watch } from '../types';
+import type { Collection, Notification, NotificationPreferences, Project, Watch } from '../types';
 import NotificationsInbox from './NotificationsInbox.svelte';
-import NotificationsInboxTestHarness from './NotificationsInboxTestHarness.svelte';
 
 const mountedComponents: Array<ReturnType<typeof mount>> = [];
 
@@ -52,20 +51,6 @@ function project(): Project {
     description: '',
     color: '#6558d8',
     favorite: false
-  };
-}
-
-function task(): Task {
-  return {
-    id: 'task-1',
-    number: 1,
-    key: 'TC-1',
-    project_id: 'project-1',
-    column_id: 'column-1',
-    title: 'Task one',
-    priority: 'normal',
-    position: 1,
-    version: 1
   };
 }
 
@@ -167,22 +152,21 @@ describe('NotificationsInbox', () => {
     expect(document.querySelector<HTMLElement>('.notification-item')?.classList.contains('unread')).toBe(false);
   });
 
-  it('exposes project/task watch controls and only the active preference controls', async () => {
+  it('exposes the project watch control and only the active preference controls', async () => {
     const projectWatch = watch('watch-project');
     const listWatches = vi.spyOn(api, 'listWatches').mockResolvedValue({ data: [projectWatch] });
     vi.spyOn(api, 'listNotifications').mockResolvedValue({ data: [], next_cursor: null });
-    const createdTaskWatch = watch('watch-task', 'task-1');
-    const createWatch = vi.spyOn(api, 'createWatch').mockResolvedValue(createdTaskWatch);
+    const deleteWatch = vi.spyOn(api, 'deleteWatch').mockResolvedValue(undefined);
     vi.spyOn(api, 'getNotificationPreferences').mockResolvedValue(preferences());
     const patchPreferences = vi.spyOn(api, 'patchNotificationPreferences').mockResolvedValue({ ...preferences(), blockers: true });
-    mountedComponents.push(mount(NotificationsInbox, { target: document.body, props: { sessionKey: 'actor-1:1', activeProject: project(), activeTask: task() } }));
+    mountedComponents.push(mount(NotificationsInbox, { target: document.body, props: { sessionKey: 'actor-1:1', activeProject: project() } }));
 
     await vi.waitFor(() => expect(listWatches).toHaveBeenCalled());
     document.querySelector<HTMLButtonElement>('.notifications-trigger')!.click();
     await vi.waitFor(() => expect(document.body.textContent).toContain('Unwatch project'));
-    expect(document.body.textContent).toContain('Watch task');
-    document.querySelector<HTMLButtonElement>('.watch-toggle:nth-child(2)')!.click();
-    await vi.waitFor(() => expect(createWatch).toHaveBeenCalledWith({ task_id: 'task-1' }));
+    expect(document.body.textContent).not.toContain('Watch task');
+    document.querySelector<HTMLButtonElement>('.watch-toggle')!.click();
+    await vi.waitFor(() => expect(deleteWatch).toHaveBeenCalledWith('watch-project'));
 
     document.querySelector<HTMLButtonElement>('.notifications-preferences-trigger')!.click();
     await vi.waitFor(() => expect(document.body.textContent).toContain('Assignments'));
@@ -192,28 +176,7 @@ describe('NotificationsInbox', () => {
     expect(blocker).not.toBeUndefined();
     blocker!.click();
     await vi.waitFor(() => expect(patchPreferences).toHaveBeenCalledWith({ blockers: true }));
-    expect(listWatches).toHaveBeenCalledWith({ project: 'project-1', task: 'task-1' });
-  });
-
-  it('does not let a delayed watch response for the old task change the new task state', async () => {
-    const stale = deferred<Collection<Watch>>();
-    const listWatches = vi.spyOn(api, 'listWatches')
-      .mockReturnValueOnce(stale.promise)
-      .mockResolvedValueOnce({ data: [] });
-    vi.spyOn(api, 'listNotifications').mockResolvedValue({ data: [], next_cursor: null });
-    const mounted = mount(NotificationsInboxTestHarness, { target: document.body, props: { project: project(), task: task() } });
-    mountedComponents.push(mounted);
-
-    await vi.waitFor(() => expect(listWatches).toHaveBeenCalledWith({ project: 'project-1', task: 'task-1' }));
-    const nextTask = { ...task(), id: 'task-2', key: 'TC-2' };
-    mounted.updateContext(project(), nextTask);
-    await vi.waitFor(() => expect(listWatches).toHaveBeenCalledWith({ project: 'project-1', task: 'task-2' }));
-    stale.resolve({ data: [watch('stale-task-watch', 'task-1')] });
-    await settle();
-
-    document.querySelector<HTMLButtonElement>('.notifications-trigger')!.click();
-    await vi.waitFor(() => expect(document.body.textContent).toContain('Watch task'));
-    expect(document.body.textContent).not.toContain('Unwatch task');
+    expect(listWatches).toHaveBeenCalledWith({ project: 'project-1' });
   });
 
   it('clears cached rows when the session is invalidated', async () => {

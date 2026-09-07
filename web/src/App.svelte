@@ -164,6 +164,7 @@
   import TaskDependencies from './lib/components/TaskDependencies.svelte';
   import TaskDependencyStatus from './lib/components/TaskDependencyStatus.svelte';
   import TaskHierarchy from './lib/components/TaskHierarchy.svelte';
+  import TaskWatchToggle from './lib/components/TaskWatchToggle.svelte';
   import {
     mergeAuthoritativeTask,
     mergeAuthoritativeTaskList,
@@ -6003,7 +6004,6 @@
           <NotificationsInbox
             sessionKey={`${user.id}:${sessionGeneration}`}
             {activeProject}
-            activeTask={drawerTask}
             onOpenNotification={openNotification}
           />
           <button class="icon-button" type="button" aria-label={theme === 'dark' ? 'Use light theme' : 'Use dark theme'} on:click={toggleTheme}>{theme === 'dark' ? '☼' : '◐'}</button>
@@ -6311,7 +6311,7 @@
       <div class="drawer-backdrop" role="presentation" on:click={() => closeDrawer()}></div>
       <div class="task-drawer" role="dialog" aria-modal="true" aria-label={`${drawerTask.key}: ${drawerTask.title}`} use:focusTrap>
         <div class="drawer-focus-target sr-only" tabindex="-1" data-dialog-initial-focus aria-label="Task details"></div>
-        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span></div><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
+        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span></div><TaskWatchToggle task={drawerTask} sessionKey={`${user.id}:${sessionGeneration}`} disabled={drawerSaving || drawerLoading} /><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
         {#if drawerLoading}<div class="drawer-loading"><span class="spinner"></span><span>Loading task details…</span></div>{/if}
         {#if drawerError}<div class="inline-alert error drawer-alert" role="alert"><span>!</span>{drawerError}</div>{/if}
         <div class="drawer-tabs" role="tablist" aria-label="Task views">

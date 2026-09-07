@@ -1,16 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../api';
-  import { ApiError, type Notification, type NotificationPreferences, type Project, type Task, type Watch } from '../types';
+  import { ApiError, type Notification, type NotificationPreferences, type Project, type Watch } from '../types';
 
   type PreferenceKey = 'assignments' | 'mentions' | 'blockers' | 'state_changes';
-  type WatchKind = 'project' | 'task';
 
   export let pollIntervalMs = 60 * 1000;
   /** Changes whenever the authenticated actor/session changes. */
   export let sessionKey = '';
   export let activeProject: Project | undefined = undefined;
-  export let activeTask: Task | null = null;
   export let onOpenNotification: (notification: Notification) => void | Promise<void> = () => undefined;
 
   const pageSize = 25;
@@ -38,7 +36,7 @@
   let preferenceRequest = 0;
   let savingNotificationId = '';
   let savingAll = false;
-  let watchSavingKind: WatchKind | '' = '';
+  let watchSaving = false;
   let preferenceSavingKey: PreferenceKey | '' = '';
 
   let preferencesOpen = false;
@@ -49,14 +47,12 @@
   let watchesLoading = false;
   let watchesError = '';
   let projectWatch: Watch | null = null;
-  let taskWatch: Watch | null = null;
 
   let observedSessionKey = sessionKey;
   let observedWatchContextKey = '';
 
-  $: taskForWatch = activeTask && activeProject?.id === activeTask.project_id ? activeTask : null;
-  $: watchContextKey = `${sessionKey}:${activeProject?.id || ''}:${taskForWatch?.id || ''}`;
-  $: saving = Boolean(savingNotificationId || savingAll || watchSavingKind || preferenceSavingKey);
+  $: watchContextKey = `${sessionKey}:${activeProject?.id || ''}`;
+  $: saving = Boolean(savingNotificationId || savingAll || watchSaving || preferenceSavingKey);
   $: unreadCount = notifications.filter((notification) => !notification.read_at).length;
 
   $: if (mounted && sessionKey !== observedSessionKey) {
@@ -249,29 +245,25 @@
     watchesLoading = false;
     watchesError = '';
     projectWatch = null;
-    taskWatch = null;
-    watchSavingKind = '';
+    watchSaving = false;
   }
 
   async function loadWatches(): Promise<void> {
     const expectedSession = sessionKey;
     const expectedContext = watchContextKey;
     const projectId = activeProject?.id;
-    const taskId = taskForWatch?.id;
     const requestId = ++watchRequest;
     if (!isLiveSession(expectedSession) || !projectId) return;
     watchesLoading = true;
     try {
-      const watches = await api.listWatches({ project: projectId, task: taskId });
+      const watches = await api.listWatches({ project: projectId });
       if (!isLiveSession(expectedSession) || requestId !== watchRequest || expectedContext !== watchContextKey) return;
       projectWatch = watches.data.find((watch) => !watch.task_id && watch.project_id === projectId) || null;
-      taskWatch = taskId ? watches.data.find((watch) => watch.task_id === taskId && watch.project_id === projectId) || null : null;
       watchesError = '';
     } catch (reason) {
       if (!isLiveSession(expectedSession) || requestId !== watchRequest || expectedContext !== watchContextKey) return;
       if (reason instanceof ApiError && reason.status === 403) {
         projectWatch = null;
-        taskWatch = null;
         watchesError = 'Watching is unavailable for this account.';
       } else {
         watchesError = friendlyError(reason, 'Watch status could not be loaded.');
@@ -281,31 +273,29 @@
     }
   }
 
-  async function toggleWatch(kind: WatchKind): Promise<void> {
+  async function toggleWatch(): Promise<void> {
     const expectedSession = sessionKey;
     const expectedContext = watchContextKey;
     const projectId = activeProject?.id;
-    const taskId = taskForWatch?.id;
-    const existing = kind === 'project' ? projectWatch : taskWatch;
-    if (!isLiveSession(expectedSession) || !projectId || saving || (kind === 'task' && !taskId)) return;
+    const existing = projectWatch;
+    if (!isLiveSession(expectedSession) || !projectId || saving) return;
     const requestId = ++watchMutationRequest;
     watchRequest += 1;
     watchesLoading = false;
-    watchSavingKind = kind;
+    watchSaving = true;
     try {
       const created = existing
         ? null
-        : await api.createWatch(kind === 'project' ? { project_id: projectId } : { task_id: taskId });
+        : await api.createWatch({ project_id: projectId });
       if (existing) await api.deleteWatch(existing.id);
       if (!isLiveSession(expectedSession) || requestId !== watchMutationRequest || expectedContext !== watchContextKey) return;
-      if (kind === 'project') projectWatch = created;
-      else taskWatch = created;
+      projectWatch = created;
       watchesError = '';
     } catch (reason) {
       if (!isLiveSession(expectedSession) || requestId !== watchMutationRequest || expectedContext !== watchContextKey) return;
-      watchesError = friendlyError(reason, `This ${kind} watch could not be updated.`);
+      watchesError = friendlyError(reason, 'This project watch could not be updated.');
     } finally {
-      if (isLiveSession(expectedSession) && requestId === watchMutationRequest && expectedContext === watchContextKey) watchSavingKind = '';
+      if (isLiveSession(expectedSession) && requestId === watchMutationRequest && expectedContext === watchContextKey) watchSaving = false;
     }
   }
 
@@ -433,8 +423,7 @@
           <div class="notifications-watch-heading"><strong>Watch</strong>{#if watchesLoading}<span>Updating…</span>{/if}</div>
           {#if watchesError}<div class="notifications-watch-error" role="alert">{watchesError}<button class="text-button" type="button" on:click={() => void loadWatches()}>Retry</button></div>{/if}
           <div class="notifications-watch-actions">
-            <button class="watch-toggle" type="button" aria-pressed={Boolean(projectWatch)} disabled={saving || watchesLoading} on:click={() => void toggleWatch('project')}><span aria-hidden="true">◉</span>{projectWatch ? 'Unwatch project' : 'Watch project'}</button>
-            {#if taskForWatch}<button class="watch-toggle" type="button" aria-pressed={Boolean(taskWatch)} disabled={saving || watchesLoading} on:click={() => void toggleWatch('task')}><span aria-hidden="true">◌</span>{taskWatch ? 'Unwatch task' : 'Watch task'}</button>{/if}
+            <button class="watch-toggle" type="button" aria-pressed={Boolean(projectWatch)} disabled={saving || watchesLoading} on:click={() => void toggleWatch()}><span aria-hidden="true">◉</span>{projectWatch ? 'Unwatch project' : 'Watch project'}</button>
           </div>
         </div>
       {/if}
