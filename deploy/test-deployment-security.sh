@@ -1250,6 +1250,8 @@ cloudflare_prepare_provider_case() {
 			fail "Cloudflare provider $name unexpectedly failed"
 		fi
 		contains 'cloudflare_prepare=ok' "$output"
+		sed -n 's/^cloudflare_before_state=//p' "$output" | jq -e 'type == "object" and .tunnel_id == "tunnel-fixture"' >/dev/null \
+			|| fail 'Cloudflare before-state report is not valid structured JSON'
 	else
 		[[ "$status" -ne 0 ]] || fail "Cloudflare provider $name unexpectedly succeeded"
 		[[ "$(grep -Fc -- 'POST /accounts/090ae73dce25f4eca9a53ee396fdc916/access/service_tokens' "$CF_MOCK_LOG" || true)" = 0 ]] \

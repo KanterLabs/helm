@@ -1418,7 +1418,9 @@ prepare() {
 			return 1
 		fi
 	fi
-	printf 'cloudflare_before_state=%s\n' "${TUNNEL_BEFORE_STATE:-{}}"
+	local before_state=${TUNNEL_BEFORE_STATE:-}
+	[[ -n "$before_state" ]] || before_state='{}'
+	printf 'cloudflare_before_state=%s\n' "$before_state"
 	printf 'cloudflare_after_config_sha256=%s\n' "${TUNNEL_AFTER_CONFIG_DIGEST:-unknown}"
 	printf 'cloudflare_tunnel_guard=read-compare-before-write\n'
 	printf 'cloudflare_prepare_phase=%s\n' "${DOMAIN_PROFILE_PHASE:-legacy}"
