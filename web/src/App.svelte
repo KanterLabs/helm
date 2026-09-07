@@ -162,6 +162,7 @@
   import TaskDependencies from './lib/components/TaskDependencies.svelte';
   import TaskDependencyStatus from './lib/components/TaskDependencyStatus.svelte';
   import TaskHierarchy from './lib/components/TaskHierarchy.svelte';
+  import TaskShareActions from './lib/components/TaskShareActions.svelte';
   import {
     mergeAuthoritativeTask,
     mergeAuthoritativeTaskList,
@@ -205,6 +206,7 @@
     type BoardOrderingGate,
     type BoardTaskSort
   } from './lib/boardOrdering';
+  import { buildTaskShareUrl } from './lib/taskShare';
 
   type View = CommandView;
   type AuthView = 'login' | 'setup';
@@ -5558,6 +5560,14 @@
     return projects.find((project) => project.id === task.project_id);
   }
 
+  function drawerTaskShareUrl(task: Task): string {
+    const projectSlug = projectForTask(task)?.slug || getProjectSlugFromLocation() || activeProjectSlug;
+    return buildTaskShareUrl(projectSlug, task.key, {
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      intent: drawerView
+    });
+  }
+
   async function openWorkTask(task: Task, returnFocus: DialogReturnFocus | null = null) {
     if (!confirmDrawerTaskSwitch(task)) return;
     const project = projectForTask(task);
@@ -6278,6 +6288,7 @@
           <button class:active={drawerView === 'details'} id="drawer-details-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'details'} aria-controls="drawer-details-panel" tabindex={drawerView === 'details' ? 0 : -1} on:click={() => setDrawerView('details')} on:keydown={drawerTabKeydown}>Details</button>
           <button class:active={drawerView === 'activity'} id="drawer-activity-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'activity'} aria-controls="drawer-activity-panel" tabindex={drawerView === 'activity' ? 0 : -1} on:click={() => setDrawerView('activity')} on:keydown={drawerTabKeydown}>Activity</button>
         </div>
+        <TaskShareActions taskKey={drawerTask.key} taskUrl={drawerTaskShareUrl(drawerTask)} />
         {#if drawerView === 'details'}
         <div id="drawer-details-panel" class="drawer-details-panel" role="tabpanel" aria-labelledby="drawer-details-tab">
           <div class="drawer-scroll" data-drawer-scroll>
