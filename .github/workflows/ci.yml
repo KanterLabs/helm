@@ -66,6 +66,7 @@ jobs:
           GOSUMDB=sum.golang.org go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
           bash -n deploy/*.sh deploy/helm-deploy-gateway
           bash deploy/test-domain-profile.sh
+          bash deploy/test-domain-transition.sh
           ./deploy/test-deployment-security.sh
           bash deploy/test-bundle-origin.sh
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/helm ./cmd/helm
@@ -469,6 +470,9 @@ jobs:
         id: domain_profile
         run: |
           public_url=$(bash deploy/domain-profile.sh production public-url)
+          # TC-149 must replace this gate with rehearsed, phase-aware provider
+          # rollback before staging or promoting the new hostname.
+          test "$(bash deploy/domain-profile.sh production phase)" = legacy
           printf 'public_url=%s\n' "$public_url" >> "$GITHUB_OUTPUT"
           printf 'HELM_PUBLIC_ORIGIN=%s\n' "$public_url" >> "$GITHUB_ENV"
       - name: Download immutable binary
@@ -600,6 +604,9 @@ jobs:
         id: domain_profile
         run: |
           public_url=$(bash deploy/domain-profile.sh production public-url)
+          # Current rollback restores the signed runtime only, not provider
+          # topology. Never validate a different phase as though it matched.
+          test "$(bash deploy/domain-profile.sh production phase)" = legacy
           printf 'public_url=%s\n' "$public_url" >> "$GITHUB_OUTPUT"
           printf 'HELM_PUBLIC_ORIGIN=%s\n' "$public_url" >> "$GITHUB_ENV"
       - name: Configure deploy identity

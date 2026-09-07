@@ -273,3 +273,151 @@ func TestMigrationStatusMetadataOnlyWhenEnabled(t *testing.T) {
 		t.Fatalf("legacy browser auth status = %d location=%q body=%s", browser.Code, browser.Header().Get("Location"), browser.Body.String())
 	}
 }
+
+func TestDomainMigrationRollbackRehearsalPreservesSameDatabase(t *testing.T) {
+	server, data := migrationTestServer(t)
+	ctx := context.Background()
+	legacyCfg := server.Cfg
+	legacyCfg.PublicOrigin = "https://tc.test"
+	legacyCfg.LegacyOrigin = ""
+	server.Cfg = legacyCfg
+
+	cfHeaders := func(origin string) map[string]string {
+		return map[string]string{
+			"Content-Type":            "application/json",
+			"Origin":                  origin,
+			"Cf-Access-Jwt-Assertion": "valid-access-assertion",
+		}
+	}
+	createProject := func(host, origin, key, name string, headers map[string]string) (store.Project, *httptest.ResponseRecorder) {
+		response := migrationRequest(t, server, http.MethodPost, "/api/v1/projects", host, "192.0.2.10:1234", map[string]any{"key": key, "name": name}, headers)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("create project %s/%s = %d body=%s", host, key, response.Code, response.Body.String())
+		}
+		var project store.Project
+		if err := json.Unmarshal(response.Body.Bytes(), &project); err != nil {
+			t.Fatalf("decode project %s: %v", key, err)
+		}
+		return project, response
+	}
+
+	// Legacy phase: establish the fixture and its authenticated identities on
+	// the original database, with no export/import or replacement store.
+	legacyProject, _ := createProject("tc.test", "https://tc.test", "LEGACY", "Legacy fixture", cfHeaders("https://tc.test"))
+	legacyTaskResponse := migrationRequest(t, server, http.MethodPost, "/api/v1/projects/LEGACY/tasks", "tc.test", "192.0.2.10:1234", map[string]any{"title": "Legacy task"}, cfHeaders("https://tc.test"))
+	if legacyTaskResponse.Code != http.StatusCreated {
+		t.Fatalf("create legacy task = %d body=%s", legacyTaskResponse.Code, legacyTaskResponse.Body.String())
+	}
+	var legacyTask store.Task
+	if err := json.Unmarshal(legacyTaskResponse.Body.Bytes(), &legacyTask); err != nil {
+		t.Fatalf("decode legacy task: %v", err)
+	}
+	humanBefore, err := data.FindActorByEmail(ctx, "owner@example.com")
+	if err != nil {
+		t.Fatalf("find verified human: %v", err)
+	}
+	agentBefore, err := data.CreateAgent(ctx, store.Actor{Kind: "agent", Name: "rollback agent"}, humanBefore.ID, "")
+	if err != nil {
+		t.Fatalf("create stable agent: %v", err)
+	}
+	_, rawToken, err := data.CreateTokenBy(ctx, agentBefore.ID, humanBefore.ID, "rollback bearer", []string{"projects:write", "tasks:write"}, nil, nil)
+	if err != nil {
+		t.Fatalf("create stable bearer: %v", err)
+	}
+	legacyEvents, _, err := data.ListEvents(ctx, store.EventFilter{ProjectID: legacyProject.ID, Limit: 200})
+	if err != nil {
+		t.Fatalf("list legacy history: %v", err)
+	}
+	legacyEventIDs := make(map[string]struct{}, len(legacyEvents))
+	for _, event := range legacyEvents {
+		legacyEventIDs[event.ID] = struct{}{}
+	}
+
+	// Promotion phase: the new origin is canonical while the old browser host
+	// remains available only for safe reads and retained bearer automation.
+	promotedCfg := legacyCfg
+	promotedCfg.PublicOrigin = "https://helm.test"
+	promotedCfg.LegacyOrigin = "https://tc.test"
+	server.Cfg = promotedCfg
+	promotedProject, _ := createProject("helm.test", "https://helm.test", "PROMO", "Promoted fixture", cfHeaders("https://helm.test"))
+	projectUpdate := migrationRequest(t, server, http.MethodPatch, "/api/v1/projects/"+legacyProject.Key, "helm.test", "192.0.2.10:1234", map[string]any{"name": "Promoted legacy fixture"}, map[string]string{
+		"Content-Type":            "application/json",
+		"Origin":                  "https://helm.test",
+		"If-Match":                projectETag(legacyProject.Version),
+		"Cf-Access-Jwt-Assertion": "valid-access-assertion",
+	})
+	if projectUpdate.Code != http.StatusOK {
+		t.Fatalf("canonical project update = %d body=%s", projectUpdate.Code, projectUpdate.Body.String())
+	}
+	taskUpdate := migrationRequest(t, server, http.MethodPatch, "/api/v1/tasks/"+legacyTask.ID, "helm.test", "192.0.2.10:1234", map[string]any{"title": "Promoted legacy task"}, map[string]string{
+		"Content-Type":            "application/json",
+		"Origin":                  "https://helm.test",
+		"If-Match":                taskETag(legacyTask),
+		"Cf-Access-Jwt-Assertion": "valid-access-assertion",
+	})
+	if taskUpdate.Code != http.StatusOK {
+		t.Fatalf("canonical task update = %d body=%s", taskUpdate.Code, taskUpdate.Body.String())
+	}
+	oldBrowserDuringPromotion := migrationRequest(t, server, http.MethodPost, "/api/v1/projects", "tc.test", "192.0.2.10:1234", map[string]any{"key": "OLD_BLOCKED", "name": "Must not write"}, cfHeaders("https://tc.test"))
+	if oldBrowserDuringPromotion.Code != http.StatusConflict || migrationErrorCode(t, oldBrowserDuringPromotion) != "instance_moved" {
+		t.Fatalf("old browser during promotion = %d body=%s", oldBrowserDuringPromotion.Code, oldBrowserDuringPromotion.Body.String())
+	}
+	oldBearerDuringPromotion := migrationRequest(t, server, http.MethodPost, "/api/v1/projects", "tc.test", "192.0.2.10:1234", map[string]any{"key": "AGENT", "name": "Retained agent write"}, map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer " + rawToken,
+	})
+	if oldBearerDuringPromotion.Code != http.StatusCreated {
+		t.Fatalf("old bearer during promotion = %d body=%s", oldBearerDuringPromotion.Code, oldBearerDuringPromotion.Body.String())
+	}
+
+	// Rollback phase: restore the exact original config on the same Server and
+	// Store. The old browser origin becomes writable again; the new origin has
+	// no accepted Origin and therefore cannot write through the old release.
+	server.Cfg = legacyCfg
+	rollbackProject, _ := createProject("tc.test", "https://tc.test", "ROLLBACK", "Rollback fixture", cfHeaders("https://tc.test"))
+	newBrowserAfterRollback := migrationRequest(t, server, http.MethodPost, "/api/v1/projects", "helm.test", "192.0.2.10:1234", map[string]any{"key": "NEW_BLOCKED", "name": "Must remain blocked"}, cfHeaders("https://helm.test"))
+	if newBrowserAfterRollback.Code != http.StatusForbidden || migrationErrorCode(t, newBrowserAfterRollback) != "csrf_origin" {
+		t.Fatalf("new browser after rollback = %d body=%s", newBrowserAfterRollback.Code, newBrowserAfterRollback.Body.String())
+	}
+
+	legacyProjectAfter, err := data.GetProject(ctx, legacyProject.ID)
+	if err != nil {
+		t.Fatalf("get legacy project after rollback: %v", err)
+	}
+	legacyTaskAfter, err := data.GetTask(ctx, legacyTask.ID)
+	if err != nil {
+		t.Fatalf("get legacy task after rollback: %v", err)
+	}
+	if legacyProjectAfter.ID != legacyProject.ID || legacyProjectAfter.Key != legacyProject.Key || legacyProjectAfter.Name != "Promoted legacy fixture" {
+		t.Fatalf("legacy project identity/history changed: before=%+v after=%+v", legacyProject, legacyProjectAfter)
+	}
+	if legacyTaskAfter.ID != legacyTask.ID || legacyTaskAfter.Key != legacyTask.Key || legacyTaskAfter.Title != "Promoted legacy task" {
+		t.Fatalf("legacy task identity/history changed: before=%+v after=%+v", legacyTask, legacyTaskAfter)
+	}
+	for _, fixture := range []store.Project{promotedProject, rollbackProject} {
+		if persisted, err := data.GetProject(ctx, fixture.ID); err != nil || persisted.ID != fixture.ID || persisted.Key != fixture.Key {
+			t.Fatalf("post-promotion project %q was not retained: project=%+v err=%v", fixture.Key, persisted, err)
+		}
+	}
+	humanAfter, err := data.FindActorByEmail(ctx, "owner@example.com")
+	if err != nil || humanAfter.ID != humanBefore.ID {
+		t.Fatalf("human actor changed across rollback: before=%q after=%q err=%v", humanBefore.ID, humanAfter.ID, err)
+	}
+	agentAfter, err := data.GetActor(ctx, agentBefore.ID)
+	if err != nil || agentAfter.ID != agentBefore.ID || agentAfter.Kind != "agent" {
+		t.Fatalf("agent actor changed across rollback: before=%q after=%+v err=%v", agentBefore.ID, agentAfter, err)
+	}
+	postEvents, _, err := data.ListEvents(ctx, store.EventFilter{ProjectID: legacyProject.ID, Limit: 200})
+	if err != nil || len(postEvents) <= len(legacyEvents) {
+		t.Fatalf("legacy history was not retained/extended: before=%d after=%d err=%v", len(legacyEvents), len(postEvents), err)
+	}
+	for _, event := range postEvents {
+		delete(legacyEventIDs, event.ID)
+		if event.ActorID != nil && *event.ActorID != humanBefore.ID && *event.ActorID != agentBefore.ID {
+			t.Fatalf("history event %q points to unexpected actor %q", event.ID, *event.ActorID)
+		}
+	}
+	if len(legacyEventIDs) != 0 {
+		t.Fatalf("rollback lost %d pre-promotion history events", len(legacyEventIDs))
+	}
+}

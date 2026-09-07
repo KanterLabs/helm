@@ -40,6 +40,7 @@ domain_profile_load "$DEPLOY_ENVIRONMENT"
 }
 command -v curl >/dev/null 2>&1 || { printf 'curl is required\n' >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { printf 'jq is required\n' >&2; exit 1; }
+command -v sha256sum >/dev/null 2>&1 || { printf 'sha256sum is required\n' >&2; exit 1; }
 
 CF_API=https://api.cloudflare.com/client/v4
 SECURE_TMP_ROOT=${TMPDIR:-${RUNNER_TEMP:-/tmp}}
@@ -50,6 +51,12 @@ SECURE_TMP_ROOT=${TMPDIR:-${RUNNER_TEMP:-/tmp}}
 CF_HEADER_FILE=$(mktemp "$SECURE_TMP_ROOT/helm-cloudflare-header.XXXXXX")
 CREATED_SERVICE_TOKEN_ID=
 CREATED_SERVICE_TOKEN_OUTPUT=
+TUNNEL_BEFORE_STATE=
+TUNNEL_BEFORE_CONFIG_DIGEST=
+TUNNEL_BEFORE_CONFIG_KEYS=
+TUNNEL_LATEST_CONFIG=
+TUNNEL_LATEST_CONFIG_DIGEST=
+TUNNEL_AFTER_CONFIG_DIGEST=
 
 revoke_created_service_token() {
 	local token_id=${CREATED_SERVICE_TOKEN_ID:-} output_path=${CREATED_SERVICE_TOKEN_OUTPUT:-}
@@ -171,6 +178,10 @@ identity_provider_id() {
 		printf 'Cloudflare identity providers are ambiguous or nonconforming\n' >&2
 		return 1
 	fi
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		printf 'hostname transition requires the retained identity provider\n' >&2
+		return 1
+	fi
 
 	if ! body=$(jq -cn '{name:"Cloudflare",type:"cloudflare",config:{restrict_to_account_members:true}}'); then
 		printf 'could not construct Cloudflare identity-provider request\n' >&2
@@ -247,6 +258,11 @@ ensure_app() {
 		return 1
 	fi
 	if [[ "$count" = 0 ]]; then
+		if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 &&
+			( "$domain" = "$DOMAIN_PROFILE_LEGACY_HOST" || "$domain" = "$DOMAIN_PROFILE_LEGACY_API_PATH" ) ]]; then
+			printf 'hostname transition requires the retained legacy Access application\n' >&2
+			return 1
+		fi
 		if ! response=$(cf_request POST "/accounts/$ACCOUNT_ID/access/apps" "$body"); then
 			return 1
 		fi
@@ -293,22 +309,23 @@ then
 }
 
 upsert_owner_policy() {
-	local app_id=$1 email=$2 precedence=$3 policies policy_id body
+	local app_id=$1 email=$2 precedence=$3 owner_name=${4:-$OWNER_POLICY_NAME} legacy_name=${5:-$LEGACY_OWNER_POLICY_NAME}
+	local policies policy_id body
 	if ! policies=$(cf_request GET "/accounts/$ACCOUNT_ID/access/apps/$app_id/policies"); then
 		return 1
 	fi
-	if [[ -n "${LEGACY_OWNER_POLICY_NAME:-}" ]]; then
-		if ! policy_id=$(jq -r --arg name "$OWNER_POLICY_NAME" --arg legacy "$LEGACY_OWNER_POLICY_NAME" '[.result[] | select(.name == $name or .name == $legacy)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate owner policies") end' <<<"$policies"); then
+	if [[ -n "$legacy_name" ]]; then
+		if ! policy_id=$(jq -r --arg name "$owner_name" --arg legacy "$legacy_name" '[.result[] | select(.name == $name or .name == $legacy)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate owner policies") end' <<<"$policies"); then
 			printf 'Cloudflare owner-policy response was invalid\n' >&2
 			return 1
 		fi
 	else
-		if ! policy_id=$(jq -r --arg name "$OWNER_POLICY_NAME" '[.result[] | select(.name == $name)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate owner policies") end' <<<"$policies"); then
+		if ! policy_id=$(jq -r --arg name "$owner_name" '[.result[] | select(.name == $name)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate owner policies") end' <<<"$policies"); then
 			printf 'Cloudflare owner-policy response was invalid\n' >&2
 			return 1
 		fi
 	fi
-	if ! body=$(jq -cn --arg name "$OWNER_POLICY_NAME" --arg email "$email" --argjson precedence "$precedence" \
+	if ! body=$(jq -cn --arg name "$owner_name" --arg email "$email" --argjson precedence "$precedence" \
 		'{name:$name,decision:"allow",precedence:$precedence,include:[{email:{email:$email}}]}'); then
 		printf 'could not construct Cloudflare owner-policy request\n' >&2
 		return 1
@@ -325,22 +342,23 @@ upsert_owner_policy() {
 }
 
 upsert_service_policy() {
-	local app_id=$1 token_id=$2 policies policy_id body
+	local app_id=$1 token_id=$2 service_name=${3:-$SERVICE_POLICY_NAME} legacy_name=${4:-$LEGACY_SERVICE_POLICY_NAME}
+	local policies policy_id body
 	if ! policies=$(cf_request GET "/accounts/$ACCOUNT_ID/access/apps/$app_id/policies"); then
 		return 1
 	fi
-	if [[ -n "${LEGACY_SERVICE_POLICY_NAME:-}" ]]; then
-		if ! policy_id=$(jq -r --arg name "$SERVICE_POLICY_NAME" --arg legacy "$LEGACY_SERVICE_POLICY_NAME" '[.result[] | select(.name == $name or .name == $legacy)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate service policies") end' <<<"$policies"); then
+	if [[ -n "$legacy_name" ]]; then
+		if ! policy_id=$(jq -r --arg name "$service_name" --arg legacy "$legacy_name" '[.result[] | select(.name == $name or .name == $legacy)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate service policies") end' <<<"$policies"); then
 			printf 'Cloudflare service-policy response was invalid\n' >&2
 			return 1
 		fi
 	else
-		if ! policy_id=$(jq -r --arg name "$SERVICE_POLICY_NAME" '[.result[] | select(.name == $name)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate service policies") end' <<<"$policies"); then
+		if ! policy_id=$(jq -r --arg name "$service_name" '[.result[] | select(.name == $name)] | if length == 1 then .[0].id elif length == 0 then empty else error("duplicate service policies") end' <<<"$policies"); then
 			printf 'Cloudflare service-policy response was invalid\n' >&2
 			return 1
 		fi
 	fi
-	if ! body=$(jq -cn --arg name "$SERVICE_POLICY_NAME" --arg token "$token_id" \
+	if ! body=$(jq -cn --arg name "$service_name" --arg token "$token_id" \
 		'{name:$name,decision:"non_identity",precedence:1,include:[{service_token:{token_id:$token}}]}'); then
 		printf 'could not construct Cloudflare service-policy request\n' >&2
 		return 1
@@ -394,6 +412,10 @@ ensure_service_token() {
 		return 1
 	fi
 	if [[ "$count" = 0 ]]; then
+		if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+			printf 'hostname transition requires the retained service token; refusing to create a replacement\n' >&2
+			return 1
+		fi
 		if [[ "$REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE" = 1 ]]; then
 			printf 'refusing to create a Cloudflare service token without a durable secret-capture destination; run manual prepare first\n' >&2
 			return 1
@@ -531,12 +553,13 @@ ensure_service_token() {
 }
 
 validate_policy_set() {
-	local app_id=$1 expected_count=$2 email=$3 token_id=${4:-} policies owner_precedence=1
+	local app_id=$1 expected_count=$2 email=$3 token_id=${4:-} owner_name=${5:-$OWNER_POLICY_NAME} service_name=${6:-$SERVICE_POLICY_NAME}
+	local policies owner_precedence=1
 	if ! policies=$(cf_request GET "/accounts/$ACCOUNT_ID/access/apps/$app_id/policies"); then
 		return 1
 	fi
 	if [[ "$expected_count" = 1 ]]; then
-		if ! jq -e --arg name "$OWNER_POLICY_NAME" --arg email "$email" --argjson owner_precedence "$owner_precedence" \
+		if ! jq -e --arg name "$owner_name" --arg email "$email" --argjson owner_precedence "$owner_precedence" \
 			'([.result[]] | length == 1) and
 			 ([.result[] | select(.name == $name)] | length == 1) and
 			 ([.result[] | select(.name == $name)][0].decision == "allow") and
@@ -547,7 +570,7 @@ validate_policy_set() {
 		fi
 	else
 		owner_precedence=2
-		if ! jq -e --arg owner "$OWNER_POLICY_NAME" --arg service "$SERVICE_POLICY_NAME" --arg email "$email" --arg token "$token_id" --argjson owner_precedence "$owner_precedence" \
+		if ! jq -e --arg owner "$owner_name" --arg service "$service_name" --arg email "$email" --arg token "$token_id" --argjson owner_precedence "$owner_precedence" \
 			'([.result[]] | length == 2) and
 			 ([.result[] | select(.name == $owner or .name == $service)] | length == 2) and
 			 ([.result[] | select(.name == $owner)] | length == 1) and
@@ -571,7 +594,11 @@ validate_owner_env() {
 		printf 'deployment domain profile is not loaded\n' >&2
 		return 1
 	}
-	local public_url=${6:-$expected_public_url} line key count expected_line
+	local public_url=${6:-$expected_public_url}
+	local legacy_ui_aud=${7:-$ui_aud} legacy_api_aud=${8:-$api_aud}
+	local canonical_ui_aud=${9:-} canonical_api_aud=${10:-}
+	local host_audience_map=${11:-} legacy_origin=${12:-${DOMAIN_PROFILE_LEGACY_ORIGIN:-}}
+	local phase=${DOMAIN_PROFILE_PHASE:-legacy} dual=${DOMAIN_PROFILE_DUAL_HOST:-0}
 	[[ -n "$public_url" && "$public_url" = "$expected_public_url" ]] || {
 		printf 'generated owner environment public origin does not match the selected deployment environment\n' >&2
 		return 1
@@ -584,6 +611,54 @@ validate_owner_env() {
 		printf 'generated owner environment must end with a newline\n' >&2
 		return 1
 	}
+	[[ "$phase" = legacy || "$phase" = staged || "$phase" = canonical ]] || {
+		printf 'generated owner environment phase is invalid\n' >&2
+		return 1
+	}
+	if [[ "$dual" = 1 ]]; then
+		[[ "$phase" = staged || "$phase" = canonical ]] || {
+			printf 'generated owner environment has dual-host fields in legacy phase\n' >&2
+			return 1
+		}
+		[[ "$legacy_ui_aud" =~ ^[A-Za-z0-9_-]+$ && "$legacy_api_aud" =~ ^[A-Za-z0-9_-]+$ &&
+			"$canonical_ui_aud" =~ ^[A-Za-z0-9_-]+$ && "$canonical_api_aud" =~ ^[A-Za-z0-9_-]+$ ]] || {
+			printf 'generated owner environment audience is invalid\n' >&2
+			return 1
+		}
+		[[ -n "${DOMAIN_PROFILE_LEGACY_HOST:-}" && -n "${DOMAIN_PROFILE_CANONICAL_HOST:-}" ]] || {
+			printf 'deployment domain profile host pair is missing\n' >&2
+			return 1
+		}
+		host_audience_map=${host_audience_map:-$DOMAIN_PROFILE_LEGACY_HOST=$legacy_ui_aud,$legacy_api_aud\;$DOMAIN_PROFILE_CANONICAL_HOST=$canonical_ui_aud,$canonical_api_aud}
+		[[ "$host_audience_map" = "$DOMAIN_PROFILE_LEGACY_HOST=$legacy_ui_aud,$legacy_api_aud;$DOMAIN_PROFILE_CANONICAL_HOST=$canonical_ui_aud,$canonical_api_aud" ]] || {
+			printf 'generated owner environment host-audience map is not exactly the reviewed pair\n' >&2
+			return 1
+		}
+	else
+		[[ "$phase" = legacy && -z "$canonical_ui_aud" && -z "$canonical_api_aud" && -z "$host_audience_map" ]] || {
+			printf 'generated owner environment has unexpected dual-host fields\n' >&2
+			return 1
+		}
+		legacy_ui_aud=$ui_aud
+		legacy_api_aud=$api_aud
+	fi
+	if [[ "$phase" = canonical ]]; then
+		[[ "$legacy_origin" = "${DOMAIN_PROFILE_LEGACY_URL:-}" && -n "$legacy_origin" ]] || {
+			printf 'generated canonical environment must contain the reviewed legacy origin\n' >&2
+			return 1
+		}
+	else
+		[[ -z "$legacy_origin" ]] || {
+			printf 'generated noncanonical environment must not contain a legacy origin\n' >&2
+			return 1
+		}
+	fi
+	local expected_audiences="$legacy_ui_aud,$legacy_api_aud"
+	if [[ "$dual" = 1 ]]; then
+		expected_audiences="$expected_audiences,$canonical_ui_aud,$canonical_api_aud"
+	fi
+	local expected_host_map=$host_audience_map
+	local line key count expected_line
 	while IFS= read -r line || [[ -n "$line" ]]; do
 		[[ "$line" != *$'\r'* ]] || {
 			printf 'generated owner environment contains a carriage return\n' >&2
@@ -594,9 +669,11 @@ validate_owner_env() {
 			HELM_ADDR=*|HELM_DB=*|HELM_LUNA_ENABLED=*|HELM_LUNA_MODEL=*|HELM_LUNA_EFFORT=*|\
 			HELM_AUTH_MODE=*|HELM_PUBLIC_ORIGIN=*|\
 			HELM_ADMIN_EMAIL=*|HELM_CLOUDFLARE_ISSUER=*|HELM_CF_ACCESS_AUDIENCES=*|\
+			HELM_CF_ACCESS_HOST_AUDIENCES=*|HELM_LEGACY_ORIGIN=*|\
 			HELM_SECURE_COOKIES=*|HELM_DEMO_SEED=*|\
 			ROADMAP_ADDR=*|ROADMAP_DB=*|ROADMAP_AUTH_MODE=*|ROADMAP_PUBLIC_ORIGIN=*|\
 			ROADMAP_ADMIN_EMAIL=*|ROADMAP_CLOUDFLARE_ISSUER=*|ROADMAP_CF_ACCESS_AUDIENCES=*|\
+			ROADMAP_CF_ACCESS_HOST_AUDIENCES=*|ROADMAP_LEGACY_ORIGIN=*|\
 			ROADMAP_SECURE_COOKIES=*|ROADMAP_DEMO_SEED=*) ;;
 			*)
 				printf 'generated owner environment contains an unexpected line\n' >&2
@@ -615,7 +692,7 @@ validate_owner_env() {
 		"HELM_PUBLIC_ORIGIN=$public_url"
 		"HELM_ADMIN_EMAIL=$email"
 		"HELM_CLOUDFLARE_ISSUER=$issuer"
-		"HELM_CF_ACCESS_AUDIENCES=$ui_aud,$api_aud"
+		"HELM_CF_ACCESS_AUDIENCES=$expected_audiences"
 		'HELM_SECURE_COOKIES=true'
 		'HELM_DEMO_SEED=false'
 		'ROADMAP_ADDR=127.0.0.1:8080'
@@ -624,7 +701,7 @@ validate_owner_env() {
 		"ROADMAP_PUBLIC_ORIGIN=$public_url"
 		"ROADMAP_ADMIN_EMAIL=$email"
 		"ROADMAP_CLOUDFLARE_ISSUER=$issuer"
-		"ROADMAP_CF_ACCESS_AUDIENCES=$ui_aud,$api_aud"
+		"ROADMAP_CF_ACCESS_AUDIENCES=$expected_audiences"
 		'ROADMAP_SECURE_COOKIES=true'
 		'ROADMAP_DEMO_SEED=false'
 	)
@@ -642,6 +719,37 @@ validate_owner_env() {
 			printf 'generated owner environment value is wrong: %s\n' "$key" >&2
 			return 1
 		}
+		done
+	local optional_key optional_value optional_count
+	for optional_key in HELM_CF_ACCESS_HOST_AUDIENCES ROADMAP_CF_ACCESS_HOST_AUDIENCES HELM_LEGACY_ORIGIN ROADMAP_LEGACY_ORIGIN; do
+		optional_value=
+		case "$optional_key" in
+			HELM_CF_ACCESS_HOST_AUDIENCES|ROADMAP_CF_ACCESS_HOST_AUDIENCES)
+				[[ "$dual" = 1 ]] && optional_value=$expected_host_map
+				;;
+			HELM_LEGACY_ORIGIN|ROADMAP_LEGACY_ORIGIN)
+				[[ "$phase" = canonical ]] && optional_value=$legacy_origin
+				;;
+		 esac
+		optional_count=$(awk -F= -v key="$optional_key" '$1 == key { count++ } END { print count + 0 }' "$path") || {
+			printf 'could not inspect generated owner environment key: %s\n' "$optional_key" >&2
+			return 1
+		}
+		if [[ -n "$optional_value" ]]; then
+			[[ "$optional_count" = 1 ]] || {
+				printf 'generated owner environment key is missing or duplicated: %s\n' "$optional_key" >&2
+				return 1
+			}
+			awk -v expected="$optional_key=$optional_value" '$0 == expected { found++ } END { exit(found != 1) }' "$path" || {
+				printf 'generated owner environment value is wrong: %s\n' "$optional_key" >&2
+				return 1
+			}
+		else
+			[[ "$optional_count" = 0 ]] || {
+				printf 'generated owner environment contains an unexpected key: %s\n' "$optional_key" >&2
+				return 1
+			}
+		fi
 	done
 }
 
@@ -663,7 +771,10 @@ write_prepare_outputs() {
 		printf 'deployment domain profile is not loaded\n' >&2
 		return 1
 	}
-	local public_url=${6:-$expected_public_url} output_path
+	local public_url=${6:-$expected_public_url}
+	local legacy_ui_aud=${7:-$ui_aud} legacy_api_aud=${8:-$api_aud}
+	local canonical_ui_aud=${9:-} canonical_api_aud=${10:-}
+	local host_audience_map=${11:-} legacy_origin=${12:-${DOMAIN_PROFILE_LEGACY_ORIGIN:-}} output_path
 	[[ -n "$TOKEN_OUTPUT" && -n "$OWNER_ENV_OUTPUT" ]] || {
 		printf 'prepare requires token and owner-environment output paths\n' >&2
 		return 1
@@ -688,6 +799,25 @@ write_prepare_outputs() {
 		printf 'Cloudflare Access audience is invalid\n' >&2
 		return 1
 	}
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		[[ "$legacy_ui_aud" =~ ^[A-Za-z0-9_-]+$ && "$legacy_api_aud" =~ ^[A-Za-z0-9_-]+$ &&
+			"$canonical_ui_aud" =~ ^[A-Za-z0-9_-]+$ && "$canonical_api_aud" =~ ^[A-Za-z0-9_-]+$ ]] || {
+			printf 'Cloudflare Access transition audiences are invalid\n' >&2
+			return 1
+		}
+		[[ -n "$host_audience_map" ]] || host_audience_map="$DOMAIN_PROFILE_LEGACY_HOST=$legacy_ui_aud,$legacy_api_aud;$DOMAIN_PROFILE_CANONICAL_HOST=$canonical_ui_aud,$canonical_api_aud"
+	else
+		legacy_ui_aud=$ui_aud
+		legacy_api_aud=$api_aud
+		canonical_ui_aud=
+		canonical_api_aud=
+		host_audience_map=
+	fi
+	if [[ "${DOMAIN_PROFILE_PHASE:-legacy}" = canonical ]]; then
+		legacy_origin=${legacy_origin:-${DOMAIN_PROFILE_LEGACY_URL:-}}
+	else
+		legacy_origin=
+	fi
 	if ! install -d -m 0700 "$(dirname "$TOKEN_OUTPUT")" "$(dirname "$OWNER_ENV_OUTPUT")"; then
 		printf 'could not create prepare output directories\n' >&2
 		return 1
@@ -738,7 +868,10 @@ write_prepare_outputs() {
 	fi
 	# Bash/awk replacement values are already restricted above. Unlike sed's
 	# slash-delimited expression, awk treats the HTTPS issuer literally.
-	if ! awk -v owner_email="$email" -v issuer="$issuer" -v public_origin="$public_url" -v ui_aud="$ui_aud" -v api_aud="$api_aud" '
+	if ! awk -v owner_email="$email" -v issuer="$issuer" -v public_origin="$public_url" \
+		-v ui_aud="$legacy_ui_aud" -v api_aud="$legacy_api_aud" \
+		-v canonical_ui_aud="$canonical_ui_aud" -v canonical_api_aud="$canonical_api_aud" \
+		-v host_audience_map="$host_audience_map" -v legacy_origin="$legacy_origin" '
 		{
 			line = $0
 			gsub(/@OWNER_EMAIL@/, owner_email, line)
@@ -746,6 +879,18 @@ write_prepare_outputs() {
 			gsub(/@PUBLIC_ORIGIN@/, public_origin, line)
 			gsub(/@UI_AUDIENCE@/, ui_aud, line)
 			gsub(/@API_AUDIENCE@/, api_aud, line)
+			gsub(/@LEGACY_UI_AUDIENCE@/, ui_aud, line)
+			gsub(/@LEGACY_API_AUDIENCE@/, api_aud, line)
+			gsub(/@CANONICAL_UI_AUDIENCE@/, canonical_ui_aud, line)
+			gsub(/@CANONICAL_API_AUDIENCE@/, canonical_api_aud, line)
+			gsub(/@HOST_AUDIENCE_MAP@/, host_audience_map, line)
+			gsub(/@HELM_CF_ACCESS_HOST_AUDIENCES@/, host_audience_map, line)
+			gsub(/@LEGACY_ORIGIN@/, legacy_origin, line)
+			gsub(/@HELM_LEGACY_ORIGIN@/, legacy_origin, line)
+			if (host_audience_map != "" && line ~ /^HELM_CF_ACCESS_AUDIENCES=/) line = "HELM_CF_ACCESS_AUDIENCES=" ui_aud "," api_aud "," canonical_ui_aud "," canonical_api_aud
+			if (host_audience_map != "" && line ~ /^ROADMAP_CF_ACCESS_AUDIENCES=/) line = "ROADMAP_CF_ACCESS_AUDIENCES=" ui_aud "," api_aud "," canonical_ui_aud "," canonical_api_aud
+			if (legacy_origin == "" && (line ~ /^HELM_LEGACY_ORIGIN=/ || line ~ /^ROADMAP_LEGACY_ORIGIN=/)) next
+			if (host_audience_map == "" && (line ~ /^HELM_CF_ACCESS_HOST_AUDIENCES=/ || line ~ /^ROADMAP_CF_ACCESS_HOST_AUDIENCES=/)) next
 			print line
 		}
 	' "$template" > "$owner_tmp"; then
@@ -753,7 +898,9 @@ write_prepare_outputs() {
 		printf 'could not render owner environment\n' >&2
 		return 1
 	fi
-	if ! validate_owner_env "$owner_tmp" "$email" "$issuer" "$ui_aud" "$api_aud" "$public_url"; then
+	if ! validate_owner_env "$owner_tmp" "$email" "$issuer" "$legacy_ui_aud" "$legacy_api_aud" "$public_url" \
+		"$legacy_ui_aud" "$legacy_api_aud" "$canonical_ui_aud" "$canonical_api_aud" \
+		"$host_audience_map" "$legacy_origin"; then
 		rm -f -- "$token_tmp" "$owner_tmp"
 		printf 'generated owner environment failed validation\n' >&2
 		return 1
@@ -816,45 +963,268 @@ write_prepare_outputs() {
 }
 
 validate_tunnel_config() {
-	local team=$1 ui_aud=$2 api_aud=$3 tunnel_id=$4 tunnel_config
-	if ! tunnel_config=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations"); then
-		return 1
+	local team=$1 ui_aud=$2 api_aud=$3 tunnel_id=$4
+	local legacy_host=${5:-} legacy_ui_aud=${6:-} legacy_api_aud=${7:-}
+	local canonical_host=${8:-} canonical_ui_aud=${9:-} canonical_api_aud=${10:-}
+	local single_host=${11:-${PUBLIC_HOST:-}} tunnel_config=${12:-}
+	if [[ -z "$tunnel_config" ]]; then
+		if ! tunnel_config=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations"); then
+			return 1
+		fi
 	fi
-	if ! jq -e --arg host "$PUBLIC_HOST" --arg team "$team" --arg ui "$ui_aud" --arg api "$api_aud" '
-		(.result.config.ingress // []) as $ingress |
-		($ingress | type == "array" and length == 2) and
-		([$ingress[] | select(.hostname == $host)] | length == 1) and
-		([$ingress[] | select(.service == "http_status:404" and ((.hostname // null) == null))] | length == 1) and
-		(($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
-		(($ingress[0].originRequest | keys | sort) == ["access"]) and
-		(($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
-		($ingress[0].hostname == $host) and
-		($ingress[0].service == "http://127.0.0.1:8080") and
-		($ingress[0].originRequest.access.required == true) and
-		($ingress[0].originRequest.access.teamName == $team) and
-		((($ingress[0].originRequest.access.audTag // []) | sort) == ([$ui, $api] | sort)) and
-		(($ingress[1] | keys | sort) == ["service"]) and
-		($ingress[1].service == "http_status:404")
-	' <<<"$tunnel_config" >/dev/null; then
-		printf 'Cloudflare tunnel configuration is not exactly the reviewed ingress set\n' >&2
-		return 1
+	if [[ -z "$legacy_host" ]]; then
+		if ! jq -e --arg host "$single_host" --arg team "$team" --arg ui "$ui_aud" --arg api "$api_aud" '
+			(.result.config // null) as $config |
+			($config.ingress // []) as $ingress |
+			($config | type == "object" and (keys | sort) == ["ingress"]) and
+			($ingress | type == "array" and length == 2) and
+			([$ingress[] | select(.hostname == $host)] | length == 1) and
+			([$ingress[] | select(.service == "http_status:404" and ((.hostname // null) == null))] | length == 1) and
+			(($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
+			(($ingress[0].originRequest | keys | sort) == ["access"]) and
+			(($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+			($ingress[0].hostname == $host) and
+			($ingress[0].service == "http://127.0.0.1:8080") and
+			($ingress[0].originRequest.access.required == true) and
+			($ingress[0].originRequest.access.teamName == $team) and
+			((($ingress[0].originRequest.access.audTag // []) | sort) == ([$ui, $api] | sort)) and
+			(($ingress[1] | keys | sort) == ["service"]) and
+			($ingress[1].service == "http_status:404")
+		' <<<"$tunnel_config" >/dev/null; then
+			printf 'Cloudflare tunnel configuration is not exactly the reviewed ingress set\n' >&2
+			return 1
+		fi
+	else
+		if ! jq -e --arg legacy_host "$legacy_host" --arg canonical_host "$canonical_host" \
+			--arg team "$team" --arg legacy_ui "$legacy_ui_aud" --arg legacy_api "$legacy_api_aud" \
+			--arg canonical_ui "$canonical_ui_aud" --arg canonical_api "$canonical_api_aud" '
+			(.result.config // null) as $config |
+			($config.ingress // []) as $ingress |
+			($config | type == "object" and (keys | sort) == ["ingress"]) and
+			($ingress | type == "array" and length == 3) and
+			(($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
+			(($ingress[1] | keys | sort) == ["hostname", "originRequest", "service"]) and
+			(($ingress[2] | keys | sort) == ["service"]) and
+			($ingress[0].hostname == $legacy_host) and ($ingress[1].hostname == $canonical_host) and
+			($ingress[0].service == "http://127.0.0.1:8080") and ($ingress[1].service == "http://127.0.0.1:8080") and
+			($ingress[2].service == "http_status:404") and
+			(($ingress[0].originRequest | keys | sort) == ["access"]) and
+			(($ingress[1].originRequest | keys | sort) == ["access"]) and
+			(($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+			(($ingress[1].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+			($ingress[0].originRequest.access.required == true) and ($ingress[1].originRequest.access.required == true) and
+			($ingress[0].originRequest.access.teamName == $team) and ($ingress[1].originRequest.access.teamName == $team) and
+			((($ingress[0].originRequest.access.audTag // []) | sort) == ([$legacy_ui, $legacy_api] | sort)) and
+			((($ingress[1].originRequest.access.audTag // []) | sort) == ([$canonical_ui, $canonical_api] | sort))
+		' <<<"$tunnel_config" >/dev/null; then
+			printf 'Cloudflare dual-host tunnel configuration is not exactly the reviewed ingress set\n' >&2
+			return 1
+		fi
 	fi
 }
 
 configure_tunnel() {
-	local team=$1 ui_aud=$2 api_aud=$3 tunnel_id=$4 body
-	if ! body=$(jq -cn --arg host "$PUBLIC_HOST" --arg team "$team" --arg ui "$ui_aud" --arg aud "$api_aud" \
-		'{config:{ingress:[
-			{hostname:$host,service:"http://127.0.0.1:8080",originRequest:{access:{required:true,teamName:$team,audTag:[$ui,$aud]}}},
-			{service:"http_status:404"}
-		]}}'); then
-		printf 'could not construct Cloudflare tunnel configuration request\n' >&2
-		return 1
+	local team=$1 ui_aud=$2 api_aud=$3 tunnel_id=$4
+	local legacy_host=${5:-} legacy_ui_aud=${6:-} legacy_api_aud=${7:-}
+	local canonical_host=${8:-} canonical_ui_aud=${9:-} canonical_api_aud=${10:-} body
+	if [[ -z "$legacy_host" ]]; then
+		if ! body=$(jq -cn --arg host "$PUBLIC_HOST" --arg team "$team" --arg ui "$ui_aud" --arg aud "$api_aud" \
+			'{config:{ingress:[
+				{hostname:$host,service:"http://127.0.0.1:8080",originRequest:{access:{required:true,teamName:$team,audTag:[$ui,$aud]}}},
+				{service:"http_status:404"}
+			]}}'); then
+			printf 'could not construct Cloudflare tunnel configuration request\n' >&2
+			return 1
+		fi
+	else
+		if ! body=$(jq -cn --arg legacy_host "$legacy_host" --arg canonical_host "$canonical_host" \
+			--arg team "$team" --arg legacy_ui "$legacy_ui_aud" --arg legacy_api "$legacy_api_aud" \
+			--arg canonical_ui "$canonical_ui_aud" --arg canonical_api "$canonical_api_aud" \
+			'{config:{ingress:[
+				{hostname:$legacy_host,service:"http://127.0.0.1:8080",originRequest:{access:{required:true,teamName:$team,audTag:[$legacy_ui,$legacy_api]}}},
+				{hostname:$canonical_host,service:"http://127.0.0.1:8080",originRequest:{access:{required:true,teamName:$team,audTag:[$canonical_ui,$canonical_api]}}},
+				{service:"http_status:404"}
+			]}}'); then
+			printf 'could not construct Cloudflare dual-host tunnel configuration request\n' >&2
+			return 1
+		fi
 	fi
 	if ! cf_request PUT "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations" "$body" >/dev/null; then
 		return 1
 	fi
-	validate_tunnel_config "$team" "$ui_aud" "$api_aud" "$tunnel_id"
+	if ! validate_tunnel_config "$team" "$ui_aud" "$api_aud" "$tunnel_id" \
+		"$legacy_host" "$legacy_ui_aud" "$legacy_api_aud" "$canonical_host" "$canonical_ui_aud" "$canonical_api_aud"; then
+		printf 'Cloudflare tunnel configuration did not converge to the reviewed ingress set\n' >&2
+		return 1
+	fi
+}
+
+capture_tunnel_before_state() {
+	local tunnel_id=$1 phase=$2 config summary canonical_config digest config_keys
+	if ! config=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations"); then
+		printf 'could not capture the existing Cloudflare tunnel configuration before reconciliation\n' >&2
+		return 1
+	fi
+	if ! canonical_config=$(jq -cS '.result.config // error("missing tunnel config") | select(type == "object")' <<<"$config"); then
+		printf 'existing Cloudflare tunnel configuration was not a complete object\n' >&2
+		return 1
+	fi
+	if ! digest=$(printf '%s\n' "$canonical_config" | sha256sum | awk '{print $1}'); then
+		printf 'could not digest the existing Cloudflare tunnel configuration\n' >&2
+		return 1
+	fi
+	if ! config_keys=$(jq -cS '.result.config | keys' <<<"$config"); then
+		printf 'could not inspect the existing Cloudflare tunnel configuration\n' >&2
+		return 1
+	fi
+	if ! summary=$(jq -c --arg phase "$phase" --arg tunnel_id "$tunnel_id" --arg digest "$digest" --argjson config_keys "$config_keys" \
+		'{phase:$phase,tunnel_id:$tunnel_id,config_sha256:$digest,config_keys:$config_keys,rollback_capture:"digest-only; provider restore requires a separate retained config",ingress:(.result.config.ingress // []) | map({hostname:(.hostname // null),service:(.service // null),access:((.originRequest.access // {}) | {required:(.required // null),teamName:(.teamName // null),audTag:(.audTag // [])})})}' <<<"$config"); then
+		printf 'existing Cloudflare tunnel configuration was not valid JSON\n' >&2
+		return 1
+	fi
+	TUNNEL_BEFORE_STATE=$summary
+	TUNNEL_BEFORE_CONFIG_DIGEST=$digest
+	TUNNEL_BEFORE_CONFIG_KEYS=$config_keys
+}
+
+tunnel_config_digest() {
+	local config=$1 canonical_config
+	canonical_config=$(jq -cS '.result.config // error("missing tunnel config") | select(type == "object")' <<<"$config") || return 1
+	printf '%s\n' "$canonical_config" | sha256sum | awk '{print $1}'
+}
+
+assert_tunnel_config_unchanged() {
+	local tunnel_id=$1 latest latest_digest
+	[[ -n "${TUNNEL_BEFORE_CONFIG_DIGEST:-}" ]] || {
+		printf 'Cloudflare tunnel before-state digest is missing\n' >&2
+		return 1
+	}
+	if ! latest=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations"); then
+		printf 'could not re-read the Cloudflare tunnel configuration before overwrite\n' >&2
+		return 1
+	fi
+	if ! latest_digest=$(tunnel_config_digest "$latest"); then
+		printf 'latest Cloudflare tunnel configuration was not a complete object\n' >&2
+		return 1
+	fi
+	if [[ "$latest_digest" != "$TUNNEL_BEFORE_CONFIG_DIGEST" ]]; then
+		printf 'Cloudflare tunnel configuration changed during prepare; refusing to overwrite provider state\n' >&2
+		return 1
+	fi
+	TUNNEL_LATEST_CONFIG=$latest
+	TUNNEL_LATEST_CONFIG_DIGEST=$latest_digest
+}
+
+capture_tunnel_after_state() {
+	local tunnel_id=$1 config digest
+	if ! config=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations"); then
+		printf 'could not read back the Cloudflare tunnel configuration after reconciliation\n' >&2
+		return 1
+	fi
+	if ! digest=$(tunnel_config_digest "$config"); then
+		printf 'Cloudflare tunnel readback was not a complete configuration object\n' >&2
+		return 1
+	fi
+	TUNNEL_AFTER_CONFIG_DIGEST=$digest
+}
+
+validate_tunnel_shape() {
+	local team=$1 tunnel_id=$2 legacy_host=$3 canonical_host=${4:-} config
+	if ! config=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations"); then
+		return 1
+	fi
+	if [[ -z "$canonical_host" ]]; then
+		jq -e --arg host "$legacy_host" --arg team "$team" '
+			(.result.config // null) as $config |
+			($config.ingress // []) as $ingress |
+			($config | type == "object" and (keys | sort) == ["ingress"]) and
+			($ingress | type == "array" and length == 2) and
+			(($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
+			(($ingress[1] | keys | sort) == ["service"]) and
+			($ingress[0].hostname == $host) and ($ingress[0].service == "http://127.0.0.1:8080") and
+			($ingress[1].service == "http_status:404") and
+			(($ingress[0].originRequest | keys | sort) == ["access"]) and
+			(($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+			($ingress[0].originRequest.access.required == true) and ($ingress[0].originRequest.access.teamName == $team) and
+			(($ingress[0].originRequest.access.audTag | type == "array" and length == 2) and
+			 all($ingress[0].originRequest.access.audTag[]; type == "string" and length > 0))
+		' <<<"$config" >/dev/null
+		return
+	fi
+	jq -e --arg legacy_host "$legacy_host" --arg canonical_host "$canonical_host" --arg team "$team" '
+		(.result.config // null) as $config |
+		($config.ingress // []) as $ingress |
+		($config | type == "object" and (keys | sort) == ["ingress"]) and
+		($ingress | type == "array" and length == 3) and
+		(($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
+		(($ingress[1] | keys | sort) == ["hostname", "originRequest", "service"]) and
+		(($ingress[2] | keys | sort) == ["service"]) and
+		($ingress[0].hostname == $legacy_host) and ($ingress[1].hostname == $canonical_host) and
+		($ingress[0].service == "http://127.0.0.1:8080") and ($ingress[1].service == "http://127.0.0.1:8080") and
+		($ingress[2].service == "http_status:404") and
+		(($ingress[0].originRequest | keys | sort) == ["access"]) and (($ingress[1].originRequest | keys | sort) == ["access"]) and
+		(($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+		(($ingress[1].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+		($ingress[0].originRequest.access.required == true) and ($ingress[1].originRequest.access.required == true) and
+		($ingress[0].originRequest.access.teamName == $team) and ($ingress[1].originRequest.access.teamName == $team) and
+		(($ingress[0].originRequest.access.audTag | type == "array" and length == 2) and
+		 all($ingress[0].originRequest.access.audTag[]; type == "string" and length > 0)) and
+		(($ingress[1].originRequest.access.audTag | type == "array" and length == 2) and
+		 all($ingress[1].originRequest.access.audTag[]; type == "string" and length > 0))
+	' <<<"$config" >/dev/null
+}
+
+reconcile_tunnel_config() {
+	local team=$1 ui_aud=$2 api_aud=$3 tunnel_id=$4 created=${5:-0}
+	local legacy_host=${6:-} legacy_ui_aud=${7:-} legacy_api_aud=${8:-}
+	local canonical_host=${9:-} canonical_ui_aud=${10:-} canonical_api_aud=${11:-}
+	local phase=${DOMAIN_PROFILE_PHASE:-legacy}
+	TUNNEL_BEFORE_STATE=
+	if [[ "$created" = 1 ]]; then
+		TUNNEL_BEFORE_STATE=$(jq -cn --arg phase "$phase" --arg tunnel_id "$tunnel_id" \
+			'{phase:$phase,tunnel_id:$tunnel_id,ingress:[],state:"new-tunnel"}') || {
+			printf 'could not capture new Cloudflare tunnel before-state\n' >&2
+			return 1
+		}
+		configure_tunnel "$team" "$ui_aud" "$api_aud" "$tunnel_id" \
+			"$legacy_host" "$legacy_ui_aud" "$legacy_api_aud" "$canonical_host" "$canonical_ui_aud" "$canonical_api_aud" || return
+		capture_tunnel_after_state "$tunnel_id"
+		return
+	fi
+
+	if ! capture_tunnel_before_state "$tunnel_id" "$phase"; then
+		return 1
+	fi
+	if ! assert_tunnel_config_unchanged "$tunnel_id"; then
+		return 1
+	fi
+	if [[ -n "$legacy_host" ]]; then
+		if validate_tunnel_config "$team" "$ui_aud" "$api_aud" "$tunnel_id" \
+			"$legacy_host" "$legacy_ui_aud" "$legacy_api_aud" "$canonical_host" "$canonical_ui_aud" "$canonical_api_aud" \
+			"$PUBLIC_HOST" "$TUNNEL_LATEST_CONFIG" >/dev/null 2>&1; then
+			capture_tunnel_after_state "$tunnel_id" || return
+			return 0
+		fi
+		# A dual-host transition is allowed to start only from the exact
+		# reviewed single-host topology. Any other drift is fail-closed.
+		if ! validate_tunnel_config "$team" "$legacy_ui_aud" "$legacy_api_aud" "$tunnel_id" \
+			'' '' '' '' '' '' "$legacy_host" "$TUNNEL_LATEST_CONFIG" >/dev/null 2>&1; then
+			printf 'existing Cloudflare tunnel topology is unexpected; refusing to overwrite provider state\n' >&2
+			return 1
+		fi
+	else
+		if ! validate_tunnel_config "$team" "$ui_aud" "$api_aud" "$tunnel_id" \
+			'' '' '' '' '' '' "$PUBLIC_HOST" "$TUNNEL_LATEST_CONFIG" >/dev/null 2>&1; then
+			printf 'existing Cloudflare tunnel topology is unexpected; refusing to overwrite provider state\n' >&2
+			return 1
+		fi
+		capture_tunnel_after_state "$tunnel_id" || return
+		return 0
+	fi
+
+	configure_tunnel "$team" "$ui_aud" "$api_aud" "$tunnel_id" \
+		"$legacy_host" "$legacy_ui_aud" "$legacy_api_aud" "$canonical_host" "$canonical_ui_aud" "$canonical_api_aud" || return
+	capture_tunnel_after_state "$tunnel_id"
 }
 
 validate_dns_record() {
@@ -911,7 +1281,7 @@ upsert_dns() {
 }
 
 prepare() {
-	local email idp team team_domain tunnel_id body
+	local email idp team team_domain tunnel_id body created=0
 	if ! email=$(owner_email); then
 		return 1
 	fi
@@ -922,39 +1292,98 @@ prepare() {
 		return 1
 	fi
 	team=${team_domain%%.*}
+	if ! tunnel_id=$(find_tunnel_id); then
+		return 1
+	fi
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 && -z "$tunnel_id" ]]; then
+		printf 'hostname transition requires the retained tunnel; refusing to create a replacement\n' >&2
+		return 1
+	fi
+	# Read and validate the existing topology before any service-token, Access
+	# application, or tunnel mutation. A dual-host transition may begin only
+	# from the exact reviewed single-host topology (or already be idempotent).
+	if [[ -n "$tunnel_id" ]]; then
+		if ! capture_tunnel_before_state "$tunnel_id" "${DOMAIN_PROFILE_PHASE:-legacy}"; then
+			return 1
+		fi
+		if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+			if ! validate_tunnel_shape "$team" "$tunnel_id" "$DOMAIN_PROFILE_LEGACY_HOST" "$DOMAIN_PROFILE_CANONICAL_HOST" >/dev/null 2>&1 && \
+				! validate_tunnel_shape "$team" "$tunnel_id" "$DOMAIN_PROFILE_LEGACY_HOST" >/dev/null 2>&1; then
+				printf 'existing Cloudflare tunnel topology is unexpected; refusing to prepare transition\n' >&2
+				return 1
+			fi
+		else
+			if ! validate_tunnel_shape "$team" "$tunnel_id" "$PUBLIC_HOST" >/dev/null 2>&1; then
+				printf 'existing Cloudflare tunnel topology is unexpected; refusing to prepare provider state\n' >&2
+				return 1
+			fi
+		fi
+	fi
 	if ! ensure_service_token; then
 		return 1
 	fi
 
+	local legacy_ui_id legacy_api_id legacy_ui_aud legacy_api_aud
+	local canonical_ui_id canonical_api_id canonical_ui_aud canonical_api_aud
+	local legacy_owner_name=$DOMAIN_PROFILE_LEGACY_OWNER_POLICY_NAME
+	local legacy_service_name=$DOMAIN_PROFILE_LEGACY_SERVICE_POLICY_NAME
+	local canonical_owner_name=$DOMAIN_PROFILE_CANONICAL_OWNER_POLICY_NAME
+	local canonical_service_name=$DOMAIN_PROFILE_CANONICAL_SERVICE_POLICY_NAME
 	# The API path is deliberately a distinct Access application. Cloudflare
 	# path applications do not inherit the parent UI application's policy.
-	if ! ensure_app "$UI_APP_NAME" "$PUBLIC_HOST" "$idp" false; then
-		return 1
-	fi
-	local ui_id=$APP_ID ui_aud=$APP_AUD
-	if ! ensure_app "$API_APP_NAME" "$API_PATH" "$idp" true; then
-		return 1
-	fi
-	local api_id=$APP_ID api_aud=$APP_AUD
-	if ! upsert_owner_policy "$ui_id" "$email" 1; then
-		return 1
-	fi
-	if ! upsert_owner_policy "$api_id" "$email" 2; then
-		return 1
-	fi
-	if ! upsert_service_policy "$api_id" "$SERVICE_TOKEN_ID"; then
-		return 1
-	fi
-	if ! validate_policy_set "$ui_id" 1 "$email"; then
-		return 1
-	fi
-	if ! validate_policy_set "$api_id" 2 "$email" "$SERVICE_TOKEN_ID"; then
-		return 1
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		if ! ensure_app "$DOMAIN_PROFILE_LEGACY_UI_APP_NAME" "$DOMAIN_PROFILE_LEGACY_HOST" "$idp" false; then
+			return 1
+		fi
+		legacy_ui_id=$APP_ID
+		legacy_ui_aud=$APP_AUD
+		if ! ensure_app "$DOMAIN_PROFILE_LEGACY_API_APP_NAME" "$DOMAIN_PROFILE_LEGACY_API_PATH" "$idp" true; then
+			return 1
+		fi
+		legacy_api_id=$APP_ID
+		legacy_api_aud=$APP_AUD
+		if ! ensure_app "$DOMAIN_PROFILE_CANONICAL_UI_APP_NAME" "$DOMAIN_PROFILE_CANONICAL_HOST" "$idp" false; then
+			return 1
+		fi
+		canonical_ui_id=$APP_ID
+		canonical_ui_aud=$APP_AUD
+		if ! ensure_app "$DOMAIN_PROFILE_CANONICAL_API_APP_NAME" "$DOMAIN_PROFILE_CANONICAL_API_PATH" "$idp" true; then
+			return 1
+		fi
+		canonical_api_id=$APP_ID
+		canonical_api_aud=$APP_AUD
+		if ! upsert_owner_policy "$legacy_ui_id" "$email" 1 "$legacy_owner_name" "$DOMAIN_PROFILE_MIGRATION_OWNER_POLICY_NAME" || \
+			! upsert_owner_policy "$legacy_api_id" "$email" 2 "$legacy_owner_name" "$DOMAIN_PROFILE_MIGRATION_OWNER_POLICY_NAME" || \
+			! upsert_service_policy "$legacy_api_id" "$SERVICE_TOKEN_ID" "$legacy_service_name" "$DOMAIN_PROFILE_MIGRATION_SERVICE_POLICY_NAME" || \
+			! validate_policy_set "$legacy_ui_id" 1 "$email" '' "$legacy_owner_name" || \
+			! validate_policy_set "$legacy_api_id" 2 "$email" "$SERVICE_TOKEN_ID" "$legacy_owner_name" "$legacy_service_name" || \
+			! upsert_owner_policy "$canonical_ui_id" "$email" 1 "$canonical_owner_name" '' || \
+			! upsert_owner_policy "$canonical_api_id" "$email" 2 "$canonical_owner_name" '' || \
+			! upsert_service_policy "$canonical_api_id" "$SERVICE_TOKEN_ID" "$canonical_service_name" '' || \
+			! validate_policy_set "$canonical_ui_id" 1 "$email" '' "$canonical_owner_name" || \
+			! validate_policy_set "$canonical_api_id" 2 "$email" "$SERVICE_TOKEN_ID" "$canonical_owner_name" "$canonical_service_name"; then
+			return 1
+		fi
+	else
+		if ! ensure_app "$UI_APP_NAME" "$PUBLIC_HOST" "$idp" false; then
+			return 1
+		fi
+		legacy_ui_id=$APP_ID
+		legacy_ui_aud=$APP_AUD
+		if ! ensure_app "$API_APP_NAME" "$API_PATH" "$idp" true; then
+			return 1
+		fi
+		legacy_api_id=$APP_ID
+		legacy_api_aud=$APP_AUD
+		if ! upsert_owner_policy "$legacy_ui_id" "$email" 1 "$OWNER_POLICY_NAME" "$LEGACY_OWNER_POLICY_NAME" || \
+			! upsert_owner_policy "$legacy_api_id" "$email" 2 "$OWNER_POLICY_NAME" "$LEGACY_OWNER_POLICY_NAME" || \
+			! upsert_service_policy "$legacy_api_id" "$SERVICE_TOKEN_ID" "$SERVICE_POLICY_NAME" "$LEGACY_SERVICE_POLICY_NAME" || \
+			! validate_policy_set "$legacy_ui_id" 1 "$email" '' "$OWNER_POLICY_NAME" || \
+			! validate_policy_set "$legacy_api_id" 2 "$email" "$SERVICE_TOKEN_ID" "$OWNER_POLICY_NAME" "$SERVICE_POLICY_NAME"; then
+			return 1
+		fi
 	fi
 
-	if ! tunnel_id=$(find_tunnel_id); then
-		return 1
-	fi
 	if [[ -z "$tunnel_id" ]]; then
 		if ! body=$(jq -cn --arg name "$TUNNEL_NAME" '{name:$name,config_src:"cloudflare"}'); then
 			printf 'could not construct Cloudflare tunnel request\n' >&2
@@ -964,27 +1393,63 @@ prepare() {
 			printf 'Cloudflare tunnel creation failed\n' >&2
 			return 1
 		fi
+		created=1
 	fi
 	[[ -n "$tunnel_id" ]] || { printf 'Cloudflare tunnel ID is missing\n' >&2; return 1; }
-	if ! configure_tunnel "$team" "$ui_aud" "$api_aud" "$tunnel_id"; then
-		return 1
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		if ! reconcile_tunnel_config "$team" "$legacy_ui_aud" "$legacy_api_aud" "$tunnel_id" "$created" \
+			"$DOMAIN_PROFILE_LEGACY_HOST" "$legacy_ui_aud" "$legacy_api_aud" \
+			"$DOMAIN_PROFILE_CANONICAL_HOST" "$canonical_ui_aud" "$canonical_api_aud"; then
+			return 1
+		fi
+	else
+		if ! reconcile_tunnel_config "$team" "$legacy_ui_aud" "$legacy_api_aud" "$tunnel_id" "$created"; then
+			return 1
+		fi
 	fi
-	if ! write_prepare_outputs "$tunnel_id" "$email" "https://$team_domain" "$ui_aud" "$api_aud" "$PUBLIC_URL"; then
-		return 1
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		local host_audience_map="$DOMAIN_PROFILE_LEGACY_HOST=$legacy_ui_aud,$legacy_api_aud;$DOMAIN_PROFILE_CANONICAL_HOST=$canonical_ui_aud,$canonical_api_aud"
+		if ! write_prepare_outputs "$tunnel_id" "$email" "https://$team_domain" "$legacy_ui_aud" "$legacy_api_aud" "$PUBLIC_URL" \
+			"$legacy_ui_aud" "$legacy_api_aud" "$canonical_ui_aud" "$canonical_api_aud" "$host_audience_map" "${DOMAIN_PROFILE_LEGACY_ORIGIN:-}"; then
+			return 1
+		fi
+	else
+		if ! write_prepare_outputs "$tunnel_id" "$email" "https://$team_domain" "$legacy_ui_aud" "$legacy_api_aud" "$PUBLIC_URL"; then
+			return 1
+		fi
 	fi
+	printf 'cloudflare_before_state=%s\n' "${TUNNEL_BEFORE_STATE:-{}}"
+	printf 'cloudflare_after_config_sha256=%s\n' "${TUNNEL_AFTER_CONFIG_DIGEST:-unknown}"
+	printf 'cloudflare_tunnel_guard=read-compare-before-write\n'
+	printf 'cloudflare_prepare_phase=%s\n' "${DOMAIN_PROFILE_PHASE:-legacy}"
 	printf 'cloudflare_prepare=ok\n'
 	CREATED_SERVICE_TOKEN_ID=
 	CREATED_SERVICE_TOKEN_OUTPUT=
+	return 0
 }
 
 publish() {
 	local tunnel_id
+	# TC-149 must add live pre-publish Access/TLS verification and phase-aware
+	# provider rollback before the new hostname is made discoverable. The
+	# preparatory release must not bypass the matching CI gate via manual CLI.
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		printf 'transition DNS publication is gated on TC-149 preflight and rollback rehearsal\n' >&2
+		return 1
+	fi
 	if ! tunnel_id=$(find_tunnel_id); then
 		return 1
 	fi
 	[[ -n "$tunnel_id" ]] || { printf 'Roadmap tunnel does not exist\n' >&2; return 1; }
-	if ! upsert_dns "$PUBLIC_HOST" "$tunnel_id"; then
-		return 1
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		if ! upsert_dns "$DOMAIN_PROFILE_LEGACY_HOST" "$tunnel_id" || \
+			! upsert_dns "$DOMAIN_PROFILE_CANONICAL_HOST" "$tunnel_id"; then
+			return 1
+		fi
+	else
+		if ! upsert_dns "$PUBLIC_HOST" "$tunnel_id"; then
+			return 1
+		fi
 	fi
 	printf 'cloudflare_publish=ok\n'
 }

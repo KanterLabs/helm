@@ -1,8 +1,26 @@
 # Canonical Helm hosting and identity roadmap
 
 Planning date: 2026-09-07. Planning task: TC-146.
-Status: implementation requested by the owner; TC-147 preparation is active.
+Status: implementation requested by the owner; TC-147 profile foundation is
+committed and locally verified (`af0b1e5`). TC-148 runtime/PWA safeguards are
+committed (`6b80df5`); deployment transition validation passes locally. Production
+remains in the versioned `legacy` phase. No change has been deployed yet.
 Production cutover remains gated on the rehearsal and go/no-go checks below.
+
+Local verification for `6b80df5`: full Go tests and vet, race tests for auth,
+configuration and HTTP handlers, 181 frontend tests, zero type-check
+diagnostics, production frontend build, six PWA/column browser regressions,
+and a mobile migration-notice browser test passed. The latter uses a simulated
+HTTPS origin, not live Cloudflare or a physical Home Screen installation.
+No schema, database, DNS, Access policy or production runtime changes were made.
+The deployment profile, dual-host predicates, bundle-origin gate and deployment
+security suite also pass. The sqlite3/system-user backup/restore checks remain
+explicit local skips. A same-store runtime rollback test preserves writes and
+identifiers, but does not replace retained-binary or provider rollback rehearsal.
+Provider before-state output is a sanitized digest/summary, **not** a complete
+restore artifact. TC-149 must capture the complete protected provider state,
+verify live Access/TLS before DNS publication, and replace the preparatory
+CI/publisher guards only after phase-aware rollback is rehearsed.
 
 ## Recommendation and scope
 

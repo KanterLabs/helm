@@ -9,6 +9,9 @@ chmod 0700 "$fixture"
 install -d "$fixture/deploy" "$fixture/dist" "$fixture/bin"
 install -m 0755 "$ROOT_DIR/deploy/build-bundle.sh" "$fixture/deploy/build-bundle.sh"
 install -m 0644 "$ROOT_DIR/deploy/domain-profile.sh" "$fixture/deploy/domain-profile.sh"
+if [[ -f "$ROOT_DIR/deploy/production-domain-phase" ]]; then
+	install -m 0644 "$ROOT_DIR/deploy/production-domain-phase" "$fixture/deploy/production-domain-phase"
+fi
 install -m 0755 /bin/true "$fixture/dist/helm"
 install -m 0755 /bin/true "$fixture/dist/codex"
 openssl genpkey -algorithm Ed25519 -out "$fixture/signing.pem" >/dev/null 2>&1
@@ -54,4 +57,22 @@ run_case whitespace-override production rejected $'HELM_PUBLIC_ORIGIN=https://tc
 run_case production production download $'HELM_PUBLIC_ORIGIN=https://tc.shanekanterman.dev\nROADMAP_PUBLIC_ORIGIN=https://tc.shanekanterman.dev'
 run_case legacy-production production download 'ROADMAP_PUBLIC_ORIGIN=https://tc.shanekanterman.dev'
 run_case beta beta download 'HELM_PUBLIC_ORIGIN=https://beta.shanekanterman.dev'
+
+# Change only the isolated fixture's versioned phase, never the working tree.
+# The real builder must reject a public/legacy origin mismatch before download.
+printf 'canonical\n' > "$fixture/deploy/production-domain-phase"
+run_case canonical-missing-legacy production rejected 'HELM_PUBLIC_ORIGIN=https://helm.shanekanterman.dev'
+run_case canonical-wrong-legacy production rejected $'HELM_PUBLIC_ORIGIN=https://helm.shanekanterman.dev\nHELM_LEGACY_ORIGIN=https://wrong.example'
+transition_bindings=$'HELM_CF_ACCESS_AUDIENCES=old-ui,old-api,new-ui,new-api\nHELM_CF_ACCESS_HOST_AUDIENCES=tc.shanekanterman.dev=old-ui,old-api;helm.shanekanterman.dev=new-ui,new-api'
+canonical_origins=$'HELM_PUBLIC_ORIGIN=https://helm.shanekanterman.dev\nHELM_LEGACY_ORIGIN=https://tc.shanekanterman.dev'
+run_case canonical-valid production download "$canonical_origins"$'\n'"$transition_bindings"
+run_case canonical-conflicting-legacy production rejected "$canonical_origins"$'\nROADMAP_LEGACY_ORIGIN=https://wrong.example\n'"$transition_bindings"
+run_case canonical-missing-bindings production rejected "$canonical_origins"
+run_case canonical-duplicate-bindings production rejected "$canonical_origins"$'\n'"$transition_bindings"$'\nHELM_CF_ACCESS_AUDIENCES=old-ui,old-api,new-ui,new-api'
+run_case canonical-third-host production rejected "$canonical_origins"$'\nHELM_CF_ACCESS_AUDIENCES=old-ui,old-api,new-ui,new-api\nHELM_CF_ACCESS_HOST_AUDIENCES=tc.shanekanterman.dev=old-ui,old-api;evil.example=new-ui,new-api'
+printf 'staged\n' > "$fixture/deploy/production-domain-phase"
+run_case staged-valid production download $'HELM_PUBLIC_ORIGIN=https://tc.shanekanterman.dev\n'"$transition_bindings"
+run_case staged-premature-move production rejected $'HELM_PUBLIC_ORIGIN=https://tc.shanekanterman.dev\nHELM_LEGACY_ORIGIN=https://helm.shanekanterman.dev\n'"$transition_bindings"
+printf 'legacy\n' > "$fixture/deploy/production-domain-phase"
+run_case legacy-unexpected-move production rejected $'HELM_PUBLIC_ORIGIN=https://tc.shanekanterman.dev\nHELM_LEGACY_ORIGIN=https://helm.shanekanterman.dev'
 printf 'bundle_origin_gate_tests=ok\n'

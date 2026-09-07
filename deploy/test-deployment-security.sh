@@ -865,8 +865,8 @@ for file in "$CLOUDFLARE" "$VALIDATE"; do
 	contains 'trap cleanup EXIT' "$file"
 	not_contains '--header "Authorization: Bearer' "$file"
 done
-contains "DOMAIN_PROFILE_SERVICE_POLICY_NAME='Helm agents Service Auth'" "$DOMAIN_PROFILE"
-contains "DOMAIN_PROFILE_LEGACY_SERVICE_POLICY_NAME='Roadmap agents Service Auth'" "$DOMAIN_PROFILE"
+contains "DOMAIN_PROFILE_LEGACY_SERVICE_POLICY_NAME='Helm agents Service Auth'" "$DOMAIN_PROFILE"
+contains "DOMAIN_PROFILE_MIGRATION_SERVICE_POLICY_NAME='Roadmap agents Service Auth'" "$DOMAIN_PROFILE"
 contains 'source "$DOMAIN_PROFILE_SCRIPT"' "$CLOUDFLARE"
 contains 'source "$DOMAIN_PROFILE_SCRIPT"' "$VALIDATE"
 contains 'domain_profile_load "$DEPLOY_ENVIRONMENT"' "$CLOUDFLARE"
@@ -1298,8 +1298,16 @@ cloudflare_prepare_failure_case() {
 	status=$?
 	set -e
 	[[ "$status" -ne 0 ]] || fail "Cloudflare prepare $name unexpectedly succeeded"
-	[[ "$(grep -Fc -- 'DELETE /accounts/090ae73dce25f4eca9a53ee396fdc916/access/service_tokens/service-token-fixture' "$CF_MOCK_LOG" || true)" = 1 ]] \
+	local created_count revoked_count
+	created_count=$(grep -Fc -- 'POST /accounts/090ae73dce25f4eca9a53ee396fdc916/access/service_tokens' "$CF_MOCK_LOG" || true)
+	revoked_count=$(grep -Fc -- 'DELETE /accounts/090ae73dce25f4eca9a53ee396fdc916/access/service_tokens/service-token-fixture' "$CF_MOCK_LOG" || true)
+	[[ "$revoked_count" = "$created_count" ]] \
 		|| fail "Cloudflare prepare $name did not revoke its newly-created service token"
+	if [[ "$name" = tunnel-discovery || "$name" = tunnel-config ]]; then
+		[[ "$created_count" = 0 ]] || fail 'tunnel preflight failure created a service token'
+	else
+		[[ "$created_count" = 1 ]] || fail "Cloudflare prepare $name did not reach the intended failure boundary"
+	fi
 	[[ ! -e "$service_output" ]] \
 		|| fail "Cloudflare prepare $name left a one-time service-token output"
 }
@@ -1313,7 +1321,7 @@ cloudflare_prepare_failure_case owner-policy-update \
 cloudflare_prepare_failure_case tunnel-discovery \
 	'GET /accounts/090ae73dce25f4eca9a53ee396fdc916/cfd_tunnel?is_deleted=false&per_page=100'
 cloudflare_prepare_failure_case tunnel-config \
-	'PUT /accounts/090ae73dce25f4eca9a53ee396fdc916/cfd_tunnel/tunnel-fixture/configurations'
+	'GET /accounts/090ae73dce25f4eca9a53ee396fdc916/cfd_tunnel/tunnel-fixture/configurations'
 cloudflare_prepare_failure_case tunnel-token \
 	'GET /accounts/090ae73dce25f4eca9a53ee396fdc916/cfd_tunnel/tunnel-fixture/token'
 cloudflare_prepare_failure_case invalid-output '' directory

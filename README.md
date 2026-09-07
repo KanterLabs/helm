@@ -131,6 +131,17 @@ privacy-safe metrics, and validation thresholds.
 supported for retained releases and existing operator configuration; when
 both spellings are set to different non-empty values, Helm fails closed.
 
+Hostname migration is opt-in. `HELM_LEGACY_ORIGIN` identifies the previous
+HTTPS origin while `HELM_PUBLIC_ORIGIN` remains the only browser-write origin.
+Existing bearer clients are not redirected. During a Cloudflare overlap,
+`HELM_CF_ACCESS_HOST_AUDIENCES` narrows verified human assertions by exact
+request host using `old.example=old-ui,old-api;new.example=new-ui,new-api`.
+Every audience must also be in `HELM_CF_ACCESS_AUDIENCES`; forwarded host
+headers cannot select the binding. These settings do not grant project access
+or replace Helm bearer authorization. See the
+[cutover evidence checklist](docs/DOMAIN_CUTOVER_CHECKLIST.md) before enabling
+a transition; the preparatory production workflow remains legacy-only.
+
 Agents are separate actors. An administrator creates an agent, then issues a
 token from Settings or `POST /api/v1/agents/{agent}/tokens`. Send it as:
 

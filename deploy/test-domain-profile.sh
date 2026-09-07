@@ -50,6 +50,51 @@ assert_eq 'helm-beta-homelab' "$(bash "$PROFILE" beta tunnel-name)" \
 	'beta tunnel name'
 assert_eq '' "$(bash "$PROFILE" beta legacy-owner-policy-name)" \
 	'beta must not expose production legacy policy names'
+assert_eq 'legacy' "$(bash "$PROFILE" production phase)" \
+	'production default phase'
+assert_eq '' "$(bash "$PROFILE" production legacy-origin)" \
+	'legacy production phase must not expose a legacy origin'
+assert_eq '1' "$(bash "$PROFILE" production host-count)" \
+	'legacy production host count'
+assert_eq '2' "$(bash "$PROFILE" production audience-count)" \
+	'legacy production audience count'
+
+# The phase file is resolved beside the helper, not from a caller-selected
+# path. Exercise all reviewed transition phases with a copied helper and data
+# file so the repository default remains byte-for-byte legacy.
+phase_profile_dir="$fixture/phase-profile/deploy"
+mkdir -p -- "$phase_profile_dir"
+cp -- "$PROFILE" "$phase_profile_dir/domain-profile.sh"
+printf '%s\n' staged >"$phase_profile_dir/production-domain-phase"
+assert_eq 'staged' "$(bash "$phase_profile_dir/domain-profile.sh" production phase)" \
+	'staged phase field'
+assert_eq 'https://tc.shanekanterman.dev' "$(bash "$phase_profile_dir/domain-profile.sh" production public-url)" \
+	'staged public origin remains legacy host'
+assert_eq '2' "$(bash "$phase_profile_dir/domain-profile.sh" production host-count)" \
+	'staged host count'
+assert_eq '4' "$(bash "$phase_profile_dir/domain-profile.sh" production audience-count)" \
+	'staged audience count'
+assert_eq '' "$(bash "$phase_profile_dir/domain-profile.sh" production legacy-origin)" \
+	'staged phase must not expose a legacy origin'
+printf '%s\n' canonical >"$phase_profile_dir/production-domain-phase"
+assert_eq 'canonical' "$(bash "$phase_profile_dir/domain-profile.sh" production phase)" \
+	'canonical phase field'
+assert_eq 'https://helm.shanekanterman.dev' "$(bash "$phase_profile_dir/domain-profile.sh" production public-url)" \
+	'canonical public origin'
+assert_eq 'https://tc.shanekanterman.dev' "$(bash "$phase_profile_dir/domain-profile.sh" production legacy-origin)" \
+	'canonical retained legacy origin'
+assert_eq '2' "$(bash "$phase_profile_dir/domain-profile.sh" production host-count)" \
+	'canonical host count'
+assert_eq '4' "$(bash "$phase_profile_dir/domain-profile.sh" production audience-count)" \
+	'canonical audience count'
+printf '%s\n' beta >"$phase_profile_dir/production-domain-phase"
+assert_fails bash "$phase_profile_dir/domain-profile.sh" production phase \
+	>"$fixture/invalid-phase.out"
+ln -s -- production-domain-phase "$phase_profile_dir/phase-link"
+rm -f -- "$phase_profile_dir/production-domain-phase"
+ln -s -- phase-link "$phase_profile_dir/production-domain-phase"
+assert_fails bash "$phase_profile_dir/domain-profile.sh" production phase \
+	>"$fixture/symlinked-phase.out"
 
 assert_eq 'https://tc.shanekanterman.dev' "$(
 	HELM_PUBLIC_ORIGIN=https://tc.shanekanterman.dev \

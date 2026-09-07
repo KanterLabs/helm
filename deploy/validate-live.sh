@@ -201,9 +201,9 @@ access_probe_backoff() {
 }
 
 access_status() {
-	local path=$1 status
+	local path=$1 base_url=${2:-$PUBLIC_URL} status
 	if status=$(curl --silent --show-error --output /dev/null --max-time 10 --write-out '%{http_code}' \
-		"$PUBLIC_URL$path"); then
+		"$base_url$path"); then
 		ACCESS_STATUS_CURL_RC=0
 		ACCESS_STATUS_HTTP_CODE=${status:-000}
 	else
@@ -214,11 +214,11 @@ access_status() {
 }
 
 expect_access() {
-	local path=$1 status curl_status attempt delay=$ACCESS_PROBE_INITIAL_DELAY_SECONDS
+	local path=$1 base_url=${2:-$PUBLIC_URL} status curl_status attempt delay=$ACCESS_PROBE_INITIAL_DELAY_SECONDS
 	for ((attempt = 1; attempt <= ACCESS_PROBE_MAX_ATTEMPTS; attempt++)); do
 		# Keep the curl exit status separate from the HTTP code: curl reports
 		# DNS/connect failures without an HTTP response, which must be retried.
-		access_status "$path" >/dev/null
+		access_status "$path" "$base_url" >/dev/null
 		status=$ACCESS_STATUS_HTTP_CODE
 		curl_status=$ACCESS_STATUS_CURL_RC
 		case "$status" in
@@ -252,6 +252,7 @@ service_auth_probe() {
 		printf 'service_auth_probe=skipped\n'
 		return 0
 	}
+	local base_url=${1:-$PUBLIC_URL}
 	local secure_tmp_root=${SECURE_TMP_ROOT:-${TMPDIR:-${RUNNER_TEMP:-/tmp}}}
 	CF_SERVICE_HEADER_FILE=$(mktemp "$secure_tmp_root/helm-cloudflare-service-header.XXXXXX")
 	CF_SERVICE_RESPONSE_HEADERS=$(mktemp "$secure_tmp_root/helm-cloudflare-service-response-headers.XXXXXX")
@@ -270,7 +271,7 @@ service_auth_probe() {
 			--output "$CF_SERVICE_RESPONSE_BODY" --dump-header "$CF_SERVICE_RESPONSE_HEADERS" \
 			--max-time 15 --write-out '%{http_code}' --header '@'"$CF_SERVICE_HEADER_FILE" \
 			--header 'Accept: application/json' --header "X-Request-ID: $expected_request_id" \
-			"$PUBLIC_URL/api/v1/roadmap"); then
+			"$base_url/api/v1/roadmap"); then
 			curl_status=0
 		else
 			curl_status=$?
@@ -312,14 +313,137 @@ service_auth_probe() {
 	return 1
 }
 
+access_app_id() {
+	local apps_json=$1 domain=$2
+	jq -r --arg domain "$domain" '[.result[] | select(.domain == $domain)] | if length == 1 then .[0].id // empty else empty end' <<<"$apps_json"
+}
+
+validate_live_policy_set() {
+	local app_id=$1 expected_count=$2 owner_name=$3 service_name=${4:-} owner_email=$5 token_id=${6:-} policies
+	if ! policies=$(cf_request GET "/accounts/$ACCOUNT_ID/access/apps/$app_id/policies"); then
+		return 1
+	fi
+	if [[ "$expected_count" = 1 ]]; then
+		jq -e --arg name "$owner_name" --arg email "$owner_email" \
+			'([.result[]] | length == 1) and
+			 ([.result[] | select(.name == $name and .decision == "allow" and .precedence == 1 and .include == [{email:{email:$email}}])] | length == 1)' \
+			<<<"$policies" >/dev/null || {
+			printf 'UI Access app lacks its exact-owner Allow policy\n' >&2
+			return 1
+		}
+		return 0
+	fi
+	jq -e --arg owner_name "$owner_name" --arg service_name "$service_name" --arg email "$owner_email" --arg token "$token_id" \
+		'([.result[]] | length == 2) and
+		 ([.result[] | select(.name == $owner_name or .name == $service_name)] | length == 2) and
+		 ([.result[] | select(.name == $owner_name and .decision == "allow" and .precedence == 2 and .include == [{email:{email:$email}}])] | length == 1) and
+		 ([.result[] | select(.name == $service_name and .decision == "non_identity" and .precedence == 1 and .include == [{service_token:{token_id:$token}}])] | length == 1)' \
+		<<<"$policies" >/dev/null || {
+		printf 'API Access app policy set is not exactly owner Allow plus Service Auth\n' >&2
+		return 1
+	}
+}
+
+validate_live_tunnel_config() {
+	local tunnel_id=$1 team=$2 legacy_host=$3 legacy_ui_aud=$4 legacy_api_aud=$5
+	local canonical_host=${6:-} canonical_ui_aud=${7:-} canonical_api_aud=${8:-} tunnel_config
+	if ! tunnel_config=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations"); then
+		return 1
+	fi
+	if [[ -z "$canonical_host" ]]; then
+		jq -e --arg host "$legacy_host" --arg team "$team" --arg ui "$legacy_ui_aud" --arg api "$legacy_api_aud" \
+			'(.result.config // null) as $config |
+			($config.ingress // []) as $ingress |
+			($config | type == "object" and (keys | sort) == ["ingress"]) and
+			($ingress | type == "array" and length == 2) and
+			(($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
+			(($ingress[1] | keys | sort) == ["service"]) and
+			($ingress[0].hostname == $host) and ($ingress[0].service == "http://127.0.0.1:8080") and
+			($ingress[1].service == "http_status:404") and
+			(($ingress[0].originRequest | keys | sort) == ["access"]) and
+			(($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+			($ingress[0].originRequest.access.required == true) and ($ingress[0].originRequest.access.teamName == $team) and
+			((($ingress[0].originRequest.access.audTag // []) | sort) == ([$ui, $api] | sort))' \
+			<<<"$tunnel_config" >/dev/null || {
+			printf 'Helm tunnel configuration is not exactly the reviewed ingress set\n' >&2
+			return 1
+		}
+		return 0
+	fi
+	jq -e --arg legacy_host "$legacy_host" --arg canonical_host "$canonical_host" --arg team "$team" \
+		--arg legacy_ui "$legacy_ui_aud" --arg legacy_api "$legacy_api_aud" \
+		--arg canonical_ui "$canonical_ui_aud" --arg canonical_api "$canonical_api_aud" \
+		'(.result.config // null) as $config |
+		 ($config.ingress // []) as $ingress |
+		 ($config | type == "object" and (keys | sort) == ["ingress"]) and
+		 ($ingress | type == "array" and length == 3) and
+		 (($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
+		 (($ingress[1] | keys | sort) == ["hostname", "originRequest", "service"]) and
+		 (($ingress[2] | keys | sort) == ["service"]) and
+		 ($ingress[0].hostname == $legacy_host) and ($ingress[1].hostname == $canonical_host) and
+		 ($ingress[0].service == "http://127.0.0.1:8080") and ($ingress[1].service == "http://127.0.0.1:8080") and
+		 ($ingress[2].service == "http_status:404") and
+		 (($ingress[0].originRequest | keys | sort) == ["access"]) and (($ingress[1].originRequest | keys | sort) == ["access"]) and
+		 (($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+		 (($ingress[1].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
+		 ($ingress[0].originRequest.access.required == true) and ($ingress[1].originRequest.access.required == true) and
+		 ($ingress[0].originRequest.access.teamName == $team) and ($ingress[1].originRequest.access.teamName == $team) and
+		 ((($ingress[0].originRequest.access.audTag // []) | sort) == ([$legacy_ui, $legacy_api] | sort)) and
+		 ((($ingress[1].originRequest.access.audTag // []) | sort) == ([$canonical_ui, $canonical_api] | sort))' \
+		<<<"$tunnel_config" >/dev/null || {
+		printf 'Helm dual-host tunnel configuration is not exactly the reviewed ingress set\n' >&2
+		return 1
+	}
+}
+
+validate_live_dns_record() {
+	local hostname=$1 tunnel_id=$2 records
+	if ! records=$(cf_request GET "/zones/$ZONE_ID/dns_records?name=$hostname"); then
+		return 1
+	fi
+	jq -e --arg host "$hostname" --arg target "$tunnel_id.cfargotunnel.com" \
+		'(.result | type == "array" and length == 1) and
+		 (.result[0].name == $host) and (.result[0].type == "CNAME") and
+		 (.result[0].content == $target) and (.result[0].proxied == true)' \
+		<<<"$records" >/dev/null || {
+		printf 'Helm DNS record is not exactly the reviewed proxied tunnel CNAME: %s\n' "$hostname" >&2
+		return 1
+	}
+}
+
 apps=$(cf_request GET "/accounts/$ACCOUNT_ID/access/apps?per_page=100")
-ui_id=$(jq -r --arg domain "$PUBLIC_HOST" '[.result[] | select(.domain == $domain)] | if length == 1 then .[0].id else empty end' <<<"$apps")
-api_id=$(jq -r --arg domain "$PUBLIC_HOST/api/v1/*" '[.result[] | select(.domain == $domain)] | if length == 1 then .[0].id else empty end' <<<"$apps")
-[[ -n "$ui_id" && -n "$api_id" ]] || { printf 'both Helm Access applications are required\n' >&2; exit 1; }
 idp=$(identity_provider_id)
 team=$(access_team_name)
-ui_aud=$(validate_access_app "$ui_id" "$UI_APP_NAME" "$PUBLIC_HOST" "$idp" false)
-api_aud=$(validate_access_app "$api_id" "$API_APP_NAME" "$PUBLIC_HOST/api/v1/*" "$idp" true)
+if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+	legacy_ui_id=$(access_app_id "$apps" "$DOMAIN_PROFILE_LEGACY_HOST")
+	legacy_api_id=$(access_app_id "$apps" "$DOMAIN_PROFILE_LEGACY_API_PATH")
+	canonical_ui_id=$(access_app_id "$apps" "$DOMAIN_PROFILE_CANONICAL_HOST")
+	canonical_api_id=$(access_app_id "$apps" "$DOMAIN_PROFILE_CANONICAL_API_PATH")
+	[[ -n "$legacy_ui_id" && -n "$legacy_api_id" && -n "$canonical_ui_id" && -n "$canonical_api_id" ]] || {
+		printf 'all reviewed dual-host Access applications are required\n' >&2
+		exit 1
+	}
+	[[ "$legacy_ui_id" != "$legacy_api_id" && "$legacy_ui_id" != "$canonical_ui_id" &&
+		"$legacy_ui_id" != "$canonical_api_id" && "$legacy_api_id" != "$canonical_ui_id" &&
+		"$legacy_api_id" != "$canonical_api_id" && "$canonical_ui_id" != "$canonical_api_id" ]] || {
+		printf 'dual-host Access applications must have distinct IDs\n' >&2
+		exit 1
+	}
+	legacy_ui_aud=$(validate_access_app "$legacy_ui_id" "$DOMAIN_PROFILE_LEGACY_UI_APP_NAME" "$DOMAIN_PROFILE_LEGACY_HOST" "$idp" false)
+	legacy_api_aud=$(validate_access_app "$legacy_api_id" "$DOMAIN_PROFILE_LEGACY_API_APP_NAME" "$DOMAIN_PROFILE_LEGACY_API_PATH" "$idp" true)
+	canonical_ui_aud=$(validate_access_app "$canonical_ui_id" "$DOMAIN_PROFILE_CANONICAL_UI_APP_NAME" "$DOMAIN_PROFILE_CANONICAL_HOST" "$idp" false)
+	canonical_api_aud=$(validate_access_app "$canonical_api_id" "$DOMAIN_PROFILE_CANONICAL_API_APP_NAME" "$DOMAIN_PROFILE_CANONICAL_API_PATH" "$idp" true)
+	ui_id=$canonical_ui_id
+	api_id=$canonical_api_id
+	ui_aud=$canonical_ui_aud
+	api_aud=$canonical_api_aud
+else
+	ui_id=$(access_app_id "$apps" "$PUBLIC_HOST")
+	api_id=$(access_app_id "$apps" "$API_PATH")
+	[[ -n "$ui_id" && -n "$api_id" ]] || { printf 'both Helm Access applications are required\n' >&2; exit 1; }
+	ui_aud=$(validate_access_app "$ui_id" "$UI_APP_NAME" "$PUBLIC_HOST" "$idp" false)
+	api_aud=$(validate_access_app "$api_id" "$API_APP_NAME" "$API_PATH" "$idp" true)
+fi
 
 owner=$(owner_email)
 
@@ -337,17 +461,15 @@ now_epoch=$(date -u +%s)
 	exit 1
 }
 
-ui_policies=$(cf_request GET "/accounts/$ACCOUNT_ID/access/apps/$ui_id/policies")
-api_policies=$(cf_request GET "/accounts/$ACCOUNT_ID/access/apps/$api_id/policies")
-jq -e --arg name "$OWNER_POLICY_NAME" --arg email "$owner" \
-	'([.result[]] | length == 1) and ([.result[] | select(.name == $name and .decision == "allow" and .precedence == 1 and .include == [{email:{email:$email}}])] | length == 1)' <<<"$ui_policies" >/dev/null \
-	|| { printf 'UI Access app lacks its exact-owner Allow policy\n' >&2; exit 1; }
-jq -e --arg owner_name "$OWNER_POLICY_NAME" --arg service_name "$SERVICE_POLICY_NAME" --arg email "$owner" --arg token "$service_token_id" \
-	'([.result[]] | length == 2) and
-	 ([.result[] | select(.name == $owner_name or .name == $service_name)] | length == 2) and
-	 ([.result[] | select(.name == $owner_name and .decision == "allow" and .precedence == 2 and .include == [{email:{email:$email}}])] | length == 1) and
-	 ([.result[] | select(.name == $service_name and .decision == "non_identity" and .precedence == 1 and .include == [{service_token:{token_id:$token}}])] | length == 1)' <<<"$api_policies" >/dev/null \
-	|| { printf 'API Access app policy set is not exactly owner Allow plus Service Auth\n' >&2; exit 1; }
+if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+	validate_live_policy_set "$legacy_ui_id" 1 "$DOMAIN_PROFILE_LEGACY_OWNER_POLICY_NAME" '' "$owner" || exit 1
+	validate_live_policy_set "$legacy_api_id" 2 "$DOMAIN_PROFILE_LEGACY_OWNER_POLICY_NAME" "$DOMAIN_PROFILE_LEGACY_SERVICE_POLICY_NAME" "$owner" "$service_token_id" || exit 1
+	validate_live_policy_set "$canonical_ui_id" 1 "$DOMAIN_PROFILE_CANONICAL_OWNER_POLICY_NAME" '' "$owner" || exit 1
+	validate_live_policy_set "$canonical_api_id" 2 "$DOMAIN_PROFILE_CANONICAL_OWNER_POLICY_NAME" "$DOMAIN_PROFILE_CANONICAL_SERVICE_POLICY_NAME" "$owner" "$service_token_id" || exit 1
+else
+	validate_live_policy_set "$ui_id" 1 "$OWNER_POLICY_NAME" '' "$owner" || exit 1
+	validate_live_policy_set "$api_id" 2 "$OWNER_POLICY_NAME" "$SERVICE_POLICY_NAME" "$owner" "$service_token_id" || exit 1
+fi
 
 tunnel=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel?is_deleted=false&per_page=100")
 tunnel_id=$(jq -r --arg name "$TUNNEL_NAME" '[.result[] | select(.name == $name)] | if length == 1 then .[0].id // empty else empty end' <<<"$tunnel")
@@ -355,41 +477,44 @@ tunnel_status=$(jq -r --arg name "$TUNNEL_NAME" '[.result[] | select(.name == $n
 [[ -n "$tunnel_id" && -n "$tunnel_status" ]] || { printf 'Helm tunnel is missing or ambiguous\n' >&2; exit 1; }
 [[ "$tunnel_status" = healthy ]] || { printf 'expected healthy Helm tunnel, got %s\n' "$tunnel_status" >&2; exit 1; }
 
-tunnel_config=$(cf_request GET "/accounts/$ACCOUNT_ID/cfd_tunnel/$tunnel_id/configurations")
-jq -e --arg host "$PUBLIC_HOST" --arg team "$team" --arg ui "$ui_aud" --arg api "$api_aud" \
-	'(.result.config.ingress // []) as $ingress |
-	 ($ingress | type == "array" and length == 2) and
-	 ([$ingress[] | select(.hostname == $host)] | length == 1) and
-	 ([$ingress[] | select(.service == "http_status:404" and ((.hostname // null) == null))] | length == 1) and
-	 (($ingress[0] | keys | sort) == ["hostname", "originRequest", "service"]) and
-	 (($ingress[0].originRequest | keys | sort) == ["access"]) and
-	 (($ingress[0].originRequest.access | keys | sort) == ["audTag", "required", "teamName"]) and
-	 ($ingress[0].hostname == $host) and
-	 ($ingress[0].service == "http://127.0.0.1:8080") and
-	 ($ingress[0].originRequest.access.required == true) and
-	 ($ingress[0].originRequest.access.teamName == $team) and
-	 ((($ingress[0].originRequest.access.audTag // []) | sort) == ([$ui, $api] | sort)) and
-	 (($ingress[1] | keys | sort) == ["service"]) and
-	 ($ingress[1].service == "http_status:404")' <<<"$tunnel_config" >/dev/null \
-	|| { printf 'Helm tunnel configuration is not exactly the reviewed ingress set\n' >&2; exit 1; }
+if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+	validate_live_tunnel_config "$tunnel_id" "$team" "$DOMAIN_PROFILE_LEGACY_HOST" "$legacy_ui_aud" "$legacy_api_aud" \
+		"$DOMAIN_PROFILE_CANONICAL_HOST" "$canonical_ui_aud" "$canonical_api_aud" || exit 1
+else
+	validate_live_tunnel_config "$tunnel_id" "$team" "$PUBLIC_HOST" "$ui_aud" "$api_aud" || exit 1
+fi
 
-dns=$(cf_request GET "/zones/$ZONE_ID/dns_records?name=$PUBLIC_HOST")
-jq -e --arg host "$PUBLIC_HOST" --arg target "$tunnel_id.cfargotunnel.com" \
-	'(.result | type == "array" and length == 1) and
-	 (.result[0].name == $host) and
-	 (.result[0].type == "CNAME") and
-	 (.result[0].content == $target) and
-	 (.result[0].proxied == true)' <<<"$dns" >/dev/null \
-	|| { printf 'Helm DNS record is not exactly the reviewed proxied tunnel CNAME\n' >&2; exit 1; }
+if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+	validate_live_dns_record "$DOMAIN_PROFILE_LEGACY_HOST" "$tunnel_id" || exit 1
+	validate_live_dns_record "$DOMAIN_PROFILE_CANONICAL_HOST" "$tunnel_id" || exit 1
+else
+	validate_live_dns_record "$PUBLIC_HOST" "$tunnel_id" || exit 1
+fi
 
 # Health and OpenAPI deliberately remain behind Access. This check must fail
 # if somebody adds a public bypass to either endpoint.
-expect_access /healthz
-expect_access /openapi.json
-expect_access /
-expect_access /api/v1/roadmap
+if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+	expect_access /healthz "https://$DOMAIN_PROFILE_LEGACY_HOST"
+	expect_access /openapi.json "https://$DOMAIN_PROFILE_LEGACY_HOST"
+	expect_access / "https://$DOMAIN_PROFILE_LEGACY_HOST"
+	expect_access /api/v1/roadmap "https://$DOMAIN_PROFILE_LEGACY_HOST"
+	expect_access /healthz "https://$DOMAIN_PROFILE_CANONICAL_HOST"
+	expect_access /openapi.json "https://$DOMAIN_PROFILE_CANONICAL_HOST"
+	expect_access / "https://$DOMAIN_PROFILE_CANONICAL_HOST"
+	expect_access /api/v1/roadmap "https://$DOMAIN_PROFILE_CANONICAL_HOST"
+else
+	expect_access /healthz
+	expect_access /openapi.json
+	expect_access /
+	expect_access /api/v1/roadmap
+fi
 if [[ "$REQUIRE_SERVICE_AUTH_PROBE" = 1 || -n "$CF_ACCESS_CLIENT_ID" || -n "$CF_ACCESS_CLIENT_SECRET" ]]; then
-	service_auth_probe
+	if [[ "${DOMAIN_PROFILE_DUAL_HOST:-0}" = 1 ]]; then
+		service_auth_probe "https://$DOMAIN_PROFILE_LEGACY_HOST"
+		service_auth_probe "https://$DOMAIN_PROFILE_CANONICAL_HOST"
+	else
+		service_auth_probe
+	fi
 else
 	printf 'service_auth_probe=skipped\n'
 fi
