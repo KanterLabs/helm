@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse, type Route } from '@playwright/test';
 
 type Project = { id: string; key: string; name: string; slug: string };
 type Column = { id: string; name: string; semantic_state: string; position: number };
@@ -113,6 +113,27 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   await expect(page.getByRole('button', { name: 'Retry columns', exact: true })).toHaveCount(0);
   await expect.poll(() => eventResponses, { timeout: 15_000 }).toBeGreaterThan(0);
 
+  // Background liveness reads must not replace the visible board with the
+  // full-load skeleton while their task pages are still in flight.
+  let releaseBackgroundReads = () => {};
+  const backgroundReads = new Promise<void>((resolve) => { releaseBackgroundReads = resolve; });
+  let backgroundTaskRequests = 0;
+  const holdBackgroundTaskReads = async (route: Route) => {
+    backgroundTaskRequests += 1;
+    await backgroundReads;
+    await route.continue();
+  };
+  const taskRoute = `**/api/v1/projects/${project.id}/tasks?**`;
+  await page.route(taskRoute, holdBackgroundTaskReads);
+  await page.clock.fastForward(60_100);
+  await expect.poll(() => backgroundTaskRequests, { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect(board).toBeVisible();
+  await expect(readyColumn.locator('.task-card')).toHaveCount(boardPageSize);
+  await expect(page.locator('.board-loading')).toHaveCount(0);
+  releaseBackgroundReads();
+  await expect(readyColumn.locator('.task-card')).toHaveCount(boardPageSize);
+  await page.unroute(taskRoute, holdBackgroundTaskReads);
+
   const firstReadyRequest = taskRequests.find((url) => {
     const params = taskRequestParams(url);
     return params.get('column') === ready.id && !params.get('cursor') && !params.get('q');
@@ -205,4 +226,34 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   } else {
     await expect(reconciliationAlert).toContainText('Refresh or load more to find it.');
   }
+
+  // A deleted card is retained until the staged event refresh commits, then
+  // disappears because the loaded pagination depth is reconciled authoritatively.
+  const removedTask = fixtureTasks[0];
+  const removedCard = readyColumn.getByText(removedTask.key, { exact: true });
+  await expect(removedCard).toBeVisible();
+  const deleteResponse = await request.delete(`/api/v1/tasks/${removedTask.id}`, {
+    headers: {
+      ...mutationHeaders(`board-pagination-${runID}-delete`),
+      'If-Match': `"v${removedTask.version}"`
+    }
+  });
+  expect(deleteResponse.ok(), `DELETE ${removedTask.key} returned HTTP ${deleteResponse.status()}`).toBeTruthy();
+
+  let releaseDeleteRefresh = () => {};
+  const deleteRefreshGate = new Promise<void>((resolve) => { releaseDeleteRefresh = resolve; });
+  let deleteRefreshRequests = 0;
+  const holdDeleteRefresh = async (route: Route) => {
+    deleteRefreshRequests += 1;
+    await deleteRefreshGate;
+    await route.continue();
+  };
+  await page.route(taskRoute, holdDeleteRefresh);
+  await page.clock.fastForward(15_100);
+  await expect.poll(() => deleteRefreshRequests, { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect(removedCard).toBeVisible();
+  await expect(page.locator('.board-loading')).toHaveCount(0);
+  releaseDeleteRefresh();
+  await expect(removedCard).toHaveCount(0);
+  await page.unroute(taskRoute, holdDeleteRefresh);
 });
