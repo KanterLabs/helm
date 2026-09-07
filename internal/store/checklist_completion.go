@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 )
 
 // checklistCompletionStatus is computed inside the caller's write
@@ -14,7 +13,7 @@ type checklistCompletionStatus struct {
 	Warning   bool
 }
 
-func checklistPolicyTx(ctx context.Context, tx *sql.Tx, projectID string) (string, error) {
+func checklistPolicyTx(ctx context.Context, tx dependencySQL, projectID string) (string, error) {
 	policy := "warn"
 	if err := tx.QueryRowContext(ctx, `SELECT checklist_completion_policy FROM projects WHERE id=?`, projectID).Scan(&policy); err != nil {
 		return "", err
@@ -25,7 +24,7 @@ func checklistPolicyTx(ctx context.Context, tx *sql.Tx, projectID string) (strin
 	return policy, nil
 }
 
-func checklistCompletionStatusForTaskTx(ctx context.Context, tx *sql.Tx, projectID, taskID string) (checklistCompletionStatus, error) {
+func checklistCompletionStatusForTaskTx(ctx context.Context, tx dependencySQL, projectID, taskID string) (checklistCompletionStatus, error) {
 	policy, err := checklistPolicyTx(ctx, tx, projectID)
 	if err != nil {
 		return checklistCompletionStatus{}, err
@@ -41,7 +40,7 @@ func checklistCompletionStatusForTaskTx(ctx context.Context, tx *sql.Tx, project
 	}, nil
 }
 
-func checklistCompletionStatusForColumnTx(ctx context.Context, tx *sql.Tx, projectID, columnID string) (checklistCompletionStatus, error) {
+func checklistCompletionStatusForColumnTx(ctx context.Context, tx dependencySQL, projectID, columnID string) (checklistCompletionStatus, error) {
 	policy, err := checklistPolicyTx(ctx, tx, projectID)
 	if err != nil {
 		return checklistCompletionStatus{}, err

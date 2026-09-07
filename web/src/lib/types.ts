@@ -599,6 +599,56 @@ export type TaskPatch = Partial<Pick<Task, 'title' | 'description' | 'priority' 
   parent_task_id?: string | null;
 };
 
+/** A bounded, optimistic-concurrency guarded project task mutation. */
+export type BulkTaskMutationMode = 'partial' | 'atomic';
+export type BulkTaskMutationOperation = 'move' | 'assign' | 'priority' | 'labels' | 'due_at' | 'complete' | 'block';
+
+export interface BulkTaskMutationInput {
+  task: string;
+  version: number;
+  operation: BulkTaskMutationOperation;
+  destination_column_id?: string;
+  expected_source_column_id?: string;
+  source?: string;
+  reason?: string;
+  comment?: string;
+  assignee?: string | null;
+  priority?: Priority;
+  labels?: string[] | null;
+  due_at?: string | null;
+}
+
+export interface BulkTaskMutationRequest {
+  mode: BulkTaskMutationMode;
+  mutations: BulkTaskMutationInput[];
+}
+
+export type BulkTaskMutationResultStatus = 'applied' | 'skipped' | 'conflict';
+
+export interface BulkTaskMutationResult {
+  reference: string;
+  task_id?: string;
+  status: BulkTaskMutationResultStatus;
+  version?: number;
+  task?: Task;
+  error?: {
+    code: string;
+    message: string;
+    status?: number;
+    details?: Record<string, unknown>;
+  };
+}
+
+export interface BulkTaskMutationResponse {
+  mode: BulkTaskMutationMode;
+  status: 'partial' | 'complete' | 'failed';
+  requested: number;
+  applied: number;
+  skipped: number;
+  conflicts: number;
+  results: BulkTaskMutationResult[];
+}
+
 /** A server-owned board audit lifecycle state. */
 export type AuditRunStatus = 'queued' | 'running' | 'complete' | 'partial' | 'failed' | 'finalized';
 export type AuditTerminalStatus = 'complete' | 'partial' | 'failed';

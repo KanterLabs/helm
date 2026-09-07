@@ -728,7 +728,7 @@ func (s *Store) withTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	return nil
 }
 
-func insertEvent(ctx context.Context, tx *sql.Tx, eventType, actorID, projectID, taskID string, payload any) (int64, error) {
+func insertEvent(ctx context.Context, tx dependencySQL, eventType, actorID, projectID, taskID string, payload any) (int64, error) {
 	id := newID()
 	created := now()
 	result, err := tx.ExecContext(ctx, `INSERT INTO events(id, type, actor_id, project_id, task_id, payload, created_at) VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)`, id, eventType, actorID, projectID, taskID, eventPayload(payload), created)

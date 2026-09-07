@@ -2733,6 +2733,102 @@
         }
       }
     },
+    "/api/v1/projects/{project}/tasks/bulk": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "post": {
+        "operationId": "bulkMutateProjectTasks",
+        "summary": "Apply bounded guarded task mutations",
+        "description": "Apply one operation to at most 100 project-local task references. Each\nitem carries its own positive task version, so a mixed batch remains\nsafe when another writer changes one task while the request is in\nflight. Supported operations are `move`, `assign`, `priority`,\n`labels`, `due_at`, `complete`, and `block`. `partial` mode commits\neach item independently and returns `applied`, `skipped`, or\n`conflict` for every item. `atomic` mode commits all items in one\ntransaction; any conflict or invalid runtime precondition rolls back\nevery item and marks the failed item as `conflict` or `skipped` while\nthe other items report `skipped` with `atomic_rollback`.\nProject access, active claims, dependency/lifecycle guards, and stale\nversions are checked inside the same guarded task transactions as the\ncorresponding single-task mutations. Every committed item emits its\nnormal task activity event. Supplying an Idempotency-Key makes the\ncomplete bounded response safe to replay.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkTaskMutationRequest"
+              },
+              "example": {
+                "mode": "partial",
+                "mutations": [
+                  {
+                    "task": "OPS-41",
+                    "version": 7,
+                    "operation": "priority",
+                    "priority": "urgent"
+                  },
+                  {
+                    "task": "OPS-42",
+                    "version": 3,
+                    "operation": "move",
+                    "destination_column_id": "col_ready",
+                    "expected_source_column_id": "col_backlog",
+                    "source": "bulk_triage"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded per-task mutation outcomes. Runtime conflicts are represented in the item results rather than changing the HTTP status.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkTaskMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/task-context": {
       "parameters": [
         {
@@ -12422,6 +12518,241 @@
             "$ref": "#/components/schemas/TaskMutationSummary"
           }
         ]
+      },
+      "BulkTaskMutationMode": {
+        "type": "string",
+        "enum": [
+          "partial",
+          "atomic"
+        ],
+        "default": "partial"
+      },
+      "BulkTaskMutationOperation": {
+        "type": "string",
+        "enum": [
+          "move",
+          "assign",
+          "priority",
+          "labels",
+          "due_at",
+          "complete",
+          "block"
+        ]
+      },
+      "BulkTaskMutationItem": {
+        "type": "object",
+        "required": [
+          "task",
+          "version",
+          "operation"
+        ],
+        "description": "One independently versioned task intent. `task` accepts an opaque ID\nor a case-insensitive project-local key. Move intents require both\ncolumn IDs and non-empty provenance. Assign, priority, labels, and due\ndate intents require their corresponding value; null clears an\nassignee, label set, or due date. Completion and blocking preserve the\nnormal lifecycle and claim/dependency guards.\n",
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "operation": {
+            "$ref": "#/components/schemas/BulkTaskMutationOperation"
+          },
+          "destination_column_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expected_source_column_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Required provenance for move intents."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Blocking reason or optional move explanation."
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 10000,
+            "description": "Optional completion note."
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Actor ID; null clears the assignee."
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "description": "Label IDs or names; null clears labels."
+          },
+          "due_at": {
+            "$ref": "#/components/schemas/NullableTimestamp",
+            "description": "RFC 3339 due timestamp; null clears it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationRequest": {
+        "type": "object",
+        "required": [
+          "mutations"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/BulkTaskMutationMode"
+          },
+          "mutations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/BulkTaskMutationItem"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "status",
+          "details"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationResult": {
+        "type": "object",
+        "required": [
+          "reference",
+          "status"
+        ],
+        "properties": {
+          "reference": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Original task reference supplied in the mutation item."
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "skipped",
+              "conflict"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Resulting version when the mutation was applied."
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskMutationResponse",
+            "description": "Full task for humans/read-scoped tokens, or id/version metadata for write-only bearer tokens."
+          },
+          "error": {
+            "$ref": "#/components/schemas/BulkTaskMutationError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationResponse": {
+        "type": "object",
+        "required": [
+          "mode",
+          "status",
+          "requested",
+          "applied",
+          "skipped",
+          "conflicts",
+          "results"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/BulkTaskMutationMode"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete",
+              "failed"
+            ],
+            "description": "Partial mode reports partial; atomic mode reports complete or failed after rollback."
+          },
+          "requested": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "applied": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "results": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/BulkTaskMutationResult"
+            }
+          }
+        },
+        "additionalProperties": false
       },
       "TaskCreateRequest": {
         "type": "object",

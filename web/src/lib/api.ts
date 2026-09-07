@@ -25,6 +25,8 @@ import {
   type BugSeverity,
   type BugResolution,
   type BoardDescriptor,
+  type BulkTaskMutationRequest,
+  type BulkTaskMutationResponse,
   type RoadmapSummary,
   type SidebarCounts,
   type SavedView,
@@ -402,6 +404,12 @@ export const api = {
       method: 'PATCH',
       body: input,
       ifMatch: version,
+      idempotencyKey: key()
+    }),
+  bulkTasks: (project: string, input: BulkTaskMutationRequest) =>
+    request<BulkTaskMutationResponse>(`/projects/${encodeURIComponent(project)}/tasks/bulk`, {
+      method: 'POST',
+      body: input,
       idempotencyKey: key()
     }),
   getTaskDependencies: (task: string) =>

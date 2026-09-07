@@ -874,7 +874,7 @@ func activeClaimInColumnTx(ctx context.Context, tx *sql.Tx, columnID, timestamp 
 // acquired SQLite's writer transaction. Task mutations use this to close the
 // gap between their read-only preflight and guarded write when an administrator
 // concurrently archives or reclassifies a column.
-func authoritativeColumnStateTx(ctx context.Context, tx *sql.Tx, columnID, projectID string) (string, error) {
+func authoritativeColumnStateTx(ctx context.Context, tx dependencySQL, columnID, projectID string) (string, error) {
 	var actualProjectID, state string
 	var archivedAt sql.NullString
 	err := tx.QueryRowContext(ctx, `SELECT project_id, semantic_state, archived_at FROM columns WHERE id=?`, columnID).Scan(&actualProjectID, &state, &archivedAt)
