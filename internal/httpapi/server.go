@@ -426,6 +426,16 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(status int) {
+	// A server may send multiple informational responses before one final
+	// status. Preserve those writes while recording only the final response
+	// for request metrics. Switching Protocols (101) is itself final.
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(status)
+		return
+	}
+	if w.status != 0 {
+		return
+	}
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
@@ -434,6 +444,13 @@ func (w *statusWriter) Write(body []byte) (int, error) {
 		w.status = http.StatusOK
 	}
 	return w.ResponseWriter.Write(body)
+}
+
+// Unwrap lets http.ResponseController reach optional capabilities such as
+// Flush, Hijack, and full-duplex request handling without advertising an
+// interface the underlying writer does not implement.
+func (w *statusWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func responseStatus(w http.ResponseWriter) int {

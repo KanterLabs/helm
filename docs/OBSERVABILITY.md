@@ -17,6 +17,12 @@ check names, statuses, safe fixed messages, timings, schema version numbers,
 page counts, WAL size, and filesystem capacity. It never includes the
 configured filesystem path or a database error string.
 
+Unknown migration versions are reported as a bounded compatibility warning
+(`migration_state: "unknown"`) and do not by themselves fail readiness: the
+database migration contract allows a retained binary to serve a database
+upgraded by a newer additive release. Embedded migrations that are pending,
+or schema inspection errors, still fail readiness.
+
 The readiness checks are:
 
 - `database`: ping latency and a short `BEGIN IMMEDIATE` writer-lock probe;
@@ -28,10 +34,13 @@ The readiness checks are:
 - `storage`: SQLite page usage, database bytes, and WAL bytes.
 
 `GET /metrics` returns Prometheus text format. Unauthenticated collection is
-allowed only when the TCP peer is loopback (`127.0.0.0/8` or `::1`). A
-non-loopback scrape must use the normal Helm session or a scoped bearer token.
-The endpoint never trusts `X-Forwarded-For`; keep it behind the existing
-loopback service boundary or an authenticated private monitoring path.
+allowed only when the TCP peer is loopback (`127.0.0.0/8` or `::1`) and the
+request has no forwarding or proxy identity headers. A non-loopback scrape,
+including a loopback request forwarded by a proxy, must use the normal Helm
+session or a scoped bearer token. The endpoint never trusts
+`X-Forwarded-For` or other proxy headers for identity; keep it behind the
+existing loopback service boundary or an authenticated private monitoring
+path.
 
 The primary metric families are:
 
@@ -48,9 +57,10 @@ The primary metric families are:
 | `helm_agent_mutations_total` | Agent mutation attempts, successes, failures, and limit rejections. |
 | `helm_agent_mutation_pressure_ratio` | Limit rejections divided by observed agent mutation attempts. |
 
-All labels are bounded enums or route templates. Task and project references
-are replaced with `:task` and `:project`; query strings and request bodies are
-never labels.
+All labels are bounded enums or finite route templates. Task and project
+references are replaced with `:task` and `:project`; unknown API paths collapse
+to `/api/v1/other`, and non-standard HTTP methods collapse to `OTHER`. Query
+strings and request bodies are never labels.
 
 ## Alert thresholds and response
 
@@ -63,7 +73,7 @@ the scrape interval and workload after collecting a week of normal traffic.
 | HTTP latency | p95 from `helm_http_request_duration_seconds` > 1s for 10m | Check database lock latency and pool waits, then reduce polling or move heavy agent work; do not increase SQLite writer concurrency blindly. |
 | Authentication/rate limits | Any sustained increase for 10m, or `helm_rate_limit_failures_total{scope="mutation"}` > 0 | Confirm the caller and token scope, apply client backoff, and rotate/revoke only the affected credential. Never put a token in a log query. |
 | Database contention | `rate(helm_database_lock_latency_seconds_sum[5m]) / rate(helm_database_lock_latency_seconds_count[5m]) > 0.25` or any lock errors | Inspect the writer workload and free capacity. Allow blocked writes to drain, verify WAL growth, and use the backup/runbook before any repair. |
-| Capacity | `helm_database_page_usage_ratio > 0.8`, WAL > 48 MiB, or free bytes < 64 MiB | Stop bulk/agent mutations, take a verified backup, compact or expand the explicitly configured data volume, then re-check `/readyz`. Never delete the database as a first response. |
+| Capacity | `helm_database_page_usage_ratio > 0.8`, WAL > 48 MiB, or free bytes < 64 MiB | Stop bulk/agent mutations, take a verified backup, compact or expand the explicitly configured data volume, then re-check `/readyz`. The readiness gate uses SQLite's live page ceiling and journal-size limit; it does not impose a second arbitrary database-byte cutoff. Never delete the database as a first response. |
 | Readiness | `/readyz` is 503 for 2 consecutive scrapes | Read each failed check. For schema/migration, deploy the matching binary through the migration preflight path; for storage, repair capacity/permissions; for lock failures, drain the writer and preserve the database. |
 
 ## Structured application logs

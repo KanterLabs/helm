@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/KanterLabs/helm/internal/auth"
+	"github.com/KanterLabs/helm/internal/db"
 	"github.com/KanterLabs/helm/internal/store"
 )
 
@@ -75,6 +77,8 @@ func TestMetricRoutesUseBoundedTemplates(t *testing.T) {
 	tests := map[string]string{
 		"/api/v1/tasks/task-secret/comments?query=private": "/api/v1/tasks/:task/comments",
 		"/api/v1/projects/project-secret/tasks":            "/api/v1/projects/:project/tasks",
+		"/api/v1/tasks/task-secret/checklist/reorder":      "/api/v1/tasks/:task/checklist/reorder",
+		"/api/v1/tasks/task-secret/checklists/reorder":     "/api/v1/tasks/:task/checklists/reorder",
 		"/api/v1/not-a-route/credential-secret":            "/api/v1/other",
 		"/api/v1/tasks/task-secret/private-secret":         "/api/v1/other",
 		"/assets/secret.js?token=private":                  "/static",
@@ -92,6 +96,28 @@ func TestMetricRoutesUseBoundedTemplates(t *testing.T) {
 	}
 	if !strings.Contains(rendered, `route="/api/v1/tasks/:task"`) {
 		t.Fatalf("metrics route template missing: %s", rendered)
+	}
+	for index := 0; index < 2000; index++ {
+		route := "/api/v1/tasks/task-secret/comments/tasks/invalid-" + strconv.Itoa(index)
+		if got := metricRoute(route); got != "/api/v1/other" {
+			t.Fatalf("invalid metric route %q = %q, want /api/v1/other", route, got)
+		}
+	}
+}
+
+func TestMetricMethodLabelsAreFinite(t *testing.T) {
+	for _, test := range []struct {
+		method string
+		want   string
+	}{
+		{method: http.MethodGet, want: http.MethodGet},
+		{method: http.MethodHead, want: http.MethodHead},
+		{method: "WEBSOCKET", want: "OTHER"},
+		{method: "X-" + strings.Repeat("A", 64), want: "OTHER"},
+	} {
+		if got := safeMetricMethod(test.method); got != test.want {
+			t.Errorf("safeMetricMethod(%q) = %q, want %q", test.method, got, test.want)
+		}
 	}
 }
 
@@ -145,6 +171,24 @@ func TestReadinessReportsSchemaAndStorageChecks(t *testing.T) {
 	}
 }
 
+func TestReadinessAllowsUnknownNewerAdditiveSchema(t *testing.T) {
+	server, data := testServer(t, "disabled")
+	latest, err := db.LatestEmbeddedSchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.DB.ExecContext(context.Background(), `INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)`, latest+1000, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	response := request(t, server, http.MethodGet, "/readyz", nil, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("newer additive schema status = %d, body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"migration_state":"unknown"`) || !strings.Contains(response.Body.String(), `"status":"ok"`) {
+		t.Fatalf("newer additive schema response = %s", response.Body.String())
+	}
+}
+
 func TestReadinessReportsUnavailableDatabase(t *testing.T) {
 	server, _ := testServer(t, "disabled")
 	if err := server.Store.DB.Close(); err != nil {
@@ -172,6 +216,56 @@ func TestReadinessReportsUnavailableDatabaseCapacity(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), `"writable_capacity":{"status":"degraded"`) {
 		t.Fatalf("capacity response = %s", response.Body.String())
+	}
+}
+
+func TestMetricsDoesNotTrustLoopbackProxyHeaders(t *testing.T) {
+	server, _ := testServer(t, "cloudflare")
+	server.Auth = auth.NewManagerWithVerifier(server.Store, server.Cfg, rejectingCloudflareVerifier{})
+	for _, header := range proxyIdentityHeaders {
+		request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		request.RemoteAddr = "127.0.0.1:4321"
+		request.Header.Set(header, "203.0.113.8")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Errorf("loopback proxy header %s status = %d, body=%s", header, response.Code, response.Body.String())
+		}
+	}
+}
+
+type rejectingCloudflareVerifier struct{}
+
+func (rejectingCloudflareVerifier) Verify(context.Context, string) (auth.CloudflareClaims, error) {
+	return auth.CloudflareClaims{}, errors.New("invalid assertion")
+}
+
+func TestStatusWriterPreservesResponseSemantics(t *testing.T) {
+	firstRecorder := httptest.NewRecorder()
+	firstWriter := &statusWriter{ResponseWriter: firstRecorder}
+	firstWriter.WriteHeader(http.StatusTeapot)
+	firstWriter.WriteHeader(http.StatusServiceUnavailable)
+	if firstRecorder.Code != http.StatusTeapot || responseStatus(firstWriter) != http.StatusTeapot {
+		t.Fatalf("status writer changed first final status: recorder=%d wrapper=%d", firstRecorder.Code, responseStatus(firstWriter))
+	}
+
+	recorder := httptest.NewRecorder()
+	writer := &statusWriter{ResponseWriter: recorder}
+	writer.WriteHeader(http.StatusEarlyHints)
+	writer.WriteHeader(http.StatusOK)
+	writer.WriteHeader(http.StatusTeapot)
+	writer.WriteHeader(http.StatusServiceUnavailable)
+	if _, err := writer.Write([]byte("body")); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusEarlyHints || responseStatus(writer) != http.StatusOK {
+		t.Fatalf("status writer changed first status: recorder=%d wrapper=%d", recorder.Code, responseStatus(writer))
+	}
+	if writer.Unwrap() != recorder {
+		t.Fatal("status writer does not expose the underlying writer")
+	}
+	if err := http.NewResponseController(writer).Flush(); err != nil {
+		t.Fatalf("response controller could not flush through status writer: %v", err)
 	}
 }
 

@@ -426,7 +426,7 @@ paths:
     get:
       operationId: getReadiness
       summary: Check service readiness
-      description: Returns bounded machine-readable database, schema, migration, writable-capacity, and storage checks. It returns 200 when all checks pass and 503 with status degraded when a check fails.
+      description: Returns bounded machine-readable database, schema, migration, writable-capacity, and storage checks. It returns 200 when all checks pass and 503 with status degraded when a check fails. Unknown newer additive migrations are reported as a compatibility warning for retained-binary rollback and do not by themselves fail readiness.
       tags:
         - Health
       security:
@@ -506,7 +506,7 @@ paths:
     get:
       operationId: getMetrics
       summary: Fetch production metrics
-      description: Returns bounded Prometheus text. Unauthenticated requests are accepted only from a loopback peer; non-loopback scrapes require a Helm session or scoped bearer token. Metrics never contain task text, request bodies, credentials, or user-provided labels.
+      description: Returns bounded Prometheus text. Unauthenticated requests are accepted only from a loopback peer without forwarding or proxy identity headers; a loopback request carrying those headers is treated as proxied and requires a Helm session or scoped bearer token. Metrics never contain task text, request bodies, credentials, or user-provided labels. Unknown API paths and non-standard methods use bounded labels.
       tags:
         - Health
       security:
@@ -6018,6 +6018,7 @@ components:
             - live
             - assigned
           description: My Work view used for the my_work count.
+      additionalProperties: false
 
     ReadinessCheck:
       type: object

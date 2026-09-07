@@ -39,13 +39,76 @@ const (
 	readinessMinFreeBytes     = int64(64 << 20)
 	readinessLockWarn         = 250 * time.Millisecond
 	readinessListLimit        = 16
-	readinessStorageBytesCap  = int64(512 << 20)
 	readinessStorageWALCap    = int64(64 << 20)
 	maxMetricRouteLength      = 96
 	maxLoggedErrorClassLength = 48
 )
 
 var metricHistogramBuckets = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+
+// metricRouteTemplates is intentionally finite.  A route label is useful for
+// operations only when it describes a real handler; arbitrary combinations of
+// otherwise-known path segments would let an attacker grow the process-local
+// registry without bound.
+var metricRouteTemplates = map[string]struct{}{
+	"/api/v1": {},
+
+	"/api/v1/search": {}, "/api/v1/search/tasks": {}, "/api/v1/search/projects": {}, "/api/v1/search/views": {},
+	"/api/v1/views": {}, "/api/v1/views/:view": {}, "/api/v1/views/:view/search": {}, "/api/v1/views/:view/tasks": {},
+	"/api/v1/saved-views": {}, "/api/v1/saved-views/:view": {}, "/api/v1/saved-views/:view/search": {}, "/api/v1/saved-views/:view/tasks": {},
+	"/api/v1/export": {}, "/api/v1/import": {}, "/api/v1/import/trello": {},
+	"/api/v1/auth/status": {}, "/api/v1/auth/setup": {}, "/api/v1/auth/login": {}, "/api/v1/auth/logout": {}, "/api/v1/auth/me": {},
+	"/api/v1/codex/account": {}, "/api/v1/codex/login": {}, "/api/v1/codex/login/cancel": {}, "/api/v1/codex/logout": {},
+	"/api/v1/projects": {}, "/api/v1/projects/:project": {},
+	"/api/v1/projects/:project/export": {}, "/api/v1/projects/:project/import": {}, "/api/v1/projects/:project/boards": {},
+	"/api/v1/projects/:project/columns": {}, "/api/v1/projects/:project/tasks": {}, "/api/v1/projects/:project/task-context": {},
+	"/api/v1/projects/:project/task-draft": {}, "/api/v1/projects/:project/timeline": {}, "/api/v1/projects/:project/audits": {},
+	"/api/v1/projects/:project/labels": {}, "/api/v1/projects/:project/roadmap": {},
+	"/api/v1/columns/:column": {}, "/api/v1/issues": {}, "/api/v1/issues/metrics": {}, "/api/v1/audit-findings/:finding": {},
+	"/api/v1/audits/:audit": {}, "/api/v1/audits/:audit/findings": {}, "/api/v1/audits/:audit/finalize": {},
+	"/api/v1/tasks/:task": {}, "/api/v1/tasks/:task/restore": {}, "/api/v1/tasks/:task/move": {}, "/api/v1/tasks/:task/reorder": {},
+	"/api/v1/tasks/:task/checklist": {}, "/api/v1/tasks/:task/checklists": {}, "/api/v1/tasks/:task/checklist/:item": {}, "/api/v1/tasks/:task/checklists/:item": {},
+	"/api/v1/tasks/:task/checklist/reorder": {}, "/api/v1/tasks/:task/checklists/reorder": {},
+	"/api/v1/tasks/:task/hierarchy": {}, "/api/v1/tasks/:task/children": {}, "/api/v1/tasks/:task/children/:child": {},
+	"/api/v1/tasks/:task/ancestors": {}, "/api/v1/tasks/:task/descendants": {}, "/api/v1/tasks/:task/parent": {},
+	"/api/v1/tasks/:task/dependencies": {}, "/api/v1/tasks/:task/dependencies/:prerequisite": {},
+	"/api/v1/tasks/:task/comments": {}, "/api/v1/tasks/:task/comments/:comment": {}, "/api/v1/tasks/:task/timeline": {},
+	"/api/v1/tasks/:task/progress": {}, "/api/v1/tasks/:task/heartbeat": {}, "/api/v1/tasks/:task/claim": {}, "/api/v1/tasks/:task/renew": {},
+	"/api/v1/tasks/:task/release": {}, "/api/v1/tasks/:task/complete": {}, "/api/v1/tasks/:task/block": {},
+	"/api/v1/tasks/:task/triage": {}, "/api/v1/tasks/:task/resolve": {}, "/api/v1/tasks/:task/reopen": {},
+	"/api/v1/labels/:label": {}, "/api/v1/sidebar-counts": {}, "/api/v1/my-work": {}, "/api/v1/roadmap": {}, "/api/v1/events": {}, "/api/v1/agents": {},
+	"/api/v1/agents/:agent/tokens": {}, "/api/v1/tokens/:token": {},
+}
+
+var metricDynamicSegments = map[string]string{
+	"projects":       ":project",
+	"tasks":          ":task",
+	"columns":        ":column",
+	"labels":         ":label",
+	"tokens":         ":token",
+	"audits":         ":audit",
+	"audit-findings": ":finding",
+	"agents":         ":agent",
+	"views":          ":view",
+	"saved-views":    ":view",
+	"checklist":      ":item",
+	"checklists":     ":item",
+	"children":       ":child",
+	"dependencies":   ":prerequisite",
+	"comments":       ":comment",
+}
+
+var proxyIdentityHeaders = [...]string{
+	"Forwarded",
+	"X-Forwarded-For",
+	"X-Forwarded-Host",
+	"X-Forwarded-Proto",
+	"X-Real-IP",
+	"True-Client-IP",
+	"CF-Connecting-IP",
+	"Cf-Access-Jwt-Assertion",
+	"Cf-Access-Authenticated-User-Email",
+}
 
 type requestMetricKey struct {
 	method string
@@ -345,15 +408,16 @@ func sortedUintRequestKeys(values map[requestMetricKey]uint64) []requestMetricKe
 
 func safeMetricMethod(method string) string {
 	method = strings.ToUpper(strings.TrimSpace(method))
-	if method == "" || len(method) > 16 {
-		return "UNKNOWN"
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodPatch, http.MethodDelete, http.MethodOptions, http.MethodConnect,
+		http.MethodTrace:
+		return method
+	default:
+		// Do not accept arbitrary extension method names as labels. A caller can
+		// otherwise create an unbounded number of process-local time series.
+		return "OTHER"
 	}
-	for _, character := range method {
-		if character < 'A' || character > 'Z' {
-			return "OTHER"
-		}
-	}
-	return method
 }
 
 func safeMetricLabel(value, fallback string) string {
@@ -391,6 +455,9 @@ func metricRoute(rawPath string) string {
 	if clean == "/healthz" || clean == "/health" || clean == "/readyz" || clean == "/ready" || clean == "/metrics" || clean == "/openapi.json" {
 		return clean
 	}
+	if clean == "/api/v1" {
+		return clean
+	}
 	if !strings.HasPrefix(clean, "/api/v1/") {
 		return "/static"
 	}
@@ -398,45 +465,21 @@ func metricRoute(rawPath string) string {
 	if len(parts) < 3 {
 		return "/api/v1/other"
 	}
-	knownTopLevel := map[string]struct{}{
-		"agents": {}, "audits": {}, "auth": {}, "audit-findings": {}, "codex": {},
-		"columns": {}, "events": {}, "issues": {}, "labels": {}, "my-work": {},
-		"projects": {}, "roadmap": {}, "tasks": {}, "tokens": {},
-	}
-	if _, ok := knownTopLevel[parts[2]]; !ok {
-		return "/api/v1/other"
-	}
-	knownStatic := map[string]struct{}{
-		"account": {}, "audits": {}, "auth": {}, "block": {}, "cancel": {}, "claim": {},
-		"columns": {}, "comments": {}, "complete": {}, "dependencies": {}, "events": {},
-		"finalize": {}, "findings": {}, "heartbeat": {}, "issues": {}, "labels": {},
-		"login": {}, "logout": {}, "me": {}, "move": {}, "my-work": {}, "open": {},
-		"progress": {}, "projects": {}, "reopen": {}, "release": {}, "renew": {},
-		"resolve": {}, "roadmap": {}, "setup": {}, "status": {}, "task-context": {},
-		"task-draft": {}, "tasks": {}, "timeline": {}, "tokens": {}, "triage": {},
-	}
-	dynamicSegments := map[string]string{
-		"projects":       ":project",
-		"tasks":          ":task",
-		"columns":        ":column",
-		"labels":         ":label",
-		"tokens":         ":token",
-		"audits":         ":audit",
-		"audit-findings": ":finding",
-		"agents":         ":agent",
-		"dependencies":   ":dependency",
-	}
 	for index := 3; index < len(parts); index++ {
-		if replacement, ok := dynamicSegments[parts[index-1]]; ok {
-			parts[index] = replacement
+		// Reorder is a literal action under both checklist aliases, not an item
+		// identifier. Keep it literal before applying the generic segment map.
+		if parts[index] == "reorder" && (parts[index-1] == "checklist" || parts[index-1] == "checklists") {
 			continue
 		}
-		if _, ok := knownStatic[parts[index]]; !ok {
-			return "/api/v1/other"
+		if replacement, ok := metricDynamicSegments[parts[index-1]]; ok {
+			parts[index] = replacement
 		}
 	}
 	result := "/" + strings.Join(parts, "/")
 	if len(result) > maxMetricRouteLength {
+		return "/api/v1/other"
+	}
+	if _, ok := metricRouteTemplates[result]; !ok {
 		return "/api/v1/other"
 	}
 	return result
@@ -496,6 +539,15 @@ func isLoopbackRequest(r *http.Request) bool {
 	if host == "" {
 		return false
 	}
+	// A reverse proxy commonly connects over loopback while forwarding an
+	// external caller. Treat forwarding and Access identity headers as proof
+	// that the peer is a proxy, not as a reason to grant the unauthenticated
+	// local-monitoring exception. The headers are never trusted for identity.
+	for _, header := range proxyIdentityHeaders {
+		if len(r.Header.Values(header)) > 0 {
+			return false
+		}
+	}
 	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
 		host = parsedHost
 	} else {
@@ -506,13 +558,14 @@ func isLoopbackRequest(r *http.Request) bool {
 }
 
 type databaseMetricSnapshot struct {
-	DatabaseBytes   int64
-	WALBytes        int64
-	PageCount       int64
-	MaxPageCount    int64
-	PageUsageRatio  float64
-	OpenConnections int
-	WaitCount       int64
+	DatabaseBytes    int64
+	WALBytes         int64
+	WALCapacityBytes int64
+	PageCount        int64
+	MaxPageCount     int64
+	PageUsageRatio   float64
+	OpenConnections  int
+	WaitCount        int64
 }
 
 func (s *Server) collectDatabaseMetrics(ctx context.Context) databaseMetricSnapshot {
@@ -525,6 +578,9 @@ func (s *Server) collectDatabaseMetrics(ctx context.Context) databaseMetricSnaps
 	}
 	if value, err := pragmaInt64(ctx, s.Store.DB, "max_page_count"); err == nil {
 		snapshot.MaxPageCount = nonNegativeInt64(value)
+	}
+	if value, err := pragmaInt64(ctx, s.Store.DB, "journal_size_limit"); err == nil {
+		snapshot.WALCapacityBytes = nonNegativeInt64(value)
 	}
 	pageSize, _ := pragmaInt64(ctx, s.Store.DB, "page_size")
 	if pageSize > 0 && snapshot.PageCount > 0 && snapshot.PageCount <= math.MaxInt64/pageSize {
@@ -549,7 +605,7 @@ func pragmaInt64(ctx context.Context, database *sql.DB, name string) (int64, err
 	if database == nil {
 		return 0, errors.New("database unavailable")
 	}
-	allowed := map[string]struct{}{"page_count": {}, "max_page_count": {}, "page_size": {}, "freelist_count": {}}
+	allowed := map[string]struct{}{"page_count": {}, "max_page_count": {}, "page_size": {}, "freelist_count": {}, "journal_size_limit": {}}
 	if _, ok := allowed[name]; !ok {
 		return 0, errors.New("unsupported pragma")
 	}
@@ -689,10 +745,15 @@ func (s *Server) readiness(ctx context.Context) readinessReport {
 		schemaCheck.PendingVersions = boundedVersions(inspection.PendingVersions)
 		schemaCheck.UnknownVersions = boundedVersions(inspection.UnknownVersions)
 		if len(inspection.UnknownVersions) > 0 {
-			schemaCheck.Status = "degraded"
-			schemaCheck.Message = "database schema is newer than this binary"
+			// InspectSchema and the migration layer explicitly preserve the
+			// retained-binary rollback path for newer additive migrations. Keep
+			// this as a visible compatibility warning without taking a usable
+			// instance out of readiness; pending embedded migrations remain a
+			// hard failure below.
+			schemaCheck.Message = "database includes newer additive migrations"
 			schemaCheck.MigrationState = "unknown"
-		} else if len(inspection.PendingVersions) > 0 || inspection.SchemaVersion != inspection.EmbeddedSchemaVersion {
+		}
+		if len(inspection.PendingVersions) > 0 || inspection.SchemaVersion < inspection.EmbeddedSchemaVersion {
 			schemaCheck.Status = "degraded"
 			schemaCheck.Message = "database schema is not current"
 			schemaCheck.MigrationState = "pending"
@@ -704,7 +765,7 @@ func (s *Server) readiness(ctx context.Context) readinessReport {
 	fail("schema", schemaCheck)
 
 	migrationCheck := schemaCheck
-	if migrationCheck.Status == "ok" {
+	if migrationCheck.Status == "ok" && len(inspection.UnknownVersions) == 0 {
 		migrationCheck.Message = "embedded migrations are current"
 	}
 	fail("migration", migrationCheck)
@@ -809,12 +870,20 @@ func storageReadinessCheck(storage databaseMetricSnapshot) readinessCheck {
 		MaxPageCount:   nonNegativeInt64(storage.MaxPageCount),
 		PageUsageRatio: boundedRatio(storage.PageUsageRatio),
 	}
-	if check.DatabaseBytes >= readinessStorageBytesCap || check.PageUsageRatio >= 1 {
+	if check.PageUsageRatio >= 1 {
 		check.Status = "degraded"
 		check.Message = "database page capacity is exhausted"
-	} else if check.WALBytes >= readinessStorageWALCap {
-		check.Status = "degraded"
-		check.Message = "database WAL capacity is exhausted"
+	} else {
+		walCapacity := storage.WALCapacityBytes
+		if walCapacity <= 0 {
+			// Keep a conservative fallback for drivers that do not expose the
+			// journal_size_limit pragma; db.Open configures this same limit.
+			walCapacity = readinessStorageWALCap
+		}
+		if check.WALBytes >= walCapacity {
+			check.Status = "degraded"
+			check.Message = "database WAL capacity is exhausted"
+		}
 	}
 	return check
 }
