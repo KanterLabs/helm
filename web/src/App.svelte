@@ -152,6 +152,7 @@
   import AgentWorkPanel from './lib/components/AgentWorkPanel.svelte';
   import AuditReview from './lib/components/AuditReview.svelte';
   import BoardTimeline from './lib/components/BoardTimeline.svelte';
+  import BoardOverflowNavigation from './lib/components/BoardOverflowNavigation.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import HelmMark from './lib/components/HelmMark.svelte';
   import LiveWorkRow from './lib/components/LiveWorkRow.svelte';
@@ -6020,7 +6021,8 @@
             {:else if !sortedColumns.length}
               <div class="empty-state board-empty"><div class="empty-icon">◇</div><h2>Your board is almost ready</h2><p>Columns will appear here once this project has been initialized.</p><button class="button primary" type="button" on:click={() => loadBoard()}>Refresh board</button></div>
             {:else}
-              <section class="board" use:boardCardHeight aria-label={`${activeProject.name} board`}>
+              <BoardOverflowNavigation label={`${activeProject.name} board columns`}>
+              <section class="board" data-board-overflow-scroll use:boardCardHeight aria-label={`${activeProject.name} board`}>
                 {#each sortedColumns as column (column.id)}
                 {@const orderingGate = makeBoardOrderingGate({
                   criteriaTransition: boardCriteriaTransition,
@@ -6085,6 +6087,7 @@
                   </article>
                 {/each}
               </section>
+              </BoardOverflowNavigation>
             {/if}
             {:else}
               <BoardTimeline
