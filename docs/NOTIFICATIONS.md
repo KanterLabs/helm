@@ -32,6 +32,10 @@ with no intersection sees no inbox or watch rows; project-less notification
 rows are not exposed to scoped identities. Single, bulk, and mark-all read
 mutations apply the same visibility rules.
 
+A bearer credential with write permission but neither `notifications:read`
+nor `tasks:read` receives only `id` and `read_at` from single-item read-state
+mutations; those writes do not expose the notification's content.
+
 ## Deliberately deferred work
 
 Due-date and claim-expiry reminders are not active in this slice because they
