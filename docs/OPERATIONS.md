@@ -109,6 +109,29 @@ The gateway checks the QEMU VMID namespace before every status, deploy, or
 rollback request. A QEMU guest at VMID 103 is a hard collision: the request
 fails closed instead of treating the missing LXC config as `current_sha=none`.
 
+### CT configuration preflight diagnostics
+
+Before status, rollback, or deployment work, the gateway reads the existing
+CT configuration and compares it with the reviewed identity. A rejection is
+fail-closed and read-only; it does not change the guest, release link, or
+database. The diagnostic names only the bounded field reason, for example:
+
+* `nameserver`: missing, duplicate, malformed, or invalid setting. Production
+  expects `10.0.0.1 1.1.1.1`.
+* `searchdomain`: missing, duplicate, malformed, or invalid setting.
+  Production expects `lan`.
+* `startup`: missing, duplicate, malformed, or invalid setting. The reviewed
+  options are `order=5`, `up=10`, and `down=30`.
+* `tags`: missing, duplicate, malformed, or invalid setting. Production uses
+  the exact set `lan`, `roadmap`, and `service`; beta uses `lan`, `beta`, and
+  `service`.
+
+For a failed preflight, first run the forced read-only status command and, if
+needed, inspect `pct config 103` from an approved PVE console. Do not paste
+the full CT configuration into CI or logs, and do not bypass the gateway or
+relax its identity checks; configuration repair is a separately reviewed
+maintenance action.
+
 The gateway refuses to reuse a CTID with a different hostname, address, or
 privilege mode. Deploy CI sends the validated release bundle only on standard
 input for the `deploy <sha>` request; the root gateway captures it in a
