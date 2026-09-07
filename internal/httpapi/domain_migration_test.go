@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/KanterLabs/helm/internal/auth"
 	"github.com/KanterLabs/helm/internal/config"
 	"github.com/KanterLabs/helm/internal/store"
+	"github.com/KanterLabs/helm/internal/webassets"
 )
 
 func migrationTestServer(t *testing.T) (*Server, *store.Store) {
@@ -173,20 +176,37 @@ func TestLegacyDocumentRedirectSafety(t *testing.T) {
 		}
 	}
 
-	for _, target := range []string{
+	compatibilityPaths := []string{
 		"/index.html",
 		"/sw.js",
-		"/assets/index-CuZVuKUf.js",
 		"/icons/icon-192.png",
 		"/manifest.webmanifest",
 		"/favicon.svg",
 		"/helm-mark.svg",
-	} {
+	}
+	assets, err := fs.Glob(webassets.Dist, "assets/*.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) > 0 {
+		compatibilityPaths = append(compatibilityPaths, "/"+assets[0])
+	}
+	for _, target := range compatibilityPaths {
+		// Plain go test embeds the checked-in fallback; release CI first
+		// embeds the actual build. Test the routing contract in both cases
+		// without relying on stale locally-generated hashed assets.
+		expectedStatus := http.StatusOK
+		if _, err := fs.Stat(webassets.Dist, strings.TrimPrefix(target, "/")); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+			expectedStatus = http.StatusNotFound
+		}
 		response := migrationRequest(t, server, http.MethodGet, target, "tc.test", "192.0.2.10:1234", nil, map[string]string{"Accept": "text/html"})
-		if response.Code != http.StatusOK || response.Header().Get("Location") != "" {
+		if response.Code != expectedStatus || response.Header().Get("Location") != "" {
 			t.Fatalf("compatibility path %q redirected: status=%d location=%q", target, response.Code, response.Header().Get("Location"))
 		}
-		if target == "/sw.js" && !strings.Contains(response.Body.String(), "PRECACHE_URLS") {
+		if target == "/sw.js" && expectedStatus == http.StatusOK && !strings.Contains(response.Body.String(), "PRECACHE_URLS") {
 			t.Fatalf("legacy service worker response did not contain the embedded worker")
 		}
 	}
