@@ -555,6 +555,12 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.projects(w, r, identity)
 		case "events":
 			s.events(w, r, identity)
+		case "notifications":
+			s.notifications(w, r, identity)
+		case "notification-preferences":
+			s.notificationPreferences(w, r, identity)
+		case "watches":
+			s.watches(w, r, identity)
 		case "roadmap":
 			s.roadmap(w, r, identity, "", false)
 		case "my-work":
@@ -607,6 +613,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 				s.roadmap(w, r, identity, parts[1], true)
 			case "audits":
 				s.audits(w, r, identity, parts[1], true)
+			case "watch", "watches":
+				s.projectWatch(w, r, identity, parts[1])
 			case "export":
 				s.exportPortable(w, r, identity, parts[1], true)
 			case "import":
@@ -670,6 +678,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 				s.taskAction(w, r, identity, parts[1], "block")
 			case "triage", "resolve", "reopen":
 				s.issueAction(w, r, identity, parts[1], parts[2])
+			case "watch", "watches":
+				s.taskWatch(w, r, identity, parts[1])
 			default:
 				s.writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
 			}
@@ -695,6 +705,22 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.taskHierarchy(w, r, identity, parts[1], parts[2], parts[3])
 			return
 		}
+	}
+	if parts[0] == "notifications" && len(parts) == 2 && parts[1] == "read" {
+		s.notifications(w, r, identity)
+		return
+	}
+	if parts[0] == "notifications" && len(parts) == 3 && parts[2] == "read" {
+		s.notification(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "notifications" && len(parts) == 2 {
+		s.notification(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "watches" && len(parts) == 2 {
+		s.watch(w, r, identity, parts[1])
+		return
 	}
 	if parts[0] == "audits" && len(parts) >= 2 {
 		if len(parts) == 2 {

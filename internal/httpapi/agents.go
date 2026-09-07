@@ -14,6 +14,7 @@ import (
 var tokenScopes = map[string]struct{}{
 	"projects:read": {}, "projects:write": {}, "tasks:read": {},
 	"tasks:write": {}, "tasks:claim": {}, "events:read": {},
+	"notifications:read": {}, "notifications:write": {},
 }
 
 func validateTokenScopes(raw json.RawMessage) error {

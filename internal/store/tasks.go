@@ -1031,6 +1031,15 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		taskMutation := validated.Title != nil || validated.Description != nil || validated.Priority != nil || validated.ColumnID != nil || validated.Position != nil || validated.AssigneeSet || validated.DueAtSet || validated.LabelsSet || kind != current.Kind
 		if taskMutation {
 			eventPayload := map[string]any{"version": expected + 1}
+			// Keep assignment transitions in the event payload so the additive
+			// notification read model can fan out without guessing from a later
+			// task snapshot. Preserve the historic payload for unrelated patches.
+			if validated.AssigneeSet {
+				assignmentChanged := assignee != nullableStringValue(current.Assignee)
+				eventPayload["assignee"] = assignee
+				eventPayload["previous_assignee"] = nullableStringValue(current.Assignee)
+				eventPayload["assignment_changed"] = assignmentChanged
+			}
 			if completionTransition {
 				addChecklistCompletionEventFields(eventPayload, checklistStatus)
 			}

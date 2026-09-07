@@ -149,6 +149,7 @@ func normalizeScopes(scopes []string) []string {
 	allowed := map[string]bool{
 		"projects:read": true, "projects:write": true, "tasks:read": true, "tasks:write": true,
 		"tasks:claim": true, "events:read": true,
+		"notifications:read": true, "notifications:write": true,
 	}
 	seen := make(map[string]bool)
 	result := make([]string, 0, len(scopes))

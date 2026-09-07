@@ -714,7 +714,16 @@ func emitDependencyStateChanges(ctx context.Context, q dependencySQL, actorID st
 			"prerequisite_key": change.PrerequisiteKey,
 			"satisfied":        change.Satisfied,
 		}
-		if _, err := q.ExecContext(ctx, `INSERT INTO events(id, type, actor_id, project_id, task_id, payload, created_at) VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?)`, newID(), "task.dependency_state_changed", actorID, change.ProjectID, target.DependentID, eventPayload(payload), now()); err != nil {
+		eventID, createdAt := newID(), now()
+		result, err := q.ExecContext(ctx, `INSERT INTO events(id, type, actor_id, project_id, task_id, payload, created_at) VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?)`, eventID, "task.dependency_state_changed", actorID, change.ProjectID, target.DependentID, eventPayload(payload), createdAt)
+		if err != nil {
+			return err
+		}
+		eventCursor, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := notifyForEventTx(ctx, q, eventID, eventCursor, "task.dependency_state_changed", actorID, change.ProjectID, target.DependentID, eventPayload(payload), createdAt); err != nil && !isOptionalNotificationSchemaError(err) {
 			return err
 		}
 	}
