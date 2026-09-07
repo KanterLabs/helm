@@ -5510,8 +5510,10 @@
   }
 
   async function editDrawerComment(comment: Comment, body: string): Promise<void> {
-    if (!drawerTask) return;
-    const taskId = drawerTask.id;
+    if (!drawerTask || drawerTask.id !== comment.task_id) {
+      throw new Error('The task changed while this comment was saving. Your draft was kept.');
+    }
+    const taskId = comment.task_id;
     try {
       const updatedComment = await api.patchComment(taskId, comment.id, body.trim(), comment.version ?? 1);
       drawerTimelineRequest += 1;
@@ -6350,6 +6352,7 @@
                 onRetry={() => { void loadDrawerTimeline(drawerTask?.id); }}
                 currentActorId={user?.id || ''}
                 canManageComments={Boolean(user?.admin)}
+                taskId={drawerTask?.id || ''}
                 onEditComment={editDrawerComment}
                 onConfirmDelete={confirmDrawerCommentDelete}
                 onDeleteComment={deleteDrawerComment}
