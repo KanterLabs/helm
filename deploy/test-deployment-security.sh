@@ -2078,4 +2078,7 @@ if compgen -G "$backup_drift_dir/roadmap-*.db*" >/dev/null; then
 fi
 printf 'backup_publication_runtime_tests=ok\n'
 
+python3 "$DEPLOY_DIR/test-helm-restore-drill.py"
+printf 'restore_drill_runtime_tests=ok\n'
+
 printf 'deployment_security_tests=ok\n'

@@ -374,6 +374,49 @@ credentials that may have been exposed by the incident; reissue agent
 credentials after validation. Never swap a raw SQLite file or bypass this
 helper.
 
+### Isolated restore drill (TC-163)
+
+To rehearse recovery without a maintenance window, run the standalone drill
+from an approved operator shell with one explicit retained backup:
+
+```sh
+./deploy/helm-restore-drill.py \
+  --backup /var/lib/roadmap/backups/roadmap-<timestamp>-<sha-or-manual>.db \
+  --report /tmp/helm-restore-drill.json
+```
+
+The report path must be a new file; publication is atomic and no-clobber.
+
+This TC-163 slice is intentionally SQLite-only. It does not execute a
+candidate binary, apply migrations, or start an application process. The
+report records external migration/startup compatibility as `not_run`.
+Candidate migration and loopback readiness require a separately sandboxed
+implementation (TC-164), so a successful TC-163 report is not evidence that a
+new binary can open or migrate the backup.
+
+The selected `.db`, `.sha256`, and `.metadata` files must be regular mode-0600
+files with no `.`/`..` traversal or symlink path components. The filename,
+checksum sidecar, UTC metadata, and optional schema/digest fields are checked
+before the database is copied. The source is held open read-only and its inode,
+size, timestamps, and digest are checked again after every drill path. The
+isolated copy is mode 0600 inside a fresh mode-0700 directory. SQLite `integrity_check`,
+`foreign_key_check`, every source table's row count, primary-key identity, and
+foreign-key relationship are compared before and after the isolated copy;
+`schema_migrations` must remain unchanged. A failed check removes
+the disposable directory (and reports `retained: true` if an unexpected
+cleanup error prevents removal) and leaves the selected source unchanged.
+The retained `.db` is treated as a standalone SQLite snapshot: pending WAL/SHM
+companions are not part of this artifact and are ignored during the read-only
+source inspection.
+
+The command prints exactly one sanitized JSON report. It includes check
+statuses and row counts but never database values, credentials, candidate
+output, or filesystem paths. It does not replace the live database, open the
+live database, stop or start systemd units, run `helm-restore.sh`, or revoke
+sessions/tokens. This is an isolated validation rehearsal, not a production
+restore. TC-119's encrypted backup and remote/off-host repository, transfer,
+retention, and scheduling work is intentionally not part of TC-163.
+
 ## Recovery checks
 
 Useful read-only checks from the PVE host are:
