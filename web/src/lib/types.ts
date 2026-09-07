@@ -405,7 +405,6 @@ export interface NotificationPreferences {
   updated_at: string;
 }
 
-/** A bounded, explicitly attributed rule stored by the API. */
 /** The discriminated payload kinds returned by the durable task timeline. */
 export type TaskTimelineKind = 'agent_progress' | 'comment' | 'task_change';
 export type TaskTimelineFilter = 'all' | TaskTimelineKind;

@@ -106,6 +106,8 @@ describe('NotificationsInbox', () => {
 
     await vi.waitFor(() => expect(markRead).toHaveBeenCalledWith('notification-1', true));
     await vi.waitFor(() => expect(onOpen).toHaveBeenCalledWith(current));
+    await vi.waitFor(() => expect(document.querySelector('.notifications-trigger')?.getAttribute('aria-label')).toBe('Open notifications'));
+    expect(document.querySelector('.notifications-heading p')?.textContent).toBe('All caught up');
   });
 
   it('keeps pagination honest when the loaded page has no unread rows', async () => {
@@ -124,7 +126,17 @@ describe('NotificationsInbox', () => {
     document.querySelector<HTMLButtonElement>('.notifications-more')!.click();
     await vi.waitFor(() => expect(document.body.textContent).toContain('Notification notification-2'));
     expect(list).toHaveBeenLastCalledWith({ limit: 25, cursor: 'cursor-2' });
-    expect(document.body.textContent).toContain('No unread on this page');
+    expect(document.querySelector('.notifications-heading p')?.textContent).toBe('All caught up');
+  });
+
+  it('does not claim the inbox is caught up when loading fails', async () => {
+    vi.spyOn(api, 'listNotifications').mockRejectedValue(new Error('Temporary failure'));
+    vi.spyOn(api, 'listWatches').mockResolvedValue({ data: [] });
+    mountedComponents.push(mount(NotificationsInbox, { target: document.body, props: { sessionKey: 'actor-1:1' } }));
+    await settle();
+    document.querySelector<HTMLButtonElement>('.notifications-trigger')!.click();
+    await vi.waitFor(() => expect(document.querySelector('.notifications-heading p')?.textContent).toBe('Inbox needs attention'));
+    expect(document.body.textContent).not.toContain('All caught up');
   });
 
   it('ignores a stale poll response when a read mutation starts while it is pending', async () => {

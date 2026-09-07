@@ -371,20 +371,21 @@
     return `${Math.round(hours / 24)}d ${minutes < 0 ? 'ago' : 'from now'}`;
   }
 
-  function notificationLabel(): string {
-    return unreadCount ? `Open notifications, ${unreadCount} unread` : 'Open notifications';
+  function notificationLabel(count: number): string {
+    return count ? `Open notifications, ${count} unread` : 'Open notifications';
   }
 
-  function unreadLabel(): string {
-    if (sessionInvalidated) return 'Session expired';
-    if (loading && !notifications.length) return 'Loading…';
-    if (!unreadCount) return nextCursor ? 'No unread on this page' : 'All caught up';
-    return `${unreadCount} unread on this page`;
+  function unreadLabel(invalidated: boolean, busy: boolean, count: number, total: number, cursor: string | null, failure: string): string {
+    if (invalidated) return 'Session expired';
+    if (busy && !total) return 'Loading…';
+    if (failure) return 'Inbox needs attention';
+    if (!count) return cursor ? 'No unread on this page' : 'All caught up';
+    return `${count} unread on this page`;
   }
 </script>
 
 <div class="notifications-inbox">
-  <button class="icon-button notifications-trigger" type="button" aria-label={notificationLabel()} aria-expanded={open} aria-controls="notifications-panel" aria-haspopup="dialog" on:click={toggleInbox}>
+  <button class="icon-button notifications-trigger" type="button" aria-label={notificationLabel(unreadCount)} aria-expanded={open} aria-controls="notifications-panel" aria-haspopup="dialog" on:click={toggleInbox}>
     <span aria-hidden="true">♢</span>
     {#if unreadCount}<span class="notifications-badge" aria-hidden="true">{unreadCount > 99 ? '99+' : unreadCount}</span>{/if}
   </button>
@@ -394,7 +395,7 @@
       <header class="notifications-heading">
         <div>
           <h2 id="notifications-heading">Notifications</h2>
-          <p>{unreadLabel()}</p>
+          <p>{unreadLabel(sessionInvalidated, loading, unreadCount, notifications.length, nextCursor, error)}</p>
         </div>
         <div class="notifications-heading-actions">
           {#if unreadCount}<button class="text-button" type="button" disabled={saving} on:click={() => void markAllRead()}>Mark all read</button>{/if}

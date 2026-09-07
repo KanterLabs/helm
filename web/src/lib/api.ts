@@ -194,7 +194,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       await clearOfflineBoards();
       // A forbidden mutation is a permission failure, not proof that the
       // browser session expired. Only an explicit unauthorized response may
-      // clear the authenticated shell and session-bound UI.
+      // invalidate session-bound UI such as the notification inbox.
       if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event('helm:auth-invalidated'));
     }
     const envelope = parsed as Partial<ApiErrorShape> | undefined;
