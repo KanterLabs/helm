@@ -52,6 +52,11 @@ import {
 
 import { writesBlocked } from './connectivity';
 import { clearOfflineBoards } from './offlineBoards';
+import {
+  getHostMigrationState,
+  normalizeHttpsOrigin,
+  setHostMigrationMetadata
+} from './hostMigration';
 
 export const API_PREFIX = '/api/v1';
 
@@ -138,13 +143,51 @@ function asBody(body: unknown): BodyInit | undefined {
   return JSON.stringify(body);
 }
 
+function isMutation(init: RequestInit): boolean {
+  return !['GET', 'HEAD', 'OPTIONS'].includes((init.method || 'GET').toUpperCase());
+}
+
+function isLegacyLogout(path: string, init: RequestInit): boolean {
+  return path === '/auth/logout' && (init.method || 'GET').toUpperCase() === 'POST';
+}
+
+function instanceMovedError(): ApiError {
+  const migration = getHostMigrationState();
+  return new ApiError(
+    'This Helm address has moved. Open the new address to continue.',
+    409,
+    'instance_moved',
+    migration.canonicalOrigin ? { canonical_origin: migration.canonicalOrigin } : {}
+  );
+}
+
+function currentOrigin(): string {
+  if (typeof window === 'undefined') return '';
+  try { return new URL(window.location.href).origin; } catch { return ''; }
+}
+
+function updateMigrationFromMovedResponse(details: unknown): void {
+  if (!details || typeof details !== 'object') return;
+  const canonical = normalizeHttpsOrigin((details as Record<string, unknown>).canonical_origin);
+  const current = currentOrigin();
+  // A 409 came from this same-origin API. Treat the current HTTPS origin as
+  // the legacy origin only when the destination is validated and different.
+  if (!canonical || !current || canonical === current || !current.startsWith('https://')) return;
+  setHostMigrationMetadata({ canonical_origin: canonical, legacy_origin: current }, current);
+}
+
 /**
  * The one low-level request helper used by the UI. Keeping it exported makes
  * the API boundary easy to test without mounting the application.
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, idempotencyKey, ifMatch, ...init } = options;
-  if (!['GET', 'HEAD', 'OPTIONS'].includes((init.method || 'GET').toUpperCase()) && writesBlocked()) {
+  // Logout is the one explicit same-origin write allowed after a move so a
+  // person can remove the old session; every other mutation stays blocked.
+  if (isMutation(init) && !isLegacyLogout(path, init) && getHostMigrationState().active) {
+    throw instanceMovedError();
+  }
+  if (isMutation(init) && writesBlocked()) {
     throw new ApiError('Offline mode is read-only. Reconnect before making changes.', 0, 'offline_read_only', {});
   }
   const headers = new Headers(init.headers);
@@ -193,6 +236,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     }
     const envelope = parsed as Partial<ApiErrorShape> | undefined;
     const error = envelope?.error;
+    if (response.status === 409 && error?.code === 'instance_moved') {
+      updateMigrationFromMovedResponse(error.details);
+    }
     throw new ApiError(
       error?.message || (typeof parsed === 'string' ? parsed : response.statusText) || 'Request failed',
       response.status,

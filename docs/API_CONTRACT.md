@@ -21,8 +21,9 @@ fields are omitted when they have no value unless a route explicitly documents
 - Every response includes `X-Request-ID`. Deployments with a release SHA also include `X-Roadmap-Revision`.
 - API responses are `Cache-Control: no-store`. Clients may send `X-Request-ID` (up to 128 characters); otherwise the server generates one.
 - Cookie- and Cloudflare-authenticated mutations require an `Origin` exactly equal to the configured public origin. Missing or different origins return `403` (`csrf_origin`). Bearer-token requests are exempt from this Origin check. `GET`, `HEAD`, and `OPTIONS` do not require Origin.
-- Public mutation routes (`setup`, `login`, and `logout`) use the same exact-Origin rule and reject `Idempotency-Key` with `400` (`idempotency_not_supported`).
+- Public mutation routes (`setup`, `login`, and `logout`) use the same exact-Origin rule and reject `Idempotency-Key` with `400` (`idempotency_not_supported`). During an opt-in hostname migration, legacy-host logout may use the legacy Origin solely to clear an old session; legacy-host setup/login never create or replace credentials.
 - Humans use the local session cookie or verified Cloudflare Access identity. Agents use scoped `Authorization: Bearer` tokens. Missing credentials return `401`; valid credentials without the required permission or scope return `403`.
+- When a migration is enabled, requests must use one of the exact configured canonical or legacy authorities. Unknown hosts, cross-port variants, and forwarded-host claims return `421` (`host_not_allowed`); only loopback `GET`/`HEAD` health and readiness requests bypass that host check for installers. The server never trusts `X-Forwarded-Host` or `Forwarded` to select an authority.
 
 ## Authentication
 
@@ -50,6 +51,23 @@ Actors always contain `id`, `kind`, `name`, `admin`, `created_at`, and
 `updated_at`. Human actors may include `email`; agent email is unsupported.
 Actors may include `description`, `project_ids`, and agent token metadata. Token
 metadata never includes plaintext token values.
+
+During a hostname migration, `GET /api/v1/auth/status` additionally returns
+top-level `canonical_origin` and `legacy_origin` strings. These fields are
+omitted when migration is disabled. A legacy browser document navigation to
+`/` or `/p/{project}` receives a temporary `307` to the fixed canonical
+origin with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; its
+query string is discarded. `index.html`, `sw.js`, assets, icons, the manifest,
+favicon, and Helm mark remain direct legacy-host responses so an existing PWA
+can update safely. Requests with `Authorization`, API paths, non-document
+fetch headers, and unsafe route paths are never redirected.
+
+Legacy authenticated human API mutations, and legacy setup/login attempts,
+return `409` (`instance_moved`) with
+`error.details.canonical_origin`; they are not redirected or replayed. Legacy
+bearer API requests retain their normal authentication, authorization, and
+write behavior so existing agents continue to operate while browser writes
+move to the canonical origin.
 
 ## Projects, columns, and labels
 

@@ -499,6 +499,10 @@ export interface AuthStatus {
   authenticated: boolean;
   actor: Actor | null;
   user: Actor | null;
+  /** Present only while the operator has enabled a hostname migration. */
+  canonical_origin?: string;
+  /** Present only while the operator has enabled a hostname migration. */
+  legacy_origin?: string;
   /** @deprecated Compatibility alias not emitted by the runtime. */
   needs_setup?: never;
 }

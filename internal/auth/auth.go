@@ -41,16 +41,17 @@ func (i Identity) CanProject(projectID string) bool {
 }
 
 type Manager struct {
-	Store              *store.Store
-	Mode               string
-	AdminEmail         string
-	SecureCookie       bool
-	CloudflareVerifier CloudflareJWTVerifier
-	cloudflareInitErr  error
+	Store                   *store.Store
+	Mode                    string
+	AdminEmail              string
+	SecureCookie            bool
+	CloudflareVerifier      CloudflareJWTVerifier
+	CloudflareHostAudiences map[string][]string
+	cloudflareInitErr       error
 }
 
 func NewManager(s *store.Store, cfg config.Config) *Manager {
-	m := &Manager{Store: s, Mode: cfg.AuthMode, AdminEmail: cfg.AdminEmail, SecureCookie: cfg.SecureCookies}
+	m := &Manager{Store: s, Mode: cfg.AuthMode, AdminEmail: cfg.AdminEmail, SecureCookie: cfg.SecureCookies, CloudflareHostAudiences: cloneHostAudiences(cfg.CloudflareHostAudiences)}
 	if cfg.AuthMode == "cloudflare" {
 		audiences := cfg.CloudflareAudiences
 		if len(audiences) == 0 && cfg.CloudflareAudience != "" {
@@ -71,11 +72,12 @@ func NewManager(s *store.Store, cfg config.Config) *Manager {
 // which keep verification keys in another trusted implementation.
 func NewManagerWithVerifier(s *store.Store, cfg config.Config, verifier CloudflareJWTVerifier) *Manager {
 	return &Manager{
-		Store:              s,
-		Mode:               cfg.AuthMode,
-		AdminEmail:         cfg.AdminEmail,
-		SecureCookie:       cfg.SecureCookies,
-		CloudflareVerifier: verifier,
+		Store:                   s,
+		Mode:                    cfg.AuthMode,
+		AdminEmail:              cfg.AdminEmail,
+		SecureCookie:            cfg.SecureCookies,
+		CloudflareVerifier:      verifier,
+		CloudflareHostAudiences: cloneHostAudiences(cfg.CloudflareHostAudiences),
 	}
 }
 
@@ -120,6 +122,9 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) (Identity, 
 		claims, err := m.CloudflareVerifier.Verify(ctx, assertion)
 		if err != nil {
 			return Identity{}, errors.New("invalid Cloudflare identity")
+		}
+		if !cloudflareHostAudienceAllowed(m.CloudflareHostAudiences, r.Host, claims.Audiences) {
+			return Identity{}, errors.New("Cloudflare identity is not valid for this host")
 		}
 		email := claims.Email
 		if !validEmail(email) {

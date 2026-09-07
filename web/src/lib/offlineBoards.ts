@@ -576,18 +576,23 @@ export async function readOfflineBoards(): Promise<OfflineBoard[]> {
   }
 }
 
-export async function clearOfflineBoards(): Promise<void> {
+export async function clearOfflineBoards(): Promise<boolean> {
   ensureInvalidationChannel();
   activeOwner = null;
   const token = ++ownerGeneration;
   clearGeneration += 1;
   markClearTombstone();
+  // No IndexedDB implementation means Helm could not have persisted a board
+  // snapshot in this browser, so the logical clear is complete even though
+  // there is no transaction to commit.
+  let cleared = !idbFactory();
   try {
-    await mutateState(token, null, () => ({ owner: null, boards: [] }));
+    if (idbFactory()) cleared = await mutateState(token, null, () => ({ owner: null, boards: [] }));
   } catch {
     // Keep the tombstone when IDB cannot be written so a reload still fails
     // closed instead of revealing the previous account's board.
   }
   dispatchCleared();
   broadcastCleared();
+  return cleared;
 }

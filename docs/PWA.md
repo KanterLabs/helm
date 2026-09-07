@@ -120,6 +120,35 @@ Automated coverage is in `web/e2e/pwa-offline.spec.ts`, `offlineBoards.test.ts`,
 workers and network failures rather than mocked cached API responses. No
 server database migration or production deployment is part of this change.
 
+## Moving an installed app to another hostname
+
+The hostname transition is opt-in and separate from PWA installation. During
+the compatibility period the old origin continues serving its worker and
+static assets. An already-open client can learn the canonical and legacy
+origins from the instance's status response and display the migration notice.
+Old-origin browser writes are rejected by the server even if an older cached
+client does not understand that notice. Writes are never replayed at the new
+address.
+
+Copy unsaved draft text before leaving the old app. Sign in at the new address,
+install its Home Screen app, and visit boards online to populate its own saved
+view. The new app cannot inherit the old origin's session, service worker or
+IndexedDB snapshots. Test a full offline relaunch on the physical device before
+removing the old shortcut.
+
+Cleanup is explicit and operates on the old origin only: Helm saved boards and
+Helm static caches, not arbitrary browser storage. It is not a remote wipe or
+a session transfer. Sign-out and removing the old Home Screen shortcut remain
+separate actions. Other open old-origin tabs can repopulate caches; close them
+after migration. An offline old device cannot learn about the move until it
+reconnects, and existing snapshot expiry/read-only rules still apply.
+
+Use the [domain cutover checklist](DOMAIN_CUTOVER_CHECKLIST.md) to record
+existing-worker, deep-link, sign-in, cleanup and physical-device acceptance.
+`web/e2e/host-migration.spec.ts` verifies the mobile notice and cleanup consent
+at a simulated HTTPS legacy origin; it does not claim to validate Cloudflare
+or a physical iPhone Home Screen installation.
+
 Background: [Web Push for Web Apps on iOS and iPadOS](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)
 describes `standalone`, Home Screen icons, and manifest `id`; [Updates to
 Storage Policy](https://webkit.org/blog/14403/updates-to-storage-policy/) notes

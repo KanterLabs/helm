@@ -16,6 +16,9 @@ type Config struct {
 	DB           string
 	AuthMode     string
 	PublicOrigin string
+	// LegacyOrigin is an optional, exact-origin compatibility host used during
+	// a domain migration. An empty value keeps the single-origin behavior.
+	LegacyOrigin string
 	AdminEmail   string
 	// CodexBinary is the executable used to launch the local Codex App Server.
 	// CodexHomeRoot contains one isolated CODEX_HOME directory per Helm actor.
@@ -37,9 +40,13 @@ type Config struct {
 	CloudflareIssuer    string
 	CloudflareAudience  string
 	CloudflareAudiences []string
-	CloudflareJWKSURL   string
-	SecureCookies       bool
-	DemoSeed            bool
+	// CloudflareHostAudiences optionally narrows the accepted Access
+	// application audiences to exact Host authorities. The map is populated
+	// from HELM_CF_ACCESS_HOST_AUDIENCES using host=aud1,aud2;host2=aud3.
+	CloudflareHostAudiences map[string][]string
+	CloudflareJWKSURL       string
+	SecureCookies           bool
+	DemoSeed                bool
 }
 
 func FromEnv() (Config, error) {
@@ -56,6 +63,10 @@ func FromEnv() (Config, error) {
 		return Config{}, err
 	}
 	publicOrigin, err := resolveEnv("HELM_PUBLIC_ORIGIN", "ROADMAP_PUBLIC_ORIGIN")
+	if err != nil {
+		return Config{}, err
+	}
+	legacyOrigin, err := resolveEnv("HELM_LEGACY_ORIGIN", "ROADMAP_LEGACY_ORIGIN")
 	if err != nil {
 		return Config{}, err
 	}
@@ -108,6 +119,10 @@ func FromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cloudflareHostAudiences, err := resolveEnv("HELM_CF_ACCESS_HOST_AUDIENCES", "ROADMAP_CF_ACCESS_HOST_AUDIENCES")
+	if err != nil {
+		return Config{}, err
+	}
 	cloudflareJWKSURL, err := resolveEnv(
 		"HELM_CLOUDFLARE_JWKS_URL", "HELM_CF_ACCESS_JWKS_URL", "HELM_CLOUDFLARE_CERTS_URL",
 		"ROADMAP_CLOUDFLARE_JWKS_URL", "ROADMAP_CF_ACCESS_JWKS_URL", "ROADMAP_CLOUDFLARE_CERTS_URL",
@@ -129,6 +144,7 @@ func FromEnv() (Config, error) {
 		DB:                 valueOr(db, "data/roadmap.db"),
 		AuthMode:           strings.ToLower(valueOr(authMode, "local")),
 		PublicOrigin:       strings.TrimRight(publicOrigin.value, "/"),
+		LegacyOrigin:       strings.TrimRight(legacyOrigin.value, "/"),
 		AdminEmail:         adminEmail.value,
 		CodexBinary:        valueOr(codexBinary, "codex"),
 		CodexHomeRoot:      valueOr(codexHomeRoot, "data/codex-users"),
@@ -193,11 +209,39 @@ func FromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("HELM_LUNA_EFFORT must be low, medium, high, xhigh, max, or ultra")
 	}
 	if c.AuthMode == "local" || c.AuthMode == "cloudflare" {
-		origin, err := normalizeOrigin(c.PublicOrigin, c.AuthMode == "cloudflare")
+		origin, err := normalizeOrigin(c.PublicOrigin, c.AuthMode == "cloudflare" || c.LegacyOrigin != "")
 		if err != nil {
 			return Config{}, err
 		}
 		c.PublicOrigin = origin
+	}
+	if c.LegacyOrigin != "" {
+		if c.AuthMode == "disabled" {
+			return Config{}, fmt.Errorf("HELM_LEGACY_ORIGIN requires HELM_AUTH_MODE local or cloudflare")
+		}
+		origin, err := normalizeNamedOrigin("HELM_LEGACY_ORIGIN", c.LegacyOrigin, true)
+		if err != nil {
+			return Config{}, err
+		}
+		c.PublicOrigin = canonicalizeOriginAuthority(c.PublicOrigin)
+		origin = canonicalizeOriginAuthority(origin)
+		if sameOrigin(c.PublicOrigin, origin) {
+			return Config{}, fmt.Errorf("HELM_LEGACY_ORIGIN must differ from HELM_PUBLIC_ORIGIN")
+		}
+		c.LegacyOrigin = origin
+	}
+	if cloudflareHostAudiences.value != "" && c.LegacyOrigin == "" {
+		c.PublicOrigin = canonicalizeOriginAuthority(c.PublicOrigin)
+	}
+	if cloudflareHostAudiences.value != "" {
+		if c.AuthMode != "cloudflare" {
+			return Config{}, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES requires HELM_AUTH_MODE=cloudflare")
+		}
+		parsed, err := parseCloudflareHostAudiences(cloudflareHostAudiences.value, c.CloudflareAudiences, c.PublicOrigin, c.LegacyOrigin)
+		if err != nil {
+			return Config{}, err
+		}
+		c.CloudflareHostAudiences = parsed
 	}
 	if c.AuthMode == "disabled" && !loopbackAddr(c.Addr) {
 		return Config{}, fmt.Errorf("HELM_AUTH_MODE=disabled requires HELM_ADDR to bind to loopback")
@@ -304,22 +348,190 @@ func validateURL(name, value string, requireHTTPS bool) error {
 }
 
 func normalizeOrigin(value string, requireHTTPS bool) (string, error) {
+	return normalizeNamedOrigin("HELM_PUBLIC_ORIGIN", value, requireHTTPS)
+}
+
+func normalizeNamedOrigin(name, value string, requireHTTPS bool) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "", fmt.Errorf("HELM_PUBLIC_ORIGIN is required when HELM_AUTH_MODE is local or cloudflare")
+		return "", fmt.Errorf("%s is required when HELM_AUTH_MODE is local or cloudflare", name)
+	}
+	// A root origin may be written with one or more trailing slashes. Strip
+	// those before parsing so the resulting value is stable across env files.
+	value = strings.TrimRight(value, "/")
+	if value == "" {
+		return "", fmt.Errorf("%s must be a normalized http(s) origin", name)
 	}
 	parsed, err := url.ParseRequestURI(value)
-	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(value, "#") || (parsed.Path != "" && parsed.Path != "/") || parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("HELM_PUBLIC_ORIGIN must be a normalized http(s) origin")
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.RawPath != "" || strings.Contains(value, "#") || (parsed.Path != "" && parsed.Path != "/") || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", fmt.Errorf("%s must be a normalized http(s) origin", name)
 	}
 	if requireHTTPS && parsed.Scheme != "https" {
-		return "", fmt.Errorf("HELM_PUBLIC_ORIGIN must use https in cloudflare mode")
+		return "", fmt.Errorf("%s must use https", name)
 	}
 	normalized := strings.TrimRight(value, "/")
 	if normalized == "" {
-		return "", fmt.Errorf("HELM_PUBLIC_ORIGIN must be a normalized http(s) origin")
+		return "", fmt.Errorf("%s must be a normalized http(s) origin", name)
 	}
 	return normalized, nil
+}
+
+func sameOrigin(left, right string) bool {
+	if left == "" || right == "" {
+		return false
+	}
+	l, leftErr := url.ParseRequestURI(left)
+	r, rightErr := url.ParseRequestURI(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	if !strings.EqualFold(l.Scheme, r.Scheme) || !strings.EqualFold(l.Hostname(), r.Hostname()) {
+		return false
+	}
+	return effectiveOriginPort(l) == effectiveOriginPort(r)
+}
+
+func originAuthority(origin string) string {
+	parsed, err := url.ParseRequestURI(origin)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
+}
+
+func effectiveOriginPort(origin *url.URL) string {
+	if port := origin.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(origin.Scheme, "https") {
+		return "443"
+	}
+	return "80"
+}
+
+func canonicalizeOriginAuthority(value string) string {
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil {
+		return value
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	port := parsed.Port()
+	if (strings.EqualFold(parsed.Scheme, "https") && port == "443") || (strings.EqualFold(parsed.Scheme, "http") && port == "80") {
+		port = ""
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = host
+	parsed.Path = ""
+	parsed.RawPath = ""
+	return parsed.String()
+}
+
+func parseCloudflareHostAudiences(value string, configuredAudiences []string, publicOrigin, legacyOrigin string) (map[string][]string, error) {
+	result := make(map[string][]string)
+	assignedAudiences := make(map[string]string)
+	configured := make(map[string]struct{}, len(configuredAudiences))
+	for _, audience := range configuredAudiences {
+		configured[audience] = struct{}{}
+	}
+	for _, entry := range strings.Split(value, ";") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES contains an empty host mapping")
+		}
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES entries must use host=audience[,audience]")
+		}
+		host := strings.TrimSpace(parts[0])
+		if !validHostAuthority(host) {
+			return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES contains an invalid host")
+		}
+		host = strings.ToLower(host)
+		for existing := range result {
+			if strings.EqualFold(existing, host) {
+				return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES contains a duplicate host")
+			}
+		}
+		audienceValues := strings.Split(parts[1], ",")
+		if len(audienceValues) == 0 {
+			return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES requires an audience for each host")
+		}
+		seen := make(map[string]struct{}, len(audienceValues))
+		clean := make([]string, 0, len(audienceValues))
+		for _, audience := range audienceValues {
+			audience = strings.TrimSpace(audience)
+			if audience == "" || strings.ContainsAny(audience, "\r\n;=") {
+				return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES contains an invalid audience")
+			}
+			if _, ok := configured[audience]; !ok {
+				return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES audience is not in HELM_CF_ACCESS_AUDIENCES")
+			}
+			if previousHost, ok := assignedAudiences[audience]; ok && previousHost != host {
+				return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES cannot reuse an audience across hosts")
+			}
+			if _, ok := seen[audience]; ok {
+				return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES contains a duplicate audience")
+			}
+			seen[audience] = struct{}{}
+			assignedAudiences[audience] = host
+			clean = append(clean, audience)
+		}
+		result[host] = clean
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES must not be empty")
+	}
+	if !hostAudienceMappingIncludes(result, originAuthority(publicOrigin)) {
+		return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES must include the public origin host")
+	}
+	if legacyOrigin != "" && !hostAudienceMappingIncludes(result, originAuthority(legacyOrigin)) {
+		return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES must include the legacy origin host")
+	}
+	if legacyOrigin != "" {
+		publicHost := originAuthority(publicOrigin)
+		legacyHost := originAuthority(legacyOrigin)
+		for mapped := range result {
+			if !strings.EqualFold(mapped, publicHost) && !strings.EqualFold(mapped, legacyHost) {
+				return nil, fmt.Errorf("HELM_CF_ACCESS_HOST_AUDIENCES may contain only the public and legacy origin hosts")
+			}
+		}
+	}
+	return result, nil
+}
+
+func hostAudienceMappingIncludes(mapping map[string][]string, host string) bool {
+	for mapped := range mapping {
+		if strings.EqualFold(mapped, host) {
+			return true
+		}
+	}
+	return false
+}
+
+func validHostAuthority(value string) bool {
+	if value == "" || strings.ContainsAny(value, "\r\n\t /?#@=*%;") || strings.Contains(value, "://") {
+		return false
+	}
+	parsed, err := url.ParseRequestURI("https://" + value)
+	if err != nil || parsed.Host != value || parsed.Hostname() == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return false
+	}
+	if strings.HasSuffix(value, ":") && !strings.HasSuffix(value, "]") {
+		return false
+	}
+	if port := parsed.Port(); port != "" {
+		parsedPort, err := strconv.Atoi(port)
+		if err != nil || parsedPort < 1 || parsedPort > 65535 {
+			return false
+		}
+	}
+	return true
 }
 
 func validEmail(value string) bool {

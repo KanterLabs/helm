@@ -66,6 +66,7 @@
   import { offlineReadOnly } from './lib/connectivity';
   import { clearOfflineBoards, readOfflineBoards, saveOfflineBoard, setOfflineOwner, type OfflineBoard as OfflineBoardSnapshot } from './lib/offlineBoards';
   import OfflineBoard from './lib/components/OfflineBoard.svelte';
+  import HostMigrationBanner from './lib/components/HostMigrationBanner.svelte';
   import PwaStatus from './lib/components/PwaStatus.svelte';
   import { boardCardHeight, createColumnScroll } from './lib/boardLayout';
   import { flip } from 'svelte/animate';
@@ -187,6 +188,13 @@
   } from './lib/commandPalette';
   import { queueBoardTimelineLoad } from './lib/boardTimeline';
   import {
+    getHostMigrationState,
+    safeMigrationUrl,
+    setHostMigrationMetadata,
+    subscribeHostMigration,
+    type HostMigrationState
+  } from './lib/hostMigration';
+  import {
     mergeTimelineItems,
     reconcileTimelineComments,
     type TimelineCommentReconciliation,
@@ -298,6 +306,9 @@
 
   let booting = true;
   let authStatus: AuthStatus | null = null;
+  let hostMigration: HostMigrationState = getHostMigrationState();
+  let hostMigrationUrl = '';
+  let hostMigrationHasUnsavedDrafts = false;
   let user: Actor | null = null;
   let authView: AuthView = 'login';
   let authSubmitting = false;
@@ -752,6 +763,12 @@
     drawerTask
     && (drawerTaskDraftDirty || drawerActionDraftFingerprintValue !== drawerSavedActionDraftFingerprint)
   );
+  $: hostMigrationHasUnsavedDrafts = drawerDraftDirty
+    || (showTaskModal && Boolean(taskModalTitle.trim() || taskModalDescription.trim() || taskModalIdea.trim()))
+    || (showBugModal && Boolean(bugModalTitle.trim() || bugModalDescription.trim() || bugModalActual.trim()));
+  $: hostMigrationUrl = hostMigration.active
+    ? safeMigrationUrl(hostMigration.canonicalOrigin, typeof window !== 'undefined' ? window.location.href : undefined) || ''
+    : '';
   $: searchView = searchSavedViews.find((item) => item.id === searchViewId);
 
   const focusableSelector = [
@@ -1176,6 +1193,15 @@
     return themeFromMediaPreference(prefersDark);
   }
 
+  function navigateFromMovedHost(): void {
+    if (!hostMigrationUrl) return;
+    if (
+      hostMigrationHasUnsavedDrafts
+      && !window.confirm('Leave this address? Copy unsaved drafts first; writes are disabled here and drafts are not transferred to the new Helm address.')
+    ) return;
+    window.location.assign(hostMigrationUrl);
+  }
+
   onMount(() => {
     const storedTheme = readMigratedStorage(localStorage, helmStorageKeys.theme, legacyRoadmapStorageKeys.theme);
     theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : systemTheme();
@@ -1183,6 +1209,10 @@
     applyTheme();
     recentProjectIds = loadRecentProjects(localStorage);
     boardOffline = !navigator.onLine;
+    const stopHostMigration = subscribeHostMigration((next) => {
+      hostMigration = next;
+      if (!next.active) hostMigrationUrl = '';
+    });
     const onlineHandler = () => {
       if ($offlineReadOnly) void reconnectOffline();
     };
@@ -1207,6 +1237,7 @@
       window.removeEventListener('helm:network-unavailable', offlineHandler);
       window.removeEventListener('helm:offline-cleared', clearHandler);
       window.removeEventListener('helm:auth-invalidated', clearHandler);
+      stopHostMigration();
       bootstrapController?.abort();
     };
     if ($offlineReadOnly || navigator.onLine === false) void enterOffline();
@@ -1287,6 +1318,11 @@
     try {
       authStatus = await api.authStatus(controller.signal);
       if (requestId !== bootstrapRequest) return;
+      // Runtime metadata is optional. Absent or invalid metadata leaves the
+      // existing self-hosted/default behavior unchanged. Publish it only
+      // after the request-generation check so an aborted bootstrap cannot
+      // overwrite newer migration state.
+      setHostMigrationMetadata(authStatus, window.location.origin);
       authStatusLoaded = true;
       sessionStorage.removeItem(accessBootstrapKey);
       sessionStorage.removeItem(legacyAccessBootstrapKey);
@@ -5643,6 +5679,15 @@
 </script>
 
 <svelte:window />
+
+{#if hostMigration.active && hostMigrationUrl}
+  <HostMigrationBanner
+    canonicalOrigin={hostMigration.canonicalOrigin}
+    safeUrl={hostMigrationUrl}
+    hasUnsavedDrafts={hostMigrationHasUnsavedDrafts}
+    onNavigate={navigateFromMovedHost}
+  />
+{/if}
 
 {#if user && !$offlineReadOnly}
   <PwaStatus showCacheStatus={false} />

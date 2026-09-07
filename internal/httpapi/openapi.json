@@ -1142,7 +1142,7 @@
       "get": {
         "operationId": "getAuthStatus",
         "summary": "Get authentication status",
-        "description": "Public deployment status. `disabled` is intended only for development.",
+        "description": "Public deployment status. `disabled` is intended only for development.\nWhen a hostname migration is enabled, the response additionally includes\n`canonical_origin` and `legacy_origin`; otherwise those optional fields\nare omitted.\n",
         "tags": [
           "Authentication"
         ],
@@ -9258,6 +9258,18 @@
                 "type": "null"
               }
             ]
+          },
+          "canonical_origin": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "description": "Canonical browser-write origin, present only during a hostname migration."
+          },
+          "legacy_origin": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "description": "Legacy compatibility origin, present only during a hostname migration."
           }
         },
         "additionalProperties": false

@@ -9,16 +9,19 @@ func clearConfigEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
 		"HELM_ADDR", "HELM_DB", "HELM_AUTH_MODE", "HELM_PUBLIC_ORIGIN",
+		"HELM_LEGACY_ORIGIN",
 		"HELM_ADMIN_EMAIL", "HELM_RELEASE_SHA", "HELM_CLOUDFLARE_ISSUER", "HELM_CF_ACCESS_ISSUER",
 		"HELM_CODEX_BINARY", "HELM_CODEX_HOME_ROOT",
 		"HELM_LUNA_ENABLED", "HELM_LUNA_MODEL", "HELM_LUNA_EFFORT",
 		"HELM_CLOUDFLARE_AUDIENCE", "HELM_CLOUDFLARE_AUD", "HELM_CF_ACCESS_AUDIENCES", "HELM_CLOUDFLARE_AUDIENCES",
+		"HELM_CF_ACCESS_HOST_AUDIENCES",
 		"HELM_CLOUDFLARE_JWKS_URL", "HELM_CF_ACCESS_JWKS_URL", "HELM_CLOUDFLARE_CERTS_URL", "HELM_SECURE_COOKIES",
-		"HELM_DEMO_SEED", "ROADMAP_ADDR", "ROADMAP_DB", "ROADMAP_AUTH_MODE", "ROADMAP_PUBLIC_ORIGIN",
+		"HELM_DEMO_SEED", "ROADMAP_ADDR", "ROADMAP_DB", "ROADMAP_AUTH_MODE", "ROADMAP_PUBLIC_ORIGIN", "ROADMAP_LEGACY_ORIGIN",
 		"ROADMAP_ADMIN_EMAIL", "ROADMAP_RELEASE_SHA", "ROADMAP_CLOUDFLARE_ISSUER", "ROADMAP_CF_ACCESS_ISSUER",
 		"ROADMAP_CODEX_BINARY", "ROADMAP_CODEX_HOME_ROOT",
 		"ROADMAP_LUNA_ENABLED", "ROADMAP_LUNA_MODEL", "ROADMAP_LUNA_EFFORT",
 		"ROADMAP_CLOUDFLARE_AUDIENCE", "ROADMAP_CLOUDFLARE_AUD", "ROADMAP_CF_ACCESS_AUDIENCES", "ROADMAP_CLOUDFLARE_AUDIENCES",
+		"ROADMAP_CF_ACCESS_HOST_AUDIENCES",
 		"ROADMAP_CLOUDFLARE_JWKS_URL", "ROADMAP_CF_ACCESS_JWKS_URL", "ROADMAP_CLOUDFLARE_CERTS_URL", "ROADMAP_SECURE_COOKIES",
 		"ROADMAP_DEMO_SEED",
 	} {
@@ -50,6 +53,9 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 	if cfg.PublicOrigin != "http://localhost:8080" {
 		t.Fatalf("normalized default origin = %q", cfg.PublicOrigin)
+	}
+	if cfg.LegacyOrigin != "" {
+		t.Fatalf("default legacy origin = %q, want empty", cfg.LegacyOrigin)
 	}
 	if !cfg.SecureCookies {
 		t.Fatal("secure cookies defaulted to false")
@@ -221,6 +227,7 @@ func TestFromEnvConflictingSettingsFailClosed(t *testing.T) {
 		{name: "database", canonical: "HELM_DB", legacy: "ROADMAP_DB", leftValue: "/var/lib/helm-a.db", rightValue: "/var/lib/helm-b.db"},
 		{name: "auth mode", canonical: "HELM_AUTH_MODE", legacy: "ROADMAP_AUTH_MODE", leftValue: "disabled", rightValue: "local"},
 		{name: "public origin", canonical: "HELM_PUBLIC_ORIGIN", legacy: "ROADMAP_PUBLIC_ORIGIN", leftValue: "https://helm-a.example", rightValue: "https://helm-b.example"},
+		{name: "legacy origin", canonical: "HELM_LEGACY_ORIGIN", legacy: "ROADMAP_LEGACY_ORIGIN", leftValue: "https://tc-a.example", rightValue: "https://tc-b.example"},
 		{name: "administrator", canonical: "HELM_ADMIN_EMAIL", legacy: "ROADMAP_ADMIN_EMAIL", leftValue: "a@example.com", rightValue: "b@example.com"},
 		{name: "Codex binary", canonical: "HELM_CODEX_BINARY", legacy: "ROADMAP_CODEX_BINARY", leftValue: "/opt/a/codex", rightValue: "/opt/b/codex"},
 		{name: "Codex home root", canonical: "HELM_CODEX_HOME_ROOT", legacy: "ROADMAP_CODEX_HOME_ROOT", leftValue: "/var/lib/helm/a", rightValue: "/var/lib/helm/b"},
@@ -230,6 +237,7 @@ func TestFromEnvConflictingSettingsFailClosed(t *testing.T) {
 		{name: "issuer", canonical: "HELM_CLOUDFLARE_ISSUER", legacy: "ROADMAP_CLOUDFLARE_ISSUER", leftValue: "https://issuer-a.example", rightValue: "https://issuer-b.example"},
 		{name: "audience", canonical: "HELM_CLOUDFLARE_AUDIENCE", legacy: "ROADMAP_CLOUDFLARE_AUDIENCE", leftValue: "audience-a", rightValue: "audience-b"},
 		{name: "audiences", canonical: "HELM_CF_ACCESS_AUDIENCES", legacy: "ROADMAP_CF_ACCESS_AUDIENCES", leftValue: "ui-a,api-a", rightValue: "ui-b,api-b"},
+		{name: "host audiences", canonical: "HELM_CF_ACCESS_HOST_AUDIENCES", legacy: "ROADMAP_CF_ACCESS_HOST_AUDIENCES", leftValue: "helm.example=ui-a", rightValue: "helm.example=api-a"},
 		{name: "JWKS URL", canonical: "HELM_CLOUDFLARE_JWKS_URL", legacy: "ROADMAP_CLOUDFLARE_JWKS_URL", leftValue: "https://jwks-a.example/certs", rightValue: "https://jwks-b.example/certs"},
 		{name: "issuer compatibility aliases", canonical: "ROADMAP_CLOUDFLARE_ISSUER", legacy: "ROADMAP_CF_ACCESS_ISSUER", leftValue: "https://issuer-a.example", rightValue: "https://issuer-b.example"},
 		{name: "audience compatibility aliases", canonical: "ROADMAP_CLOUDFLARE_AUDIENCE", legacy: "ROADMAP_CLOUDFLARE_AUD", leftValue: "audience-a", rightValue: "audience-b"},
@@ -358,6 +366,166 @@ func TestFromEnvRequiresNormalizedOrigin(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFromEnvLegacyOrigin(t *testing.T) {
+	for _, variant := range []string{"canonical", "legacy", "equal"} {
+		t.Run(variant, func(t *testing.T) {
+			clearConfigEnv(t)
+			t.Setenv("HELM_AUTH_MODE", "local")
+			t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+			t.Setenv("HELM_PUBLIC_ORIGIN", "https://helm.example/")
+			switch variant {
+			case "canonical":
+				t.Setenv("HELM_LEGACY_ORIGIN", " https://tc.example/// ")
+			case "legacy":
+				t.Setenv("ROADMAP_LEGACY_ORIGIN", "https://tc.example/")
+			case "equal":
+				t.Setenv("HELM_LEGACY_ORIGIN", "https://tc.example")
+				t.Setenv("ROADMAP_LEGACY_ORIGIN", "https://tc.example")
+			}
+			cfg, err := FromEnv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.PublicOrigin != "https://helm.example" || cfg.LegacyOrigin != "https://tc.example" {
+				t.Fatalf("origins = public %q legacy %q", cfg.PublicOrigin, cfg.LegacyOrigin)
+			}
+		})
+	}
+
+	for _, origin := range []string{
+		"http://tc.example",
+		"https://tc.example/path",
+		"https://tc.example?x=1",
+		"https://tc.example#fragment",
+		"tc.example",
+		"https://",
+	} {
+		t.Run("rejects "+origin, func(t *testing.T) {
+			clearConfigEnv(t)
+			t.Setenv("HELM_AUTH_MODE", "local")
+			t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+			t.Setenv("HELM_PUBLIC_ORIGIN", "https://helm.example")
+			t.Setenv("HELM_LEGACY_ORIGIN", origin)
+			if _, err := FromEnv(); err == nil {
+				t.Fatalf("legacy origin %q unexpectedly accepted", origin)
+			}
+		})
+	}
+
+	t.Run("rejects same origin including case", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("HELM_AUTH_MODE", "local")
+		t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+		t.Setenv("HELM_PUBLIC_ORIGIN", "https://HELM.example/")
+		t.Setenv("HELM_LEGACY_ORIGIN", "https://helm.EXAMPLE")
+		if _, err := FromEnv(); err == nil {
+			t.Fatal("legacy origin equal to canonical origin unexpectedly accepted")
+		}
+	})
+	t.Run("rejects same origin with implicit https port", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("HELM_AUTH_MODE", "local")
+		t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+		t.Setenv("HELM_PUBLIC_ORIGIN", "https://helm.example")
+		t.Setenv("HELM_LEGACY_ORIGIN", "https://helm.example:443")
+		if _, err := FromEnv(); err == nil {
+			t.Fatal("legacy origin with implicit default port unexpectedly accepted")
+		}
+	})
+
+	t.Run("disabled auth rejects migration", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("HELM_AUTH_MODE", "disabled")
+		t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+		t.Setenv("HELM_LEGACY_ORIGIN", "https://tc.example")
+		if _, err := FromEnv(); err == nil {
+			t.Fatal("disabled auth accepted a legacy origin")
+		}
+	})
+
+	t.Run("conflicting aliases fail closed", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("HELM_AUTH_MODE", "local")
+		t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+		t.Setenv("HELM_PUBLIC_ORIGIN", "https://helm.example")
+		t.Setenv("HELM_LEGACY_ORIGIN", "https://tc-a.example")
+		t.Setenv("ROADMAP_LEGACY_ORIGIN", "https://tc-b.example")
+		_, err := FromEnv()
+		if err == nil || !strings.Contains(err.Error(), "HELM_LEGACY_ORIGIN") || !strings.Contains(err.Error(), "ROADMAP_LEGACY_ORIGIN") {
+			t.Fatalf("legacy alias conflict error = %v", err)
+		}
+	})
+}
+
+func TestFromEnvCloudflareHostAudiences(t *testing.T) {
+	for _, env := range []string{"HELM_CF_ACCESS_HOST_AUDIENCES", "ROADMAP_CF_ACCESS_HOST_AUDIENCES"} {
+		t.Run(env, func(t *testing.T) {
+			validCloudflareEnv(t)
+			t.Setenv("ROADMAP_LEGACY_ORIGIN", "https://tc.example")
+			t.Setenv(env, "roadmap.example=ui-audience;tc.example=api-audience")
+			cfg, err := FromEnv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.CloudflareHostAudiences) != 2 || len(cfg.CloudflareHostAudiences["roadmap.example"]) != 1 || cfg.CloudflareHostAudiences["roadmap.example"][0] != "ui-audience" || cfg.CloudflareHostAudiences["tc.example"][0] != "api-audience" {
+				t.Fatalf("host audiences = %#v", cfg.CloudflareHostAudiences)
+			}
+		})
+	}
+
+	t.Run("staged map permits future second host", func(t *testing.T) {
+		validCloudflareEnv(t)
+		t.Setenv("HELM_CF_ACCESS_HOST_AUDIENCES", "roadmap.example=ui-audience;helm.example=api-audience")
+		cfg, err := FromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LegacyOrigin != "" || len(cfg.CloudflareHostAudiences) != 2 {
+			t.Fatalf("staged config = legacy %q host audiences %#v", cfg.LegacyOrigin, cfg.CloudflareHostAudiences)
+		}
+	})
+	t.Run("overlap map cannot add a third host", func(t *testing.T) {
+		validCloudflareEnv(t)
+		t.Setenv("ROADMAP_LEGACY_ORIGIN", "https://tc.example")
+		t.Setenv("HELM_CF_ACCESS_AUDIENCES", "ui-audience,api-audience,third-audience")
+		t.Setenv("HELM_CF_ACCESS_HOST_AUDIENCES", "roadmap.example=ui-audience;tc.example=api-audience;third.example=third-audience")
+		if _, err := FromEnv(); err == nil {
+			t.Fatal("overlap map accepted a third host")
+		}
+	})
+
+	for _, raw := range []string{
+		"roadmap.example",
+		"*.example=ui-audience",
+		"https://roadmap.example=ui-audience",
+		"other.example=unknown",
+		"roadmap.example=ui-audience;roadmap.example=api-audience",
+		"roadmap.example=ui-audience,ui-audience",
+		"roadmap.example=ui-audience;",
+		"other.example=ui-audience",
+		"roadmap.example=ui-audience;helm.example=ui-audience",
+	} {
+		t.Run("rejects "+raw, func(t *testing.T) {
+			validCloudflareEnv(t)
+			t.Setenv("HELM_CF_ACCESS_HOST_AUDIENCES", raw)
+			if _, err := FromEnv(); err == nil {
+				t.Fatalf("host audience mapping %q unexpectedly accepted", raw)
+			}
+		})
+	}
+
+	t.Run("non Cloudflare auth rejects mapping", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("HELM_AUTH_MODE", "local")
+		t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+		t.Setenv("HELM_PUBLIC_ORIGIN", "https://roadmap.example")
+		t.Setenv("HELM_CF_ACCESS_HOST_AUDIENCES", "roadmap.example=ui-audience")
+		if _, err := FromEnv(); err == nil {
+			t.Fatal("local auth accepted Cloudflare host audiences")
+		}
+	})
 }
 
 func TestFromEnvCloudflareRequirements(t *testing.T) {

@@ -160,6 +160,9 @@ func TestCloudflareJWTVerifierAcceptsSignedIdentityAndCachesKeys(t *testing.T) {
 	if identity.Email != "owner@example.com" || identity.Name != "Owner" {
 		t.Fatalf("identity = %#v", identity)
 	}
+	if len(identity.Audiences) != 1 || identity.Audiences[0] != "ui-audience" {
+		t.Fatalf("verified UI audiences = %#v", identity.Audiences)
+	}
 
 	claims = validClaims(now, []string{"api-audience"})
 	identity, err = verifier.Verify(context.Background(), signedJWT(t, key, claims, "RS256"))
@@ -168,6 +171,9 @@ func TestCloudflareJWTVerifierAcceptsSignedIdentityAndCachesKeys(t *testing.T) {
 	}
 	if identity.Email != "owner@example.com" {
 		t.Fatalf("API identity = %#v", identity)
+	}
+	if len(identity.Audiences) != 1 || identity.Audiences[0] != "api-audience" {
+		t.Fatalf("verified API audiences = %#v", identity.Audiences)
 	}
 	if got := requests.Load(); got != 1 {
 		t.Fatalf("JWKS requests = %d, want cached single fetch", got)
@@ -367,8 +373,12 @@ func TestManagerBearerTokenTakesPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := NewManagerWithVerifier(data, config.Config{AuthMode: "cloudflare"}, staticVerifier{err: fmt.Errorf("assertion should not run")})
+	manager := NewManagerWithVerifier(data, config.Config{
+		AuthMode:                "cloudflare",
+		CloudflareHostAudiences: map[string][]string{"old.example": {"old-ui"}, "new.example": {"new-ui"}},
+	}, staticVerifier{err: fmt.Errorf("assertion should not run")})
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Host = "old.example"
 	request.Header.Set("Authorization", "Bearer "+plaintext)
 	request.Header.Set("Cf-Access-Jwt-Assertion", "invalid")
 	identity, err := manager.Authenticate(context.Background(), request)

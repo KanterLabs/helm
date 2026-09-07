@@ -195,6 +195,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/openapi.json" {
 		w.Header().Set("Cache-Control", "no-store")
 	}
+	if !s.allowMigrationHost(w, r) {
+		return
+	}
 	if s.Cfg.PublicOrigin != "" && r.Header.Get("Origin") == s.Cfg.PublicOrigin {
 		w.Header().Set("Access-Control-Allow-Origin", s.Cfg.PublicOrigin)
 		w.Header().Set("Vary", "Origin")
@@ -445,6 +448,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.openAPI(w, r)
 		return
 	}
+	if s.redirectLegacyDocument(w, r) {
+		return
+	}
 	if !isAPIPath(r.URL.Path) {
 		s.staticFile(w, r)
 		return
@@ -460,6 +466,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 			response["revision"] = s.Cfg.ReleaseSHA
 		}
 		s.writeJSON(w, http.StatusOK, response)
+		return
+	}
+	if s.legacyPublicAuthMutationMoved(w, r) {
 		return
 	}
 	// Auth endpoints status/setup/login are intentionally public. Logout can
@@ -510,6 +519,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusOK, identity.Actor)
 		return
 	}
+	if s.legacyHumanMutationMoved(w, r, identity) {
+		return
+	}
 	if !identity.IsToken && !s.validMutationOrigin(r) {
 		s.writeError(w, http.StatusForbidden, "csrf_origin", "request origin is not allowed", nil)
 		return
@@ -520,6 +532,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 func (s *Server) validMutationOrigin(r *http.Request) bool {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 		return true
+	}
+	if s.legacyLogoutAllowed(r) {
+		return strings.TrimSpace(r.Header.Get("Origin")) == s.Cfg.LegacyOrigin
 	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
@@ -848,6 +863,10 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	status["authenticated"] = false
 	status["actor"] = nil
 	status["user"] = nil
+	if s.migrationEnabled() {
+		status["canonical_origin"] = s.Cfg.PublicOrigin
+		status["legacy_origin"] = s.Cfg.LegacyOrigin
+	}
 	identity, authenticated := requestIdentity(r)
 	if !authenticated && strings.TrimSpace(r.Header.Get("Authorization")) == "" {
 		if authenticatedIdentity, authErr, admitted := s.authenticateRequest(w, r); !admitted {
@@ -864,7 +883,7 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		// browser navigation to this endpoint lets Access issue its API-path
 		// authorization cookie, then returns the user to the SPA. API clients and
 		// fetch requests explicitly ask for JSON and retain the status response.
-		if s.Cfg.AuthMode == "cloudflare" && !identity.IsToken && strings.Contains(r.Header.Get("Accept"), "text/html") {
+		if s.Cfg.AuthMode == "cloudflare" && !identity.IsToken && strings.Contains(r.Header.Get("Accept"), "text/html") && (!s.migrationEnabled() || s.migrationRequestHost(r) == migrationHostCanonical) {
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}

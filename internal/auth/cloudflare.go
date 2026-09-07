@@ -37,6 +37,8 @@ const (
 type CloudflareClaims struct {
 	Email string
 	Name  string
+	// Audiences are returned only after signature and registered-claim checks.
+	Audiences []string
 }
 
 // CloudflareJWTVerifier verifies a Cloudflare Access assertion and returns
@@ -166,6 +168,7 @@ func (v *JWTVerifier) Verify(ctx context.Context, assertion string) (CloudflareC
 	if err := v.validateClaims(claims); err != nil {
 		return CloudflareClaims{}, err
 	}
+	claims.Identity.Audiences = append([]string(nil), claims.Audience...)
 	return claims.Identity, nil
 }
 

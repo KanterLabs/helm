@@ -675,7 +675,11 @@ paths:
     get:
       operationId: getAuthStatus
       summary: Get authentication status
-      description: Public deployment status. `disabled` is intended only for development.
+      description: |
+        Public deployment status. `disabled` is intended only for development.
+        When a hostname migration is enabled, the response additionally includes
+        `canonical_origin` and `legacy_origin`; otherwise those optional fields
+        are omitted.
       tags:
         - Authentication
       security:
@@ -6029,6 +6033,16 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Actor'
             - type: 'null'
+        canonical_origin:
+          type: string
+          format: uri
+          pattern: '^https://'
+          description: Canonical browser-write origin, present only during a hostname migration.
+        legacy_origin:
+          type: string
+          format: uri
+          pattern: '^https://'
+          description: Legacy compatibility origin, present only during a hostname migration.
       additionalProperties: false
 
     AuthSetupRequest:
