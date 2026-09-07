@@ -65,7 +65,9 @@ jobs:
           go vet ./...
           GOSUMDB=sum.golang.org go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
           bash -n deploy/*.sh deploy/helm-deploy-gateway
+          bash deploy/test-domain-profile.sh
           ./deploy/test-deployment-security.sh
+          bash deploy/test-bundle-origin.sh
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/helm ./cmd/helm
           docker compose config >/dev/null
       - name: Upload immutable binary artifact
@@ -245,13 +247,12 @@ jobs:
     runs-on: homelab
     environment:
       name: beta
-      url: https://beta.shanekanterman.dev
+      url: ${{ steps.domain_profile.outputs.public_url }}
     concurrency:
       group: helm-beta
       cancel-in-progress: false
     env:
       HELM_DEPLOY_ENVIRONMENT: beta
-      HELM_PUBLIC_ORIGIN: https://beta.shanekanterman.dev
     steps:
       # github.sha is the selected beta commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
@@ -260,6 +261,12 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+      - name: Resolve validated deployment domain
+        id: domain_profile
+        run: |
+          public_url=$(bash deploy/domain-profile.sh beta public-url)
+          printf 'public_url=%s\n' "$public_url" >> "$GITHUB_OUTPUT"
+          printf 'HELM_PUBLIC_ORIGIN=%s\n' "$public_url" >> "$GITHUB_ENV"
       - name: Download immutable binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -376,13 +383,12 @@ jobs:
     runs-on: homelab
     environment:
       name: beta
-      url: https://beta.shanekanterman.dev
+      url: ${{ steps.domain_profile.outputs.public_url }}
     concurrency:
       group: helm-beta
       cancel-in-progress: false
     env:
       HELM_DEPLOY_ENVIRONMENT: beta
-      HELM_PUBLIC_ORIGIN: https://beta.shanekanterman.dev
     steps:
       # A manual rollback is beta-authorized only when dispatched from beta,
       # and its scripts are pinned to the selected beta commit.
@@ -391,6 +397,12 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+      - name: Resolve validated deployment domain
+        id: domain_profile
+        run: |
+          public_url=$(bash deploy/domain-profile.sh beta public-url)
+          printf 'public_url=%s\n' "$public_url" >> "$GITHUB_OUTPUT"
+          printf 'HELM_PUBLIC_ORIGIN=%s\n' "$public_url" >> "$GITHUB_ENV"
       - name: Configure beta deploy identity
         env:
           DEPLOY_KEY: ${{ secrets.BETA_DEPLOY_SSH_KEY }}
@@ -441,7 +453,7 @@ jobs:
     runs-on: homelab
     environment:
       name: production
-      url: https://tc.shanekanterman.dev
+      url: ${{ steps.domain_profile.outputs.public_url }}
     concurrency:
       group: helm-production
       cancel-in-progress: false
@@ -453,6 +465,12 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+      - name: Resolve validated deployment domain
+        id: domain_profile
+        run: |
+          public_url=$(bash deploy/domain-profile.sh production public-url)
+          printf 'public_url=%s\n' "$public_url" >> "$GITHUB_OUTPUT"
+          printf 'HELM_PUBLIC_ORIGIN=%s\n' "$public_url" >> "$GITHUB_ENV"
       - name: Download immutable binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -566,7 +584,7 @@ jobs:
     runs-on: homelab
     environment:
       name: production
-      url: https://tc.shanekanterman.dev
+      url: ${{ steps.domain_profile.outputs.public_url }}
     concurrency:
       group: helm-production
       cancel-in-progress: false
@@ -578,6 +596,12 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+      - name: Resolve validated deployment domain
+        id: domain_profile
+        run: |
+          public_url=$(bash deploy/domain-profile.sh production public-url)
+          printf 'public_url=%s\n' "$public_url" >> "$GITHUB_OUTPUT"
+          printf 'HELM_PUBLIC_ORIGIN=%s\n' "$public_url" >> "$GITHUB_ENV"
       - name: Configure deploy identity
         env:
           DEPLOY_KEY: ${{ secrets.ROADMAP_DEPLOY_SSH_KEY }}

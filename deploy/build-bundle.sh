@@ -116,6 +116,10 @@ key_description=$(openssl pkey -in "$SIGNING_KEY_FILE" -text -noout 2>/dev/null 
 }
 safe_file "$CLOUDFLARED_TOKEN_FILE" cloudflared-token
 safe_file "$OWNER_ENV_FILE" owner-environment
+# Bind the signed runtime origin to the same reviewed profile used by Access
+# reconciliation and live validation. Parse the environment as data, never as
+# shell code. The installer/rollback retain this signed environment unchanged.
+bash "$ROOT_DIR/deploy/domain-profile.sh" "${HELM_DEPLOY_ENVIRONMENT:-production}" validate-origin-file "$OWNER_ENV_FILE"
 chmod 0600 "$CLOUDFLARED_TOKEN_FILE" "$OWNER_ENV_FILE"
 
 # Keep this pin in lockstep with the reviewed Stashlet deployment. Existing

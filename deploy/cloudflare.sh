@@ -2,6 +2,12 @@
 set -Eeuo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+DOMAIN_PROFILE_SCRIPT="$ROOT_DIR/deploy/domain-profile.sh"
+[[ -f "$DOMAIN_PROFILE_SCRIPT" && ! -L "$DOMAIN_PROFILE_SCRIPT" ]] || {
+	printf 'deployment domain profile is missing or not regular: %s\n' "$DOMAIN_PROFILE_SCRIPT" >&2
+	exit 1
+}
+source "$DOMAIN_PROFILE_SCRIPT"
 
 compat_env() {
 	local canonical=$1 legacy=$2 default_value=${3:-} canonical_value legacy_value
@@ -20,14 +26,7 @@ OWNER_ENV_OUTPUT=${3:-}
 SERVICE_TOKEN_OUTPUT=${4:-$(compat_env HELM_ACCESS_TOKEN_OUTPUT ROADMAP_ACCESS_TOKEN_OUTPUT "$ROOT_DIR/dist/helm-access-token.env")}
 REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE=$(compat_env HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE ROADMAP_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE 0)
 DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
-
-case "$DEPLOY_ENVIRONMENT" in
-	production|beta) ;;
-	*)
-		printf 'HELM_DEPLOY_ENVIRONMENT must be exactly production or beta\n' >&2
-		exit 1
-		;;
-esac
+domain_profile_load "$DEPLOY_ENVIRONMENT"
 
 [[ "$REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE" = 0 || "$REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE" = 1 ]] || {
 	printf 'HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE must be 0 or 1\n' >&2
@@ -79,46 +78,6 @@ cleanup() {
 trap cleanup EXIT
 chmod 0600 "$CF_HEADER_FILE"
 printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" > "$CF_HEADER_FILE"
-ACCOUNT_ID=090ae73dce25f4eca9a53ee396fdc916
-ZONE_ID=1206ce4daa0fe3c4791f9df9069764f6
-case "$DEPLOY_ENVIRONMENT" in
-	production)
-		PUBLIC_HOST=tc.shanekanterman.dev
-		PUBLIC_URL=https://tc.shanekanterman.dev
-		API_PATH="$PUBLIC_HOST/api/v1/*"
-		TUNNEL_NAME=roadmap-homelab
-		UI_APP_NAME='Helm owner UI'
-		API_APP_NAME='Helm agents API'
-		OWNER_POLICY_NAME='Helm owner only'
-		SERVICE_TOKEN_NAME='Helm agents'
-		SERVICE_POLICY_NAME='Helm agents Service Auth'
-		LEGACY_OWNER_POLICY_NAME='Roadmap owner only'
-		LEGACY_SERVICE_TOKEN_NAME='Roadmap agents'
-		LEGACY_SERVICE_POLICY_NAME='Roadmap agents Service Auth'
-		;;
-	beta)
-		PUBLIC_HOST=beta.shanekanterman.dev
-		PUBLIC_URL=https://beta.shanekanterman.dev
-		API_PATH="$PUBLIC_HOST/api/v1/*"
-		TUNNEL_NAME=helm-beta-homelab
-		UI_APP_NAME='Helm beta owner UI'
-		API_APP_NAME='Helm beta agents API'
-		OWNER_POLICY_NAME='Helm beta owner only'
-		SERVICE_TOKEN_NAME='Helm beta agents'
-		SERVICE_POLICY_NAME='Helm beta agents Service Auth'
-		# Beta is a separate trust boundary. It must never discover, rename, or
-		# reuse a production-era Roadmap/Helm object by legacy name.
-		LEGACY_OWNER_POLICY_NAME=
-		LEGACY_SERVICE_TOKEN_NAME=
-		LEGACY_SERVICE_POLICY_NAME=
-		;;
-esac
-CONFIGURED_PUBLIC_ORIGIN=$(compat_env HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN)
-if [[ -n "$CONFIGURED_PUBLIC_ORIGIN" && "$CONFIGURED_PUBLIC_ORIGIN" != "$PUBLIC_URL" ]]; then
-	printf 'HELM_PUBLIC_ORIGIN must be exactly %s\n' "$PUBLIC_URL" >&2
-	exit 1
-fi
-
 cf_request() {
 	local method=$1 path=$2 body=${3:-} response success
 	if [[ -n "$body" ]]; then
@@ -607,7 +566,11 @@ validate_policy_set() {
 
 validate_owner_env() {
 	local path=$1 email=$2 issuer=$3 ui_aud=$4 api_aud=$5
-	local expected_public_url=${PUBLIC_URL:-https://tc.shanekanterman.dev}
+	local expected_public_url=${DOMAIN_PROFILE_PUBLIC_URL:-${PUBLIC_URL:-}}
+	[[ -n "$expected_public_url" ]] || {
+		printf 'deployment domain profile is not loaded\n' >&2
+		return 1
+	}
 	local public_url=${6:-$expected_public_url} line key count expected_line
 	[[ -n "$public_url" && "$public_url" = "$expected_public_url" ]] || {
 		printf 'generated owner environment public origin does not match the selected deployment environment\n' >&2
@@ -695,7 +658,11 @@ restore_prepare_output() {
 
 write_prepare_outputs() {
 	local tunnel_id=$1 email=$2 issuer=$3 ui_aud=$4 api_aud=$5
-	local expected_public_url=${PUBLIC_URL:-https://tc.shanekanterman.dev}
+	local expected_public_url=${DOMAIN_PROFILE_PUBLIC_URL:-${PUBLIC_URL:-}}
+	[[ -n "$expected_public_url" ]] || {
+		printf 'deployment domain profile is not loaded\n' >&2
+		return 1
+	}
 	local public_url=${6:-$expected_public_url} output_path
 	[[ -n "$TOKEN_OUTPUT" && -n "$OWNER_ENV_OUTPUT" ]] || {
 		printf 'prepare requires token and owner-environment output paths\n' >&2

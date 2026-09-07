@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+DOMAIN_PROFILE_SCRIPT="$ROOT_DIR/deploy/domain-profile.sh"
+[[ -f "$DOMAIN_PROFILE_SCRIPT" && ! -L "$DOMAIN_PROFILE_SCRIPT" ]] || {
+	printf 'deployment domain profile is missing or not regular: %s\n' "$DOMAIN_PROFILE_SCRIPT" >&2
+	exit 1
+}
+source "$DOMAIN_PROFILE_SCRIPT"
+
 compat_env() {
 	local canonical=$1 legacy=$2 default_value=${3:-} canonical_value legacy_value
 	canonical_value=${!canonical:-}
@@ -12,21 +20,16 @@ compat_env() {
 	printf '%s' "${canonical_value:-${legacy_value:-$default_value}}"
 }
 
+CF_ACCESS_CLIENT_ID=${CF_ACCESS_CLIENT_ID:-}
+CF_ACCESS_CLIENT_SECRET=${CF_ACCESS_CLIENT_SECRET:-}
+DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
+domain_profile_load "$DEPLOY_ENVIRONMENT"
+
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
 [[ "$CLOUDFLARE_API_TOKEN" != *$'\n'* && "$CLOUDFLARE_API_TOKEN" != *$'\r'* ]] || {
 	printf 'CLOUDFLARE_API_TOKEN contains a control character\n' >&2
 	exit 1
 }
-CF_ACCESS_CLIENT_ID=${CF_ACCESS_CLIENT_ID:-}
-CF_ACCESS_CLIENT_SECRET=${CF_ACCESS_CLIENT_SECRET:-}
-DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
-case "$DEPLOY_ENVIRONMENT" in
-	production|beta) ;;
-	*)
-		printf 'HELM_DEPLOY_ENVIRONMENT must be exactly production or beta\n' >&2
-		exit 1
-		;;
-esac
 REQUIRE_SERVICE_AUTH_PROBE=$(compat_env HELM_REQUIRE_SERVICE_AUTH_PROBE ROADMAP_REQUIRE_SERVICE_AUTH_PROBE 0)
 [[ "$REQUIRE_SERVICE_AUTH_PROBE" = 0 || "$REQUIRE_SERVICE_AUTH_PROBE" = 1 ]] || {
 	printf 'HELM_REQUIRE_SERVICE_AUTH_PROBE must be 0 or 1\n' >&2
@@ -84,38 +87,6 @@ cleanup() {
 trap cleanup EXIT
 chmod 0600 "$CF_HEADER_FILE"
 printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" > "$CF_HEADER_FILE"
-ACCOUNT_ID=090ae73dce25f4eca9a53ee396fdc916
-ZONE_ID=1206ce4daa0fe3c4791f9df9069764f6
-case "$DEPLOY_ENVIRONMENT" in
-	production)
-		PUBLIC_HOST=tc.shanekanterman.dev
-		PUBLIC_URL=https://tc.shanekanterman.dev
-		API_PATH="$PUBLIC_HOST/api/v1/*"
-		TUNNEL_NAME=roadmap-homelab
-		UI_APP_NAME='Helm owner UI'
-		API_APP_NAME='Helm agents API'
-		OWNER_POLICY_NAME='Helm owner only'
-		SERVICE_TOKEN_NAME='Helm agents'
-		SERVICE_POLICY_NAME='Helm agents Service Auth'
-		;;
-	beta)
-		PUBLIC_HOST=beta.shanekanterman.dev
-		PUBLIC_URL=https://beta.shanekanterman.dev
-		API_PATH="$PUBLIC_HOST/api/v1/*"
-		TUNNEL_NAME=helm-beta-homelab
-		UI_APP_NAME='Helm beta owner UI'
-		API_APP_NAME='Helm beta agents API'
-		OWNER_POLICY_NAME='Helm beta owner only'
-		SERVICE_TOKEN_NAME='Helm beta agents'
-		SERVICE_POLICY_NAME='Helm beta agents Service Auth'
-		;;
-esac
-CONFIGURED_PUBLIC_ORIGIN=$(compat_env HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN)
-if [[ -n "$CONFIGURED_PUBLIC_ORIGIN" && "$CONFIGURED_PUBLIC_ORIGIN" != "$PUBLIC_URL" ]]; then
-	printf 'HELM_PUBLIC_ORIGIN must be exactly %s\n' "$PUBLIC_URL" >&2
-	exit 1
-fi
-
 cf_request() {
 	local method=$1 path=$2 response
 	response=$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \

@@ -18,6 +18,8 @@ INSTALL="$DEPLOY_DIR/install-inside-lxc.sh"
 SERVICE="$DEPLOY_DIR/helm.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
+DOMAIN_PROFILE="$DEPLOY_DIR/domain-profile.sh"
+DOMAIN_PROFILE_TEST="$DEPLOY_DIR/test-domain-profile.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
 DOCS="$ROOT_DIR/docs/OPERATIONS.md"
 DOCKERIGNORE="$ROOT_DIR/.dockerignore"
@@ -40,7 +42,8 @@ count_contains() {
 }
 
 for file in "$GATEWAY" "$BOOTSTRAP" "$DEPLOY_CI" "$VERIFY" "$BUILD_BUNDLE" \
-	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
+	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" \
+	"$DOMAIN_PROFILE" "$DOMAIN_PROFILE_TEST" "$WORKFLOW" "$DOCS"; do
 	[[ -f "$file" && ! -L "$file" ]] || fail "deployment file is missing: $file"
 done
 
@@ -50,6 +53,8 @@ trap cleanup_fixture EXIT
 # Mocked backup publication tests do not have a release binary from which to
 # query migration-info; use a deterministic non-secret fixture digest.
 export HELM_MIGRATION_DIGEST=0000000000000000000000000000000000000000000000000000000000000000
+
+TMPDIR=${TMPDIR:-/tmp} "$DOMAIN_PROFILE_TEST" || fail 'domain profile focused tests failed'
 
 # The SSH key enters one fixed root command through non-interactive sudo. The
 # gateway sees SSH_ORIGINAL_COMMAND, while local argv is an explicit root-only
@@ -860,7 +865,16 @@ for file in "$CLOUDFLARE" "$VALIDATE"; do
 	contains 'trap cleanup EXIT' "$file"
 	not_contains '--header "Authorization: Bearer' "$file"
 done
-contains "SERVICE_POLICY_NAME='Helm agents Service Auth'" "$CLOUDFLARE"
+contains "DOMAIN_PROFILE_SERVICE_POLICY_NAME='Helm agents Service Auth'" "$DOMAIN_PROFILE"
+contains "DOMAIN_PROFILE_LEGACY_SERVICE_POLICY_NAME='Roadmap agents Service Auth'" "$DOMAIN_PROFILE"
+contains 'source "$DOMAIN_PROFILE_SCRIPT"' "$CLOUDFLARE"
+contains 'source "$DOMAIN_PROFILE_SCRIPT"' "$VALIDATE"
+contains 'domain_profile_load "$DEPLOY_ENVIRONMENT"' "$CLOUDFLARE"
+contains 'domain_profile_load "$DEPLOY_ENVIRONMENT"' "$VALIDATE"
+not_contains 'tc.shanekanterman.dev' "$CLOUDFLARE"
+not_contains 'beta.shanekanterman.dev' "$CLOUDFLARE"
+not_contains 'tc.shanekanterman.dev' "$VALIDATE"
+not_contains 'beta.shanekanterman.dev' "$VALIDATE"
 contains 'audTag:[$ui,$aud]' "$CLOUDFLARE"
 contains 'validate_policy_set' "$CLOUDFLARE"
 contains 'duration:"8760h"' "$CLOUDFLARE"
@@ -1317,7 +1331,8 @@ contains "github.ref == 'refs/heads/main'" "$WORKFLOW"
 contains "github.ref == 'refs/heads/beta'" "$WORKFLOW"
 contains 'branches: [main, beta]' "$WORKFLOW"
 contains 'name: beta' "$WORKFLOW"
-contains 'url: https://beta.shanekanterman.dev' "$WORKFLOW"
+contains 'public_url=$(bash deploy/domain-profile.sh beta public-url)' "$WORKFLOW"
+contains 'public_url=$(bash deploy/domain-profile.sh production public-url)' "$WORKFLOW"
 contains 'HELM_DEPLOY_ENVIRONMENT: beta' "$WORKFLOW"
 contains 'BETA_CLOUDFLARE_API_TOKEN' "$WORKFLOW"
 contains 'BETA_ADMIN_EMAIL' "$WORKFLOW"

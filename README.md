@@ -300,6 +300,22 @@ The Playwright suite (`npm run e2e`) expects an already-running server at
 
 ## Beta and production deployment
 
+The reviewed hostname and Cloudflare resource identities are centralized in
+`deploy/domain-profile.sh`. Read a profile without credentials or network calls:
+
+```sh
+bash deploy/domain-profile.sh production public-url
+bash deploy/domain-profile.sh beta public-url
+```
+
+Cloudflare reconciliation, live validation, signed bundle origin checks and CI
+environment links use this same profile. `HELM_PUBLIC_ORIGIN` and its legacy
+alias may confirm the selected origin but cannot override it. The preparatory
+profile release keeps production on `tc.shanekanterman.dev`; it does not
+publish `helm.shanekanterman.dev` or change persistent data. See the staged
+[hosting and identity plan](docs/HOSTING_IDENTITY_MIGRATION_PLAN.md) before
+changing the canonical hostname.
+
 The intended homelab path is:
 
 ```text
