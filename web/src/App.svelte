@@ -248,7 +248,7 @@
     loaded: boolean;
     error: string;
   };
-  type BoardLoadOptions = { criteriaRevision?: number };
+  type BoardLoadOptions = { criteriaRevision?: number; background?: boolean };
   type BoardColumnLoadOptions = {
     reset?: boolean;
     mutationSnapshot?: number;
@@ -635,6 +635,7 @@
   let myWorkLivenessRequest = 0;
   let drawerLivenessRequest = 0;
   let boardLivenessInFlight: Promise<boolean> | null = null;
+  let boardBackgroundInFlight: Promise<boolean> | null = null;
   let myWorkLivenessInFlight: Promise<boolean> | null = null;
   let drawerLivenessInFlight: { taskId: string; requestId: number; promise: Promise<boolean> } | null = null;
   let pulseClock = Date.now();
@@ -925,17 +926,24 @@
     return sortBoardTaskList(items, boardSort, boardOrder);
   }
 
-  function flattenBoardPages(): Task[] {
+  function flattenBoardPagesForColumns(
+    pages: Record<string, BoardColumnPage>,
+    columnList: readonly Column[]
+  ): Task[] {
     const seen = new Set<string>();
     const flattened: Task[] = [];
-    sortedColumns.forEach((column) => {
-      for (const task of boardPages[column.id]?.tasks || []) {
+    [...columnList].sort((a, b) => a.position - b.position).forEach((column) => {
+      for (const task of pages[column.id]?.tasks || []) {
         if (seen.has(task.id)) continue;
         seen.add(task.id);
         flattened.push(task);
       }
     });
     return flattened;
+  }
+
+  function flattenBoardPages(): Task[] {
+    return flattenBoardPagesForColumns(boardPages, sortedColumns);
   }
 
   function boardTaskMatches(task: Task, columnId = task.column_id): boolean {
@@ -1027,6 +1035,177 @@
       if (local) merged.set(taskId, local);
     });
     return [...merged.values()].filter((task) => boardTaskMatches(task));
+  }
+
+  /**
+   * Refresh the board without taking the currently rendered board offline.
+   *
+   * Liveness and event polling are deliberately staged separately from the
+   * normal load path. A full reload is still allowed to show its skeleton;
+   * this path keeps the current pages in place until metadata and each
+   * currently loaded page depth have been read, then commits the reconciled
+   * snapshot atomically.
+   */
+  async function refreshBoardInBackground(): Promise<boolean> {
+    if (
+      !user
+      || (view !== 'board' && view !== 'timeline')
+      || !activeProject
+      || boardLoading
+      || Object.values(boardPages).some((page) => page.loading)
+    ) return false;
+    if (boardBackgroundInFlight) return boardBackgroundInFlight;
+
+    const requestedSession = sessionGeneration;
+    const requestedSlug = activeProjectSlug;
+    const requestedProjectId = activeProject.id;
+    const requestedBoardRequest = boardRequest;
+    const requestedCriteriaRevision = boardCriteriaRevision;
+    const requestedLivenessRequest = ++boardLivenessRequest;
+    const mutationSnapshot = taskMutationRevision;
+    const requestedColumnGenerations = { ...boardColumnGenerations };
+    // A board page stores all cards fetched so far, not a cursor history. Keep
+    // that pagination state authoritative by refetching the same loaded depth
+    // from the first page before committing the background snapshot.
+    const requestedLoadedTaskCounts = Object.fromEntries(
+      Object.entries(boardPages).map(([columnId, page]) => [columnId, page.tasks.length])
+    );
+
+    const request = (async () => {
+      const isCurrent = () => Boolean(
+        user
+        && sessionGeneration === requestedSession
+        && activeProjectSlug === requestedSlug
+        && activeProject?.id === requestedProjectId
+        && boardRequest === requestedBoardRequest
+        && boardCriteriaRevision === requestedCriteriaRevision
+        && boardLivenessRequest === requestedLivenessRequest
+      );
+      const columnGenerationsAreCurrent = () => {
+        const columnIds = new Set([
+          ...Object.keys(requestedColumnGenerations),
+          ...Object.keys(boardColumnGenerations)
+        ]);
+        return [...columnIds].every((columnId) => (
+          (requestedColumnGenerations[columnId] || 0) === (boardColumnGenerations[columnId] || 0)
+        ));
+      };
+
+      let columnResult: Awaited<ReturnType<typeof api.listAllColumns>>;
+      let labelResult: Awaited<ReturnType<typeof api.listAllLabels>>;
+      try {
+        [columnResult, labelResult] = await Promise.all([
+          api.listAllColumns(requestedProjectId),
+          api.listAllLabels(requestedProjectId)
+        ]);
+      } catch (error) {
+        if (isCurrent()) {
+          const message = friendlyError(error, 'This board could not be loaded.');
+          boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], message);
+          boardError = boardMetadataErrorMessage(boardMetadataErrors);
+        }
+        return false;
+      }
+
+      if (!isCurrent() || !columnGenerationsAreCurrent()) return false;
+
+      const pageResults = await Promise.all(
+        [...columnResult.data].sort((a, b) => a.position - b.position).map(async (column) => {
+          try {
+            const loadedTaskCount = requestedLoadedTaskCounts[column.id] || 0;
+            const fetched: Task[] = [];
+            const seenCursors = new Set<string>();
+            let cursor = '';
+            let nextCursor = '';
+            do {
+              if (!isCurrent()) {
+                return {
+                  columnId: column.id,
+                  data: [] as Task[],
+                  nextCursor: '',
+                  error: '',
+                  offline: false
+                };
+              }
+              const result = await api.listTasks(requestedProjectId, boardTaskParams(column.id, cursor));
+              fetched.push(...result.data);
+              nextCursor = result.next_cursor || '';
+              if (!nextCursor || fetched.length >= loadedTaskCount || seenCursors.has(nextCursor)) break;
+              seenCursors.add(nextCursor);
+              cursor = nextCursor;
+            } while (true);
+            return {
+              columnId: column.id,
+              data: fetched,
+              nextCursor,
+              error: '',
+              offline: false
+            };
+          } catch (error) {
+            const offlineNow = typeof navigator !== 'undefined' && !navigator.onLine;
+            return {
+              columnId: column.id,
+              data: [] as Task[],
+              nextCursor: '',
+              error: offlineNow
+                ? 'You are offline. Reconnect and retry this column.'
+                : friendlyError(error, 'This column could not be loaded.'),
+              offline: offlineNow
+            };
+          }
+        })
+      );
+
+      if (!isCurrent() || !columnGenerationsAreCurrent()) return false;
+
+      const protectedMutations = mutationsForRequest('board', mutationSnapshot);
+      const currentPages = boardPages;
+      const nextPages: Record<string, BoardColumnPage> = {};
+      columns = columnResult.data;
+      labels = labelResult.data;
+
+      pageResults.forEach((result) => {
+        const currentPage = currentPages[result.columnId] || emptyBoardColumnPage();
+        if (result.error) {
+          nextPages[result.columnId] = {
+            ...currentPage,
+            loading: false,
+            loaded: true,
+            error: result.error
+          };
+          return;
+        }
+        const merged = mergeAuthoritativeTaskList(currentPage.tasks, result.data, protectedMutations);
+        nextPages[result.columnId] = {
+          ...currentPage,
+          tasks: sortBoardTasks(merged.filter((task) => task.column_id === result.columnId)),
+          nextCursor: result.nextCursor,
+          loading: false,
+          loaded: true,
+          error: ''
+        };
+      });
+
+      boardPages = nextPages;
+      boardCardOffsets = Object.fromEntries(
+        Object.entries(boardCardOffsets).filter(([columnId]) => Boolean(nextPages[columnId]))
+      );
+      tasks = flattenBoardPagesForColumns(nextPages, columnResult.data);
+      boardPartial = Object.values(nextPages).some((page) => Boolean(page.error || page.nextCursor));
+      boardOffline = pageResults.some((result) => result.offline);
+      boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], '');
+      boardError = boardMetadataErrorMessage(boardMetadataErrors);
+      observeWorkTransitions(tasks, false);
+      saveBoardSnapshot();
+      return pageResults.every((result) => !result.error);
+    })();
+
+    boardBackgroundInFlight = request;
+    try {
+      return await request;
+    } finally {
+      if (boardBackgroundInFlight === request) boardBackgroundInFlight = null;
+    }
   }
 
   function sortWorkRows(rows: MyWorkRow[]): MyWorkRow[] {
@@ -1496,6 +1675,7 @@
     drawerTimelineError = '';
     drawerTimelineTaskId = '';
     boardLivenessInFlight = null;
+    boardBackgroundInFlight = null;
     myWorkLivenessInFlight = null;
     drawerLivenessInFlight = null;
     taskMutationRevision = 0;
@@ -1610,6 +1790,7 @@
   }
 
   async function loadBoard(options: BoardLoadOptions = {}): Promise<boolean> {
+    if (options.background) return refreshBoardInBackground();
     if (options.criteriaRevision === undefined && boardFilterTimer) {
       window.clearTimeout(boardFilterTimer);
       boardFilterTimer = undefined;
@@ -2819,7 +3000,7 @@
   async function refreshBoardTasks(): Promise<boolean> {
     if (!user || (view !== 'board' && view !== 'timeline') || !activeProject || boardLoading) return true;
     if (boardLivenessInFlight) return boardLivenessInFlight;
-    const refresh = loadBoard();
+    const refresh = loadBoard({ background: true });
     boardLivenessInFlight = refresh;
     try {
       return await refresh;
@@ -2963,7 +3144,7 @@
         let drawerReconciliation: TimelineCommentReconciliation | undefined;
 
         if (boardRefreshRequired && (currentView === 'board' || currentView === 'timeline')) {
-          reloadSucceeded = (await loadBoard()) && reloadSucceeded;
+          reloadSucceeded = (await loadBoard({ background: true })) && reloadSucceeded;
           const missingAffectedTask = [...affectedTaskIds].some((taskId) => boardTaskIdsBeforePoll.has(taskId) && !tasks.some((task) => task.id === taskId));
           if (missingAffectedTask) {
             boardReconciliationNotice = 'A changed task is outside the loaded board page or current filters. Refresh or load more to find it.';
