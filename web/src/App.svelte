@@ -63,6 +63,11 @@
 
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { offlineReadOnly } from './lib/connectivity';
+  import { clearOfflineBoards, readOfflineBoards, saveOfflineBoard, setOfflineOwner, type OfflineBoard as OfflineBoardSnapshot } from './lib/offlineBoards';
+  import OfflineBoard from './lib/components/OfflineBoard.svelte';
+  import PwaStatus from './lib/components/PwaStatus.svelte';
+  import { boardCardHeight, createColumnScroll } from './lib/boardLayout';
   import { flip } from 'svelte/animate';
   import { backOut } from 'svelte/easing';
   import { fade, fly, scale } from 'svelte/transition';
@@ -243,7 +248,7 @@
     loaded: boolean;
     error: string;
   };
-  type BoardLoadOptions = { criteriaRevision?: number };
+  type BoardLoadOptions = { criteriaRevision?: number; background?: boolean };
   type BoardColumnLoadOptions = {
     reset?: boolean;
     mutationSnapshot?: number;
@@ -327,6 +332,10 @@
   let boardMetadataErrors: BoardMetadataErrorState = { full: '', targeted: {} };
   let boardPartial = false;
   let boardOffline = false;
+  let offlineBoards: OfflineBoardSnapshot[] = [];
+  let offlineReadRevision = 0;
+  let reconnecting = false;
+  let reconnectError = '';
   let boardReconciliationNotice = '';
   let boardPages: Record<string, BoardColumnPage> = {};
   let boardCardOffsets: Record<string, number> = {};
@@ -341,6 +350,7 @@
   let boardOrder: 'asc' | 'desc' = 'asc';
   const boardPageSize = 50;
   const boardRenderLimit = 100;
+  const columnScroll = createColumnScroll();
   let issueTasks: Task[] = [];
   let issueColumns: Column[] = [];
   let issuesLoading = false;
@@ -625,6 +635,7 @@
   let myWorkLivenessRequest = 0;
   let drawerLivenessRequest = 0;
   let boardLivenessInFlight: Promise<boolean> | null = null;
+  let boardBackgroundInFlight: Promise<boolean> | null = null;
   let myWorkLivenessInFlight: Promise<boolean> | null = null;
   let drawerLivenessInFlight: { taskId: string; requestId: number; promise: Promise<boolean> } | null = null;
   let pulseClock = Date.now();
@@ -915,17 +926,24 @@
     return sortBoardTaskList(items, boardSort, boardOrder);
   }
 
-  function flattenBoardPages(): Task[] {
+  function flattenBoardPagesForColumns(
+    pages: Record<string, BoardColumnPage>,
+    columnList: readonly Column[]
+  ): Task[] {
     const seen = new Set<string>();
     const flattened: Task[] = [];
-    sortedColumns.forEach((column) => {
-      for (const task of boardPages[column.id]?.tasks || []) {
+    [...columnList].sort((a, b) => a.position - b.position).forEach((column) => {
+      for (const task of pages[column.id]?.tasks || []) {
         if (seen.has(task.id)) continue;
         seen.add(task.id);
         flattened.push(task);
       }
     });
     return flattened;
+  }
+
+  function flattenBoardPages(): Task[] {
+    return flattenBoardPagesForColumns(boardPages, sortedColumns);
   }
 
   function boardTaskMatches(task: Task, columnId = task.column_id): boolean {
@@ -1017,6 +1035,177 @@
       if (local) merged.set(taskId, local);
     });
     return [...merged.values()].filter((task) => boardTaskMatches(task));
+  }
+
+  /**
+   * Refresh the board without taking the currently rendered board offline.
+   *
+   * Liveness and event polling are deliberately staged separately from the
+   * normal load path. A full reload is still allowed to show its skeleton;
+   * this path keeps the current pages in place until metadata and each
+   * currently loaded page depth have been read, then commits the reconciled
+   * snapshot atomically.
+   */
+  async function refreshBoardInBackground(): Promise<boolean> {
+    if (
+      !user
+      || (view !== 'board' && view !== 'timeline')
+      || !activeProject
+      || boardLoading
+      || Object.values(boardPages).some((page) => page.loading)
+    ) return false;
+    if (boardBackgroundInFlight) return boardBackgroundInFlight;
+
+    const requestedSession = sessionGeneration;
+    const requestedSlug = activeProjectSlug;
+    const requestedProjectId = activeProject.id;
+    const requestedBoardRequest = boardRequest;
+    const requestedCriteriaRevision = boardCriteriaRevision;
+    const requestedLivenessRequest = ++boardLivenessRequest;
+    const mutationSnapshot = taskMutationRevision;
+    const requestedColumnGenerations = { ...boardColumnGenerations };
+    // A board page stores all cards fetched so far, not a cursor history. Keep
+    // that pagination state authoritative by refetching the same loaded depth
+    // from the first page before committing the background snapshot.
+    const requestedLoadedTaskCounts = Object.fromEntries(
+      Object.entries(boardPages).map(([columnId, page]) => [columnId, page.tasks.length])
+    );
+
+    const request = (async () => {
+      const isCurrent = () => Boolean(
+        user
+        && sessionGeneration === requestedSession
+        && activeProjectSlug === requestedSlug
+        && activeProject?.id === requestedProjectId
+        && boardRequest === requestedBoardRequest
+        && boardCriteriaRevision === requestedCriteriaRevision
+        && boardLivenessRequest === requestedLivenessRequest
+      );
+      const columnGenerationsAreCurrent = () => {
+        const columnIds = new Set([
+          ...Object.keys(requestedColumnGenerations),
+          ...Object.keys(boardColumnGenerations)
+        ]);
+        return [...columnIds].every((columnId) => (
+          (requestedColumnGenerations[columnId] || 0) === (boardColumnGenerations[columnId] || 0)
+        ));
+      };
+
+      let columnResult: Awaited<ReturnType<typeof api.listAllColumns>>;
+      let labelResult: Awaited<ReturnType<typeof api.listAllLabels>>;
+      try {
+        [columnResult, labelResult] = await Promise.all([
+          api.listAllColumns(requestedProjectId),
+          api.listAllLabels(requestedProjectId)
+        ]);
+      } catch (error) {
+        if (isCurrent()) {
+          const message = friendlyError(error, 'This board could not be loaded.');
+          boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], message);
+          boardError = boardMetadataErrorMessage(boardMetadataErrors);
+        }
+        return false;
+      }
+
+      if (!isCurrent() || !columnGenerationsAreCurrent()) return false;
+
+      const pageResults = await Promise.all(
+        [...columnResult.data].sort((a, b) => a.position - b.position).map(async (column) => {
+          try {
+            const loadedTaskCount = requestedLoadedTaskCounts[column.id] || 0;
+            const fetched: Task[] = [];
+            const seenCursors = new Set<string>();
+            let cursor = '';
+            let nextCursor = '';
+            do {
+              if (!isCurrent()) {
+                return {
+                  columnId: column.id,
+                  data: [] as Task[],
+                  nextCursor: '',
+                  error: '',
+                  offline: false
+                };
+              }
+              const result = await api.listTasks(requestedProjectId, boardTaskParams(column.id, cursor));
+              fetched.push(...result.data);
+              nextCursor = result.next_cursor || '';
+              if (!nextCursor || fetched.length >= loadedTaskCount || seenCursors.has(nextCursor)) break;
+              seenCursors.add(nextCursor);
+              cursor = nextCursor;
+            } while (true);
+            return {
+              columnId: column.id,
+              data: fetched,
+              nextCursor,
+              error: '',
+              offline: false
+            };
+          } catch (error) {
+            const offlineNow = typeof navigator !== 'undefined' && !navigator.onLine;
+            return {
+              columnId: column.id,
+              data: [] as Task[],
+              nextCursor: '',
+              error: offlineNow
+                ? 'You are offline. Reconnect and retry this column.'
+                : friendlyError(error, 'This column could not be loaded.'),
+              offline: offlineNow
+            };
+          }
+        })
+      );
+
+      if (!isCurrent() || !columnGenerationsAreCurrent()) return false;
+
+      const protectedMutations = mutationsForRequest('board', mutationSnapshot);
+      const currentPages = boardPages;
+      const nextPages: Record<string, BoardColumnPage> = {};
+      columns = columnResult.data;
+      labels = labelResult.data;
+
+      pageResults.forEach((result) => {
+        const currentPage = currentPages[result.columnId] || emptyBoardColumnPage();
+        if (result.error) {
+          nextPages[result.columnId] = {
+            ...currentPage,
+            loading: false,
+            loaded: true,
+            error: result.error
+          };
+          return;
+        }
+        const merged = mergeAuthoritativeTaskList(currentPage.tasks, result.data, protectedMutations);
+        nextPages[result.columnId] = {
+          ...currentPage,
+          tasks: sortBoardTasks(merged.filter((task) => task.column_id === result.columnId)),
+          nextCursor: result.nextCursor,
+          loading: false,
+          loaded: true,
+          error: ''
+        };
+      });
+
+      boardPages = nextPages;
+      boardCardOffsets = Object.fromEntries(
+        Object.entries(boardCardOffsets).filter(([columnId]) => Boolean(nextPages[columnId]))
+      );
+      tasks = flattenBoardPagesForColumns(nextPages, columnResult.data);
+      boardPartial = Object.values(nextPages).some((page) => Boolean(page.error || page.nextCursor));
+      boardOffline = pageResults.some((result) => result.offline);
+      boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], '');
+      boardError = boardMetadataErrorMessage(boardMetadataErrors);
+      observeWorkTransitions(tasks, false);
+      saveBoardSnapshot();
+      return pageResults.every((result) => !result.error);
+    })();
+
+    boardBackgroundInFlight = request;
+    try {
+      return await request;
+    } finally {
+      if (boardBackgroundInFlight === request) boardBackgroundInFlight = null;
+    }
   }
 
   function sortWorkRows(rows: MyWorkRow[]): MyWorkRow[] {
@@ -1174,14 +1363,18 @@
     recentProjectIds = loadRecentProjects(localStorage);
     boardOffline = !navigator.onLine;
     const onlineHandler = () => {
-      boardOffline = false;
-      if (activeProject && view === 'board') void loadBoard();
+      if ($offlineReadOnly) void reconnectOffline();
     };
     const offlineHandler = () => {
       boardOffline = true;
+      if (!$offlineReadOnly) void enterOffline();
     };
+    const clearHandler = () => { offlineReadRevision += 1; offlineBoards = []; };
     window.addEventListener('online', onlineHandler);
     window.addEventListener('offline', offlineHandler);
+    window.addEventListener('helm:network-unavailable', offlineHandler);
+    window.addEventListener('helm:offline-cleared', clearHandler);
+    window.addEventListener('helm:auth-invalidated', clearHandler);
     const cleanup = () => {
       if (pollTimer) window.clearInterval(pollTimer);
       if (pulseTimer) window.clearInterval(pulseTimer);
@@ -1190,9 +1383,13 @@
       if (boardFilterTimer) window.clearTimeout(boardFilterTimer);
       window.removeEventListener('online', onlineHandler);
       window.removeEventListener('offline', offlineHandler);
+      window.removeEventListener('helm:network-unavailable', offlineHandler);
+      window.removeEventListener('helm:offline-cleared', clearHandler);
+      window.removeEventListener('helm:auth-invalidated', clearHandler);
       bootstrapController?.abort();
     };
-    void bootstrap();
+    if ($offlineReadOnly || navigator.onLine === false) void enterOffline();
+    else void bootstrap();
     const keyHandler = (event: KeyboardEvent) => handleKeydown(event);
     window.addEventListener('keydown', keyHandler);
     window.addEventListener('pointerdown', handleProjectSwitcherPointerDown);
@@ -1204,6 +1401,43 @@
       window.removeEventListener('popstate', handlePopState);
     };
   });
+
+  async function enterOffline() {
+    const revision = ++offlineReadRevision;
+    offlineReadOnly.set(true);
+    boardOffline = true;
+    sessionGeneration += 1;
+    if (pollTimer) window.clearInterval(pollTimer);
+    if (pulseTimer) window.clearInterval(pulseTimer);
+    if (livenessRefreshTimer) window.clearInterval(livenessRefreshTimer);
+    const saved = await readOfflineBoards();
+    if (revision === offlineReadRevision && $offlineReadOnly) offlineBoards = saved;
+    booting = false;
+  }
+
+  async function reconnectOffline() {
+    if (reconnecting) return;
+    reconnecting = true;
+    reconnectError = '';
+    try { await bootstrap(); }
+    finally {
+      reconnecting = false;
+      if ($offlineReadOnly) reconnectError = authError || 'Still offline. Your saved boards remain read-only.';
+    }
+  }
+
+  async function clearSavedBoards() {
+    offlineReadRevision += 1;
+    offlineBoards = [];
+    await clearOfflineBoards();
+    offlineBoards = [];
+  }
+
+  function saveBoardSnapshot() {
+    if ($offlineReadOnly || !user || !activeProject || boardLoading || Object.values(boardPages).some(page => !page.loaded || page.loading || page.error)) return;
+    const filtered = boardWorkFilter !== 'all' || Object.entries(filters).some(([key, value]) => key === 'query' ? Boolean(value) : value !== 'all');
+    void saveOfflineBoard(user.id, activeProject, columns, tasks, boardPartial || filtered);
+  }
 
   function applyTheme() {
     if (typeof document !== 'undefined') {
@@ -1236,11 +1470,17 @@
       sessionStorage.removeItem(accessBootstrapKey);
       sessionStorage.removeItem(legacyAccessBootstrapKey);
       if (authStatus.setup_required || authStatus.needs_setup) {
+        await clearSavedBoards();
+        user = null;
+        offlineReadOnly.set(false);
         authView = 'setup';
         booting = false;
         return;
       }
       if (authStatus.authenticated === false) {
+        await clearSavedBoards();
+        user = null;
+        offlineReadOnly.set(false);
         authView = 'login';
         booting = false;
         return;
@@ -1253,6 +1493,9 @@
         if (authStatus.mode === 'disabled') {
           user = { id: 'local', kind: 'human', name: 'Local user', admin: true };
         } else if (error instanceof ApiError && error.status === 401) {
+          await clearSavedBoards();
+          user = null;
+          offlineReadOnly.set(false);
           authView = 'login';
           booting = false;
           return;
@@ -1263,6 +1506,10 @@
       await finishAuthentication();
     } catch (error) {
       if (requestId !== bootstrapRequest) return;
+      if (navigator.onLine === false) {
+        await enterOffline();
+        return;
+      }
       // Cloudflare Access protects the browser UI and API as distinct
       // applications so agents can use Service Auth on /api/v1/*. A browser
       // therefore needs one top-level API navigation to receive the API-path
@@ -1277,6 +1524,10 @@
       ) {
         sessionStorage.setItem(accessBootstrapKey, window.location.origin);
         window.location.assign(`${API_PREFIX}/auth/status`);
+        return;
+      }
+      if ((error instanceof TypeError || controller.signal.aborted) && (await readOfflineBoards()).length > 0) {
+        await enterOffline();
         return;
       }
       authBootstrapFailed = true;
@@ -1298,6 +1549,12 @@
     // check even when the browser logs back in as the same actor.
     sessionGeneration += 1;
     const requestedSession = sessionGeneration;
+    if (user) await setOfflineOwner(user.id);
+    if (sessionGeneration !== requestedSession || !user) return;
+    offlineReadOnly.set(false);
+    boardOffline = false;
+    offlineReadRevision += 1;
+    offlineBoards = [];
     // Authentication is enough to reveal the application chrome. Project and
     // board reads can be noticeably slower on a remote self-hosted instance;
     // render their in-context skeleton instead of holding the user on the
@@ -1342,6 +1599,7 @@
     clearAnnouncement();
     sessionGeneration += 1;
     user = null;
+    await clearSavedBoards();
     boardMutationRequest += 1;
     taskActionLoading = '';
     projectListRequest += 1;
@@ -1417,6 +1675,7 @@
     drawerTimelineError = '';
     drawerTimelineTaskId = '';
     boardLivenessInFlight = null;
+    boardBackgroundInFlight = null;
     myWorkLivenessInFlight = null;
     drawerLivenessInFlight = null;
     taskMutationRevision = 0;
@@ -1439,6 +1698,16 @@
       const result = await api.listAllProjects();
       if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
       const nextProjects = result.data.filter((project) => !project.archived_at);
+      const savedBoards = await readOfflineBoards();
+      if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
+      // A successful project listing is authoritative about access. Do not
+      // retain snapshots of projects that were removed or became inaccessible.
+      if (savedBoards.some(board => !nextProjects.some(project => project.id === board.project.id))) {
+        await clearSavedBoards();
+        if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
+        await setOfflineOwner(user.id);
+        if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
+      }
       projects = nextProjects;
       if (selectionVersion !== projectSwitchVersion) return;
       const routeSlug = getProjectSlugFromLocation();
@@ -1521,6 +1790,7 @@
   }
 
   async function loadBoard(options: BoardLoadOptions = {}): Promise<boolean> {
+    if (options.background) return refreshBoardInBackground();
     if (options.criteriaRevision === undefined && boardFilterTimer) {
       window.clearTimeout(boardFilterTimer);
       boardFilterTimer = undefined;
@@ -1592,6 +1862,7 @@
       if (requestId === boardRequest && sessionGeneration === requestedSession) {
         boardLoading = false;
         if (requestedCriteriaRevision === boardCriteriaRevision) boardCriteriaTransition = false;
+        saveBoardSnapshot();
       }
     }
   }
@@ -1649,6 +1920,7 @@
       tasks = flattenBoardPages();
       boardPartial = Object.values(boardPages).some((item) => Boolean(item.error || item.nextCursor));
       boardOffline = false;
+      saveBoardSnapshot();
       observeWorkTransitions(tasks, announceChanges);
       if (announceChanges && recoveryNotice && requestIsCurrent()) {
         const refreshedMessage = 'This column changed while loading more tasks; its first page was refreshed.';
@@ -2715,6 +2987,7 @@
   }
 
   async function refreshLiveness(): Promise<void> {
+    if ($offlineReadOnly) return;
     if (!user) return;
     const refreshes: Promise<boolean>[] = [];
     if (view === 'board' || view === 'timeline') refreshes.push(refreshBoardTasks());
@@ -2727,7 +3000,7 @@
   async function refreshBoardTasks(): Promise<boolean> {
     if (!user || (view !== 'board' && view !== 'timeline') || !activeProject || boardLoading) return true;
     if (boardLivenessInFlight) return boardLivenessInFlight;
-    const refresh = loadBoard();
+    const refresh = loadBoard({ background: true });
     boardLivenessInFlight = refresh;
     try {
       return await refresh;
@@ -2815,6 +3088,7 @@
   }
 
   async function pollEvents() {
+    if ($offlineReadOnly) return;
     if (!user || pollInFlight) return pollInFlight || undefined;
     const requestedSession = sessionGeneration;
     const requestedCursor = eventsCursor;
@@ -2870,7 +3144,7 @@
         let drawerReconciliation: TimelineCommentReconciliation | undefined;
 
         if (boardRefreshRequired && (currentView === 'board' || currentView === 'timeline')) {
-          reloadSucceeded = (await loadBoard()) && reloadSucceeded;
+          reloadSucceeded = (await loadBoard({ background: true })) && reloadSucceeded;
           const missingAffectedTask = [...affectedTaskIds].some((taskId) => boardTaskIdsBeforePoll.has(taskId) && !tasks.some((task) => task.id === taskId));
           if (missingAffectedTask) {
             boardReconciliationNotice = 'A changed task is outside the loaded board page or current filters. Refresh or load more to find it.';
@@ -3286,6 +3560,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if ($offlineReadOnly) return;
     // A confirmation is the top-most modal. Do not let global shortcuts or a
     // second Escape handler act on the dialog's underlying drawer/view.
     if (confirmRequest) {
@@ -3867,6 +4142,14 @@
 
   function columnColor(column: Column): string {
     return ({ backlog: '#a4aab8', ready: '#4b9cf5', active: '#6d5efc', blocked: '#ec6b75', completed: '#35b88a' } as Record<string, string>)[column.semantic_state] || '#a4aab8';
+  }
+
+  async function showBoardCardPage(event: MouseEvent, columnId: string, offset: number) {
+    const scroller = (event.currentTarget as HTMLElement).closest('.column-cards') as HTMLElement | null;
+    boardCardOffsets = { ...boardCardOffsets, [columnId]: offset };
+    await tick();
+    scroller?.querySelector<HTMLButtonElement>('[data-task-trigger]')?.focus({ preventScroll: true });
+    if (scroller) scroller.scrollTop = 0;
   }
 
   function dragStart(event: DragEvent, task: Task) {
@@ -5542,7 +5825,13 @@
 
 <svelte:window />
 
-{#if booting}
+{#if user && !$offlineReadOnly}
+  <PwaStatus showCacheStatus={false} />
+{/if}
+
+{#if $offlineReadOnly}
+  <OfflineBoard boards={offlineBoards} reconnect={() => void reconnectOffline()} {reconnecting} error={reconnectError} clear={() => void clearSavedBoards()} />
+{:else if booting}
   <div class="splash" aria-live="polite">
     <HelmMark size={46} decorative className="brand-mark brand-mark-large" />
     <div class="splash-copy">
@@ -5731,8 +6020,8 @@
             {:else if !sortedColumns.length}
               <div class="empty-state board-empty"><div class="empty-icon">◇</div><h2>Your board is almost ready</h2><p>Columns will appear here once this project has been initialized.</p><button class="button primary" type="button" on:click={() => loadBoard()}>Refresh board</button></div>
             {:else}
-              <section class="board" aria-label={`${activeProject.name} board`}>
-                {#each sortedColumns as column}
+              <section class="board" use:boardCardHeight aria-label={`${activeProject.name} board`}>
+                {#each sortedColumns as column (column.id)}
                 {@const orderingGate = makeBoardOrderingGate({
                   criteriaTransition: boardCriteriaTransition,
                   filterTimerPending: boardFilterTimer !== undefined,
@@ -5758,7 +6047,7 @@
                 >
                     <header class="column-header"><div class="column-name"><span class="column-dot" style={`--column-color: ${columnColor(column)}`}></span><h2>{column.name}</h2><span class="column-count">{tasksByColumn[column.id].length}{boardPages[column.id]?.nextCursor ? '+' : ''}</span></div></header>
                     <div class="column-progress"><span style={`width: ${Math.min(100, tasksByColumn[column.id].length * 4)}%; --column-color: ${columnColor(column)}`}></span></div>
-                    <div class="column-cards">
+                    <div class="column-cards" use:columnScroll={{ scope: `${activeProject.id}:${boardCriteriaRevision}`, column: column.id, page: cardOffset, ready: !boardLoading }}>
                       {#if dragOverColumnId === column.id && draggingTaskId && tasksByColumn[column.id].some((task) => task.id === draggingTaskId) === false}
                         <div class="drop-placeholder" role="status">Drop task in {column.name}</div>
                       {/if}
@@ -5783,8 +6072,8 @@
                         {/each}
                       {/if}
                       {#if orderedColumnTasks.length > boardRenderLimit}<div class="column-empty" role="status">Showing {cardOffset + 1}–{Math.min(cardOffset + boardRenderLimit, orderedColumnTasks.length)} of {orderedColumnTasks.length} loaded cards</div>{/if}
-                      {#if cardOffset > 0}<button class="load-more-tasks" type="button" on:click={() => { boardCardOffsets = { ...boardCardOffsets, [column.id]: cardOffset - boardRenderLimit }; }}>Show previous cards</button>{/if}
-                      {#if cardOffset + boardRenderLimit < orderedColumnTasks.length}<button class="load-more-tasks" type="button" on:click={() => { boardCardOffsets = { ...boardCardOffsets, [column.id]: cardOffset + boardRenderLimit }; }}>Show next cards</button>
+                      {#if cardOffset > 0}<button class="load-more-tasks" type="button" on:click={(event) => showBoardCardPage(event, column.id, cardOffset - boardRenderLimit)}>Show previous cards</button>{/if}
+                      {#if cardOffset + boardRenderLimit < orderedColumnTasks.length}<button class="load-more-tasks" type="button" on:click={(event) => showBoardCardPage(event, column.id, cardOffset + boardRenderLimit)}>Show next cards</button>
                       {:else if boardPages[column.id]?.nextCursor}<button class="load-more-tasks" type="button" on:click={() => loadMoreBoardColumn(column.id)} disabled={boardPages[column.id].loading}>{boardPages[column.id].loading ? 'Loading…' : 'Load more tasks'}</button>{/if}
                       {#if boardPages[column.id]?.error && tasksByColumn[column.id].length}<div class="column-page-error" role="alert"><span>{boardPages[column.id].error}</span><button class="text-button" type="button" on:click={() => loadBoardColumn(column.id, { reset: false })}>Retry</button></div>{/if}
                     </div>
