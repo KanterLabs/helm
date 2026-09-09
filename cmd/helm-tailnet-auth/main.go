@@ -312,6 +312,10 @@ func normalizeRemoteAddr(value string) (string, error) {
 }
 
 func consumeEmptyBody(w http.ResponseWriter, r *http.Request) bool {
+	if r.ContentLength > maxForwardAuthBody {
+		writeHelperError(w, http.StatusRequestEntityTooLarge, "forward-auth request body is too large")
+		return false
+	}
 	if r.Body == nil || r.Body == http.NoBody {
 		return true
 	}
@@ -358,14 +362,40 @@ type helperOptions struct {
 }
 
 func parseOptions(args []string) (helperOptions, error) {
-	defaults := helperOptions{
-		Addr:       envOr("HELM_TAILNET_AUTH_ADDR", defaultListenAddr),
-		Socket:     envOr("HELM_TAILNET_SOCKET", defaultTailnetSocket),
-		KeyFile:    envOr("HELM_TAILNET_ASSERTION_KEY_FILE", ""),
-		Owner:      envOr("HELM_TAILNET_OWNER_LOGIN", envOr("HELM_ADMIN_EMAIL", "")),
-		AdminEmail: envOr("HELM_ADMIN_EMAIL", ""),
-		Audience:   envOr("HELM_TAILNET_AUDIENCE", envOr("HELM_PUBLIC_ORIGIN", "")),
+	addr, err := envValue(defaultListenAddr, "HELM_TAILNET_AUTH_ADDR", "ROADMAP_TAILNET_AUTH_ADDR")
+	if err != nil {
+		return helperOptions{}, err
 	}
+	socket, err := envValue(defaultTailnetSocket, "HELM_TAILNET_SOCKET", "ROADMAP_TAILNET_SOCKET", "HELM_TAILNET_TAILSCALED_SOCKET", "ROADMAP_TAILNET_TAILSCALED_SOCKET")
+	if err != nil {
+		return helperOptions{}, err
+	}
+	keyFile, err := envValue("", "HELM_TAILNET_ASSERTION_KEY_FILE", "HELM_TAILNET_AUTH_KEY_FILE", "HELM_TAILNET_KEY_FILE", "ROADMAP_TAILNET_ASSERTION_KEY_FILE", "ROADMAP_TAILNET_AUTH_KEY_FILE", "ROADMAP_TAILNET_KEY_FILE")
+	if err != nil {
+		return helperOptions{}, err
+	}
+	adminEmail, err := envValue("", "HELM_ADMIN_EMAIL", "ROADMAP_ADMIN_EMAIL")
+	if err != nil {
+		return helperOptions{}, err
+	}
+	owner, err := envValue("", "HELM_TAILNET_OWNER_LOGIN", "HELM_TAILNET_ADMIN_EMAIL", "ROADMAP_TAILNET_OWNER_LOGIN", "ROADMAP_TAILNET_ADMIN_EMAIL")
+	if err != nil {
+		return helperOptions{}, err
+	}
+	if owner == "" {
+		owner = adminEmail
+	}
+	audience, err := envValue("", "HELM_TAILNET_AUDIENCE", "ROADMAP_TAILNET_AUDIENCE")
+	if err != nil {
+		return helperOptions{}, err
+	}
+	if audience == "" {
+		audience, err = envValue("", "HELM_PUBLIC_ORIGIN", "ROADMAP_PUBLIC_ORIGIN")
+		if err != nil {
+			return helperOptions{}, err
+		}
+	}
+	defaults := helperOptions{Addr: addr, Socket: socket, KeyFile: keyFile, Owner: owner, AdminEmail: adminEmail, Audience: audience}
 	flags := flag.NewFlagSet("helm-tailnet-auth", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&defaults.Addr, "addr", defaults.Addr, "loopback listen address")
@@ -383,11 +413,26 @@ func parseOptions(args []string) (helperOptions, error) {
 	return defaults, nil
 }
 
-func envOr(name, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-		return value
+func envValue(fallback string, names ...string) (string, error) {
+	value := ""
+	valueName := ""
+	for _, name := range names {
+		candidate := strings.TrimSpace(os.Getenv(name))
+		if candidate == "" {
+			continue
+		}
+		if valueName == "" {
+			value, valueName = candidate, name
+			continue
+		}
+		if candidate != value {
+			return "", fmt.Errorf("conflicting environment variables %s and %s", valueName, name)
+		}
 	}
-	return fallback
+	if value == "" {
+		return fallback, nil
+	}
+	return value, nil
 }
 
 func run(args []string) error {
