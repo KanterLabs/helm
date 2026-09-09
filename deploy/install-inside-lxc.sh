@@ -11,6 +11,7 @@ CONFIG_DIR=/etc/roadmap
 LOCK_PATH="$STATE_DIR/deploy.lock"
 SERVICE_STOP_TIMEOUT=30
 PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
+PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101
 TAILNET_OWNER_ENV_SOURCE=/etc/roadmap/tailnet-owner.env
 TAILNET_ASSERTION_KEY_SOURCE=/etc/roadmap/tailnet.key
 TAILNET_TLS_CERT_SOURCE=/etc/roadmap/tailnet-origin.crt
@@ -193,6 +194,8 @@ validate_private_profile() {
 	peers=$(private_owner_value "$owner_file" HELM_TAILNET_ALLOWED_PEER_IPS)
 	[[ "$peers" = "$(private_owner_value "$owner_file" ROADMAP_TAILNET_ALLOWED_PEER_IPS)" ]] ||
 		fail 'private beta owner environment has conflicting Tailnet peer lists'
+	[[ "$peers" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] ||
+		fail 'private beta owner environment must allow only the homelab-edge LAN origin peer'
 	IFS=, read -r -a peers <<<"$peers"
 	[[ ${#peers[@]} -gt 0 ]] || fail 'private beta owner environment has no Tailnet peers'
 	for peer in "${peers[@]}"; do

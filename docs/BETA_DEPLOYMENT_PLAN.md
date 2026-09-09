@@ -48,12 +48,20 @@ CI or the installer:
 | `/etc/roadmap/tailnet-origin.crt` | `root:root`, `0644` | private-origin TLS certificate |
 | `/etc/roadmap/tailnet-origin.key` | `roadmap:roadmap`, `0600` | private-origin TLS private key read by `helm.service` |
 
+The exact non-secret owner-environment template is
+[`deploy/tailnet-owner.env.example`](../deploy/tailnet-owner.env.example).
+Copy it to `/etc/roadmap/tailnet-owner.env`, replace both admin-email
+placeholders with the existing admin email, and set `root:root` ownership and
+mode `0600`; never add key bytes to this file.
+
 The owner environment must use `HELM_AUTH_MODE=tailnet`, the exact private
 origin and audience, `10.0.0.39:8443`, the paths above, and the approved
-owner peer `100.124.12.50` (with matching `ROADMAP_*` aliases). The release
-owner environment is signed for provenance and must match this preprovisioned
-file; it contains paths and identity values only, never key bytes. The helper's
-separate key file and any Tailnet edge configuration are root-managed.
+homelab-edge LAN origin peer `10.0.0.101` (with matching `ROADMAP_*` aliases).
+The firewall permits only that source IP to TCP/8443; it deliberately does not
+require a Tailscale interface inside CT 106. The release owner environment is
+signed for provenance and must match this preprovisioned file; it contains
+paths and identity values only, never key bytes. The helper's separate key
+file and any Tailnet edge configuration are root-managed.
 
 The beta job remains paused with `HELM_BETA_DEPLOY_PAUSED=true` while the
 private route and TLS are being verified. When explicitly unpaused, CI builds a

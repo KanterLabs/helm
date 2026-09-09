@@ -138,6 +138,14 @@ configure_public_units() {
 	systemctl daemon-reload
 }
 
+# The installer owns the nftables transaction: it validates and atomically
+# loads the profile-specific file before switching the release. Rollback only
+# changes the release link and service profile, so it deliberately preserves
+# that last validated firewall policy rather than replacing it with an
+# unvalidated retained-release copy. A private rule therefore remains a
+# narrowly scoped LAN source-IP allow, while a missing private rule fails
+# closed until a normal private deployment refreshes the policy.
+
 [[ "$(id -u)" -eq 0 ]] || fail 'must run as root'
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'usage: helm-rollback <40-character git sha>'
 [[ -d "$STATE_DIR" && ! -L "$STATE_DIR" ]] || fail 'state directory is unavailable'

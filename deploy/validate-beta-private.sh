@@ -7,6 +7,7 @@ set -Eeuo pipefail
 CONFIG_FILE=/etc/roadmap/roadmap.env
 OWNER_CONFIG_FILE=/etc/roadmap/tailnet-owner.env
 PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
+PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101
 ASSERTION_KEY_SOURCE=/etc/roadmap/tailnet.key
 TLS_CERT_SOURCE=/etc/roadmap/tailnet-origin.crt
 TLS_KEY_SOURCE=/etc/roadmap/tailnet-origin.key
@@ -53,6 +54,8 @@ done
 [[ "$(single_kv_value ROADMAP_TAILNET_TLS_CERT_FILE)" = "$TLS_CERT_SOURCE" ]] || fail 'beta guest has a conflicting TLS certificate path'
 [[ "$(single_kv_value HELM_TAILNET_TLS_KEY_FILE)" = "$TLS_KEY_RUNTIME" ]] || fail 'beta guest has an unexpected TLS key runtime path'
 [[ "$(single_kv_value ROADMAP_TAILNET_TLS_KEY_FILE)" = "$TLS_KEY_RUNTIME" ]] || fail 'beta guest has a conflicting TLS key runtime path'
+[[ "$(single_kv_value HELM_TAILNET_ALLOWED_PEER_IPS)" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] || fail 'beta guest has an unexpected private origin peer'
+[[ "$(single_kv_value ROADMAP_TAILNET_ALLOWED_PEER_IPS)" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] || fail 'beta guest has a conflicting private origin peer'
 
 for key in HELM_AUTH_MODE ROADMAP_AUTH_MODE HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN \
 	HELM_TAILNET_AUDIENCE ROADMAP_TAILNET_AUDIENCE \
@@ -67,6 +70,8 @@ for key in HELM_AUTH_MODE ROADMAP_AUTH_MODE HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_OR
 		fail "Tailnet owner environment is missing $key"
 	[[ "$release_value" = "$owner_value" ]] || fail "Tailnet owner environment conflicts for $key"
 done
+[[ "$(awk -F= '$1 == "HELM_TAILNET_ALLOWED_PEER_IPS" { print substr($0, index($0, "=") + 1) }' "$OWNER_CONFIG_FILE")" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] ||
+	fail 'Tailnet owner environment has an unexpected private origin peer'
 
 regular_file "$ASSERTION_KEY_SOURCE" Tailnet-assertion-key
 [[ "$(stat -c '%U:%G' -- "$ASSERTION_KEY_SOURCE")" = roadmap:roadmap ]] || fail 'Tailnet assertion key owner is invalid'

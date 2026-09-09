@@ -316,7 +316,9 @@ jobs:
         env:
           HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}
           HELM_TAILNET_OWNER_LOGIN: ShaneKanterman04@github
-          HELM_TAILNET_ALLOWED_PEER_IPS: 100.124.12.50
+          # homelab-edge reaches CT 106 over the LAN; no tailscale interface
+          # is required inside the guest for the private HTTPS origin.
+          HELM_TAILNET_ALLOWED_PEER_IPS: 10.0.0.101
         run: |
           test -n "$HELM_ADMIN_EMAIL"
           test -n "$HELM_TAILNET_OWNER_LOGIN"

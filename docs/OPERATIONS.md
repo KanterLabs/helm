@@ -23,9 +23,10 @@ at `10.0.0.39/24`. Its selected hostname is the private-only
 `beta-helm.home.shanekanterman.dev`; the private route is not activated yet,
 no public DNS record is allowed, and public Cloudflare provisioning is disabled.
 No public Cloudflare tunnel or Access application is active. The beta private
-profile permits only the approved Tailnet peer to the TLS listener at
-`10.0.0.39:8443`; it keeps the application health/auth checks on loopback and
-masks `cloudflared.service`. The
+profile permits only the homelab-edge LAN source `10.0.0.101` to the TLS
+listener at `10.0.0.39:8443`; it keeps the application health/auth checks on
+loopback, does not require a Tailscale interface in CT 106, and masks
+`cloudflared.service`. The
 `helm-beta-deploy` forced SSH account,
 `/var/lib/helm-beta-deploy` host staging, and a distinct Ed25519 signing trust
 under `/etc/helm-beta-deploy`. The separate guest gives beta its own database,

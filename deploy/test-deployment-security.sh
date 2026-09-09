@@ -16,6 +16,7 @@ RESTORE="$DEPLOY_DIR/helm-restore.sh"
 ROLLBACK="$DEPLOY_DIR/helm-rollback.sh"
 INSTALL="$DEPLOY_DIR/install-inside-lxc.sh"
 PRIVATE_VALIDATE="$DEPLOY_DIR/validate-beta-private.sh"
+PRIVATE_OWNER_TEMPLATE="$DEPLOY_DIR/tailnet-owner.env.example"
 SERVICE="$DEPLOY_DIR/helm.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
@@ -41,7 +42,7 @@ count_contains() {
 }
 
 for file in "$GATEWAY" "$BOOTSTRAP" "$DEPLOY_CI" "$VERIFY" "$BUILD_BUNDLE" \
-	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
+	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
 	[[ -f "$file" && ! -L "$file" ]] || fail "deployment file is missing: $file"
 done
 
@@ -589,6 +590,10 @@ fi
 contains 'current_sha=none' "$gateway_beta_output"
 contains 'config 106' "$gateway_beta_calls"
 not_contains 'config 103' "$gateway_beta_calls"
+contains 'if [[ "$PROFILE" = beta ]]; then' "$GATEWAY"
+contains 'pct exec "$CTID" -- systemctl is-active roadmap.service' "$GATEWAY"
+contains 'if [[ "$PROFILE" = production ]]; then' "$GATEWAY"
+contains 'pct exec "$CTID" -- systemctl is-active --quiet cloudflared.service' "$GATEWAY"
 printf 'gateway_beta_profile_test=ok\n'
 
 gateway_drift_config=${gateway_canonical_config/hostname: roadmap/hostname: unrelated}
@@ -1579,18 +1584,33 @@ count_contains 2 'rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflar
 count_contains 2 'rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env' "$WORKFLOW"
 contains 'name: Prepare private beta owner environment' "$WORKFLOW"
 contains 'HELM_TAILNET_OWNER_LOGIN: ShaneKanterman04@github' "$WORKFLOW"
-contains 'HELM_TAILNET_ALLOWED_PEER_IPS: 100.124.12.50' "$WORKFLOW"
+contains 'HELM_TAILNET_ALLOWED_PEER_IPS: 10.0.0.101' "$WORKFLOW"
 contains 'HELM_AUTH_MODE=tailnet' "$WORKFLOW"
 contains 'HELM_TAILNET_ASSERTION_KEY_FILE=/etc/roadmap/tailnet.key' "$WORKFLOW"
 contains 'HELM_TAILNET_TLS_ADDR=10.0.0.39:8443' "$WORKFLOW"
 contains 'HELM_TAILNET_TLS_CERT_FILE=/etc/roadmap/tailnet-origin.crt' "$WORKFLOW"
 contains 'HELM_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key' "$WORKFLOW"
 contains 'deploy-ci.sh private-ready' "$WORKFLOW"
+contains 'HELM_TAILNET_ALLOWED_PEER_IPS=10.0.0.101' "$PRIVATE_OWNER_TEMPLATE"
+contains 'ROADMAP_TAILNET_ALLOWED_PEER_IPS=10.0.0.101' "$PRIVATE_OWNER_TEMPLATE"
+contains 'REPLACE_WITH_EXISTING_ADMIN_EMAIL' "$PRIVATE_OWNER_TEMPLATE"
 contains 'beta_private_ready=ok' "$PRIVATE_VALIDATE"
 contains 'status" = 401' "$PRIVATE_VALIDATE"
 contains 'cloudflared.service is active in the private beta profile' "$PRIVATE_VALIDATE"
 contains 'http://127.0.0.1:8080/healthz' "$PRIVATE_VALIDATE"
 not_contains 'cloudflare.sh' "$PRIVATE_VALIDATE"
+contains 'ip saddr %s tcp dport 8443 accept' "$INSTALL"
+contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$INSTALL"
+contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$BUILD_BUNDLE"
+contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$PRIVATE_VALIDATE"
+contains 'install -m 0644 -o root -g root "$temporary" "$CONFIG_DIR/nftables.conf"' "$INSTALL"
+contains 'nft -c -f /etc/nftables.conf' "$INSTALL"
+not_contains '/etc/nftables.conf' "$ROLLBACK"
+not_contains 'tailscale0' "$INSTALL"
+not_contains 'tailscale0' "$DEPLOY_DIR/nftables.conf"
+contains 'homelab-edge' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
+contains '10.0.0.101' "$DOCS"
+contains '10.0.0.101' "$ROOT_DIR/README.md"
 not_contains 'cloudflare.sh publish' "$fixture/beta-workflow.yml"
 not_contains 'validate-live.sh' "$fixture/beta-workflow.yml"
 contains 'HELM_CLOUDFLARED_TOKEN_FILE' "$ROOT_DIR/deploy/build-bundle.sh"

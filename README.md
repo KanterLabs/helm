@@ -348,11 +348,12 @@ reviewed allowlist.
 
 The production guest has no inbound application or SSH port; the application
 and connector communicate over loopback. The beta private profile permits only
-the approved Tailnet peer to its TLS listener, masks `cloudflared.service`, and
-never performs public Cloudflare reconciliation. Releases use an immutable
-SHA-tagged Go binary, a constrained Proxmox deployment identity, and signed
-bundle/backup/rollback checks. The full bootstrap, host assumptions, firewall
-posture, private preprovisioning, and recovery checks are in
+the approved homelab-edge LAN source (`10.0.0.101`) to its TLS listener, masks
+`cloudflared.service`, and never performs public Cloudflare reconciliation. The
+guest does not require a Tailscale interface for this LAN ingress. Releases use
+an immutable SHA-tagged Go binary, a constrained Proxmox deployment identity,
+and signed bundle/backup/rollback checks. The full bootstrap, host assumptions,
+firewall posture, private preprovisioning, and recovery checks are in
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 After the one-time Proxmox and private Tailnet preprovisioning described there, pushes to

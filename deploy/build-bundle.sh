@@ -20,6 +20,7 @@ SIGNING_KEY_FILE=$(resolve_compat_var HELM_RELEASE_SIGNING_KEY_FILE ROADMAP_RELE
 OWNER_ENV_FILE=$(resolve_compat_var HELM_OWNER_ENV_FILE ROADMAP_OWNER_ENV_FILE "$DIST_DIR/owner.env")
 
 DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
+PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101
 case "$DEPLOY_ENVIRONMENT" in
 	production) PRIVATE_TAILNET_BETA=0 ;;
 	beta) PRIVATE_TAILNET_BETA=1 ;;
@@ -210,6 +211,10 @@ validate_private_owner_env() {
 	peers=$(single_owner_value HELM_TAILNET_ALLOWED_PEER_IPS)
 	[[ "$peers" = "$(single_owner_value ROADMAP_TAILNET_ALLOWED_PEER_IPS)" ]] || {
 		printf 'private beta owner environment has conflicting Tailnet peer lists\n' >&2
+		exit 1
+	}
+	[[ "$peers" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] || {
+		printf 'private beta owner environment must allow only the homelab-edge LAN origin peer\n' >&2
 		exit 1
 	}
 	IFS=, read -r -a peers <<<"$peers"
