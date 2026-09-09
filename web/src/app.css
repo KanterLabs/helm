@@ -290,7 +290,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .column-page-error .text-button { margin-left: auto; }
 .drop-placeholder { min-height: 24px; border: 1.5px dashed var(--purple); border-radius: 9px; background: color-mix(in srgb, var(--purple-soft) 55%, transparent); }
 .task-card { position: relative; height: 128px; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow-sm); transition: height var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
-.task-card.expanded { height: auto; min-height: 128px; }
+.task-card.expanded { height: 220px; overflow-y: auto; }
 .task-card:hover { border-color: var(--border-strong); box-shadow: 0 5px 13px rgba(35, 42, 61, .08); transform: translateY(-1px); }
 .task-card.dragging { opacity: .5; transform: rotate(1.5deg) scale(1.02); box-shadow: var(--lift-md); cursor: grabbing; }
 .task-drag-handle { position: absolute; top: 7px; right: 7px; z-index: 2; width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: color-mix(in srgb, var(--surface-muted) 80%, transparent); font-size: 16px; line-height: 1; cursor: grab; }
@@ -359,6 +359,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 /* Live agent pulse */
 .agent-pulse { min-width: 0; display: flex; align-items: flex-start; gap: 7px; margin: 0 10px 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 7px; color: var(--ink-soft); background: var(--surface-muted); }
 .agent-pulse.compact { font-size: 11px; }
+.agent-pulse.compact { display: inline-flex; align-items: center; width: max-content; margin: 0 10px 6px auto; padding: 3px 6px; border-radius: 999px; font-size: 9px; line-height: 1; }
+.agent-pulse.compact .agent-pulse-icon { width: 14px; height: 14px; font-size: 8px; }
+.agent-pulse-badge-label { color: var(--muted); font-size: 9px; font-weight: 750; white-space: nowrap; }
 .agent-pulse.missing { border-style: dashed; color: var(--amber); background: var(--amber-soft); }
 .agent-pulse.stale, .agent-pulse.needsAction { border-color: color-mix(in srgb, var(--amber), var(--border) 55%); }
 .agent-pulse.stale { color: var(--amber); }

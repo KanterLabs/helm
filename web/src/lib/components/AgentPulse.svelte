@@ -119,6 +119,9 @@
   data-agent-pulse
 >
   <span class="agent-pulse-icon" aria-hidden="true">{missing ? '?' : stateIcons[state] || '•'}</span>
+  {#if compact}
+    <span class="agent-pulse-badge-label" id={`agent-pulse-${task.id}-state`}>{stateLabel}</span>
+  {:else}
   <span class="agent-pulse-copy" id={`agent-pulse-${task.id}-details`}>
     <strong id={`agent-pulse-${task.id}-state`}>{stateLabel}</strong>
     {#if stale && state === 'waiting'}<span class="agent-pulse-secondary">Stale update</span>{:else if stale && baseStateLabel !== stateLabel}<span class="agent-pulse-secondary">{baseStateLabel} update is stale</span>{:else if actionNeeded}<span class="agent-pulse-secondary">Action needed</span>{/if}
@@ -142,4 +145,5 @@
       </span>
     {/if}
   </span>
+  {/if}
 </div>
