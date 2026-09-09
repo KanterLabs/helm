@@ -5,17 +5,17 @@ info:
   version: 1.0.0
   description: |
     Stable JSON API for the Helm project board and its built-in internal bug
-    tracker. Humans use a session cookie or Cloudflare Access identity; agents
-    use scoped bearer tokens.
+    tracker. Humans use a session cookie, Cloudflare Access identity, or the
+    private Tailnet edge identity; agents use scoped bearer tokens.
     Single-resource responses contain the resource directly. Collections use
     a cursor-paginated object containing data and next_cursor. Collection
     cursors are opaque URL-safe keyset markers (retained decimal/base64
     offsets remain accepted for compatibility) and an empty next_cursor means
     that there is no next page. Every response includes X-Request-ID; deployments
     that provide a release revision also include X-Roadmap-Revision.
-    Cookie- and Cloudflare-authenticated mutations require an Origin that
-    exactly matches the configured public origin; bearer-token mutations do
-    not require Origin. Temporary bearer-authentication or request-body
+    Cookie-, Cloudflare-, and Tailnet-authenticated mutations require an Origin
+    that exactly matches the configured public origin; bearer-token mutations
+    do not require Origin. Temporary bearer-authentication or request-body
     admission saturation returns 503 with Retry-After.
   license:
     name: MIT
@@ -33,6 +33,7 @@ security:
 x-authentication-modes:
   - local
   - cloudflare
+  - tailnet
   - disabled
 x-common-response-headers: &commonResponseHeaders
   X-Request-ID:
@@ -710,7 +711,10 @@ paths:
     get:
       operationId: getAuthStatus
       summary: Get authentication status
-      description: Public deployment status. `disabled` is intended only for development.
+      description: |
+        Public deployment status. `disabled` is intended only for development.
+        `tailnet` is a private-edge mode; setup is deployment-owned and does
+        not use a local password form.
       tags:
         - Authentication
       security:
@@ -754,6 +758,14 @@ paths:
                       admin: true
                       created_at: '2026-08-27T08:00:00Z'
                       updated_at: '2026-08-27T10:00:00Z'
+                tailnetAwaitingAccess:
+                  value:
+                    mode: tailnet
+                    configured: false
+                    setup_required: false
+                    authenticated: false
+                    actor: null
+                    user: null
         '500':
           $ref: '#/components/responses/InternalServerError'
         '429':
@@ -769,11 +781,13 @@ paths:
       summary: Create the first local administrator
       description: |
         Initializes local authentication exactly once and returns the newly-created
-        administrator actor. `name` is optional and defaults to the local part of
-        the email. Sign in with the login route to establish a session. The
-        configured public Origin is required for this cookie-authentication
-        setup mutation. Missing, null, mistyped, malformed, or schema-invalid
-        fields return `400` (`invalid_request` or `invalid_json`).
+        administrator actor. This route is available only in `local` mode;
+        Cloudflare and Tailnet deployments provision identity at the protected
+        edge and do not use password setup. `name` is optional and defaults to
+        the local part of the email. Sign in with the login route to establish a
+        session. The configured public Origin is required for this mutation.
+        Missing, null, mistyped, malformed, or schema-invalid fields return
+        `400` (`invalid_request` or `invalid_json`).
       tags:
         - Authentication
       security:
@@ -829,11 +843,12 @@ paths:
       operationId: login
       summary: Sign in with a local account
       description: |
-        Requires the configured public Origin; this route does not accept
-        Idempotency-Key. Missing, null, mistyped, malformed, or schema-invalid
-        fields return `400` (`invalid_request` or `invalid_json`). A syntactically
-        valid request with credentials that do not authenticate returns `401`
-        (`invalid_credentials`).
+        Signs in with a local account; Cloudflare and Tailnet deployments do
+        not use password login. Requires the configured public Origin; this
+        route does not accept Idempotency-Key. Missing, null, mistyped,
+        malformed, or schema-invalid fields return `400` (`invalid_request` or
+        `invalid_json`). A syntactically valid request with credentials that do
+        not authenticate returns `401` (`invalid_credentials`).
       tags:
         - Authentication
       security:
@@ -895,8 +910,9 @@ paths:
       summary: Sign out the current session
       description: |
         Clears the local session cookie. The route is intentionally callable
-        without a valid session, but cookie-authenticated callers must send
-        the configured public Origin. This route does not accept Idempotency-Key.
+        without a valid session, but browser callers must send the configured
+        public Origin. In Tailnet mode it does not create a password session or
+        bypass the private edge. This route does not accept Idempotency-Key.
       tags:
         - Authentication
       security:
@@ -6388,6 +6404,7 @@ components:
       enum:
         - local
         - cloudflare
+        - tailnet
         - disabled
       description: Authentication mode configured by the deployment.
     ActorKind:

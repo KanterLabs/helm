@@ -35,9 +35,9 @@ fields are omitted when they have no value unless a route explicitly documents
   migrations and inspection errors are degraded.
 - Every response includes `X-Request-ID`. Deployments with a release SHA also include `X-Roadmap-Revision`.
 - API responses are `Cache-Control: no-store`. Clients may send `X-Request-ID` (up to 128 characters); otherwise the server generates one.
-- Cookie- and Cloudflare-authenticated mutations require an `Origin` exactly equal to the configured public origin. Missing or different origins return `403` (`csrf_origin`). Bearer-token requests are exempt from this Origin check. `GET`, `HEAD`, and `OPTIONS` do not require Origin.
+- Cookie-, Cloudflare-, and Tailnet-authenticated mutations require an `Origin` exactly equal to the configured public origin. Missing or different origins return `403` (`csrf_origin`). Bearer-token requests are exempt from this Origin check. `GET`, `HEAD`, and `OPTIONS` do not require Origin.
 - Public mutation routes (`setup`, `login`, and `logout`) use the same exact-Origin rule and reject `Idempotency-Key` with `400` (`idempotency_not_supported`).
-- Humans use the local session cookie or verified Cloudflare Access identity. Agents use scoped `Authorization: Bearer` tokens. Missing credentials return `401`; valid credentials without the required permission or scope return `403`.
+- Humans use the local session cookie, verified Cloudflare Access identity, or the private Tailnet edge identity. Agents use scoped `Authorization: Bearer` tokens. Missing credentials return `401`; valid credentials without the required permission or scope return `403`.
 
 ## Authentication
 
@@ -47,15 +47,28 @@ fields are omitted when they have no value unless a route explicitly documents
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 
-The server supports `local`, `cloudflare`, and development-only `disabled`
-authentication modes. Cloudflare identity comes from the protected Tunnel
-`Cf-Access-Jwt-Assertion` header. The server verifies its RS256 signature,
-issuer, expiration, and configured UI/API application audience before using the
-signed email claim; generic proxy identity headers are not trusted.
+The server supports `local`, `cloudflare`, `tailnet`, and development-only
+`disabled` authentication modes. Cloudflare identity comes from the protected
+Tunnel `Cf-Access-Jwt-Assertion` header. The server verifies its RS256
+signature, issuer, expiration, and configured UI/API application audience
+before using the signed email claim; generic proxy identity headers are not
+trusted.
 
-Setup accepts required `email` and `password`, with optional `name`; when name
-is omitted it defaults to the email's local part. Setup is single-use. Login
-accepts email and password. Logout is safe to call without an active session.
+Tailnet identity is established only by the private edge. The edge resolves
+the real Tailnet peer through tailscaled, requires the configured untagged
+owner, and forwards a short-lived HMAC assertion bound to the exact private
+origin, method, and request URI. Helm accepts only that request-bound
+assertion; raw Tailscale or proxy identity headers are not credentials. In
+Tailnet mode, `setup_required` remains false because authentication is
+deployment-owned; `configured` may remain false until the first verified owner
+request creates or reconciles the configured human actor.
+
+Setup accepts required `email` and `password`, with optional `name`, only in
+`local` mode; when name is omitted it defaults to the email's local part.
+Setup is single-use. Login accepts email and password only in `local` mode;
+Cloudflare and Tailnet deployments do not use password login. Logout is safe to
+call without an active session and does not turn Tailnet access into a password
+login.
 Missing, explicit-null, mistyped, malformed, or schema-invalid setup/login
 fields are `400` (`invalid_request` or `invalid_json`). Only a syntactically
 valid request whose credentials are not accepted is `401` (`invalid_credentials`);

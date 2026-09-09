@@ -132,6 +132,12 @@ diagnostics are documented in [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
   `HELM_SECURE_COOKIES=true`, `HELM_DEMO_SEED=false`, and binds only to
   loopback. Password login and ordinary proxy identity headers are not used in
   Cloudflare mode.
+- `tailnet`: private-only authentication. The trusted edge resolves the
+  Tailnet peer through tailscaled and sends Helm a short-lived, request-bound
+  assertion; Helm does not trust raw Tailscale/proxy identity headers and does
+  not offer local password setup or login. Configure the exact
+  `HELM_TAILNET_OWNER_LOGIN`, existing `HELM_ADMIN_EMAIL`, private HTTPS
+  origin/audience, protected assertion key, TLS files, and edge peer allowlist.
 - `disabled`: development-only authentication bypass. Never use it for a
   reachable or production deployment.
 
