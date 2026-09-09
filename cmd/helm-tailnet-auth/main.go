@@ -340,7 +340,7 @@ func validateAudience(value string) error {
 		return errors.New("tailnet audience is invalid")
 	}
 	parsed, err := url.ParseRequestURI(value)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" {
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(value, "#") || parsed.Path != "" && parsed.Path != "/" {
 		return errors.New("tailnet audience must be an exact https origin")
 	}
 	return nil
