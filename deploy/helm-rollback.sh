@@ -21,6 +21,7 @@ LOCK_PATH="$STATE_DIR/deploy.lock"
 CONFIG_DIR=$(compat_env HELM_CONFIG_DIR ROADMAP_CONFIG_DIR /etc/roadmap)
 SERVICE_STOP_TIMEOUT=30
 SHA=${1:-}
+PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
 
 fail() {
 	printf '[helm-rollback] %s\n' "$*" >&2
@@ -109,6 +110,42 @@ install_release_env() {
 	mv -T -- "$temporary" "$CONFIG_DIR/roadmap.env" || return 1
 }
 
+private_profile_env() {
+	local path=$1 mode origin
+	[[ -f "$path" && ! -L "$path" ]] || return 1
+	mode=$(awk -F= '$1 == "HELM_AUTH_MODE" { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path") || return 1
+	origin=$(awk -F= '$1 == "HELM_PUBLIC_ORIGIN" { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path") || return 1
+	[[ "$mode" = tailnet && "$origin" = "$PRIVATE_ORIGIN" ]]
+}
+
+configure_private_units() {
+	install -d -m 0755 -o root -g root /etc/systemd/system/helm.service.d
+	if [[ ! -f /etc/systemd/system/helm.service.d/tailnet-credentials.conf || -L /etc/systemd/system/helm.service.d/tailnet-credentials.conf ]]; then
+		local temporary=/etc/systemd/system/helm.service.d/tailnet-credentials.conf.new
+		[[ ! -e "$temporary" && ! -L "$temporary" ]] || return 1
+		printf '[Service]\nEnvironmentFile=/etc/roadmap/tailnet-owner.env\n' > "$temporary"
+		chown root:root "$temporary"
+		chmod 0644 "$temporary"
+		mv -T -- "$temporary" /etc/systemd/system/helm.service.d/tailnet-credentials.conf
+	fi
+	systemctl mask cloudflared.service || return 1
+	systemctl daemon-reload
+}
+
+configure_public_units() {
+	systemctl unmask cloudflared.service 2>/dev/null || true
+	rm -f -- /etc/systemd/system/helm.service.d/tailnet-credentials.conf
+	systemctl daemon-reload
+}
+
+# The installer owns the nftables transaction: it validates and atomically
+# loads the profile-specific file before switching the release. Rollback only
+# changes the release link and service profile, so it deliberately preserves
+# that last validated firewall policy rather than replacing it with an
+# unvalidated retained-release copy. A private rule therefore remains a
+# narrowly scoped LAN source-IP allow, while a missing private rule fails
+# closed until a normal private deployment refreshes the policy.
+
 [[ "$(id -u)" -eq 0 ]] || fail 'must run as root'
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'usage: helm-rollback <40-character git sha>'
 [[ -d "$STATE_DIR" && ! -L "$STATE_DIR" ]] || fail 'state directory is unavailable'
@@ -125,6 +162,14 @@ validate_release_env "$TARGET/roadmap.env" "$SHA" ||
 (cd "$TARGET" && sha256sum --check --strict "$TARGET_BINARY.sha256" >/dev/null) \
 	|| fail 'requested release binary checksum failed'
 validate_optional_codex "$TARGET" || fail 'requested release Codex checksum failed'
+target_private_profile=0
+if private_profile_env "$TARGET/roadmap.env"; then
+	target_private_profile=1
+fi
+current_private_profile=0
+if private_profile_env "$CONFIG_DIR/roadmap.env"; then
+	current_private_profile=1
+fi
 
 if [[ -e "$LOCK_PATH" || -L "$LOCK_PATH" ]]; then
 	[[ -f "$LOCK_PATH" && ! -L "$LOCK_PATH" ]] || fail 'deployment lock is not a regular file'
@@ -143,6 +188,7 @@ elif [[ -e "$CURRENT_LINK" ]]; then
 	fail 'current release path is not a symlink'
 fi
 previous_sha=
+previous_private_profile=0
 if [[ -n "$previous_target" ]]; then
 	previous_sha=${previous_target##*/}
 	[[ "$previous_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'current release directory name is invalid'
@@ -154,6 +200,9 @@ if [[ -n "$previous_target" ]]; then
 		fail 'current release has no release environment'
 	validate_release_env "$previous_target/roadmap.env" "$previous_sha" ||
 		fail 'current release environment revision is invalid'
+	if private_profile_env "$previous_target/roadmap.env"; then
+		previous_private_profile=1
+	fi
 fi
 
 atomic_switch() {
@@ -193,7 +242,7 @@ healthy_revision() {
 }
 
 start_and_verify_previous() {
-	local reason=$1
+	local reason=$1 previous_profile=${previous_private_profile:-0}
 	[[ -n "$previous_target" ]] || {
 		printf '[helm-rollback] %s; no previous release exists\n' "$reason" >&2
 		return 1
@@ -203,17 +252,30 @@ start_and_verify_previous() {
 	# Stop both units before switching the link. This makes recovery the same
 	# transaction for application and connector failures, and prevents a
 	# connector from retaining target-release configuration during the switch.
-	stop_unit cloudflared.service || return 1
+	if (( previous_profile == 0 )); then
+		stop_unit cloudflared.service || return 1
+	fi
 	stop_unit roadmap.service || return 1
 	stop_unit helm.service || return 1
 	install_release_env "$previous_target" "$previous_sha" || return 1
 	atomic_switch "$previous_target" || return 1
+	if (( previous_profile == 1 )); then
+		if declare -F configure_private_units >/dev/null 2>&1; then
+			configure_private_units || return 1
+		fi
+	else
+		if declare -F configure_public_units >/dev/null 2>&1; then
+			configure_public_units || return 1
+		fi
+	fi
 	systemctl start helm.service || return 1
 	healthy_revision "$previous_sha" || return 1
 	systemctl is-active --quiet helm.service || return 1
 	systemctl is-active --quiet roadmap.service || return 1
-	systemctl start cloudflared.service || return 1
-	systemctl is-active --quiet cloudflared.service || return 1
+	if (( previous_profile == 0 )); then
+		systemctl start cloudflared.service || return 1
+		systemctl is-active --quiet cloudflared.service || return 1
+	fi
 	return 0
 }
 
@@ -237,11 +299,18 @@ on_exit() {
 trap on_exit EXIT
 
 recovery_needed=1
-stop_unit cloudflared.service || fail 'could not stop cloudflared.service and verify it is inactive'
+if (( current_private_profile == 0 )); then
+	stop_unit cloudflared.service || fail 'could not stop cloudflared.service and verify it is inactive'
+fi
 stop_unit roadmap.service || fail 'could not stop roadmap.service and verify it is inactive'
 stop_unit helm.service || fail 'could not stop helm.service and verify it is inactive'
 install_release_env "$TARGET" "$SHA" || fail 'could not install requested release environment'
 atomic_switch "$TARGET" || fail 'could not switch to requested release'
+if (( target_private_profile == 1 )); then
+	configure_private_units || fail 'could not configure private beta units'
+else
+	configure_public_units || fail 'could not configure public units'
+fi
 
 # Validate the application before starting the connector. Either this health
 # failure or the connector failure below must restore the prior release.
@@ -253,12 +322,14 @@ if ! systemctl start helm.service || ! healthy_revision "$SHA" || ! systemctl is
 	fail 'requested release failed app health and previous release recovery failed'
 fi
 
-if ! systemctl start cloudflared.service || ! systemctl is-active --quiet cloudflared.service; then
-	if start_and_verify_previous 'requested release failed cloudflared validation'; then
-		recovery_needed=0
-		exit 1
+if (( target_private_profile == 0 )); then
+	if ! systemctl start cloudflared.service || ! systemctl is-active --quiet cloudflared.service; then
+		if start_and_verify_previous 'requested release failed cloudflared validation'; then
+			recovery_needed=0
+			exit 1
+		fi
+		fail 'requested release failed cloudflared validation and previous release recovery failed'
 	fi
-	fail 'requested release failed cloudflared validation and previous release recovery failed'
 fi
 
 recovery_needed=0

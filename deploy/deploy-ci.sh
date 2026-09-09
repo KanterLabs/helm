@@ -31,7 +31,7 @@ fi
 CONFIG_FILE=$(resolve_compat_var HELM_DEPLOY_CONFIG ROADMAP_DEPLOY_CONFIG "$DEFAULT_CONFIG")
 ACTION=deploy
 SHA=
-if [[ ${1:-} = deploy || ${1:-} = rollback || ${1:-} = status ]]; then
+if [[ ${1:-} = deploy || ${1:-} = rollback || ${1:-} = status || ${1:-} = private-ready ]]; then
 	ACTION=$1
 	shift
 fi
@@ -92,7 +92,12 @@ case "$ACTION" in
 		} ;;
 	status)
 		[[ -z "$SHA" && $# -eq 0 ]] || { printf 'usage: %s status\n' "$0" >&2; exit 64; } ;;
-	*) printf 'usage: %s [deploy|rollback] <40-character git sha> | status\n' "$0" >&2; exit 64 ;;
+	private-ready)
+		[[ -z "$SHA" && $# -eq 0 && "$DEPLOY_PROFILE" = beta ]] || {
+			printf 'private-ready is available only for beta and takes no arguments\n' >&2
+			exit 64
+		} ;;
+	*) printf 'usage: %s [deploy|rollback] <40-character git sha> | status | private-ready\n' "$0" >&2; exit 64 ;;
 esac
 
 SSH_CONFIG=$(resolve_compat_var HELM_SSH_CONFIG ROADMAP_SSH_CONFIG)
@@ -123,6 +128,15 @@ if [[ "$ACTION" = rollback ]]; then
 		ssh -F "$SSH_CONFIG" -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" "rollback $SHA" < /dev/null
 	else
 		ssh -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" "rollback $SHA" < /dev/null
+	fi
+	exit 0
+fi
+
+if [[ "$ACTION" = private-ready ]]; then
+	if [[ -n "$SSH_CONFIG" ]]; then
+		ssh -F "$SSH_CONFIG" -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" private-ready < /dev/null
+	else
+		ssh -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" private-ready < /dev/null
 	fi
 	exit 0
 fi

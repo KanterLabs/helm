@@ -396,6 +396,8 @@ case "$ACTION" in
 			|| fail "$ACTION requires a 40-character git SHA" ;;
 	status)
 		[[ ${#args[@]} -eq 1 ]] || fail 'status takes no arguments' ;;
+	private-ready)
+		[[ "$PROFILE" = beta && ${#args[@]} -eq 1 ]] || fail 'private-ready is available only for beta' ;;
 	*) fail "unsupported command: $ACTION" ;;
 esac
 
@@ -409,6 +411,22 @@ exec 8>"$DEPLOY_ROOT/deploy.lock"
 chmod 0600 "$DEPLOY_ROOT/deploy.lock"
 flock -x 8
 assert_target_vmid_is_lxc
+
+if [[ "$ACTION" = private-ready ]]; then
+	config=$(pct config "$CTID" 2>/dev/null) || fail "CT $CTID does not exist"
+	validate_ct_config "$config"
+	pct start "$CTID" >/dev/null 2>&1 || true
+	for _ in $(seq 1 45); do
+		if pct exec "$CTID" -- true >/dev/null 2>&1; then
+			break
+		fi
+		sleep 1
+	done
+	pct exec "$CTID" -- true || fail 'Roadmap CT did not become ready'
+	pct exec "$CTID" -- /usr/local/sbin/helm-beta-private-ready
+	printf 'private_ready=ok\n'
+	exit 0
+fi
 
 if [[ "$ACTION" = status ]]; then
 	if ! config=$(pct config "$CTID" 2>/dev/null); then
@@ -428,7 +446,11 @@ if [[ "$ACTION" = status ]]; then
 	') || fail 'could not determine the current guest release'
 	[[ "$current_sha" = none || "$current_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'guest current release is invalid'
 	if [[ "$current_sha" != none ]]; then
-		pct exec "$CTID" -- systemctl is-active roadmap.service cloudflared.service
+		if [[ "$PROFILE" = beta ]]; then
+			pct exec "$CTID" -- systemctl is-active roadmap.service
+		else
+			pct exec "$CTID" -- systemctl is-active roadmap.service cloudflared.service
+		fi
 	fi
 	printf 'current_sha=%s\n' "$current_sha"
 	exit 0
@@ -585,7 +607,9 @@ pct exec "$CTID" -- bash -c '
 pct exec "$CTID" -- curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null
 pct exec "$CTID" -- curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null
 pct exec "$CTID" -- systemctl is-active --quiet roadmap.service
-pct exec "$CTID" -- systemctl is-active --quiet cloudflared.service
+if [[ "$PROFILE" = production ]]; then
+	pct exec "$CTID" -- systemctl is-active --quiet cloudflared.service
+fi
 healthy=1
 log "deployed release $SHA to CT $CTID"
 printf 'deployed_sha=%s\n' "$SHA"

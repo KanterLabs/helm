@@ -10,6 +10,14 @@ CURRENT_LINK="$STATE_DIR/current"
 CONFIG_DIR=/etc/roadmap
 LOCK_PATH="$STATE_DIR/deploy.lock"
 SERVICE_STOP_TIMEOUT=30
+PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
+PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101
+TAILNET_OWNER_ENV_SOURCE=/etc/roadmap/tailnet-owner.env
+TAILNET_ASSERTION_KEY_SOURCE=/etc/roadmap/tailnet.key
+TAILNET_TLS_CERT_SOURCE=/etc/roadmap/tailnet-origin.crt
+TAILNET_TLS_KEY_SOURCE=/etc/roadmap/tailnet-origin.key
+TAILNET_ASSERTION_KEY_RUNTIME=$TAILNET_ASSERTION_KEY_SOURCE
+TAILNET_TLS_KEY_RUNTIME=$TAILNET_TLS_KEY_SOURCE
 
 log() { printf '[helm-install] %s\n' "$*"; }
 fail() { log "$*" >&2; exit 1; }
@@ -129,6 +137,126 @@ single_output_value() {
 	' <<<"$output"
 }
 
+valid_ipv4() {
+	local value=$1 octet
+	local -a octets
+	IFS=. read -r -a octets <<<"$value"
+	[[ ${#octets[@]} -eq 4 ]] || return 1
+	for octet in "${octets[@]}"; do
+		[[ "$octet" =~ ^[0-9]{1,3}$ ]] || return 1
+		(( 10#$octet <= 255 )) || return 1
+		[[ "$octet" != 0* || "$octet" = 0 ]] || return 1
+	done
+}
+
+private_owner_value() {
+	local path=$1 key=$2
+	awk -F= -v key="$key" '
+		$1 == key { count++; value = substr($0, index($0, "=") + 1) }
+		END {
+			if (count != 1) exit 1
+			print value
+		}
+	' "$path"
+}
+
+validate_private_profile() {
+	local owner_file=$1 value peers peer
+	for key in HELM_AUTH_MODE ROADMAP_AUTH_MODE HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN \
+		HELM_TAILNET_AUDIENCE ROADMAP_TAILNET_AUDIENCE \
+		HELM_TAILNET_ASSERTION_KEY_FILE ROADMAP_TAILNET_ASSERTION_KEY_FILE \
+		HELM_TAILNET_TLS_ADDR ROADMAP_TAILNET_TLS_ADDR \
+		HELM_TAILNET_TLS_CERT_FILE ROADMAP_TAILNET_TLS_CERT_FILE \
+		HELM_TAILNET_TLS_KEY_FILE ROADMAP_TAILNET_TLS_KEY_FILE \
+		HELM_TAILNET_ALLOWED_PEER_IPS ROADMAP_TAILNET_ALLOWED_PEER_IPS \
+		HELM_ADMIN_EMAIL ROADMAP_ADMIN_EMAIL \
+		HELM_TAILNET_OWNER_LOGIN ROADMAP_TAILNET_OWNER_LOGIN; do
+		private_owner_value "$owner_file" "$key" >/dev/null || fail "private beta owner environment is missing or duplicates $key"
+	done
+	[[ "$(private_owner_value "$owner_file" HELM_AUTH_MODE)" = tailnet &&
+		"$(private_owner_value "$owner_file" ROADMAP_AUTH_MODE)" = tailnet ]] ||
+		fail 'private beta owner environment must select tailnet authentication'
+	for key in HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN HELM_TAILNET_AUDIENCE ROADMAP_TAILNET_AUDIENCE; do
+		[[ "$(private_owner_value "$owner_file" "$key")" = "$PRIVATE_ORIGIN" ]] || fail 'private beta owner environment has an unexpected private origin'
+	done
+	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_ASSERTION_KEY_FILE)" = "$TAILNET_ASSERTION_KEY_RUNTIME" &&
+		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_ASSERTION_KEY_FILE)" = "$TAILNET_ASSERTION_KEY_RUNTIME" ]] ||
+		fail 'private beta owner environment has an unexpected assertion-key runtime path'
+	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_TLS_ADDR)" = 10.0.0.39:8443 &&
+		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_TLS_ADDR)" = 10.0.0.39:8443 ]] ||
+		fail 'private beta owner environment has an unexpected Tailnet listener address'
+	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_TLS_CERT_FILE)" = "$TAILNET_TLS_CERT_SOURCE" &&
+		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_TLS_CERT_FILE)" = "$TAILNET_TLS_CERT_SOURCE" ]] ||
+		fail 'private beta owner environment has an unexpected Tailnet certificate path'
+	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_TLS_KEY_FILE)" = "$TAILNET_TLS_KEY_RUNTIME" &&
+		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_TLS_KEY_FILE)" = "$TAILNET_TLS_KEY_RUNTIME" ]] ||
+		fail 'private beta owner environment has an unexpected Tailnet key runtime path'
+	peers=$(private_owner_value "$owner_file" HELM_TAILNET_ALLOWED_PEER_IPS)
+	[[ "$peers" = "$(private_owner_value "$owner_file" ROADMAP_TAILNET_ALLOWED_PEER_IPS)" ]] ||
+		fail 'private beta owner environment has conflicting Tailnet peer lists'
+	[[ "$peers" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] ||
+		fail 'private beta owner environment must allow only the homelab-edge LAN origin peer'
+	IFS=, read -r -a peers <<<"$peers"
+	[[ ${#peers[@]} -gt 0 ]] || fail 'private beta owner environment has no Tailnet peers'
+	for peer in "${peers[@]}"; do
+		valid_ipv4 "$peer" || fail 'private beta owner environment contains an invalid Tailnet peer address'
+	done
+}
+
+private_file() {
+	local path=$1 label=$2 expected_owner=$3 expected_mode=$4
+	[[ -f "$path" && ! -L "$path" ]] || fail "$label is missing or not a regular file"
+	[[ "$(stat -c '%U:%G' -- "$path")" = "$expected_owner" ]] || fail "$label owner is invalid"
+	[[ "$(stat -c '%a' -- "$path")" = "$expected_mode" ]] || fail "$label mode is invalid"
+}
+
+validate_private_provisioning() {
+	private_file "$TAILNET_OWNER_ENV_SOURCE" 'Tailnet owner environment' root:root 600
+	validate_private_profile "$TAILNET_OWNER_ENV_SOURCE"
+	private_file "$TAILNET_ASSERTION_KEY_SOURCE" 'Tailnet assertion key' roadmap:roadmap 600
+	[[ "$(stat -c '%s' -- "$TAILNET_ASSERTION_KEY_SOURCE")" -ge 32 ]] || fail 'Tailnet assertion key is too short'
+	private_file "$TAILNET_TLS_CERT_SOURCE" 'Tailnet TLS certificate' root:root 644
+	private_file "$TAILNET_TLS_KEY_SOURCE" 'Tailnet TLS key' roadmap:roadmap 600
+}
+
+install_tailnet_credentials() {
+	local dropin_dir=/etc/systemd/system/helm.service.d
+	local temporary="$dropin_dir/tailnet-credentials.conf.new"
+	[[ ! -e "$dropin_dir" || -d "$dropin_dir" ]] || fail 'Tailnet systemd drop-in directory is invalid'
+	install -d -m 0755 -o root -g root "$dropin_dir"
+	[[ ! -e "$temporary" && ! -L "$temporary" ]] || fail 'Tailnet systemd drop-in temporary path already exists'
+	{
+		printf '[Service]\n'
+		printf 'EnvironmentFile=%s\n' "$TAILNET_OWNER_ENV_SOURCE"
+	} > "$temporary"
+	chown root:root "$temporary"
+	chmod 0644 "$temporary"
+	mv -T -- "$temporary" "$dropin_dir/tailnet-credentials.conf"
+}
+
+install_private_nftables() {
+	local owner_file=$1 peers peer rules_file temporary
+	peers=$(private_owner_value "$owner_file" HELM_TAILNET_ALLOWED_PEER_IPS)
+	rules_file=$(mktemp "$CONFIG_DIR/.helm-beta-nft-rules.XXXXXX") || fail 'could not create private nftables rule file'
+	temporary="$CONFIG_DIR/nftables.conf.new"
+	trap 'rm -f -- "$rules_file" "$temporary"' RETURN
+	while IFS= read -r peer; do
+		[[ -n "$peer" ]] || continue
+		printf '    ip saddr %s tcp dport 8443 accept\n' "$peer" >> "$rules_file"
+	done < <(tr ',' '\n' <<<"$peers")
+	awk -v rules_file="$rules_file" '
+		/^[[:space:]]*# HELM_BETA_TAILNET_RULES$/ {
+			while ((getline rule < rules_file) > 0) print rule
+			close(rules_file)
+			next
+		}
+		{ print }
+	' "$RELEASE_DIR/nftables.conf" > "$temporary"
+	install -m 0644 -o root -g root "$temporary" /etc/nftables.conf
+	rm -f -- "$rules_file" "$temporary"
+	trap - RETURN
+}
+
 [[ "$(id -u)" -eq 0 ]] || fail 'must run as root'
 [[ "$RELEASE_DIR" = /* && "$RELEASE_DIR" != *$'\n'* && "$RELEASE_DIR" != *$'\r'* ]] \
 	|| fail 'release directory must be an absolute path without control characters'
@@ -141,13 +269,32 @@ source /etc/os-release
 [[ "$ID" = debian && "${VERSION_ID%%.*}" = 12 ]] \
 	|| fail 'Helm production requires Debian 12'
 
-for file in roadmap cloudflared cloudflared.token codex codex.sha256 roadmap.env roadmap.service cloudflared.service roadmap-backup.service roadmap-backup.timer nftables.conf compose.yaml roadmap-backup.sh roadmap-restore.sh roadmap-rollback.sh release.sha roadmap.sha256 release.manifest release.manifest.sig; do
+AUTH_MODE=$(private_owner_value "$RELEASE_DIR/roadmap.env" HELM_AUTH_MODE 2>/dev/null || true)
+PRIVATE_TAILNET_BETA=0
+if [[ "$AUTH_MODE" = tailnet ]]; then
+	[[ "$(private_owner_value "$RELEASE_DIR/roadmap.env" HELM_PUBLIC_ORIGIN 2>/dev/null || true)" = "$PRIVATE_ORIGIN" ]] ||
+		fail 'tailnet authentication is reserved for the private beta profile'
+	PRIVATE_TAILNET_BETA=1
+	validate_private_profile "$RELEASE_DIR/roadmap.env"
+	validate_private_provisioning
+fi
+
+RELEASE_FILES=(roadmap codex codex.sha256 roadmap.env roadmap.service roadmap-backup.service roadmap-backup.timer nftables.conf compose.yaml roadmap-backup.sh roadmap-restore.sh roadmap-rollback.sh release.sha roadmap.sha256 release.manifest release.manifest.sig)
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	RELEASE_FILES+=(validate-beta-private.sh)
+else
+	RELEASE_FILES+=(cloudflared cloudflared.token cloudflared.service)
+fi
+for file in "${RELEASE_FILES[@]}"; do
 	[[ -f "$RELEASE_DIR/$file" && ! -L "$RELEASE_DIR/$file" ]] || fail "release member is missing: $file"
 done
 
 SHA=$(tr -d '[:space:]' < "$RELEASE_DIR/release.sha")
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'release SHA is invalid'
-[[ -x "$RELEASE_DIR/roadmap" && -x "$RELEASE_DIR/cloudflared" && -x "$RELEASE_DIR/codex" ]] || fail 'release binaries must be executable'
+[[ -x "$RELEASE_DIR/roadmap" && -x "$RELEASE_DIR/codex" ]] || fail 'release binaries must be executable'
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	[[ -x "$RELEASE_DIR/cloudflared" ]] || fail 'cloudflared release binary must be executable'
+fi
 sha256sum "$RELEASE_DIR/roadmap" >/dev/null || fail 'could not hash release binary'
 (cd "$RELEASE_DIR" && sha256sum --check --strict codex.sha256 >/dev/null) || fail 'release Codex checksum failed'
 validate_release_env "$RELEASE_DIR/roadmap.env" "$SHA"
@@ -170,18 +317,20 @@ if (( roadmap_user_existing == 1 )); then
 	usermod --groups '' roadmap || fail 'could not clear roadmap supplemental groups'
 fi
 [[ "$(id -Gn roadmap)" = roadmap ]] || fail 'roadmap user has unexpected supplemental groups'
-getent group cloudflared >/dev/null 2>&1 || groupadd --system cloudflared
-cloudflared_user_existing=0
-if ! id cloudflared >/dev/null 2>&1; then
-	useradd --system --gid cloudflared --home-dir /nonexistent --shell /usr/sbin/nologin --no-create-home cloudflared
-else
-	cloudflared_user_existing=1
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	getent group cloudflared >/dev/null 2>&1 || groupadd --system cloudflared
+	cloudflared_user_existing=0
+	if ! id cloudflared >/dev/null 2>&1; then
+		useradd --system --gid cloudflared --home-dir /nonexistent --shell /usr/sbin/nologin --no-create-home cloudflared
+	else
+		cloudflared_user_existing=1
+	fi
+	[[ "$(id -gn cloudflared)" = cloudflared ]] || fail 'cloudflared user must use the cloudflared primary group'
+	if (( cloudflared_user_existing == 1 )); then
+		usermod --groups '' cloudflared || fail 'could not clear cloudflared supplemental groups'
+	fi
+	[[ "$(id -Gn cloudflared)" = cloudflared ]] || fail 'cloudflared user has unexpected supplemental groups'
 fi
-[[ "$(id -gn cloudflared)" = cloudflared ]] || fail 'cloudflared user must use the cloudflared primary group'
-if (( cloudflared_user_existing == 1 )); then
-	usermod --groups '' cloudflared || fail 'could not clear cloudflared supplemental groups'
-fi
-[[ "$(id -Gn cloudflared)" = cloudflared ]] || fail 'cloudflared user has unexpected supplemental groups'
 
 for directory in "$STATE_DIR" "$DATA_DIR" "$RELEASES_DIR" "$BACKUPS_DIR" "$CONFIG_DIR"; do
 	[[ ! -L "$directory" && ( ! -e "$directory" || -d "$directory" ) ]] \
@@ -220,9 +369,15 @@ elif [[ -e "$CURRENT_LINK" ]]; then
 fi
 
 previous_sha=
+previous_private_profile=0
 if [[ -n "$previous_target" ]]; then
 	previous_sha=${previous_target##*/}
 	[[ "$previous_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'current release directory name is invalid'
+	previous_mode=$(private_owner_value "$previous_target/roadmap.env" HELM_AUTH_MODE 2>/dev/null || true)
+	previous_origin=$(private_owner_value "$previous_target/roadmap.env" HELM_PUBLIC_ORIGIN 2>/dev/null || true)
+	if [[ "$previous_mode" = tailnet && "$previous_origin" = "$PRIVATE_ORIGIN" ]]; then
+		previous_private_profile=1
+	fi
 fi
 
 migrate_previous_env() {
@@ -453,13 +608,23 @@ disable_unused_postfix() {
 }
 
 restore_previous() {
-	local app_unit=helm.service
+	local app_unit=helm.service previous_profile=${previous_private_profile:-0}
 	[[ -n "$previous_target" ]] || return 1
-	stop_unit cloudflared.service || return 1
+	if (( previous_profile == 0 )); then
+		stop_unit cloudflared.service || return 1
+	fi
 	stop_unit roadmap.service || return 1
 	stop_unit helm.service || return 1
 	install_release_env "$previous_target" "$previous_sha" || return 1
 	atomic_switch "$previous_target" || return 1
+	if (( previous_profile == 1 )); then
+		install_tailnet_credentials
+		systemctl daemon-reload
+	else
+		systemctl unmask cloudflared.service 2>/dev/null || true
+		rm -f -- /etc/systemd/system/helm.service.d/tailnet-credentials.conf
+		systemctl daemon-reload
+	fi
 	if ! systemctl start "$app_unit"; then
 		# On the first Helm upgrade the canonical unit may not have been
 		# installed yet. The retained Roadmap unit is still the recovery path.
@@ -468,8 +633,10 @@ restore_previous() {
 	fi
 	healthy_revision "$previous_sha" || return 1
 	systemctl is-active --quiet "$app_unit" || return 1
-	systemctl start cloudflared.service || return 1
-	systemctl is-active --quiet cloudflared.service
+	if (( previous_profile == 0 )); then
+		systemctl start cloudflared.service || return 1
+		systemctl is-active --quiet cloudflared.service
+	fi
 }
 
 # Any failure after services have been stopped must leave an existing guest
@@ -660,7 +827,18 @@ printf 'pre_upgrade_backup=%s source_schema=%s candidate_schema=%s latest_schema
 
 log 'Stopping the application before the atomic release switch'
 upgrade_transaction_started=1
-stop_unit cloudflared.service || fail 'could not stop cloudflared.service and verify it is inactive'
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	# The private profile owns no Cloudflare connector. Stop any connector left
+	# by an older beta installation and mask it before the new app starts; it is
+	# never restarted by this transaction or by the beta service enablement.
+	if [[ "$(systemctl show cloudflared.service --property=LoadState --value 2>/dev/null || true)" != not-found ]]; then
+		stop_unit cloudflared.service || fail 'could not stop cloudflared.service before private beta migration'
+		systemctl disable cloudflared.service 2>/dev/null || true
+		systemctl mask cloudflared.service || fail 'could not mask cloudflared.service for private beta'
+	fi
+else
+	stop_unit cloudflared.service || fail 'could not stop cloudflared.service and verify it is inactive'
+fi
 stop_unit roadmap-backup.timer || fail 'could not stop roadmap-backup.timer and verify it is inactive'
 stop_unit helm-backup.timer || fail 'could not stop helm-backup.timer and verify it is inactive'
 stop_unit roadmap.service || fail 'could not stop roadmap.service and verify it is inactive'
@@ -677,7 +855,12 @@ install_compat_symlink helm-backup roadmap-backup || fail 'could not install roa
 install_compat_symlink helm-restore roadmap-restore || fail 'could not install roadmap-restore compatibility alias'
 install_compat_symlink helm-rollback roadmap-rollback || fail 'could not install roadmap-rollback compatibility alias'
 install -m 0644 -o root -g root "$RELEASE_DIR/roadmap.service" /etc/systemd/system/helm.service
-install -m 0644 -o root -g root "$RELEASE_DIR/cloudflared.service" /etc/systemd/system/cloudflared.service
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	install -m 0644 -o root -g root "$RELEASE_DIR/cloudflared.service" /etc/systemd/system/cloudflared.service
+else
+	install -m 0755 -o root -g root "$RELEASE_DIR/validate-beta-private.sh" /usr/local/sbin/helm-beta-private-ready
+	install_tailnet_credentials
+fi
 install -m 0644 -o root -g root "$RELEASE_DIR/roadmap-backup.service" /etc/systemd/system/helm-backup.service
 install -m 0644 -o root -g root "$RELEASE_DIR/roadmap-backup.timer" /etc/systemd/system/helm-backup.timer
 for legacy_unit in roadmap.service roadmap-backup.service roadmap-backup.timer; do
@@ -689,10 +872,14 @@ install_unit_alias helm-backup.service roadmap-backup.service || fail 'could not
 install_unit_alias helm-backup.timer roadmap-backup.timer || fail 'could not install roadmap-backup.timer compatibility alias'
 install -m 0644 -o root -g root "$RELEASE_DIR/nftables.conf" /etc/nftables.conf
 install_release_env "$release_target" "$SHA" || fail 'could not install requested release environment'
-install -m 0640 -o root -g cloudflared "$RELEASE_DIR/cloudflared.token" "$CONFIG_DIR/cloudflared.token.new"
-mv -T -- "$CONFIG_DIR/cloudflared.token.new" "$CONFIG_DIR/cloudflared.token"
-install -m 0755 -o root -g root "$RELEASE_DIR/cloudflared" /usr/local/bin/cloudflared.new
-mv -T -- /usr/local/bin/cloudflared.new /usr/local/bin/cloudflared
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	install -m 0640 -o root -g cloudflared "$RELEASE_DIR/cloudflared.token" "$CONFIG_DIR/cloudflared.token.new"
+	mv -T -- "$CONFIG_DIR/cloudflared.token.new" "$CONFIG_DIR/cloudflared.token"
+	install -m 0755 -o root -g root "$RELEASE_DIR/cloudflared" /usr/local/bin/cloudflared.new
+	mv -T -- /usr/local/bin/cloudflared.new /usr/local/bin/cloudflared
+else
+	install_private_nftables "$RELEASE_DIR/roadmap.env"
+fi
 
 systemctl disable --now ssh.service ssh.socket sshd.service 2>/dev/null || true
 systemctl mask ssh.service ssh.socket sshd.service 2>/dev/null || true
@@ -701,10 +888,17 @@ disable_unused_postfix
 nft -c -f /etc/nftables.conf
 atomic_switch "$release_target" || fail 'could not switch to requested release'
 systemctl daemon-reload
-systemd-analyze verify /etc/systemd/system/helm.service /etc/systemd/system/cloudflared.service /etc/systemd/system/helm-backup.service /etc/systemd/system/helm-backup.timer
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	systemd-analyze verify /etc/systemd/system/helm.service /etc/systemd/system/helm-backup.service /etc/systemd/system/helm-backup.timer
+else
+	systemd-analyze verify /etc/systemd/system/helm.service /etc/systemd/system/cloudflared.service /etc/systemd/system/helm-backup.service /etc/systemd/system/helm-backup.timer
+fi
 systemctl enable nftables.service
 systemctl restart nftables.service
-systemctl enable helm.service cloudflared.service
+systemctl enable helm.service
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	systemctl enable cloudflared.service
+fi
 systemctl enable --now helm-backup.timer
 
 systemctl start helm.service
@@ -719,14 +913,16 @@ fi
 systemctl is-active --quiet helm.service || fail 'helm.service is not active after health check'
 systemctl is-active --quiet roadmap.service || fail 'roadmap.service compatibility alias is not active after health check'
 
-systemctl start cloudflared.service
-if ! systemctl is-active --quiet cloudflared.service; then
-	log 'cloudflared failed after the new release; attempting automatic rollback'
-	if restore_previous; then
-		recovery_needed=0
-		fail 'deployment rolled back after cloudflared failure'
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	systemctl start cloudflared.service
+	if ! systemctl is-active --quiet cloudflared.service; then
+		log 'cloudflared failed after the new release; attempting automatic rollback'
+		if restore_previous; then
+			recovery_needed=0
+			fail 'deployment rolled back after cloudflared failure'
+		fi
+		fail 'cloudflared and the previous release could not be restored'
 	fi
-	fail 'cloudflared and the previous release could not be restored'
 fi
 
 if command -v ss >/dev/null 2>&1; then

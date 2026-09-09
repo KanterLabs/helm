@@ -15,11 +15,11 @@ compat_env() {
 }
 
 MODE=${1:-}
+DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
 TOKEN_OUTPUT=${2:-}
 OWNER_ENV_OUTPUT=${3:-}
 SERVICE_TOKEN_OUTPUT=${4:-$(compat_env HELM_ACCESS_TOKEN_OUTPUT ROADMAP_ACCESS_TOKEN_OUTPUT "$ROOT_DIR/dist/helm-access-token.env")}
 REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE=$(compat_env HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE ROADMAP_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE 0)
-DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
 
 case "$DEPLOY_ENVIRONMENT" in
 	production|beta) ;;
@@ -28,6 +28,11 @@ case "$DEPLOY_ENVIRONMENT" in
 		exit 1
 		;;
 esac
+
+if [[ "$DEPLOY_ENVIRONMENT" = beta ]]; then
+	printf 'beta public Cloudflare provisioning is disabled: beta-helm.home.shanekanterman.dev is a private Tailnet/split-DNS hostname; private route migration is not activated and no public DNS record is allowed\n' >&2
+	exit 78
+fi
 
 [[ "$REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE" = 0 || "$REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE" = 1 ]] || {
 	printf 'HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE must be 0 or 1\n' >&2
@@ -97,8 +102,8 @@ case "$DEPLOY_ENVIRONMENT" in
 		LEGACY_SERVICE_POLICY_NAME='Roadmap agents Service Auth'
 		;;
 	beta)
-		PUBLIC_HOST=beta.shanekanterman.dev
-		PUBLIC_URL=https://beta.shanekanterman.dev
+		PUBLIC_HOST=beta-helm.home.shanekanterman.dev
+		PUBLIC_URL=https://beta-helm.home.shanekanterman.dev
 		API_PATH="$PUBLIC_HOST/api/v1/*"
 		TUNNEL_NAME=helm-beta-homelab
 		UI_APP_NAME='Helm beta owner UI'
@@ -908,7 +913,8 @@ validate_dns_record() {
 }
 
 upsert_dns() {
-	local hostname=$1 tunnel_id=$2 records record_id record_type body count
+	local hostname=$1 tunnel_id=$2 records record_id record_type record_content body count expected_content
+	expected_content=$tunnel_id.cfargotunnel.com
 	if ! records=$(cf_request GET "/zones/$ZONE_ID/dns_records?name=$hostname"); then
 		return 1
 	fi
@@ -926,7 +932,17 @@ upsert_dns() {
 		printf 'DNS name %s already exists with type %s\n' "$hostname" "$record_type" >&2
 		return 1
 	fi
-	if ! body=$(jq -cn --arg hostname "$hostname" --arg content "$tunnel_id.cfargotunnel.com" \
+	if [[ -n "$record_id" ]]; then
+		if ! record_content=$(jq -r '.result[0].content // empty' <<<"$records"); then
+			printf 'Cloudflare DNS response was invalid\n' >&2
+			return 1
+		fi
+		[[ "$record_content" = "$expected_content" ]] || {
+			printf 'DNS name %s is owned by a different tunnel; refusing to replace its CNAME\n' "$hostname" >&2
+			return 1
+		}
+	fi
+	if ! body=$(jq -cn --arg hostname "$hostname" --arg content "$expected_content" \
 		'{type:"CNAME",name:$hostname,content:$content,proxied:true,ttl:1}'); then
 		printf 'could not construct Cloudflare DNS request\n' >&2
 		return 1

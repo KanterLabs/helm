@@ -132,6 +132,12 @@ diagnostics are documented in [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
   `HELM_SECURE_COOKIES=true`, `HELM_DEMO_SEED=false`, and binds only to
   loopback. Password login and ordinary proxy identity headers are not used in
   Cloudflare mode.
+- `tailnet`: private-only authentication. The trusted edge resolves the
+  Tailnet peer through tailscaled and sends Helm a short-lived, request-bound
+  assertion; Helm does not trust raw Tailscale/proxy identity headers and does
+  not offer local password setup or login. Configure the exact
+  `HELM_TAILNET_OWNER_LOGIN`, existing `HELM_ADMIN_EMAIL`, private HTTPS
+  origin/audience, protected assertion key, TLS files, and edge peer allowlist.
 - `disabled`: development-only authentication bypass. Never use it for a
   reachable or production deployment.
 
@@ -324,9 +330,9 @@ Changes are tested through a separate environment before production:
 ```text
 beta branch
   → beta GitHub environment and beta-only secrets
-  → beta.shanekanterman.dev
-  → helm-beta-homelab Tunnel
-  → cloudflared in the `helm-beta` LXC (CT 106, 10.0.0.39)
+  → beta-helm.home.shanekanterman.dev (private Tailnet target; route pending)
+  → private Tailnet TLS listener at 10.0.0.39:8443 (pending activation)
+  → the `helm-beta` LXC (CT 106, 10.0.0.39)
   → an independent /var/lib/roadmap/data/roadmap.db
 
 explicit pull request or merge to main
@@ -346,17 +352,22 @@ compatibility identifiers. See
 [`docs/HELM_LEGACY_IDENTIFIERS.md`](docs/HELM_LEGACY_IDENTIFIERS.md) for the
 reviewed allowlist.
 
-The guest has no inbound application or SSH port; the application and
-connector communicate over loopback. Releases use an immutable SHA-tagged Go
-binary, a constrained Proxmox deployment identity, and Cloudflare Access/tunnel
-reconciliation. The full bootstrap, host assumptions, firewall posture, and
-recovery checks are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+The production guest has no inbound application or SSH port; the application
+and connector communicate over loopback. The beta private profile permits only
+the approved homelab-edge LAN source (`10.0.0.101`) to its TLS listener, masks
+`cloudflared.service`, and never performs public Cloudflare reconciliation. The
+guest does not require a Tailscale interface for this LAN ingress. Releases use
+an immutable SHA-tagged Go binary, a constrained Proxmox deployment identity,
+and signed bundle/backup/rollback checks. The full bootstrap, host assumptions,
+firewall posture, private preprovisioning, and recovery checks are in
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
-After the one-time Proxmox and Cloudflare bootstrap described there, pushes to
+After the one-time Proxmox and private Tailnet preprovisioning described there, pushes to
 `beta` and `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Both branches run Go/frontend checks, browser tests, and a container smoke
-test. A `beta` push may deploy only through the `beta` environment and validate
-`beta.shanekanterman.dev`; a `main` push may deploy only through the
+test. A `beta` push is paused pending the private route migration; public
+Cloudflare beta provisioning is disabled. The selected target is
+`beta-helm.home.shanekanterman.dev`, while a `main` push may deploy only through the
 `production` environment and validate <https://tc.shanekanterman.dev>. Normal
 production deployment requires the GitHub Actions
 secrets `ROADMAP_CLOUDFLARE_API_TOKEN`, `ROADMAP_DEPLOY_SSH_KEY`,
@@ -369,9 +380,14 @@ before enabling CI; CI refuses to create a token whose secret would remain
 only on an ephemeral runner.
 
 Beta uses corresponding `BETA_*` environment secrets, including
-`BETA_ADMIN_EMAIL`, and a distinct forced SSH account and release-signing key.
-Dispatch `rollback_sha` from `beta` to roll back beta, or from `main` to roll
-back production; neither environment's job can select the other gateway.
+`BETA_ADMIN_EMAIL`, and the configured Tailnet owner login
+`ShaneKanterman04@github`, plus a distinct forced SSH account and
+release-signing key. Its signed private bundle omits cloudflared;
+the beta gateway validates only loopback health and an unauthenticated HTTP 401
+after deployment. The beta pause variable remains required while the private
+route/TLS is being verified. Dispatch `rollback_sha` from `beta` to roll back
+beta, or from `main` to roll back production; neither environment's job can
+select the other's gateway.
 
 ## Backups and rollback
 

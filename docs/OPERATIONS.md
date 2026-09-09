@@ -19,12 +19,28 @@ nftables input policy is default-drop; both the application and cloudflared
 connector use loopback while cloudflared makes the outbound tunnel connection.
 
 The beta target is a second unprivileged Debian 12 LXC, `helm-beta` (CTID 106)
-at `10.0.0.39/24`. It uses `beta.shanekanterman.dev`, the
-`helm-beta-homelab` tunnel, the `helm-beta-deploy` forced SSH account,
+at `10.0.0.39/24`. Its selected hostname is the private-only
+`beta-helm.home.shanekanterman.dev`; the private route is not activated yet,
+no public DNS record is allowed, and public Cloudflare provisioning is disabled.
+No public Cloudflare tunnel or Access application is active. The beta private
+profile permits only the homelab-edge LAN source `10.0.0.101` to the TLS
+listener at `10.0.0.39:8443`; it keeps the application health/auth checks on
+loopback, does not require a Tailscale interface in CT 106, and masks
+`cloudflared.service`. The
+`helm-beta-deploy` forced SSH account,
 `/var/lib/helm-beta-deploy` host staging, and a distinct Ed25519 signing trust
 under `/etc/helm-beta-deploy`. The separate guest gives beta its own database,
 backups, releases, services, connector token, and runtime credentials while
 allowing the stable in-guest `/var/lib/roadmap` compatibility layout.
+
+Before beta deployment, root must provision `/etc/roadmap/tailnet-owner.env`
+(`root:root`, `0600`), `/etc/roadmap/tailnet.key` (`roadmap:roadmap`, `0600`),
+`/etc/roadmap/tailnet-origin.crt` (`root:root`, `0644`), and
+`/etc/roadmap/tailnet-origin.key` (`roadmap:roadmap`, `0600`) inside CT 106.
+The `roadmap` service reads the two private keys directly. The
+signed release carries only matching paths and identity settings; it never
+carries key bytes. The beta job stays paused until this private route and TLS
+preprovisioning are verified.
 
 The complete design and promotion gates are in
 [`BETA_DEPLOYMENT_PLAN.md`](BETA_DEPLOYMENT_PLAN.md).
@@ -268,11 +284,13 @@ the constrained PVE identity, publishes DNS, and performs live validation.
 
 The same checks run for `beta`, but its deployment job uses only the GitHub
 `beta` environment, `BETA_*` secrets, the `helm-beta` concurrency lock, and
-`HELM_DEPLOY_ENVIRONMENT=beta`. A beta push cannot invoke the production
-gateway because its SSH key is forced to
-`/usr/local/sbin/helm-beta-deploy-gateway`. Promotion is an explicit pull
-request or merge from `beta` to `main`; the resulting `main` push remains the
-only automatic production trigger.
+`HELM_DEPLOY_ENVIRONMENT=beta`. Its public deployment remains paused while
+the private route is pending: `cloudflare.sh prepare`, `cloudflare.sh publish`,
+and `validate-live.sh` fail closed for beta, so no public DNS or Access/tunnel
+resources are provisioned. A beta push cannot invoke the production gateway
+because its SSH key is forced to `/usr/local/sbin/helm-beta-deploy-gateway`.
+Promotion is an explicit pull request or merge from `beta` to `main`; the
+resulting `main` push remains the only automatic production trigger.
 
 The beta environment also stores `BETA_ADMIN_EMAIL` explicitly so its
 least-privilege Cloudflare token does not need account-membership read access.
