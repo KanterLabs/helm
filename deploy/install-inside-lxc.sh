@@ -252,7 +252,7 @@ install_private_nftables() {
 		}
 		{ print }
 	' "$RELEASE_DIR/nftables.conf" > "$temporary"
-	install -m 0644 -o root -g root "$temporary" "$CONFIG_DIR/nftables.conf"
+	install -m 0644 -o root -g root "$temporary" /etc/nftables.conf
 	rm -f -- "$rules_file" "$temporary"
 	trap - RETURN
 }

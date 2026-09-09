@@ -1603,7 +1603,6 @@ contains 'ip saddr %s tcp dport 8443 accept' "$INSTALL"
 contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$INSTALL"
 contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$BUILD_BUNDLE"
 contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$PRIVATE_VALIDATE"
-contains 'install -m 0644 -o root -g root "$temporary" "$CONFIG_DIR/nftables.conf"' "$INSTALL"
 contains 'nft -c -f /etc/nftables.conf' "$INSTALL"
 not_contains '/etc/nftables.conf' "$ROLLBACK"
 not_contains 'tailscale0' "$INSTALL"
@@ -1611,6 +1610,49 @@ not_contains 'tailscale0' "$DEPLOY_DIR/nftables.conf"
 contains 'homelab-edge' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
 contains '10.0.0.101' "$DOCS"
 contains '10.0.0.101' "$ROOT_DIR/README.md"
+
+# The private profile's generated rules must replace the release marker in the
+# file nftables.service actually loads. Mock install so this exercises the
+# helper body without changing the host firewall or requiring root.
+private_nft_dir="$fixture/private-nft"
+install -d -m 0700 "$private_nft_dir/release"
+cat > "$private_nft_dir/release/nftables.conf" <<'EOF'
+table inet roadmap_filter {
+    # HELM_BETA_TAILNET_RULES
+    ct state established,related accept
+}
+EOF
+printf 'HELM_TAILNET_ALLOWED_PEER_IPS=10.0.0.101\n' > "$private_nft_dir/owner.env"
+private_nft_output="$private_nft_dir/loaded-nftables.conf"
+private_nft_destination="$private_nft_dir/destination"
+source <(awk '/^private_owner_value\(\)/,/^}/' "$INSTALL")
+source <(awk '/^install_private_nftables\(\)/,/^}/' "$INSTALL")
+(
+	CONFIG_DIR="$private_nft_dir/config"
+	RELEASE_DIR="$private_nft_dir/release"
+	install -d -m 0700 "$CONFIG_DIR"
+	install() {
+		local -a positional=() source_path destination
+		while [[ $# -gt 0 ]]; do
+			case "$1" in
+				-m|-o|-g) shift 2 ;;
+				*) positional+=("$1"); shift ;;
+			esac
+		done
+		[[ ${#positional[@]} -eq 2 ]] || return 1
+		source_path=${positional[0]}
+		destination=${positional[1]}
+		printf '%s\n' "$destination" > "$private_nft_destination"
+		[[ "$destination" = /etc/nftables.conf ]] || return 1
+		cp -- "$source_path" "$private_nft_output"
+	}
+	install_private_nftables "$private_nft_dir/owner.env"
+)
+grep -Fxq /etc/nftables.conf "$private_nft_destination" || fail 'private nftables policy was not installed at the service load path'
+contains 'ip saddr 10.0.0.101 tcp dport 8443 accept' "$private_nft_output"
+contains 'ct state established,related accept' "$private_nft_output"
+printf 'private_nftables_runtime_test=ok\n'
+
 not_contains 'cloudflare.sh publish' "$fixture/beta-workflow.yml"
 not_contains 'validate-live.sh' "$fixture/beta-workflow.yml"
 contains 'HELM_CLOUDFLARED_TOKEN_FILE' "$ROOT_DIR/deploy/build-bundle.sh"
