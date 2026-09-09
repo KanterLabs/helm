@@ -19,10 +19,10 @@ function cursor(eventCursor: number, kind: TaskTimelineItem['kind'], id: string)
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function comment(body = 'Original comment', version = 1): Comment {
+function comment(body = 'Original comment', version = 1, taskId = 'task-1', id = 'comment-1'): Comment {
   return {
-    id: 'comment-1',
-    task_id: 'task-1',
+    id,
+    task_id: taskId,
     actor_id: 'actor-1',
     body,
     version,
@@ -41,6 +41,31 @@ function commentItem(value = comment()): TaskTimelineItem {
     created_at: value.created_at,
     progress: null,
     comment: value,
+    change: null
+  };
+}
+
+function progressItem(taskId = 'task-1'): TaskTimelineItem {
+  return {
+    id: `progress-${taskId}`,
+    cursor: cursor(3, 'agent_progress', `progress-${taskId}`),
+    kind: 'agent_progress',
+    task_id: taskId,
+    actor: { id: 'agent-1', kind: 'agent', name: 'Agent' },
+    created_at: '2026-01-03T00:00:00Z',
+    progress: {
+      operation_id: 'operation-1',
+      actor_id: 'agent-1',
+      state: 'working',
+      phase: 'Testing',
+      summary: 'Running tests',
+      next_action: 'Finish the task',
+      checkpoint_refs: [],
+      checkpoint_completed: 1,
+      checkpoint_total: 2,
+      started_at: '2026-01-03T00:00:00Z'
+    },
+    comment: null,
     change: null
   };
 }
@@ -77,6 +102,88 @@ describe('TaskActivityTimeline component', () => {
     document.querySelector<HTMLButtonElement>('.task-timeline-comment-edit .button.primary')?.click();
 
     await vi.waitFor(() => expect(onEditComment).toHaveBeenCalledWith(expect.objectContaining({ id: 'comment-1' }), 'Edited with **Markdown**'));
+  });
+
+  it('recovers an active draft when a filter hides its comment row', async () => {
+    let mounted: ReturnType<typeof mount>;
+    const onFilterChange = vi.fn((next) => mounted.updateFilter(next));
+    mounted = mount(TimelineTestHarness, {
+      target: document.body,
+      props: { items: [commentItem(), progressItem()], taskId: 'task-1', currentActorId: 'actor-1', onFilterChange }
+    });
+    mountedComponents.push(mounted);
+
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-actions .text-button')?.click();
+    await tick();
+    const textarea = document.querySelector<HTMLTextAreaElement>('.task-timeline-comment-edit textarea');
+    textarea!.value = 'Draft hidden by filter';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+
+    mounted.updateFilter('agent_progress');
+    flushSync();
+    const recovery = document.querySelector<HTMLElement>('.task-timeline-draft-recovery');
+    expect(recovery).not.toBeNull();
+    expect(recovery?.textContent).toContain('hidden by the “Agent” filter');
+    expect(recovery?.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Draft hidden by filter');
+    expect(recovery?.textContent).toContain('Show comment');
+
+    recovery?.querySelector<HTMLButtonElement>('.text-button')?.click();
+    await tick();
+    expect(onFilterChange).toHaveBeenCalledWith('all');
+    expect(document.querySelector<HTMLTextAreaElement>('.task-timeline-comment-edit textarea')?.value).toBe('Draft hidden by filter');
+  });
+
+  it('freezes the submitted body during a delayed save and clears only after success', async () => {
+    let resolveSave!: () => void;
+    const onEditComment = vi.fn(() => new Promise<void>((resolve) => { resolveSave = resolve; }));
+    const mounted = mount(TaskActivityTimeline, {
+      target: document.body,
+      props: { items: [commentItem()], taskId: 'task-1', currentActorId: 'actor-1', onEditComment }
+    });
+    mountedComponents.push(mounted);
+
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-actions .text-button')?.click();
+    await tick();
+    const textarea = document.querySelector<HTMLTextAreaElement>('.task-timeline-comment-edit textarea');
+    textarea!.value = 'Submitted once';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-edit .button.primary')?.click();
+
+    await vi.waitFor(() => expect(onEditComment).toHaveBeenCalledWith(expect.objectContaining({ id: 'comment-1' }), 'Submitted once'));
+    flushSync();
+    expect(textarea!.disabled).toBe(true);
+    expect(textarea!.value).toBe('Submitted once');
+    resolveSave();
+    await vi.waitFor(() => expect(document.querySelector('.task-timeline-comment-edit')).toBeNull());
+  });
+
+  it('preserves a failed save draft and allows retrying the same text', async () => {
+    let attempt = 0;
+    const onEditComment = vi.fn(async (_comment: Comment, _body: string) => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('network unavailable');
+    });
+    const mounted = mount(TaskActivityTimeline, {
+      target: document.body,
+      props: { items: [commentItem()], taskId: 'task-1', currentActorId: 'actor-1', onEditComment }
+    });
+    mountedComponents.push(mounted);
+
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-actions .text-button')?.click();
+    await tick();
+    const textarea = document.querySelector<HTMLTextAreaElement>('.task-timeline-comment-edit textarea');
+    textarea!.value = 'Retry this draft';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-edit .button.primary')?.click();
+
+    await tick();
+    flushSync();
+    expect(document.body.textContent).toContain('network unavailable');
+    expect(textarea!.value).toBe('Retry this draft');
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-edit .button.primary')?.click();
+    await vi.waitFor(() => expect(onEditComment).toHaveBeenCalledTimes(2));
+    expect(onEditComment.mock.calls[1]?.[1]).toBe('Retry this draft');
+    await vi.waitFor(() => expect(document.querySelector('.task-timeline-comment-edit')).toBeNull());
   });
 
   it('sends a confirmed deletion through the comment callback', async () => {
@@ -143,5 +250,64 @@ describe('TaskActivityTimeline component', () => {
     flushSync();
     expect(document.body.textContent).not.toContain('Original comment');
     expect(document.body.textContent).toContain('deleted a comment');
+  });
+
+  it('keeps the original comment version when a newer remote row arrives', async () => {
+    const original = commentItem(comment('Original comment', 1));
+    const onEditComment = vi.fn().mockResolvedValue(undefined);
+    const mounted = mount(TimelineTestHarness, {
+      target: document.body,
+      props: { items: [original], taskId: 'task-1', currentActorId: 'actor-1', onEditComment }
+    });
+    mountedComponents.push(mounted);
+
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-actions .text-button')?.click();
+    await tick();
+    const textarea = document.querySelector<HTMLTextAreaElement>('.task-timeline-comment-edit textarea');
+    textarea!.value = 'Local draft wins the editor';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+
+    const remote = mergeTimelineItems(
+      [original],
+      [],
+      { updatedComments: new Map([['comment-1', comment('Remote canonical edit', 2)]]) }
+    );
+    mounted.updateItems(remote);
+    flushSync();
+    expect(textarea!.value).toBe('Local draft wins the editor');
+    expect(document.body.textContent).toContain('This comment changed remotely');
+
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-edit .button.primary')?.click();
+    await vi.waitFor(() => expect(onEditComment).toHaveBeenCalledOnce());
+    expect(onEditComment.mock.calls[0]?.[0]).toMatchObject({ id: 'comment-1', body: 'Original comment', version: 1 });
+    expect(onEditComment.mock.calls[0]?.[1]).toBe('Local draft wins the editor');
+  });
+
+  it('isolates drafts at task boundaries and restores only the matching task draft', async () => {
+    const taskOne = commentItem(comment('Task one canonical', 1, 'task-1', 'comment-1'));
+    const taskTwo = commentItem(comment('Task two canonical', 1, 'task-2', 'comment-2'));
+    const mounted = mount(TimelineTestHarness, {
+      target: document.body,
+      props: { items: [taskOne], taskId: 'task-1', currentActorId: 'actor-1' }
+    });
+    mountedComponents.push(mounted);
+
+    document.querySelector<HTMLButtonElement>('.task-timeline-comment-actions .text-button')?.click();
+    await tick();
+    const textarea = document.querySelector<HTMLTextAreaElement>('.task-timeline-comment-edit textarea');
+    textarea!.value = 'Task one private draft';
+    textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+
+    mounted.updateTaskId('task-2');
+    mounted.updateItems([taskTwo]);
+    flushSync();
+    expect(document.querySelector('.task-timeline-comment-edit')).toBeNull();
+    expect(document.body.textContent).toContain('Task two canonical');
+    expect(document.body.textContent).not.toContain('Task one private draft');
+
+    mounted.updateTaskId('task-1');
+    mounted.updateItems([taskOne]);
+    flushSync();
+    expect(document.querySelector<HTMLTextAreaElement>('.task-timeline-comment-edit textarea')?.value).toBe('Task one private draft');
   });
 });

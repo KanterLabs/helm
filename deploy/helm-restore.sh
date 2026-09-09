@@ -337,7 +337,8 @@ services_stopped=0
 healthy() {
 	local attempt
 	for attempt in $(seq 1 30); do
-		if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+		if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1 &&
+			curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/readyz >/dev/null 2>&1; then
 			return 0
 		fi
 		sleep 1

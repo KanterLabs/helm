@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"mime"
 	"net/http"
 	"path"
@@ -47,6 +46,8 @@ type Server struct {
 	bearerCredentialLimiterOnce sync.Once
 	bodyBufferPool              *bodyBufferPool
 	bearerAuthSlots             chan struct{}
+	metrics                     *metricsRegistry
+	metricsOnce                 sync.Once
 	static                      http.Handler
 }
 
@@ -163,7 +164,7 @@ func New(s *store.Store, manager *auth.Manager, cfg config.Config, codexManagers
 	if len(codexManagers) > 0 {
 		codexManager = codexManagers[0]
 	}
-	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots}
+	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry()}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -192,7 +193,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// separately from the JSON API responses.  In particular, deployments can
 	// serve a revision-specific document, so a stale intermediary response is
 	// misleading even though the document itself is public.
-	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/openapi.json" {
+	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/openapi.json" ||
+		r.URL.Path == "/healthz" || r.URL.Path == "/health" || r.URL.Path == "/readyz" || r.URL.Path == "/ready" || r.URL.Path == "/metrics" {
 		w.Header().Set("Cache-Control", "no-store")
 	}
 	if s.Cfg.PublicOrigin != "" && r.Header.Get("Origin") == s.Cfg.PublicOrigin {
@@ -200,13 +202,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
+	identity := auth.Identity{}
+	hasIdentity := false
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			s.logJSON(map[string]any{"level": "error", "msg": "panic recovered", "request_id": safeLogToken(requestID), "route": metricRoute(r.URL.Path)})
+			s.writeError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		}
+		s.logRequest(requestID, r.Method, r.URL.Path, responseStatus(w), time.Since(started), identity, hasIdentity)
+	}()
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,If-Match,Idempotency-Key,X-Request-ID")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	identity, hasIdentity, proceed := s.prepareRequest(w, r)
+	var proceed bool
+	identity, hasIdentity, proceed = s.prepareRequest(w, r)
 	if !proceed {
 		return
 	}
@@ -242,18 +254,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		requestContext = context.WithValue(requestContext, requestIdentityKey, identity)
 	}
 	r = r.WithContext(requestContext)
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			log.Printf(`{"level":"error","msg":"panic recovered","request_id":%q}`, requestID)
-			s.writeError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		}
-		log.Printf(`{"method":%q,"path":%q,"status":%d,"duration_ms":%d,"request_id":%q}`, r.Method, r.URL.Path, responseStatus(w), time.Since(started).Milliseconds(), requestID)
-	}()
 	s.route(w, r)
 }
 
 func (s *Server) prepareRequest(w http.ResponseWriter, r *http.Request) (auth.Identity, bool, bool) {
 	protected := isProtectedAPIRequest(r)
+	// Metrics are a protected endpoint for remote peers but remain available to
+	// the local monitoring process without credentials. Handling this here
+	// keeps the authenticated identity in the request context so the common
+	// request log has actor-safe context and avoids authenticating twice.
+	if r.URL.Path == "/metrics" && !isLoopbackRequest(r) {
+		protected = true
+	}
 	publicAuth := isPublicAuthRequest(r)
 	if !protected && !publicAuth {
 		return auth.Identity{}, false, true
@@ -370,12 +382,16 @@ func (s *Server) authenticateRequest(w http.ResponseWriter, r *http.Request) (au
 		case slots <- struct{}{}:
 			defer func() { <-slots }()
 		default:
+			s.metricsValue().recordRateLimit("authentication_slots")
 			w.Header().Set("Retry-After", "1")
 			s.writeError(w, http.StatusServiceUnavailable, "server_busy", "server is busy authenticating bearer requests; retry later", nil)
 			return auth.Identity{}, nil, false
 		}
 	}
 	identity, err := s.Auth.Authenticate(r.Context(), r)
+	if err != nil {
+		s.observeAuthFailure(err, r)
+	}
 	return identity, err, true
 }
 
@@ -410,6 +426,16 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(status int) {
+	// A server may send multiple informational responses before one final
+	// status. Preserve those writes while recording only the final response
+	// for request metrics. Switching Protocols (101) is itself final.
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(status)
+		return
+	}
+	if w.status != 0 {
+		return
+	}
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
@@ -418,6 +444,13 @@ func (w *statusWriter) Write(body []byte) (int, error) {
 		w.status = http.StatusOK
 	}
 	return w.ResponseWriter.Write(body)
+}
+
+// Unwrap lets http.ResponseController reach optional capabilities such as
+// Flush, Hijack, and full-duplex request handling without advertising an
+// interface the underlying writer does not implement.
+func (w *statusWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func responseStatus(w http.ResponseWriter) int {
@@ -439,6 +472,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/readyz" || r.URL.Path == "/ready" {
 		s.health(w, r, true)
+		return
+	}
+	if r.URL.Path == "/metrics" {
+		s.metricsEndpoint(w, r)
 		return
 	}
 	if r.URL.Path == "/openapi.json" {
@@ -762,10 +799,15 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request, ready bool) {
 		return
 	}
 	if ready {
-		if err := s.Store.DB.PingContext(r.Context()); err != nil {
-			s.writeError(w, http.StatusServiceUnavailable, "not_ready", "database unavailable", nil)
-			return
+		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
+		defer cancel()
+		report := s.readiness(ctx)
+		status := http.StatusOK
+		if !report.Ready {
+			status = http.StatusServiceUnavailable
 		}
+		s.writeJSON(w, status, report)
+		return
 	}
 	response := map[string]any{"status": "ok", "service": "helm"}
 	if s.Cfg.ReleaseSHA != "" {
@@ -1193,6 +1235,9 @@ func (s *Server) mutationRateOnly(w http.ResponseWriter, r *http.Request, identi
 }
 
 func (s *Server) mutationWithAdmission(w http.ResponseWriter, r *http.Request, identity auth.Identity, admit func(http.ResponseWriter, *http.Request, auth.Identity) bool, fn func() (int, []byte, string, error)) {
+	if mutationIdentityIsLimited(identity) {
+		s.metricsValue().recordAgentMutation("attempted")
+	}
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if key == "" {
 		if !admit(w, r, identity) {
@@ -1200,8 +1245,14 @@ func (s *Server) mutationWithAdmission(w http.ResponseWriter, r *http.Request, i
 		}
 		status, body, etag, err := fn()
 		if err != nil {
+			if mutationIdentityIsLimited(identity) {
+				s.metricsValue().recordAgentMutation("failed")
+			}
 			s.writeStoreErrorForIdentity(w, identity, err)
 			return
+		}
+		if mutationIdentityIsLimited(identity) {
+			s.metricsValue().recordAgentMutation("succeeded")
 		}
 		s.writeRaw(w, status, body, etag)
 		return
@@ -1231,12 +1282,21 @@ func (s *Server) mutationWithAdmission(w http.ResponseWriter, r *http.Request, i
 	}
 	status, body, etag, err := fn()
 	if err != nil {
+		if mutationIdentityIsLimited(identity) {
+			s.metricsValue().recordAgentMutation("failed")
+		}
 		s.writeStoreErrorForIdentity(w, identity, err)
 		return
 	}
 	if err := s.Store.SaveIdempotency(r.Context(), identity.Actor.ID, storeKey, r.Method, r.URL.Path, requestHash, store.IdempotencyRecord{Status: status, ResponseBody: body, ETag: etag, ResponseLocation: w.Header().Get("Location")}); err != nil {
+		if mutationIdentityIsLimited(identity) {
+			s.metricsValue().recordAgentMutation("failed")
+		}
 		s.writeStoreErrorForIdentity(w, identity, err)
 		return
+	}
+	if mutationIdentityIsLimited(identity) {
+		s.metricsValue().recordAgentMutation("succeeded")
 	}
 	s.writeRaw(w, status, body, etag)
 }
@@ -1572,7 +1632,7 @@ func redactedTaskConflictCurrent(task store.Task) map[string]any {
 }
 
 func (s *Server) writeInternal(w http.ResponseWriter, err error) {
-	log.Printf("internal error: %v", err)
+	s.logInternalError(w, err)
 	s.writeError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 }
 func (s *Server) writeError(w http.ResponseWriter, status int, code, message string, details any) {

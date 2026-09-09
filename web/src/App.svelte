@@ -152,6 +152,7 @@
   import AgentWorkPanel from './lib/components/AgentWorkPanel.svelte';
   import AuditReview from './lib/components/AuditReview.svelte';
   import BoardTimeline from './lib/components/BoardTimeline.svelte';
+  import BoardOverflowNavigation from './lib/components/BoardOverflowNavigation.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import HelmMark from './lib/components/HelmMark.svelte';
   import LiveWorkRow from './lib/components/LiveWorkRow.svelte';
@@ -162,6 +163,7 @@
   import TaskDependencies from './lib/components/TaskDependencies.svelte';
   import TaskDependencyStatus from './lib/components/TaskDependencyStatus.svelte';
   import TaskHierarchy from './lib/components/TaskHierarchy.svelte';
+  import TaskShareActions from './lib/components/TaskShareActions.svelte';
   import {
     mergeAuthoritativeTask,
     mergeAuthoritativeTaskList,
@@ -205,6 +207,7 @@
     type BoardOrderingGate,
     type BoardTaskSort
   } from './lib/boardOrdering';
+  import { buildTaskShareUrl } from './lib/taskShare';
 
   type View = CommandView;
   type AuthView = 'login' | 'setup';
@@ -5510,8 +5513,10 @@
   }
 
   async function editDrawerComment(comment: Comment, body: string): Promise<void> {
-    if (!drawerTask) return;
-    const taskId = drawerTask.id;
+    if (!drawerTask || drawerTask.id !== comment.task_id) {
+      throw new Error('The task changed while this comment was saving. Your draft was kept.');
+    }
+    const taskId = comment.task_id;
     try {
       const updatedComment = await api.patchComment(taskId, comment.id, body.trim(), comment.version ?? 1);
       drawerTimelineRequest += 1;
@@ -5556,6 +5561,14 @@
 
   function projectForTask(task: Task): Project | undefined {
     return projects.find((project) => project.id === task.project_id);
+  }
+
+  function drawerTaskShareUrl(task: Task): string {
+    const projectSlug = projectForTask(task)?.slug || getProjectSlugFromLocation() || activeProjectSlug;
+    return buildTaskShareUrl(projectSlug, task.key, {
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      intent: drawerView
+    });
   }
 
   async function openWorkTask(task: Task, returnFocus: DialogReturnFocus | null = null) {
@@ -6020,7 +6033,8 @@
             {:else if !sortedColumns.length}
               <div class="empty-state board-empty"><div class="empty-icon">◇</div><h2>Your board is almost ready</h2><p>Columns will appear here once this project has been initialized.</p><button class="button primary" type="button" on:click={() => loadBoard()}>Refresh board</button></div>
             {:else}
-              <section class="board" use:boardCardHeight aria-label={`${activeProject.name} board`}>
+              <BoardOverflowNavigation label={`${activeProject.name} board columns`}>
+              <section class="board" data-board-overflow-scroll use:boardCardHeight aria-label={`${activeProject.name} board`}>
                 {#each sortedColumns as column (column.id)}
                 {@const orderingGate = makeBoardOrderingGate({
                   criteriaTransition: boardCriteriaTransition,
@@ -6085,6 +6099,7 @@
                   </article>
                 {/each}
               </section>
+              </BoardOverflowNavigation>
             {/if}
             {:else}
               <BoardTimeline
@@ -6278,6 +6293,7 @@
           <button class:active={drawerView === 'details'} id="drawer-details-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'details'} aria-controls="drawer-details-panel" tabindex={drawerView === 'details' ? 0 : -1} on:click={() => setDrawerView('details')} on:keydown={drawerTabKeydown}>Details</button>
           <button class:active={drawerView === 'activity'} id="drawer-activity-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'activity'} aria-controls="drawer-activity-panel" tabindex={drawerView === 'activity' ? 0 : -1} on:click={() => setDrawerView('activity')} on:keydown={drawerTabKeydown}>Activity</button>
         </div>
+        <TaskShareActions taskKey={drawerTask.key} taskUrl={drawerTaskShareUrl(drawerTask)} />
         {#if drawerView === 'details'}
         <div id="drawer-details-panel" class="drawer-details-panel" role="tabpanel" aria-labelledby="drawer-details-tab">
           <div class="drawer-scroll" data-drawer-scroll>
@@ -6350,6 +6366,7 @@
                 onRetry={() => { void loadDrawerTimeline(drawerTask?.id); }}
                 currentActorId={user?.id || ''}
                 canManageComments={Boolean(user?.admin)}
+                taskId={drawerTask?.id || ''}
                 onEditComment={editDrawerComment}
                 onConfirmDelete={confirmDrawerCommentDelete}
                 onDeleteComment={deleteDrawerComment}

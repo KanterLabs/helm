@@ -53,7 +53,7 @@ current UI.
 Browser (Svelte + TypeScript) ─┐
                                ├─ Go Helm server
 Agent clients (JSON API) ──────┘    ├─ /api/v1 REST API
-                                    ├─ /healthz and /readyz
+                                    ├─ /healthz, /readyz, and /metrics
                                     ├─ embedded frontend and migrations
                                     └─ SQLite (WAL, foreign keys, /data)
 ```
@@ -108,6 +108,9 @@ Operators can immediately stop model turns without removing anyone's saved
 connection by setting `HELM_LUNA_ENABLED=false` and restarting Helm. See
 [`docs/LUNA_TASK_ASSIST.md`](docs/LUNA_TASK_ASSIST.md) for tuning, fallbacks,
 privacy-safe metrics, and validation thresholds.
+
+Production request, database, capacity, readiness, and redacted-log
+diagnostics are documented in [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
 
 ## Authentication and agent access
 
