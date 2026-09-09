@@ -682,8 +682,11 @@ the actor and appends its bug lifecycle event atomically with the task update;
 clients can poll those events through `/api/v1/events?after=...`.
 
 This is an internal-only MVP. It does not provide public issue intake, external
-issue-tracker synchronization, email/Slack notifications, attachments,
-service-level agreements, or a separate bug-permission model. Bugs remain
+issue-tracker synchronization, provider-specific email/Slack integrations,
+attachments, service-level agreements, or a separate bug-permission model.
+Core in-app notifications and watches are documented in
+[`docs/NOTIFICATIONS.md`](NOTIFICATIONS.md). Safe event-driven automations and
+external delivery are tracked separately as TC-165 and TC-166. Bugs remain
 project tasks and use the existing board columns, claims, labels, comments,
 scopes, and audit/event feed.
 

@@ -33,14 +33,19 @@ Trello-compatible API or a full team-suite replacement.
   preview and apply guarded recommendations without moving work implicitly.
 - Create agents and issue project-scoped bearer tokens with independently
   selected read, write, claim, and event scopes.
+- Follow projects or tasks with watches and receive deduplicated in-app
+  notifications for assignments, mentions, blockers, and state changes. See
+  [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md); safe automations and
+  external delivery remain deferred to TC-165 and TC-166.
 - Keep the live view current through bounded polling. The responsive browser
   UI remains usable on mobile widths and supports keyboard navigation,
   focus-visible controls, and screen-reader status announcements.
 
 The built-in bug tracker is an internal MVP. Bugs use the existing task,
 board, claim, comment, scope, and event model. Public issue intake, external
-tracker synchronization, notifications, attachments, service-level
-agreements, and a separate bug-permission model are out of scope for now. See
+tracker synchronization, bug-specific notification policies, attachments,
+service-level agreements, and a separate bug-permission model are out of scope
+for now. See
 [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) for the lifecycle and complete
 request/response contract.
 
