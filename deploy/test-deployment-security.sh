@@ -1019,10 +1019,12 @@ contains 'restrict_to_account_members' "$CLOUDFLARE"
 contains 'restrict_to_account_members' "$VALIDATE"
 contains 'identity providers are ambiguous or nonconforming' "$CLOUDFLARE"
 contains 'identity provider is missing, ambiguous, or nonconforming' "$VALIDATE"
-contains 'PUBLIC_HOST=beta.tc.shanekanterman.dev' "$CLOUDFLARE"
-contains 'PUBLIC_HOST=beta.tc.shanekanterman.dev' "$VALIDATE"
-contains 'HELM_PUBLIC_ORIGIN=https://beta.tc.shanekanterman.dev' "$ROOT_DIR/.helm-beta-deploy.env.example"
-contains 'beta.tc.shanekanterman.dev' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
+contains 'PUBLIC_HOST=beta-helm.home.shanekanterman.dev' "$CLOUDFLARE"
+contains 'PUBLIC_HOST=beta-helm.home.shanekanterman.dev' "$VALIDATE"
+contains 'HELM_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev' "$ROOT_DIR/.helm-beta-deploy.env.example"
+contains 'beta-helm.home.shanekanterman.dev' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
+contains 'private Tailnet/split-DNS hostname' "$CLOUDFLARE"
+contains 'private Tailnet/split-DNS hostname' "$VALIDATE"
 contains 'owned by a different tunnel' "$CLOUDFLARE"
 not_contains 'onetimepin' "$CLOUDFLARE"
 not_contains 'onetimepin' "$VALIDATE"
@@ -1150,6 +1152,39 @@ run_service_probe_case transient-success $'dns\n401' success
 run_service_probe_case eventual-failure $'dns\nconnect' failure
 unset -f curl sleep probe_curl
 unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET PROBE_KIND PROBE_RESPONSES PROBE_CALL_LOG PROBE_SLEEP_LOG
+
+# The selected beta hostname is private Tailnet/split-DNS only. Both public
+# Cloudflare entrypoints must reject beta before requiring credentials, looking
+# up tools, creating temporary files, or invoking curl.
+beta_guard_curl() {
+	printf '%s\n' "$*" >> "$BETA_GUARD_CURL_LOG"
+	return 99
+}
+curl() { beta_guard_curl "$@"; }
+export -f beta_guard_curl curl
+BETA_GUARD_CURL_LOG="$fixture/beta-guard-curl.calls"
+: >"$BETA_GUARD_CURL_LOG"
+if (
+	unset CLOUDFLARE_API_TOKEN
+	export HELM_DEPLOY_ENVIRONMENT=beta BETA_GUARD_CURL_LOG
+	"$CLOUDFLARE" publish
+) >"$fixture/cloudflare-beta-guard.out" 2>&1; then
+	fail 'Cloudflare beta public provisioning unexpectedly succeeded'
+fi
+contains 'private Tailnet/split-DNS hostname' "$fixture/cloudflare-beta-guard.out"
+[[ ! -s "$BETA_GUARD_CURL_LOG" ]] || fail 'Cloudflare beta guard invoked curl'
+: >"$BETA_GUARD_CURL_LOG"
+if (
+	unset CLOUDFLARE_API_TOKEN
+	export HELM_DEPLOY_ENVIRONMENT=beta BETA_GUARD_CURL_LOG
+	"$VALIDATE"
+) >"$fixture/validate-beta-guard.out" 2>&1; then
+	fail 'live beta public validation unexpectedly succeeded'
+fi
+contains 'private Tailnet/split-DNS hostname' "$fixture/validate-beta-guard.out"
+[[ ! -s "$BETA_GUARD_CURL_LOG" ]] || fail 'live beta guard invoked curl'
+unset -f curl beta_guard_curl
+unset BETA_GUARD_CURL_LOG
 
 # Exercise Cloudflare's exact origin, ingress, and DNS predicates with mocked
 # API responses. The production functions reject alternate loopback, host,
@@ -1504,7 +1539,7 @@ contains "github.ref == 'refs/heads/main'" "$WORKFLOW"
 contains "github.ref == 'refs/heads/beta'" "$WORKFLOW"
 contains 'branches: [main, beta]' "$WORKFLOW"
 contains 'name: beta' "$WORKFLOW"
-contains 'url: https://beta.tc.shanekanterman.dev' "$WORKFLOW"
+contains 'url: https://beta-helm.home.shanekanterman.dev' "$WORKFLOW"
 contains 'HELM_DEPLOY_ENVIRONMENT: beta' "$WORKFLOW"
 contains "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW"
 [[ "$(grep -Fc -- "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW" || true)" = 1 ]] \

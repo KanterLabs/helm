@@ -19,8 +19,11 @@ nftables input policy is default-drop; both the application and cloudflared
 connector use loopback while cloudflared makes the outbound tunnel connection.
 
 The beta target is a second unprivileged Debian 12 LXC, `helm-beta` (CTID 106)
-at `10.0.0.39/24`. It uses `beta.tc.shanekanterman.dev`, the
-`helm-beta-homelab` tunnel, the `helm-beta-deploy` forced SSH account,
+at `10.0.0.39/24`. Its selected hostname is the private-only
+`beta-helm.home.shanekanterman.dev`; the private route is not activated yet,
+no public DNS record is allowed, and public Cloudflare provisioning is disabled.
+No public Cloudflare tunnel or Access application is active. The
+`helm-beta-deploy` forced SSH account,
 `/var/lib/helm-beta-deploy` host staging, and a distinct Ed25519 signing trust
 under `/etc/helm-beta-deploy`. The separate guest gives beta its own database,
 backups, releases, services, connector token, and runtime credentials while
@@ -268,11 +271,13 @@ the constrained PVE identity, publishes DNS, and performs live validation.
 
 The same checks run for `beta`, but its deployment job uses only the GitHub
 `beta` environment, `BETA_*` secrets, the `helm-beta` concurrency lock, and
-`HELM_DEPLOY_ENVIRONMENT=beta`. A beta push cannot invoke the production
-gateway because its SSH key is forced to
-`/usr/local/sbin/helm-beta-deploy-gateway`. Promotion is an explicit pull
-request or merge from `beta` to `main`; the resulting `main` push remains the
-only automatic production trigger.
+`HELM_DEPLOY_ENVIRONMENT=beta`. Its public deployment remains paused while
+the private route is pending: `cloudflare.sh prepare`, `cloudflare.sh publish`,
+and `validate-live.sh` fail closed for beta, so no public DNS or Access/tunnel
+resources are provisioned. A beta push cannot invoke the production gateway
+because its SSH key is forced to `/usr/local/sbin/helm-beta-deploy-gateway`.
+Promotion is an explicit pull request or merge from `beta` to `main`; the
+resulting `main` push remains the only automatic production trigger.
 
 The beta environment also stores `BETA_ADMIN_EMAIL` explicitly so its
 least-privilege Cloudflare token does not need account-membership read access.

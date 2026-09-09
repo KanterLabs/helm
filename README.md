@@ -324,9 +324,9 @@ Changes are tested through a separate environment before production:
 ```text
 beta branch
   → beta GitHub environment and beta-only secrets
-  → beta.tc.shanekanterman.dev
-  → helm-beta-homelab Tunnel
-  → cloudflared in the `helm-beta` LXC (CT 106, 10.0.0.39)
+  → beta-helm.home.shanekanterman.dev (private Tailnet target; route not active)
+  → private Tailnet route (pending activation)
+  → the `helm-beta` LXC (CT 106, 10.0.0.39)
   → an independent /var/lib/roadmap/data/roadmap.db
 
 explicit pull request or merge to main
@@ -355,8 +355,9 @@ recovery checks are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 After the one-time Proxmox and Cloudflare bootstrap described there, pushes to
 `beta` and `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Both branches run Go/frontend checks, browser tests, and a container smoke
-test. A `beta` push may deploy only through the `beta` environment and validate
-`beta.tc.shanekanterman.dev`; a `main` push may deploy only through the
+test. A `beta` push is paused pending the private route migration; public
+Cloudflare beta provisioning is disabled. The selected target is
+`beta-helm.home.shanekanterman.dev`, while a `main` push may deploy only through the
 `production` environment and validate <https://tc.shanekanterman.dev>. Normal
 production deployment requires the GitHub Actions
 secrets `ROADMAP_CLOUDFLARE_API_TOKEN`, `ROADMAP_DEPLOY_SSH_KEY`,
