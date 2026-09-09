@@ -29,7 +29,7 @@ const (
 	forwardedURIHeader    = "X-Forwarded-Uri"
 	remoteAddrHeader      = "X-Helm-Tailnet-Remote-Addr"
 	defaultListenAddr     = "127.0.0.1:19603"
-	defaultTailnetSocket  = "/var/run/tailscale/tailscaled.sock"
+	defaultTailnetSocket  = "/run/tailscale/tailscaled.sock"
 	whoIsTimeout          = 2 * time.Second
 	maxForwardAuthBody    = 4 * 1024
 	maxWhoIsBody          = 128 * 1024
