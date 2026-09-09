@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -107,6 +109,24 @@ func main() {
 	})
 	api := httpapi.New(data, manager, cfg, codexManager)
 	server := &http.Server{Addr: cfg.Addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
+	var privateServer *http.Server
+	var privateListener net.Listener
+	if cfg.AuthMode == "tailnet" {
+		privateHandler, handlerErr := httpapi.NewTailnetPrivateHandler(api, cfg.TailnetAllowedPeerIPs)
+		if handlerErr != nil {
+			fatalLog("tailnet private listener configuration failed", classifyMainError(handlerErr))
+		}
+		certificate, certErr := tls.LoadX509KeyPair(cfg.TailnetTLSCertFile, cfg.TailnetTLSKeyFile)
+		if certErr != nil {
+			fatalLog("tailnet private TLS configuration failed", classifyMainError(certErr))
+		}
+		privateListener, err = net.Listen("tcp", cfg.TailnetTLSAddr)
+		if err != nil {
+			fatalLog("tailnet private listener failed", classifyMainError(err))
+		}
+		privateListener = tls.NewListener(privateListener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}})
+		privateServer = &http.Server{Handler: privateHandler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
+	}
 	go func() {
 		log.Printf(`{"level":"info","msg":"helm listening","addr":%q}`, cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -114,6 +134,15 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	if privateServer != nil {
+		go func() {
+			log.Printf(`{"level":"info","msg":"helm tailnet private listener started","addr":%q}`, cfg.TailnetTLSAddr)
+			if serveErr := privateServer.Serve(privateListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				errorLog("tailnet private listener stopped unexpectedly", serveErr)
+				os.Exit(1)
+			}
+		}()
+	}
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-signalCtx.Done()
@@ -121,6 +150,11 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		errorLog("server shutdown failed", err)
+	}
+	if privateServer != nil {
+		if err := privateServer.Shutdown(shutdownCtx); err != nil {
+			errorLog("tailnet private listener shutdown failed", err)
+		}
 	}
 	if err := codexManager.Close(shutdownCtx); err != nil {
 		errorLog("Codex shutdown failed", err)

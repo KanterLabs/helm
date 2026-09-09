@@ -1,5 +1,5 @@
-// Package auth implements local sessions, verified Cloudflare Access JWT
-// identity, and scoped bearer token authentication for the HTTP layer.
+// Package auth implements local sessions, verified Cloudflare Access and
+// Tailnet identities, and scoped bearer token authentication for the HTTP layer.
 package auth
 
 import (
@@ -47,6 +47,11 @@ type Manager struct {
 	SecureCookie       bool
 	CloudflareVerifier CloudflareJWTVerifier
 	cloudflareInitErr  error
+	TailnetVerifier    TailnetIdentityVerifier
+	TailnetOwnerLogin  string
+	TailnetAdminEmail  string
+	TailnetAudience    string
+	tailnetInitErr     error
 }
 
 func NewManager(s *store.Store, cfg config.Config) *Manager {
@@ -63,6 +68,23 @@ func NewManager(s *store.Store, cfg config.Config) *Manager {
 			m.CloudflareVerifier = verifier
 		}
 	}
+	if cfg.AuthMode == "tailnet" {
+		m.TailnetOwnerLogin = cfg.TailnetOwnerLogin
+		if m.TailnetOwnerLogin == "" {
+			m.TailnetOwnerLogin = cfg.AdminEmail
+		}
+		m.TailnetAdminEmail = cfg.AdminEmail
+		m.TailnetAudience = cfg.TailnetAudience
+		if m.TailnetAudience == "" {
+			m.TailnetAudience = cfg.PublicOrigin
+		}
+		verifier, err := NewTailnetJWTVerifier(cfg.TailnetAssertionKey)
+		if err != nil {
+			m.tailnetInitErr = err
+		} else {
+			m.TailnetVerifier = verifier
+		}
+	}
 	return m
 }
 
@@ -76,6 +98,29 @@ func NewManagerWithVerifier(s *store.Store, cfg config.Config, verifier Cloudfla
 		AdminEmail:         cfg.AdminEmail,
 		SecureCookie:       cfg.SecureCookies,
 		CloudflareVerifier: verifier,
+		TailnetOwnerLogin:  cfg.TailnetOwnerLogin,
+		TailnetAdminEmail:  cfg.AdminEmail,
+		TailnetAudience:    cfg.TailnetAudience,
+	}
+}
+
+// NewManagerWithTailnetVerifier constructs a manager with an injected
+// Tailnet verifier for deterministic tests. Request binding and owner checks
+// remain in Authenticate even when the verifier is injected.
+func NewManagerWithTailnetVerifier(s *store.Store, cfg config.Config, verifier TailnetIdentityVerifier) *Manager {
+	owner := cfg.TailnetOwnerLogin
+	if owner == "" {
+		owner = cfg.AdminEmail
+	}
+	audience := cfg.TailnetAudience
+	if audience == "" {
+		audience = cfg.PublicOrigin
+	}
+	return &Manager{
+		Store: s, Mode: cfg.AuthMode, AdminEmail: cfg.AdminEmail,
+		SecureCookie: cfg.SecureCookies, TailnetVerifier: verifier,
+		TailnetOwnerLogin: owner, TailnetAudience: audience,
+		TailnetAdminEmail: cfg.AdminEmail,
 	}
 }
 
@@ -130,6 +175,31 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) (Identity, 
 			return Identity{}, errors.New("invalid Cloudflare identity name")
 		}
 		actor, err := m.Store.EnsureCloudflareActor(ctx, email, name, m.AdminEmail)
+		if err != nil {
+			return Identity{}, err
+		}
+		return Identity{Actor: actor}, nil
+	case "tailnet":
+		if m.TailnetVerifier == nil {
+			if m.tailnetInitErr != nil {
+				return Identity{}, m.tailnetInitErr
+			}
+			return Identity{}, errors.New("Tailnet identity verifier is unavailable")
+		}
+		assertion, err := tailnetAssertion(r)
+		if err != nil {
+			return Identity{}, err
+		}
+		claims, err := m.TailnetVerifier.Verify(ctx, assertion)
+		if err != nil {
+			return Identity{}, errors.New("invalid Tailnet identity")
+		}
+		now := time.Now()
+		if err := ValidateTailnetIdentity(claims, TailnetAssertionIssuer, m.TailnetAudience, m.TailnetOwnerLogin, m.TailnetAdminEmail, r.Method, r.URL.RequestURI(), now); err != nil {
+			return Identity{}, errors.New("invalid Tailnet identity")
+		}
+		name := strings.TrimSpace(claims.Name)
+		actor, err := m.Store.EnsureCloudflareActor(ctx, claims.Email, name, m.TailnetAdminEmail)
 		if err != nil {
 			return Identity{}, err
 		}
@@ -227,6 +297,14 @@ func cloudflareAssertion(r *http.Request) (string, error) {
 	values := r.Header.Values("Cf-Access-Jwt-Assertion")
 	if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
 		return "", errors.New("Cloudflare identity is required")
+	}
+	return strings.TrimSpace(values[0]), nil
+}
+
+func tailnetAssertion(r *http.Request) (string, error) {
+	values := r.Header.Values(TailnetAssertionHeader)
+	if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+		return "", errors.New("Tailnet identity is required")
 	}
 	return strings.TrimSpace(values[0]), nil
 }

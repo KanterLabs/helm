@@ -235,7 +235,7 @@
   import { buildTaskShareUrl } from './lib/taskShare';
 
   type View = CommandView;
-  type AuthView = 'login' | 'setup';
+  type AuthView = 'login' | 'setup' | 'tailnet';
   type ToastKind = 'success' | 'error' | 'info';
   type ToastAction = {
     label: string;
@@ -1526,7 +1526,10 @@
         await clearSavedBoards();
         user = null;
         offlineReadOnly.set(false);
-        authView = 'login';
+        // Tailnet identity is established by the private edge and the
+        // request-bound assertion. Never offer a local password form in this
+        // mode, including after an explicit logout.
+        authView = authStatus.mode === 'tailnet' ? 'tailnet' : 'login';
         booting = false;
         return;
       }
@@ -1541,7 +1544,7 @@
           await clearSavedBoards();
           user = null;
           offlineReadOnly.set(false);
-          authView = 'login';
+          authView = authStatus.mode === 'tailnet' ? 'tailnet' : 'login';
           booting = false;
           return;
         } else {
@@ -1628,7 +1631,7 @@
         // workspace instead of leaving the UI with an unauthenticated actor.
         const result = await api.authLogin({ email: setupEmail.trim(), password: setupPassword });
         user = unwrapActor(result);
-      } else {
+      } else if (authView === 'login') {
         if (!loginEmail.trim() || !loginPassword) throw new Error('Enter your email and password.');
         const result = await api.authLogin({ email: loginEmail.trim(), password: loginPassword });
         user = unwrapActor(result);
@@ -1709,6 +1712,7 @@
     codexStatusLoading = false;
     codexLoading = false;
     codexError = '';
+    authView = authStatus?.mode === 'tailnet' ? 'tailnet' : 'login';
     adminProjects = [];
     adminProjectId = '';
     adminColumns = [];
@@ -6135,6 +6139,18 @@
           <span>One calm place for humans and agents to move work forward.</span>
         </div>
       </div>
+      {#if authView === 'tailnet'}
+        <div class="auth-form">
+          <div class="form-heading">
+            <h2>Tailnet access required</h2>
+            <p>Open Helm from the authorized private Tailnet device. Helm does not use a local password in this mode.</p>
+          </div>
+          {#if authError}
+            <div class="inline-alert error" role="alert"><span>!</span><span>{authError}</span></div>
+          {/if}
+          <button class="button primary button-large" type="button" on:click={bootstrap} disabled={authSubmitting}>Retry private access</button>
+        </div>
+      {:else}
       <form class="auth-form" on:submit|preventDefault={submitAuth}>
         <div class="form-heading">
           <h2>{authView === 'setup' ? 'Create your workspace' : 'Welcome back'}</h2>
@@ -6161,6 +6177,7 @@
           </button>
         {/if}
       </form>
+      {/if}
     </section>
   </main>
 {:else}

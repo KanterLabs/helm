@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,13 +16,18 @@ func clearConfigEnv(t *testing.T) {
 		"HELM_LUNA_ENABLED", "HELM_LUNA_MODEL", "HELM_LUNA_EFFORT",
 		"HELM_CLOUDFLARE_AUDIENCE", "HELM_CLOUDFLARE_AUD", "HELM_CF_ACCESS_AUDIENCES", "HELM_CLOUDFLARE_AUDIENCES",
 		"HELM_CLOUDFLARE_JWKS_URL", "HELM_CF_ACCESS_JWKS_URL", "HELM_CLOUDFLARE_CERTS_URL", "HELM_SECURE_COOKIES",
-		"HELM_DEMO_SEED", "ROADMAP_ADDR", "ROADMAP_DB", "ROADMAP_AUTH_MODE", "ROADMAP_PUBLIC_ORIGIN",
+		"HELM_DEMO_SEED", "HELM_TAILNET_OWNER_LOGIN", "HELM_TAILNET_ADMIN_EMAIL", "HELM_TAILNET_AUDIENCE",
+		"HELM_TAILNET_ASSERTION_KEY_FILE", "HELM_TAILNET_AUTH_KEY_FILE", "HELM_TAILNET_KEY_FILE",
+		"HELM_TAILNET_TLS_ADDR", "HELM_TAILNET_TLS_CERT_FILE", "HELM_TAILNET_TLS_KEY_FILE", "HELM_TAILNET_ALLOWED_PEER_IPS",
+		"ROADMAP_ADDR", "ROADMAP_DB", "ROADMAP_AUTH_MODE", "ROADMAP_PUBLIC_ORIGIN",
 		"ROADMAP_ADMIN_EMAIL", "ROADMAP_RELEASE_SHA", "ROADMAP_CLOUDFLARE_ISSUER", "ROADMAP_CF_ACCESS_ISSUER",
 		"ROADMAP_CODEX_BINARY", "ROADMAP_CODEX_HOME_ROOT",
 		"ROADMAP_LUNA_ENABLED", "ROADMAP_LUNA_MODEL", "ROADMAP_LUNA_EFFORT",
 		"ROADMAP_CLOUDFLARE_AUDIENCE", "ROADMAP_CLOUDFLARE_AUD", "ROADMAP_CF_ACCESS_AUDIENCES", "ROADMAP_CLOUDFLARE_AUDIENCES",
 		"ROADMAP_CLOUDFLARE_JWKS_URL", "ROADMAP_CF_ACCESS_JWKS_URL", "ROADMAP_CLOUDFLARE_CERTS_URL", "ROADMAP_SECURE_COOKIES",
-		"ROADMAP_DEMO_SEED",
+		"ROADMAP_DEMO_SEED", "ROADMAP_TAILNET_OWNER_LOGIN", "ROADMAP_TAILNET_ADMIN_EMAIL", "ROADMAP_TAILNET_AUDIENCE",
+		"ROADMAP_TAILNET_ASSERTION_KEY_FILE", "ROADMAP_TAILNET_AUTH_KEY_FILE", "ROADMAP_TAILNET_KEY_FILE",
+		"ROADMAP_TAILNET_TLS_ADDR", "ROADMAP_TAILNET_TLS_CERT_FILE", "ROADMAP_TAILNET_TLS_KEY_FILE", "ROADMAP_TAILNET_ALLOWED_PEER_IPS",
 	} {
 		t.Setenv(name, "")
 	}
@@ -466,4 +473,56 @@ func TestFromEnvValidatesReleaseSHA(t *testing.T) {
 	if cfg.ReleaseSHA != valid {
 		t.Fatalf("release SHA = %q", cfg.ReleaseSHA)
 	}
+}
+
+func TestFromEnvTailnetRequirementsAndProtectedFiles(t *testing.T) {
+	clearConfigEnv(t)
+	dir := t.TempDir()
+	assertionPath := filepath.Join(dir, "tailnet.key")
+	tlsKeyPath := filepath.Join(dir, "tls.key")
+	certPath := filepath.Join(dir, "tls.crt")
+	key := []byte("01234567890123456789012345678901")
+	for _, path := range []string{assertionPath, tlsKeyPath} {
+		if err := os.WriteFile(path, key, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(certPath, []byte("certificate"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HELM_AUTH_MODE", "tailnet")
+	t.Setenv("HELM_ADDR", "127.0.0.1:8080")
+	t.Setenv("HELM_PUBLIC_ORIGIN", "https://beta-helm.home.shanekanterman.dev/")
+	t.Setenv("HELM_ADMIN_EMAIL", "owner@example.com")
+	t.Setenv("HELM_TAILNET_OWNER_LOGIN", "ShaneKanterman04@github")
+	t.Setenv("HELM_TAILNET_ASSERTION_KEY_FILE", assertionPath)
+	t.Setenv("HELM_TAILNET_TLS_ADDR", "10.0.0.39:8443")
+	t.Setenv("HELM_TAILNET_TLS_CERT_FILE", certPath)
+	t.Setenv("HELM_TAILNET_TLS_KEY_FILE", tlsKeyPath)
+	t.Setenv("HELM_TAILNET_ALLOWED_PEER_IPS", "10.0.0.101")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthMode != "tailnet" || cfg.TailnetOwnerLogin != "ShaneKanterman04@github" || cfg.TailnetAudience != cfg.PublicOrigin || len(cfg.TailnetAssertionKey) != len(key) {
+		t.Fatalf("tailnet config = %#v", cfg)
+	}
+	t.Run("rejects broad key permissions", func(t *testing.T) {
+		clearConfigEnv(t)
+		for name, value := range map[string]string{
+			"HELM_AUTH_MODE": "tailnet", "HELM_ADDR": "127.0.0.1:8080", "HELM_PUBLIC_ORIGIN": "https://beta-helm.home.shanekanterman.dev",
+			"HELM_ADMIN_EMAIL": "owner@example.com", "HELM_TAILNET_OWNER_LOGIN": "ShaneKanterman04@github", "HELM_TAILNET_ASSERTION_KEY_FILE": assertionPath,
+			"HELM_TAILNET_TLS_ADDR": "10.0.0.39:8443", "HELM_TAILNET_TLS_CERT_FILE": certPath, "HELM_TAILNET_TLS_KEY_FILE": tlsKeyPath,
+			"HELM_TAILNET_ALLOWED_PEER_IPS": "10.0.0.101",
+		} {
+			t.Setenv(name, value)
+		}
+		if err := os.Chmod(assertionPath, 0o640); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(assertionPath, 0o600)
+		if _, err := FromEnv(); err == nil {
+			t.Fatal("broad key permissions accepted")
+		}
+	})
 }

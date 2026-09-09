@@ -529,7 +529,7 @@ export interface ApiToken {
 }
 
 export interface AuthStatus {
-  mode: 'local' | 'cloudflare' | 'disabled';
+  mode: 'local' | 'cloudflare' | 'tailnet' | 'disabled';
   configured: boolean;
   setup_required: boolean;
   authenticated: boolean;
