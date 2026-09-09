@@ -10,7 +10,7 @@ import (
 )
 
 func TestVersionedColumnReclassificationRejectsUnresolvedBugAtomically(t *testing.T) {
-	f := newDependencyFixture(t, "SEMADMINUNRES")
+	f := newSemanticRaceFixture(t, "SEMADMINUNRES")
 	backlogState := "backlog"
 	extraBacklog, err := f.store.CreateColumn(f.ctx, f.project.ID, ColumnInput{
 		Name:          semanticRaceStringPtr("Bug intake"),
@@ -47,7 +47,7 @@ func TestVersionedColumnReclassificationRejectsUnresolvedBugAtomically(t *testin
 }
 
 func TestVersionedColumnReclassificationRejectsResolvedBugAtomically(t *testing.T) {
-	f := newDependencyFixture(t, "SEMADMINRESOLVED")
+	f := newSemanticRaceFixture(t, "SEMADMINRESOLVED")
 	bug := semanticRaceBug(t, f, "", "resolved bug")
 	completed, err := f.store.StateColumn(f.ctx, f.project.ID, "completed")
 	if err != nil {
@@ -94,7 +94,7 @@ func TestVersionedColumnReclassificationRejectsResolvedBugAtomically(t *testing.
 }
 
 func TestSemanticStateRaceRejectsGenericBugPatch(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAcePATCH")
+	f := newSemanticRaceFixture(t, "SEMRAcePATCH")
 	bug := semanticRaceBug(t, f, "", "patch race bug")
 	completed, err := f.store.StateColumn(f.ctx, f.project.ID, "completed")
 	if err != nil {
@@ -126,7 +126,7 @@ func TestSemanticStateRaceRejectsGenericBugPatch(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsBugMove(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAceMOVE")
+	f := newSemanticRaceFixture(t, "SEMRAceMOVE")
 	bug := semanticRaceBug(t, f, "", "move race bug")
 	extra := semanticRaceColumn(t, f, "Move destination", "ready", 0)
 	beforeTask := dependencyDurableState(t, f, bug.ID)
@@ -150,7 +150,7 @@ func TestSemanticStateRaceRejectsBugMove(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsCompleteTask(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAceCOMPLETE")
+	f := newSemanticRaceFixture(t, "SEMRAceCOMPLETE")
 	task := f.task(t, "complete race task")
 	extra := semanticRaceColumn(t, f, "Complete destination", "completed", 0)
 	beforeTask := dependencyDurableState(t, f, task.ID)
@@ -170,7 +170,7 @@ func TestSemanticStateRaceRejectsCompleteTask(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsResolveBug(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAceRESOLVE")
+	f := newSemanticRaceFixture(t, "SEMRAceRESOLVE")
 	extra := semanticRaceColumn(t, f, "Resolve destination", "completed", 0)
 	bug := semanticRaceBug(t, f, "", "resolve race bug")
 	beforeTask := dependencyDurableState(t, f, bug.ID)
@@ -190,7 +190,7 @@ func TestSemanticStateRaceRejectsResolveBug(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsReopenBug(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAceREOPEN")
+	f := newSemanticRaceFixture(t, "SEMRAceREOPEN")
 	bug := semanticRaceBug(t, f, "", "reopen race bug")
 	resolved, err := f.store.ResolveBug(f.ctx, bug.ID, ResolveBugInput{Resolution: "fixed"}, bug.Version, f.actor.ID)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestSemanticStateRaceRejectsReopenBug(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsBugTriage(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAceTRIAGE")
+	f := newSemanticRaceFixture(t, "SEMRAceTRIAGE")
 	bug := semanticRaceBug(t, f, "", "triage race bug")
 	extra := semanticRaceColumn(t, f, "Triage destination", "ready", 0)
 	beforeTask := dependencyDurableState(t, f, bug.ID)
@@ -239,7 +239,7 @@ func TestSemanticStateRaceRejectsBugTriage(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsBugTriageToArchivedColumn(t *testing.T) {
-	f := newDependencyFixture(t, "SEMTRIAGEARCH")
+	f := newSemanticRaceFixture(t, "SEMTRIAGEARCH")
 	bug := semanticRaceBug(t, f, "", "triage archive race bug")
 	extra := semanticRaceColumn(t, f, "Archived triage destination", "ready", 0)
 	beforeTask := dependencyDurableState(t, f, bug.ID)
@@ -274,7 +274,7 @@ func TestSemanticStateRaceRejectsBugTriageToArchivedColumn(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsBugTriageFromArchivedColumn(t *testing.T) {
-	f := newDependencyFixture(t, "SEMSOURCARCH")
+	f := newSemanticRaceFixture(t, "SEMSOURCARCH")
 	source := semanticRaceColumn(t, f, "Archived triage source", "backlog", 0)
 	bug := semanticRaceBug(t, f, source.ID, "triage source archive race bug")
 	extra := semanticRaceColumn(t, f, "Triage source destination", "ready", 0)
@@ -309,7 +309,7 @@ func TestSemanticStateRaceRejectsBugTriageFromArchivedColumn(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsBugCreate(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAceCREATEBUG")
+	f := newSemanticRaceFixture(t, "SEMRAceCREATEBUG")
 	extra := semanticRaceColumn(t, f, "Bug create destination", "ready", 0)
 	beforeEvents := semanticRaceProjectEventCount(t, f)
 	title := "create race bug"
@@ -341,7 +341,7 @@ func TestSemanticStateRaceRejectsBugCreate(t *testing.T) {
 }
 
 func TestSemanticStateRaceRejectsBugCreateToArchivedColumn(t *testing.T) {
-	f := newDependencyFixture(t, "SEMCREATEARCH")
+	f := newSemanticRaceFixture(t, "SEMCREATEARCH")
 	extra := semanticRaceColumn(t, f, "Archived bug create destination", "ready", 0)
 	beforeEvents := semanticRaceProjectEventCount(t, f)
 	title := "create archive race bug"
@@ -382,7 +382,7 @@ func TestSemanticStateRaceRejectsBugCreateToArchivedColumn(t *testing.T) {
 }
 
 func TestSemanticStateRaceCreateTaskDerivesCompletedAt(t *testing.T) {
-	f := newDependencyFixture(t, "SEMCTASKCREATE")
+	f := newSemanticRaceFixture(t, "SEMCTASKCREATE")
 	extra := semanticRaceColumn(t, f, "Task create destination", "ready", 0)
 	title := "create completed task race"
 	beforeEvents := semanticRaceProjectEventCount(t, f)
@@ -406,7 +406,7 @@ func TestSemanticStateRaceCreateTaskDerivesCompletedAt(t *testing.T) {
 }
 
 func TestSemanticStateRaceCreateTaskClearsCompletedAt(t *testing.T) {
-	f := newDependencyFixture(t, "SEMCTASKCLEAR")
+	f := newSemanticRaceFixture(t, "SEMCTASKCLEAR")
 	extra := semanticRaceColumn(t, f, "Task create ready destination", "completed", 0)
 	title := "create ready task race"
 	beforeEvents := semanticRaceProjectEventCount(t, f)
@@ -430,7 +430,7 @@ func TestSemanticStateRaceCreateTaskClearsCompletedAt(t *testing.T) {
 }
 
 func TestSemanticStateRaceResolveDuplicateWaitsForWriter(t *testing.T) {
-	f := newDependencyFixture(t, "SEMRAceDUPLICATE")
+	f := newSemanticRaceFixture(t, "SEMRAceDUPLICATE")
 	bug := semanticRaceBug(t, f, "", "duplicate race bug")
 	target := semanticRaceBug(t, f, "", "duplicate target")
 	completed, err := f.store.StateColumn(f.ctx, f.project.ID, "completed")
@@ -471,6 +471,7 @@ func semanticRaceMutation(t *testing.T, f dependencyFixture, destinationID, recl
 
 func semanticRaceMutationWithColumnUpdate(t *testing.T, f dependencyFixture, destinationID string, updateColumn func(*sql.Tx) error, call func(context.Context) (Task, error)) (Task, error) {
 	t.Helper()
+	barrier := semanticRaceBarrierFor(t, f.store.DB)
 	blocker, err := f.store.DB.BeginTx(f.ctx, nil)
 	if err != nil {
 		t.Fatalf("begin semantic race blocker: %v", err)
@@ -483,11 +484,13 @@ func semanticRaceMutationWithColumnUpdate(t *testing.T, f dependencyFixture, des
 	ctx, cancel := context.WithTimeout(f.ctx, 4*time.Second)
 	defer cancel()
 	result := make(chan semanticRaceResult, 1)
+	barrier.arm()
+	defer barrier.release()
 	go func() {
 		task, callErr := call(ctx)
 		result <- semanticRaceResult{task: task, err: callErr}
 	}()
-	semanticRaceWaitForWriter(t, f.store.DB, result)
+	semanticRaceWaitForTransaction(t, barrier, result)
 
 	if err := updateColumn(blocker); err != nil {
 		t.Fatalf("reclassify semantic race destination: %v", err)
@@ -496,6 +499,7 @@ func semanticRaceMutationWithColumnUpdate(t *testing.T, f dependencyFixture, des
 		t.Fatalf("release semantic race writer lock: %v", err)
 	}
 
+	barrier.release()
 	select {
 	case outcome := <-result:
 		return outcome.task, outcome.err
@@ -505,37 +509,17 @@ func semanticRaceMutationWithColumnUpdate(t *testing.T, f dependencyFixture, des
 	}
 }
 
-func semanticRaceWaitForWriter(t *testing.T, database *sql.DB, result <-chan semanticRaceResult) {
+func semanticRaceWaitForTransaction(t *testing.T, barrier *semanticRaceBarrier, result <-chan semanticRaceResult) {
 	t.Helper()
 	deadline := time.NewTimer(2 * time.Second)
 	defer deadline.Stop()
-	ticker := time.NewTicker(5 * time.Millisecond)
-	defer ticker.Stop()
-	var stableSince time.Time
-	for {
-		select {
-		case outcome := <-result:
-			t.Fatalf("semantic race operation finished before destination reclassification: task=%+v err=%v", outcome.task, outcome.err)
-		case <-ticker.C:
-			if database.Stats().InUse < 2 {
-				stableSince = time.Time{}
-				continue
-			}
-			if stableSince.IsZero() {
-				stableSince = time.Now()
-				continue
-			}
-			if time.Since(stableSince) >= 75*time.Millisecond {
-				select {
-				case outcome := <-result:
-					t.Fatalf("semantic race operation finished before destination reclassification: task=%+v err=%v", outcome.task, outcome.err)
-				default:
-				}
-				return
-			}
-		case <-deadline.C:
-			t.Fatalf("semantic race operation did not reach its writer wait")
-		}
+	select {
+	case <-barrier.reached:
+		return
+	case outcome := <-result:
+		t.Fatalf("semantic race operation finished before its writer transaction: task=%+v err=%v", outcome.task, outcome.err)
+	case <-deadline.C:
+		t.Fatalf("semantic race operation did not reach its writer transaction")
 	}
 }
 

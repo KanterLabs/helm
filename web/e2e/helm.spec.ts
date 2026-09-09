@@ -116,9 +116,15 @@ test.describe('Helm workspace', () => {
     await expect(drawer.getByLabel('Task title')).toHaveValue(taskTitle);
     await expect(drawer.locator('[data-dialog-initial-focus]')).toBeFocused();
     await expect(drawer.getByLabel('Task title')).not.toBeFocused();
+    const taskWatch = drawer.locator('[data-task-watch-toggle]');
+    await expect(taskWatch).toBeEnabled();
     await drawer.getByRole('button', { name: 'Close task details', exact: true }).focus();
     await page.keyboard.press('Shift+Tab');
+    await expect(taskWatch).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
     await expect(drawer.getByRole('button', { name: 'Delete task', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(taskWatch).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(drawer.getByRole('button', { name: 'Close task details', exact: true })).toBeFocused();
     await page.keyboard.press('Escape');

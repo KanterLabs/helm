@@ -59,10 +59,34 @@
   ): boolean {
     return boardChanged || Boolean(nextCursor);
   }
+
+  export type BulkMutationRequestContext = {
+    requestId: number;
+    sessionGeneration: number;
+    projectId: string;
+    projectSlug: string;
+  };
+
+  /** Delayed bulk responses may update state only while their session/project owns the request. */
+  export function bulkMutationRequestIsCurrent(
+    requested: BulkMutationRequestContext,
+    current: BulkMutationRequestContext & { authenticated: boolean }
+  ): boolean {
+    return current.authenticated
+      && requested.requestId === current.requestId
+      && requested.sessionGeneration === current.sessionGeneration
+      && requested.projectId === current.projectId
+      && requested.projectSlug === current.projectSlug;
+  }
 </script>
 
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { offlineReadOnly } from './lib/connectivity';
+  import { clearOfflineBoards, readOfflineBoards, saveOfflineBoard, setOfflineOwner, type OfflineBoard as OfflineBoardSnapshot } from './lib/offlineBoards';
+  import OfflineBoard from './lib/components/OfflineBoard.svelte';
+  import PwaStatus from './lib/components/PwaStatus.svelte';
+  import { boardCardHeight, createColumnScroll } from './lib/boardLayout';
   import { flip } from 'svelte/animate';
   import { backOut } from 'svelte/easing';
   import { fade, fly, scale } from 'svelte/transition';
@@ -117,6 +141,9 @@
     type Agent,
     type ApiToken,
     type AuthStatus,
+    type BulkTaskMutationInput,
+    type BulkTaskMutationOperation,
+    type BulkTaskMutationResponse,
     type BugResolution,
     type BugSeverity,
     type Column,
@@ -141,15 +168,18 @@
     type Priority,
     type SemanticState,
     type PortableArchive,
-    type PortableImportReport
+    type PortableImportReport,
+    type Notification
   } from './lib/types';
   import AgentPulse from './lib/components/AgentPulse.svelte';
   import AgentWorkPanel from './lib/components/AgentWorkPanel.svelte';
   import AuditReview from './lib/components/AuditReview.svelte';
   import BoardTimeline from './lib/components/BoardTimeline.svelte';
+  import BoardOverflowNavigation from './lib/components/BoardOverflowNavigation.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import HelmMark from './lib/components/HelmMark.svelte';
   import LiveWorkRow from './lib/components/LiveWorkRow.svelte';
+  import NotificationsInbox from './lib/components/NotificationsInbox.svelte';
   import RoadmapActivity from './lib/components/RoadmapActivity.svelte';
   import RoadmapLiveWork from './lib/components/RoadmapLiveWork.svelte';
   import TaskActivityTimeline from './lib/components/TaskActivityTimeline.svelte';
@@ -157,6 +187,8 @@
   import TaskDependencies from './lib/components/TaskDependencies.svelte';
   import TaskDependencyStatus from './lib/components/TaskDependencyStatus.svelte';
   import TaskHierarchy from './lib/components/TaskHierarchy.svelte';
+  import TaskShareActions from './lib/components/TaskShareActions.svelte';
+  import TaskWatchToggle from './lib/components/TaskWatchToggle.svelte';
   import {
     mergeAuthoritativeTask,
     mergeAuthoritativeTaskList,
@@ -200,6 +232,7 @@
     type BoardOrderingGate,
     type BoardTaskSort
   } from './lib/boardOrdering';
+  import { buildTaskShareUrl } from './lib/taskShare';
 
   type View = CommandView;
   type AuthView = 'login' | 'setup';
@@ -243,7 +276,7 @@
     loaded: boolean;
     error: string;
   };
-  type BoardLoadOptions = { criteriaRevision?: number };
+  type BoardLoadOptions = { criteriaRevision?: number; background?: boolean };
   type BoardColumnLoadOptions = {
     reset?: boolean;
     mutationSnapshot?: number;
@@ -327,6 +360,10 @@
   let boardMetadataErrors: BoardMetadataErrorState = { full: '', targeted: {} };
   let boardPartial = false;
   let boardOffline = false;
+  let offlineBoards: OfflineBoardSnapshot[] = [];
+  let offlineReadRevision = 0;
+  let reconnecting = false;
+  let reconnectError = '';
   let boardReconciliationNotice = '';
   let boardPages: Record<string, BoardColumnPage> = {};
   let boardCardOffsets: Record<string, number> = {};
@@ -341,6 +378,7 @@
   let boardOrder: 'asc' | 'desc' = 'asc';
   const boardPageSize = 50;
   const boardRenderLimit = 100;
+  const columnScroll = createColumnScroll();
   let issueTasks: Task[] = [];
   let issueColumns: Column[] = [];
   let issuesLoading = false;
@@ -351,6 +389,21 @@
   let issueMetricsRequest = 0;
   let filters: BoardFilters = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all', dependency: 'all' };
   let boardWorkFilter: WorkFilter = 'all';
+  let selectedTaskIds = new Set<string>();
+  let bulkReviewTasks: Task[] = [];
+  let showBulkModal = false;
+  let bulkSubmitting = false;
+  let bulkError = '';
+  let bulkResult: BulkTaskMutationResponse | null = null;
+  let bulkMode: 'partial' | 'atomic' = 'partial';
+  let bulkOperation: BulkTaskMutationOperation = 'priority';
+  let bulkPriority: Priority = 'normal';
+  let bulkAssignee = '';
+  let bulkLabels = '';
+  let bulkDueDate = '';
+  let bulkDestinationColumnId = '';
+  let bulkReason = '';
+  let bulkRequest = 0;
   let issueFilters: BoardFilters = {
     query: '',
     priority: 'all',
@@ -625,6 +678,7 @@
   let myWorkLivenessRequest = 0;
   let drawerLivenessRequest = 0;
   let boardLivenessInFlight: Promise<boolean> | null = null;
+  let boardBackgroundInFlight: Promise<boolean> | null = null;
   let myWorkLivenessInFlight: Promise<boolean> | null = null;
   let drawerLivenessInFlight: { taskId: string; requestId: number; promise: Promise<boolean> } | null = null;
   let pulseClock = Date.now();
@@ -639,6 +693,8 @@
   $: adminLiveColumns = adminColumns.filter((column) => !column.archived_at).sort((a, b) => a.position - b.position);
   $: adminLiveColumnIndexes = new Map(adminLiveColumns.map((column, index) => [column.id, index]));
   $: visibleTasks = filterTasks(tasks, columns, filters).filter((task) => matchesWorkFilter(task, boardWorkFilter, pulseClock));
+  $: selectedTasks = tasks.filter((task) => selectedTaskIds.has(task.id));
+  $: allVisibleTasksSelected = visibleTasks.length > 0 && visibleTasks.every((task) => selectedTaskIds.has(task.id));
   $: boardWorkCounts = agentWorkStatusCounts(tasks, pulseClock, (task) => semanticStateForTask(task));
   $: visibleIssues = filterTasks(
     issueTasks.filter((task) => issueProjectFilter === 'all' || task.project_id === issueProjectFilter),
@@ -915,17 +971,24 @@
     return sortBoardTaskList(items, boardSort, boardOrder);
   }
 
-  function flattenBoardPages(): Task[] {
+  function flattenBoardPagesForColumns(
+    pages: Record<string, BoardColumnPage>,
+    columnList: readonly Column[]
+  ): Task[] {
     const seen = new Set<string>();
     const flattened: Task[] = [];
-    sortedColumns.forEach((column) => {
-      for (const task of boardPages[column.id]?.tasks || []) {
+    [...columnList].sort((a, b) => a.position - b.position).forEach((column) => {
+      for (const task of pages[column.id]?.tasks || []) {
         if (seen.has(task.id)) continue;
         seen.add(task.id);
         flattened.push(task);
       }
     });
     return flattened;
+  }
+
+  function flattenBoardPages(): Task[] {
+    return flattenBoardPagesForColumns(boardPages, sortedColumns);
   }
 
   function boardTaskMatches(task: Task, columnId = task.column_id): boolean {
@@ -1017,6 +1080,177 @@
       if (local) merged.set(taskId, local);
     });
     return [...merged.values()].filter((task) => boardTaskMatches(task));
+  }
+
+  /**
+   * Refresh the board without taking the currently rendered board offline.
+   *
+   * Liveness and event polling are deliberately staged separately from the
+   * normal load path. A full reload is still allowed to show its skeleton;
+   * this path keeps the current pages in place until metadata and each
+   * currently loaded page depth have been read, then commits the reconciled
+   * snapshot atomically.
+   */
+  async function refreshBoardInBackground(): Promise<boolean> {
+    if (
+      !user
+      || (view !== 'board' && view !== 'timeline')
+      || !activeProject
+      || boardLoading
+      || Object.values(boardPages).some((page) => page.loading)
+    ) return false;
+    if (boardBackgroundInFlight) return boardBackgroundInFlight;
+
+    const requestedSession = sessionGeneration;
+    const requestedSlug = activeProjectSlug;
+    const requestedProjectId = activeProject.id;
+    const requestedBoardRequest = boardRequest;
+    const requestedCriteriaRevision = boardCriteriaRevision;
+    const requestedLivenessRequest = ++boardLivenessRequest;
+    const mutationSnapshot = taskMutationRevision;
+    const requestedColumnGenerations = { ...boardColumnGenerations };
+    // A board page stores all cards fetched so far, not a cursor history. Keep
+    // that pagination state authoritative by refetching the same loaded depth
+    // from the first page before committing the background snapshot.
+    const requestedLoadedTaskCounts = Object.fromEntries(
+      Object.entries(boardPages).map(([columnId, page]) => [columnId, page.tasks.length])
+    );
+
+    const request = (async () => {
+      const isCurrent = () => Boolean(
+        user
+        && sessionGeneration === requestedSession
+        && activeProjectSlug === requestedSlug
+        && activeProject?.id === requestedProjectId
+        && boardRequest === requestedBoardRequest
+        && boardCriteriaRevision === requestedCriteriaRevision
+        && boardLivenessRequest === requestedLivenessRequest
+      );
+      const columnGenerationsAreCurrent = () => {
+        const columnIds = new Set([
+          ...Object.keys(requestedColumnGenerations),
+          ...Object.keys(boardColumnGenerations)
+        ]);
+        return [...columnIds].every((columnId) => (
+          (requestedColumnGenerations[columnId] || 0) === (boardColumnGenerations[columnId] || 0)
+        ));
+      };
+
+      let columnResult: Awaited<ReturnType<typeof api.listAllColumns>>;
+      let labelResult: Awaited<ReturnType<typeof api.listAllLabels>>;
+      try {
+        [columnResult, labelResult] = await Promise.all([
+          api.listAllColumns(requestedProjectId),
+          api.listAllLabels(requestedProjectId)
+        ]);
+      } catch (error) {
+        if (isCurrent()) {
+          const message = friendlyError(error, 'This board could not be loaded.');
+          boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], message);
+          boardError = boardMetadataErrorMessage(boardMetadataErrors);
+        }
+        return false;
+      }
+
+      if (!isCurrent() || !columnGenerationsAreCurrent()) return false;
+
+      const pageResults = await Promise.all(
+        [...columnResult.data].sort((a, b) => a.position - b.position).map(async (column) => {
+          try {
+            const loadedTaskCount = requestedLoadedTaskCounts[column.id] || 0;
+            const fetched: Task[] = [];
+            const seenCursors = new Set<string>();
+            let cursor = '';
+            let nextCursor = '';
+            do {
+              if (!isCurrent()) {
+                return {
+                  columnId: column.id,
+                  data: [] as Task[],
+                  nextCursor: '',
+                  error: '',
+                  offline: false
+                };
+              }
+              const result = await api.listTasks(requestedProjectId, boardTaskParams(column.id, cursor));
+              fetched.push(...result.data);
+              nextCursor = result.next_cursor || '';
+              if (!nextCursor || fetched.length >= loadedTaskCount || seenCursors.has(nextCursor)) break;
+              seenCursors.add(nextCursor);
+              cursor = nextCursor;
+            } while (true);
+            return {
+              columnId: column.id,
+              data: fetched,
+              nextCursor,
+              error: '',
+              offline: false
+            };
+          } catch (error) {
+            const offlineNow = typeof navigator !== 'undefined' && !navigator.onLine;
+            return {
+              columnId: column.id,
+              data: [] as Task[],
+              nextCursor: '',
+              error: offlineNow
+                ? 'You are offline. Reconnect and retry this column.'
+                : friendlyError(error, 'This column could not be loaded.'),
+              offline: offlineNow
+            };
+          }
+        })
+      );
+
+      if (!isCurrent() || !columnGenerationsAreCurrent()) return false;
+
+      const protectedMutations = mutationsForRequest('board', mutationSnapshot);
+      const currentPages = boardPages;
+      const nextPages: Record<string, BoardColumnPage> = {};
+      columns = columnResult.data;
+      labels = labelResult.data;
+
+      pageResults.forEach((result) => {
+        const currentPage = currentPages[result.columnId] || emptyBoardColumnPage();
+        if (result.error) {
+          nextPages[result.columnId] = {
+            ...currentPage,
+            loading: false,
+            loaded: true,
+            error: result.error
+          };
+          return;
+        }
+        const merged = mergeAuthoritativeTaskList(currentPage.tasks, result.data, protectedMutations);
+        nextPages[result.columnId] = {
+          ...currentPage,
+          tasks: sortBoardTasks(merged.filter((task) => task.column_id === result.columnId)),
+          nextCursor: result.nextCursor,
+          loading: false,
+          loaded: true,
+          error: ''
+        };
+      });
+
+      boardPages = nextPages;
+      boardCardOffsets = Object.fromEntries(
+        Object.entries(boardCardOffsets).filter(([columnId]) => Boolean(nextPages[columnId]))
+      );
+      tasks = flattenBoardPagesForColumns(nextPages, columnResult.data);
+      boardPartial = Object.values(nextPages).some((page) => Boolean(page.error || page.nextCursor));
+      boardOffline = pageResults.some((result) => result.offline);
+      boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], '');
+      boardError = boardMetadataErrorMessage(boardMetadataErrors);
+      observeWorkTransitions(tasks, false);
+      saveBoardSnapshot();
+      return pageResults.every((result) => !result.error);
+    })();
+
+    boardBackgroundInFlight = request;
+    try {
+      return await request;
+    } finally {
+      if (boardBackgroundInFlight === request) boardBackgroundInFlight = null;
+    }
   }
 
   function sortWorkRows(rows: MyWorkRow[]): MyWorkRow[] {
@@ -1174,14 +1408,18 @@
     recentProjectIds = loadRecentProjects(localStorage);
     boardOffline = !navigator.onLine;
     const onlineHandler = () => {
-      boardOffline = false;
-      if (activeProject && view === 'board') void loadBoard();
+      if ($offlineReadOnly) void reconnectOffline();
     };
     const offlineHandler = () => {
       boardOffline = true;
+      if (!$offlineReadOnly) void enterOffline();
     };
+    const clearHandler = () => { offlineReadRevision += 1; offlineBoards = []; };
     window.addEventListener('online', onlineHandler);
     window.addEventListener('offline', offlineHandler);
+    window.addEventListener('helm:network-unavailable', offlineHandler);
+    window.addEventListener('helm:offline-cleared', clearHandler);
+    window.addEventListener('helm:auth-invalidated', clearHandler);
     const cleanup = () => {
       if (pollTimer) window.clearInterval(pollTimer);
       if (pulseTimer) window.clearInterval(pulseTimer);
@@ -1190,9 +1428,13 @@
       if (boardFilterTimer) window.clearTimeout(boardFilterTimer);
       window.removeEventListener('online', onlineHandler);
       window.removeEventListener('offline', offlineHandler);
+      window.removeEventListener('helm:network-unavailable', offlineHandler);
+      window.removeEventListener('helm:offline-cleared', clearHandler);
+      window.removeEventListener('helm:auth-invalidated', clearHandler);
       bootstrapController?.abort();
     };
-    void bootstrap();
+    if ($offlineReadOnly || navigator.onLine === false) void enterOffline();
+    else void bootstrap();
     const keyHandler = (event: KeyboardEvent) => handleKeydown(event);
     window.addEventListener('keydown', keyHandler);
     window.addEventListener('pointerdown', handleProjectSwitcherPointerDown);
@@ -1204,6 +1446,43 @@
       window.removeEventListener('popstate', handlePopState);
     };
   });
+
+  async function enterOffline() {
+    const revision = ++offlineReadRevision;
+    offlineReadOnly.set(true);
+    boardOffline = true;
+    sessionGeneration += 1;
+    if (pollTimer) window.clearInterval(pollTimer);
+    if (pulseTimer) window.clearInterval(pulseTimer);
+    if (livenessRefreshTimer) window.clearInterval(livenessRefreshTimer);
+    const saved = await readOfflineBoards();
+    if (revision === offlineReadRevision && $offlineReadOnly) offlineBoards = saved;
+    booting = false;
+  }
+
+  async function reconnectOffline() {
+    if (reconnecting) return;
+    reconnecting = true;
+    reconnectError = '';
+    try { await bootstrap(); }
+    finally {
+      reconnecting = false;
+      if ($offlineReadOnly) reconnectError = authError || 'Still offline. Your saved boards remain read-only.';
+    }
+  }
+
+  async function clearSavedBoards() {
+    offlineReadRevision += 1;
+    offlineBoards = [];
+    await clearOfflineBoards();
+    offlineBoards = [];
+  }
+
+  function saveBoardSnapshot() {
+    if ($offlineReadOnly || !user || !activeProject || boardLoading || Object.values(boardPages).some(page => !page.loaded || page.loading || page.error)) return;
+    const filtered = boardWorkFilter !== 'all' || Object.entries(filters).some(([key, value]) => key === 'query' ? Boolean(value) : value !== 'all');
+    void saveOfflineBoard(user.id, activeProject, columns, tasks, boardPartial || filtered);
+  }
 
   function applyTheme() {
     if (typeof document !== 'undefined') {
@@ -1236,11 +1515,17 @@
       sessionStorage.removeItem(accessBootstrapKey);
       sessionStorage.removeItem(legacyAccessBootstrapKey);
       if (authStatus.setup_required || authStatus.needs_setup) {
+        await clearSavedBoards();
+        user = null;
+        offlineReadOnly.set(false);
         authView = 'setup';
         booting = false;
         return;
       }
       if (authStatus.authenticated === false) {
+        await clearSavedBoards();
+        user = null;
+        offlineReadOnly.set(false);
         authView = 'login';
         booting = false;
         return;
@@ -1253,6 +1538,9 @@
         if (authStatus.mode === 'disabled') {
           user = { id: 'local', kind: 'human', name: 'Local user', admin: true };
         } else if (error instanceof ApiError && error.status === 401) {
+          await clearSavedBoards();
+          user = null;
+          offlineReadOnly.set(false);
           authView = 'login';
           booting = false;
           return;
@@ -1263,6 +1551,10 @@
       await finishAuthentication();
     } catch (error) {
       if (requestId !== bootstrapRequest) return;
+      if (navigator.onLine === false) {
+        await enterOffline();
+        return;
+      }
       // Cloudflare Access protects the browser UI and API as distinct
       // applications so agents can use Service Auth on /api/v1/*. A browser
       // therefore needs one top-level API navigation to receive the API-path
@@ -1277,6 +1569,10 @@
       ) {
         sessionStorage.setItem(accessBootstrapKey, window.location.origin);
         window.location.assign(`${API_PREFIX}/auth/status`);
+        return;
+      }
+      if ((error instanceof TypeError || controller.signal.aborted) && (await readOfflineBoards()).length > 0) {
+        await enterOffline();
         return;
       }
       authBootstrapFailed = true;
@@ -1296,8 +1592,18 @@
     // Every successful authentication starts a fresh client session. Any
     // request left behind by a previous session must fail its generation
     // check even when the browser logs back in as the same actor.
+    invalidateBulkRequest();
+    bulkReviewTasks = [];
+    showBulkModal = false;
+    bulkResult = null;
     sessionGeneration += 1;
     const requestedSession = sessionGeneration;
+    if (user) await setOfflineOwner(user.id);
+    if (sessionGeneration !== requestedSession || !user) return;
+    offlineReadOnly.set(false);
+    boardOffline = false;
+    offlineReadRevision += 1;
+    offlineBoards = [];
     // Authentication is enough to reveal the application chrome. Project and
     // board reads can be noticeably slower on a remote self-hosted instance;
     // render their in-context skeleton instead of holding the user on the
@@ -1342,6 +1648,7 @@
     clearAnnouncement();
     sessionGeneration += 1;
     user = null;
+    await clearSavedBoards();
     boardMutationRequest += 1;
     taskActionLoading = '';
     projectListRequest += 1;
@@ -1360,6 +1667,11 @@
     projects = [];
     columns = [];
     tasks = [];
+    selectedTaskIds = new Set();
+    invalidateBulkRequest();
+    bulkReviewTasks = [];
+    showBulkModal = false;
+    bulkResult = null;
     labels = [];
     issueTasks = [];
     issueColumns = [];
@@ -1417,6 +1729,7 @@
     drawerTimelineError = '';
     drawerTimelineTaskId = '';
     boardLivenessInFlight = null;
+    boardBackgroundInFlight = null;
     myWorkLivenessInFlight = null;
     drawerLivenessInFlight = null;
     taskMutationRevision = 0;
@@ -1439,6 +1752,16 @@
       const result = await api.listAllProjects();
       if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
       const nextProjects = result.data.filter((project) => !project.archived_at);
+      const savedBoards = await readOfflineBoards();
+      if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
+      // A successful project listing is authoritative about access. Do not
+      // retain snapshots of projects that were removed or became inaccessible.
+      if (savedBoards.some(board => !nextProjects.some(project => project.id === board.project.id))) {
+        await clearSavedBoards();
+        if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
+        await setOfflineOwner(user.id);
+        if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
+      }
       projects = nextProjects;
       if (selectionVersion !== projectSwitchVersion) return;
       const routeSlug = getProjectSlugFromLocation();
@@ -1521,6 +1844,7 @@
   }
 
   async function loadBoard(options: BoardLoadOptions = {}): Promise<boolean> {
+    if (options.background) return refreshBoardInBackground();
     if (options.criteriaRevision === undefined && boardFilterTimer) {
       window.clearTimeout(boardFilterTimer);
       boardFilterTimer = undefined;
@@ -1592,6 +1916,7 @@
       if (requestId === boardRequest && sessionGeneration === requestedSession) {
         boardLoading = false;
         if (requestedCriteriaRevision === boardCriteriaRevision) boardCriteriaTransition = false;
+        saveBoardSnapshot();
       }
     }
   }
@@ -1649,6 +1974,7 @@
       tasks = flattenBoardPages();
       boardPartial = Object.values(boardPages).some((item) => Boolean(item.error || item.nextCursor));
       boardOffline = false;
+      saveBoardSnapshot();
       observeWorkTransitions(tasks, announceChanges);
       if (announceChanges && recoveryNotice && requestIsCurrent()) {
         const refreshedMessage = 'This column changed while loading more tasks; its first page was refreshed.';
@@ -2715,6 +3041,7 @@
   }
 
   async function refreshLiveness(): Promise<void> {
+    if ($offlineReadOnly) return;
     if (!user) return;
     const refreshes: Promise<boolean>[] = [];
     if (view === 'board' || view === 'timeline') refreshes.push(refreshBoardTasks());
@@ -2727,7 +3054,7 @@
   async function refreshBoardTasks(): Promise<boolean> {
     if (!user || (view !== 'board' && view !== 'timeline') || !activeProject || boardLoading) return true;
     if (boardLivenessInFlight) return boardLivenessInFlight;
-    const refresh = loadBoard();
+    const refresh = loadBoard({ background: true });
     boardLivenessInFlight = refresh;
     try {
       return await refresh;
@@ -2815,6 +3142,7 @@
   }
 
   async function pollEvents() {
+    if ($offlineReadOnly) return;
     if (!user || pollInFlight) return pollInFlight || undefined;
     const requestedSession = sessionGeneration;
     const requestedCursor = eventsCursor;
@@ -2870,7 +3198,7 @@
         let drawerReconciliation: TimelineCommentReconciliation | undefined;
 
         if (boardRefreshRequired && (currentView === 'board' || currentView === 'timeline')) {
-          reloadSucceeded = (await loadBoard()) && reloadSucceeded;
+          reloadSucceeded = (await loadBoard({ background: true })) && reloadSucceeded;
           const missingAffectedTask = [...affectedTaskIds].some((taskId) => boardTaskIdsBeforePoll.has(taskId) && !tasks.some((task) => task.id === taskId));
           if (missingAffectedTask) {
             boardReconciliationNotice = 'A changed task is outside the loaded board page or current filters. Refresh or load more to find it.';
@@ -3001,6 +3329,11 @@
     roadmapProjectId = undefined;
     columns = [];
     tasks = [];
+    selectedTaskIds = new Set();
+    invalidateBulkRequest();
+    bulkReviewTasks = [];
+    showBulkModal = false;
+    bulkResult = null;
     labels = [];
     invalidateBoardColumnRequests(Object.keys(boardPages));
     boardPages = {};
@@ -3280,12 +3613,25 @@
     restoreDialogFocus();
   }
 
+  function invalidateBulkRequest() {
+    bulkRequest += 1;
+    bulkSubmitting = false;
+  }
+
+  function closeBulkModal() {
+    invalidateBulkRequest();
+    if (!showBulkModal) return;
+    showBulkModal = false;
+    restoreDialogFocus();
+  }
+
   function closeTokenReveal() {
     revealedToken = null;
     restoreDialogFocus();
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if ($offlineReadOnly) return;
     // A confirmation is the top-most modal. Do not let global shortcuts or a
     // second Escape handler act on the dialog's underlying drawer/view.
     if (confirmRequest) {
@@ -3325,6 +3671,7 @@
       else if (showProjectModal) closeProjectModal();
       else if (showTaskModal) closeTaskModal();
       else if (showBugModal) closeBugModal();
+      else if (showBulkModal) closeBulkModal();
       else if (revealedToken) closeTokenReveal();
       else if (drawerTask) closeDrawer();
     }
@@ -3815,6 +4162,174 @@
     scheduleBoardReload();
   }
 
+  function toggleTaskSelection(task: Task) {
+    const next = new Set(selectedTaskIds);
+    if (next.has(task.id)) {
+      next.delete(task.id);
+    } else if (next.size < 100) {
+      next.add(task.id);
+    } else {
+      toast('info', 'Bulk changes are limited to 100 tasks. Clear a selection before adding another.');
+      return;
+    }
+    selectedTaskIds = next;
+  }
+
+  function selectVisibleTasks() {
+    if (!visibleTasks.length) return;
+    const next = new Set(selectedTaskIds);
+    const available = Math.max(0, 100 - next.size);
+    const unselected = visibleTasks.filter((task) => !next.has(task.id));
+    unselected.slice(0, available).forEach((task) => next.add(task.id));
+    selectedTaskIds = next;
+    if (unselected.length > available) {
+      toast('info', 'Only 100 tasks can be selected for one bulk change.');
+    }
+  }
+
+  function clearTaskSelection() {
+    selectedTaskIds = new Set();
+    bulkReviewTasks = [];
+    bulkResult = null;
+    bulkError = '';
+  }
+
+  function resetBulkForm() {
+    bulkMode = 'partial';
+    bulkOperation = 'priority';
+    bulkPriority = 'normal';
+    bulkAssignee = '';
+    bulkLabels = '';
+    bulkDueDate = '';
+    bulkDestinationColumnId = sortedColumns.find((column) => column.semantic_state === 'ready')?.id
+      || sortedColumns.find((column) => column.semantic_state === 'backlog')?.id
+      || sortedColumns[0]?.id
+      || '';
+    bulkReason = '';
+    bulkError = '';
+    bulkResult = null;
+  }
+
+  function openBulkModal() {
+    if (!selectedTasks.length || !activeProject) return;
+    rememberDialogFocus('[data-bulk-review-trigger]');
+    resetBulkForm();
+    // Keep the reviewed task/version set stable while the confirmation dialog
+    // is open. Background board refreshes may replace `tasks`, but they must
+    // not silently change what the person is about to submit.
+    bulkReviewTasks = selectedTasks.map((task) => ({ ...task }));
+    showBulkModal = true;
+    projectSwitcherOpen = false;
+  }
+
+  function bulkDueAt(): string | null {
+    return bulkDueDate ? `${bulkDueDate}T23:59:59Z` : null;
+  }
+
+  function bulkLabelsInput(): string[] {
+    return Array.from(new Set(bulkLabels.split(',').map((value) => value.trim()).filter(Boolean)));
+  }
+
+  function buildBulkMutations(reviewTasks: readonly Task[] = bulkReviewTasks): BulkTaskMutationInput[] {
+    return reviewTasks.map((task) => {
+      const mutation: BulkTaskMutationInput = {
+        task: task.key || task.id,
+        version: task.version,
+        operation: bulkOperation
+      };
+      if (bulkOperation === 'move') {
+        mutation.destination_column_id = bulkDestinationColumnId;
+        mutation.expected_source_column_id = task.column_id;
+        mutation.source = 'bulk-ui';
+      } else if (bulkOperation === 'assign') {
+        mutation.assignee = bulkAssignee.trim() || null;
+      } else if (bulkOperation === 'priority') {
+        mutation.priority = bulkPriority;
+      } else if (bulkOperation === 'labels') {
+        mutation.labels = bulkLabelsInput();
+      } else if (bulkOperation === 'due_at') {
+        mutation.due_at = bulkDueAt();
+      } else if (bulkOperation === 'complete') {
+        mutation.comment = bulkReason.trim() || undefined;
+      } else if (bulkOperation === 'block') {
+        mutation.reason = bulkReason.trim();
+      }
+      return mutation;
+    });
+  }
+
+  function bulkResultLabel(status: string): string {
+    return status === 'applied' ? 'Applied' : status === 'conflict' ? 'Conflict' : 'Skipped';
+  }
+
+  async function submitBulkChanges() {
+    if (!activeProject || !bulkReviewTasks.length || bulkSubmitting) return;
+    if (bulkOperation === 'move' && !bulkDestinationColumnId) {
+      bulkError = 'Choose a destination column.';
+      return;
+    }
+    if (bulkOperation === 'block' && !bulkReason.trim()) {
+      bulkError = 'Add a reason before blocking the selected tasks.';
+      return;
+    }
+    const requested = {
+      requestId: ++bulkRequest,
+      sessionGeneration,
+      projectId: activeProject.id,
+      projectSlug: activeProjectSlug
+    };
+    const reviewedTasks = bulkReviewTasks.map((task) => ({ ...task }));
+    const input = {
+      mode: bulkMode,
+      mutations: buildBulkMutations(reviewedTasks)
+    };
+    const ownsRequest = () => bulkMutationRequestIsCurrent(requested, {
+      requestId: bulkRequest,
+      sessionGeneration,
+      projectId: activeProject?.id || '',
+      projectSlug: activeProjectSlug,
+      authenticated: Boolean(user)
+    });
+    bulkSubmitting = true;
+    bulkError = '';
+    try {
+      const result = await api.bulkTasks(requested.projectId, input);
+      if (!ownsRequest()) return;
+      bulkResult = result;
+      const refreshedReviewTasks = new Map<string, Task>();
+      result.results.forEach((item) => {
+        if (item.status === 'applied' && item.task) replaceTask(item.task, true);
+        const current = item.error?.details?.current;
+        if (item.status === 'conflict' && typeof current === 'object' && current !== null && 'id' in current) {
+          const currentTask = current as Task;
+          // Conflict envelopes carry the authoritative version for human
+          // callers. Merge it into the board and the review snapshot so a
+          // retry visibly uses the server's current optimistic-concurrency
+          // validator instead of silently resubmitting the stale version.
+          replaceTask(currentTask);
+          refreshedReviewTasks.set(currentTask.id, currentTask);
+        }
+      });
+      const appliedIds = new Set(
+        result.results
+          .filter((item) => item.status === 'applied' && item.task_id)
+          .map((item) => item.task_id as string)
+      );
+      if (appliedIds.size) {
+        selectedTaskIds = new Set([...selectedTaskIds].filter((id) => !appliedIds.has(id)));
+      }
+      bulkReviewTasks = reviewedTasks
+        .filter((task) => !appliedIds.has(task.id))
+        .map((task) => refreshedReviewTasks.get(task.id) || task);
+      const summary = `${result.applied} applied · ${result.conflicts} conflicts · ${result.skipped} skipped`;
+      toast(result.conflicts ? 'info' : 'success', `Bulk changes finished: ${summary}.`);
+    } catch (error) {
+      if (ownsRequest()) bulkError = friendlyError(error, 'The bulk change could not be completed.');
+    } finally {
+      if (ownsRequest()) bulkSubmitting = false;
+    }
+  }
+
   function clearIssueFilters() {
     issueFilters = {
       query: '',
@@ -3867,6 +4382,14 @@
 
   function columnColor(column: Column): string {
     return ({ backlog: '#a4aab8', ready: '#4b9cf5', active: '#6d5efc', blocked: '#ec6b75', completed: '#35b88a' } as Record<string, string>)[column.semantic_state] || '#a4aab8';
+  }
+
+  async function showBoardCardPage(event: MouseEvent, columnId: string, offset: number) {
+    const scroller = (event.currentTarget as HTMLElement).closest('.column-cards') as HTMLElement | null;
+    boardCardOffsets = { ...boardCardOffsets, [columnId]: offset };
+    await tick();
+    scroller?.querySelector<HTMLButtonElement>('[data-task-trigger]')?.focus({ preventScroll: true });
+    if (scroller) scroller.scrollTop = 0;
   }
 
   function dragStart(event: DragEvent, task: Task) {
@@ -5227,8 +5750,10 @@
   }
 
   async function editDrawerComment(comment: Comment, body: string): Promise<void> {
-    if (!drawerTask) return;
-    const taskId = drawerTask.id;
+    if (!drawerTask || drawerTask.id !== comment.task_id) {
+      throw new Error('The task changed while this comment was saving. Your draft was kept.');
+    }
+    const taskId = comment.task_id;
     try {
       const updatedComment = await api.patchComment(taskId, comment.id, body.trim(), comment.version ?? 1);
       drawerTimelineRequest += 1;
@@ -5275,7 +5800,46 @@
     return projects.find((project) => project.id === task.project_id);
   }
 
-  async function openWorkTask(task: Task, returnFocus: DialogReturnFocus | null = null) {
+  function drawerTaskShareUrl(task: Task): string {
+    const projectSlug = projectForTask(task)?.slug || getProjectSlugFromLocation() || activeProjectSlug;
+    return buildTaskShareUrl(projectSlug, task.key, {
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      intent: drawerView
+    });
+  }
+
+  async function openNotification(notification: Notification): Promise<void> {
+    const requestedSession = sessionGeneration;
+    const projectId = notification.project_id || '';
+    const taskId = notification.task_id || '';
+    if (!user || !projectId || !taskId) {
+      toast('info', 'This notification has no task to open.');
+      return;
+    }
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) {
+      toast('error', 'The project for this notification is no longer available.');
+      return;
+    }
+    const knownTask = [...tasks, ...myWorkTasks, ...roadmapLiveTasks, ...issueTasks].find((item) => item.id === taskId);
+    try {
+      const task = knownTask || await api.getTask(taskId);
+      if (requestedSession !== sessionGeneration || !user || task.project_id !== projectId) {
+        if (requestedSession === sessionGeneration && user) toast('error', 'This notification points to a task that is no longer available.');
+        return;
+      }
+      await openWorkTask(task, null, 'details');
+    } catch (error) {
+      if (requestedSession === sessionGeneration && user) toast('error', friendlyError(error, 'This notification points to a task that is no longer available.'));
+    }
+  }
+
+  async function openWorkTask(
+    task: Task,
+    returnFocus: DialogReturnFocus | null = null,
+    intent: TaskRouteIntent = taskRouteIntent
+  ) {
+    const requestedSession = sessionGeneration;
     if (!confirmDrawerTaskSwitch(task)) return;
     const project = projectForTask(task);
     const origin = window.location.pathname + window.location.search;
@@ -5293,7 +5857,8 @@
       // There is no stable project route to push until the project metadata is
       // available, so leave the current URL untouched.
     }
-    await openTask(task, taskRouteIntent, { skipDiscardGuard: true, returnFocus });
+    if (requestedSession !== sessionGeneration || !user) return;
+    await openTask(task, intent, { skipDiscardGuard: true, returnFocus });
   }
 
   async function openRoadmapTask(task: Task): Promise<void> {
@@ -5542,7 +6107,13 @@
 
 <svelte:window />
 
-{#if booting}
+{#if user && !$offlineReadOnly}
+  <PwaStatus showCacheStatus={false} />
+{/if}
+
+{#if $offlineReadOnly}
+  <OfflineBoard boards={offlineBoards} reconnect={() => void reconnectOffline()} {reconnecting} error={reconnectError} clear={() => void clearSavedBoards()} />
+{:else if booting}
   <div class="splash" aria-live="polite">
     <HelmMark size={46} decorative className="brand-mark brand-mark-large" />
     <div class="splash-copy">
@@ -5677,6 +6248,11 @@
         </div>
         <div class="topbar-actions">
           <button class="command-trigger" type="button" aria-label="Search anything" data-command-trigger on:click={openCommandPalette}><span>⌕</span><span class="command-trigger-label">Search anything</span><kbd data-command-shortcut>{commandShortcut}</kbd></button>
+          <NotificationsInbox
+            sessionKey={`${user.id}:${sessionGeneration}`}
+            {activeProject}
+            onOpenNotification={openNotification}
+          />
           <button class="icon-button" type="button" aria-label={theme === 'dark' ? 'Use light theme' : 'Use dark theme'} on:click={toggleTheme}>{theme === 'dark' ? '☼' : '◐'}</button>
           <button class="avatar top-avatar" type="button" aria-label="Open settings" on:click={() => setView('settings')}>{projectInitials({ name: user.name, key: user.name })}</button>
         </div>
@@ -5718,6 +6294,7 @@
               <div class="filter-search"><span aria-hidden="true">⌕</span><input bind:this={boardSearchInput} aria-label="Search tasks" bind:value={filters.query} on:input={scheduleBoardReload} placeholder="Search tasks…" /><kbd>/</kbd></div>
               <div class="filter-group"><select aria-label="Filter by state" bind:value={filters.state} on:change={scheduleBoardReload}><option value="all">All states</option>{#each sortedColumns as column}<option value={column.semantic_state}>{stateLabels[column.semantic_state] || column.name}</option>{/each}</select><select aria-label="Filter by priority" bind:value={filters.priority} on:change={scheduleBoardReload}><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select><select aria-label="Filter by agent work" bind:value={boardWorkFilter} on:change={scheduleBoardReload}><option value="all">All agent work</option><option value="action-needed">Action needed{boardWorkCounts.actionNeeded ? ` · ${boardWorkCounts.actionNeeded}` : ''}</option><option value="missing">Missing{boardWorkCounts.missing ? ` · ${boardWorkCounts.missing}` : ''}</option><option value="stale">Stale{boardWorkCounts.stale ? ` · ${boardWorkCounts.stale}` : ''}</option><option value="waiting">Waiting{boardWorkCounts.waiting ? ` · ${boardWorkCounts.waiting}` : ''}</option><option value="handoff">Handoff{boardWorkCounts.handoff ? ` · ${boardWorkCounts.handoff}` : ''}</option><option value="working">Working{boardWorkCounts.working ? ` · ${boardWorkCounts.working}` : ''}</option><option value="verifying">Verifying{boardWorkCounts.verifying ? ` · ${boardWorkCounts.verifying}` : ''}</option></select><select aria-label="Filter by dependency readiness" bind:value={filters.dependency} on:change={scheduleBoardReload}><option value="all">All dependencies</option><option value="blocked">Waiting on prerequisites</option><option value="ready">Prerequisites finished</option></select><select aria-label="Filter by label" bind:value={filters.label} on:change={scheduleBoardReload}><option value="all">All labels</option>{#each labels as label}<option value={label.id}>{label.name}</option>{/each}</select><select aria-label="Filter by assignee" bind:value={filters.assignee} on:change={scheduleBoardReload}><option value="all">All assignees</option>{#each Array.from(new Map(tasks.map((task) => [actorId(task.assignee), task.assignee])).entries()).filter(([id]) => id) as pair}<option value={pair[0]}>{actorName(pair[1]) || pair[0]}</option>{/each}</select><select aria-label="Sort tasks" bind:value={boardSort} on:change={scheduleBoardReload}><option value="position">Board order</option><option value="number">Task number</option><option value="priority">Priority</option><option value="title">Title</option><option value="created_at">Created</option><option value="updated_at">Updated</option></select><select aria-label="Sort direction" bind:value={boardOrder} on:change={scheduleBoardReload}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div>
               {#if boardFiltersActive()}<button class="clear-filters" type="button" on:click={clearFilters}>Clear filters</button>{/if}
+              <div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={!visibleTasks.length || allVisibleTasksSelected}>Select loaded tasks</button>{#if selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div>
               <span class="toolbar-spacer"></span><span class="task-total">{visibleTasks.length}{boardPartial ? '+' : ''} {visibleTasks.length === 1 ? 'task' : 'tasks'}</span><button class="icon-button" type="button" aria-label="Refresh board" on:click={() => loadBoard()}>↻</button>
             </section>
 
@@ -5731,8 +6308,9 @@
             {:else if !sortedColumns.length}
               <div class="empty-state board-empty"><div class="empty-icon">◇</div><h2>Your board is almost ready</h2><p>Columns will appear here once this project has been initialized.</p><button class="button primary" type="button" on:click={() => loadBoard()}>Refresh board</button></div>
             {:else}
-              <section class="board" aria-label={`${activeProject.name} board`}>
-                {#each sortedColumns as column}
+              <BoardOverflowNavigation label={`${activeProject.name} board columns`}>
+              <section class="board" data-board-overflow-scroll use:boardCardHeight aria-label={`${activeProject.name} board`}>
+                {#each sortedColumns as column (column.id)}
                 {@const orderingGate = makeBoardOrderingGate({
                   criteriaTransition: boardCriteriaTransition,
                   filterTimerPending: boardFilterTimer !== undefined,
@@ -5758,7 +6336,7 @@
                 >
                     <header class="column-header"><div class="column-name"><span class="column-dot" style={`--column-color: ${columnColor(column)}`}></span><h2>{column.name}</h2><span class="column-count">{tasksByColumn[column.id].length}{boardPages[column.id]?.nextCursor ? '+' : ''}</span></div></header>
                     <div class="column-progress"><span style={`width: ${Math.min(100, tasksByColumn[column.id].length * 4)}%; --column-color: ${columnColor(column)}`}></span></div>
-                    <div class="column-cards">
+                    <div class="column-cards" use:columnScroll={{ scope: `${activeProject.id}:${boardCriteriaRevision}`, column: column.id, page: cardOffset, ready: !boardLoading }}>
                       {#if dragOverColumnId === column.id && draggingTaskId && tasksByColumn[column.id].some((task) => task.id === draggingTaskId) === false}
                         <div class="drop-placeholder" role="status">Drop task in {column.name}</div>
                       {/if}
@@ -5767,6 +6345,11 @@
                       {:else}
                         {#each orderedColumnTasks.slice(cardOffset, cardOffset + boardRenderLimit) as task (task.id)}
                           <article class="task-card" class:dependency-blocked={dependencyBlocked(task)} class:dragging={draggingTaskId === task.id} on:dragend={endDrag} on:dragover|preventDefault={(event) => { if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'; }} on:drop={(event) => dropTask(event, column.id, task.id)}>
+                            <label class="task-select">
+                              <span class="sr-only">Select {task.key}</span>
+                              <input type="checkbox" aria-label={`Select ${task.key}`} checked={selectedTaskIds.has(task.id)} on:click|stopPropagation on:change={() => toggleTaskSelection(task)} />
+                              <span class="task-select-box" aria-hidden="true"></span>
+                            </label>
                             <button class="task-drag-handle" type="button" draggable="true" aria-label={`Drag ${task.key}, ${task.title}`} title="Drag task" on:click|stopPropagation={() => undefined} on:dragstart|stopPropagation={(event) => dragStart(event, task)}>⠿</button>
                             <button class="task-main" type="button" data-task-trigger aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
                               <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{/if}{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
@@ -5783,8 +6366,8 @@
                         {/each}
                       {/if}
                       {#if orderedColumnTasks.length > boardRenderLimit}<div class="column-empty" role="status">Showing {cardOffset + 1}–{Math.min(cardOffset + boardRenderLimit, orderedColumnTasks.length)} of {orderedColumnTasks.length} loaded cards</div>{/if}
-                      {#if cardOffset > 0}<button class="load-more-tasks" type="button" on:click={() => { boardCardOffsets = { ...boardCardOffsets, [column.id]: cardOffset - boardRenderLimit }; }}>Show previous cards</button>{/if}
-                      {#if cardOffset + boardRenderLimit < orderedColumnTasks.length}<button class="load-more-tasks" type="button" on:click={() => { boardCardOffsets = { ...boardCardOffsets, [column.id]: cardOffset + boardRenderLimit }; }}>Show next cards</button>
+                      {#if cardOffset > 0}<button class="load-more-tasks" type="button" on:click={(event) => showBoardCardPage(event, column.id, cardOffset - boardRenderLimit)}>Show previous cards</button>{/if}
+                      {#if cardOffset + boardRenderLimit < orderedColumnTasks.length}<button class="load-more-tasks" type="button" on:click={(event) => showBoardCardPage(event, column.id, cardOffset + boardRenderLimit)}>Show next cards</button>
                       {:else if boardPages[column.id]?.nextCursor}<button class="load-more-tasks" type="button" on:click={() => loadMoreBoardColumn(column.id)} disabled={boardPages[column.id].loading}>{boardPages[column.id].loading ? 'Loading…' : 'Load more tasks'}</button>{/if}
                       {#if boardPages[column.id]?.error && tasksByColumn[column.id].length}<div class="column-page-error" role="alert"><span>{boardPages[column.id].error}</span><button class="text-button" type="button" on:click={() => loadBoardColumn(column.id, { reset: false })}>Retry</button></div>{/if}
                     </div>
@@ -5796,6 +6379,7 @@
                   </article>
                 {/each}
               </section>
+              </BoardOverflowNavigation>
             {/if}
             {:else}
               <BoardTimeline
@@ -5982,13 +6566,14 @@
       <div class="drawer-backdrop" role="presentation" on:click={() => closeDrawer()}></div>
       <div class="task-drawer" role="dialog" aria-modal="true" aria-label={`${drawerTask.key}: ${drawerTask.title}`} use:focusTrap>
         <div class="drawer-focus-target sr-only" tabindex="-1" data-dialog-initial-focus aria-label="Task details"></div>
-        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span></div><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
+        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span></div><TaskWatchToggle task={drawerTask} sessionKey={`${user.id}:${sessionGeneration}`} disabled={drawerSaving || drawerLoading} /><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
         {#if drawerLoading}<div class="drawer-loading"><span class="spinner"></span><span>Loading task details…</span></div>{/if}
         {#if drawerError}<div class="inline-alert error drawer-alert" role="alert"><span>!</span>{drawerError}</div>{/if}
         <div class="drawer-tabs" role="tablist" aria-label="Task views">
           <button class:active={drawerView === 'details'} id="drawer-details-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'details'} aria-controls="drawer-details-panel" tabindex={drawerView === 'details' ? 0 : -1} on:click={() => setDrawerView('details')} on:keydown={drawerTabKeydown}>Details</button>
           <button class:active={drawerView === 'activity'} id="drawer-activity-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'activity'} aria-controls="drawer-activity-panel" tabindex={drawerView === 'activity' ? 0 : -1} on:click={() => setDrawerView('activity')} on:keydown={drawerTabKeydown}>Activity</button>
         </div>
+        <TaskShareActions taskKey={drawerTask.key} taskUrl={drawerTaskShareUrl(drawerTask)} />
         {#if drawerView === 'details'}
         <div id="drawer-details-panel" class="drawer-details-panel" role="tabpanel" aria-labelledby="drawer-details-tab">
           <div class="drawer-scroll" data-drawer-scroll>
@@ -6061,6 +6646,7 @@
                 onRetry={() => { void loadDrawerTimeline(drawerTask?.id); }}
                 currentActorId={user?.id || ''}
                 canManageComments={Boolean(user?.admin)}
+                taskId={drawerTask?.id || ''}
                 onEditComment={editDrawerComment}
                 onConfirmDelete={confirmDrawerCommentDelete}
                 onDeleteComment={deleteDrawerComment}
@@ -6150,6 +6736,37 @@
           <label>Description <span class="optional">Optional · Markdown supported</span><textarea rows="2" bind:value={bugModalDescription} placeholder="Add context beyond the reproduction details."></textarea></label>
           <label>Labels <span class="optional">Optional · comma separated</span><input bind:value={bugModalLabels} placeholder="frontend, regression" /></label>
           <div class="modal-actions"><button class="text-button" type="button" on:click={closeBugModal}>Cancel</button><button class="button primary" type="submit" disabled={bugModalCreating || bugModalLoading || !bugModalTitle.trim() || !bugModalActual.trim()}>{#if bugModalCreating}<span class="button-spinner"></span>{/if}Report bug</button></div>
+        </form>
+      </div>
+    {/if}
+
+    {#if showBulkModal}
+      <div class="modal-backdrop" role="presentation" on:click={closeBulkModal}></div>
+      <div class="modal bulk-task-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-task-modal-title" aria-describedby="bulk-task-modal-description" use:focusTrap>
+        <div class="modal-header"><div><span class="eyebrow">{bulkReviewTasks.length} selected</span><h2 id="bulk-task-modal-title">Review bulk changes</h2></div><button class="icon-button" type="button" aria-label="Close bulk changes" on:click={closeBulkModal}>×</button></div>
+        <p id="bulk-task-modal-description" class="bulk-modal-description">Choose one guarded change for every selected task. Each task keeps its own version and reports its own outcome.</p>
+        {#if bulkError}<div class="inline-alert error" role="alert"><span>!</span>{bulkError}</div>{/if}
+        <form on:submit|preventDefault={submitBulkChanges}>
+          <fieldset class="bulk-mode-fieldset"><legend>Apply mode</legend><label class="check-label"><input type="radio" name="bulk-mode" value="partial" bind:group={bulkMode} /><span><strong>Partial</strong><small>Apply valid tasks and report conflicts individually.</small></span></label><label class="check-label"><input type="radio" name="bulk-mode" value="atomic" bind:group={bulkMode} /><span><strong>Atomic</strong><small>Apply all or roll back the whole selection.</small></span></label></fieldset>
+          <label>Change<select aria-label="Bulk change" bind:value={bulkOperation}><option value="move">Move to a column</option><option value="assign">Assign to an actor</option><option value="priority">Set priority</option><option value="labels">Replace labels</option><option value="due_at">Set due date</option><option value="complete">Complete tasks</option><option value="block">Block tasks</option></select></label>
+          {#if bulkOperation === 'move'}
+            <label>Destination column<select aria-label="Bulk destination column" bind:value={bulkDestinationColumnId}>{#each sortedColumns.filter((column) => column.semantic_state === 'backlog' || column.semantic_state === 'ready') as column}<option value={column.id}>{column.name}</option>{/each}</select></label>
+          {:else if bulkOperation === 'assign'}
+            <label>Assignee <span class="optional">Optional · leave blank to unassign</span><input aria-label="Bulk assignee actor ID" bind:value={bulkAssignee} placeholder="Actor ID" /></label>
+          {:else if bulkOperation === 'priority'}
+            <label>Priority<select aria-label="Bulk priority" bind:value={bulkPriority}><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label>
+          {:else if bulkOperation === 'labels'}
+            <label>Labels <span class="optional">Comma separated · replaces current labels</span><input aria-label="Bulk labels" bind:value={bulkLabels} placeholder="frontend, release" /></label>
+          {:else if bulkOperation === 'due_at'}
+            <label>Due date <span class="optional">Optional · leave blank to clear</span><input aria-label="Bulk due date" type="date" bind:value={bulkDueDate} /></label>
+          {:else if bulkOperation === 'complete'}
+            <label>Completion note <span class="optional">Optional · added to activity</span><textarea aria-label="Bulk completion note" rows="2" bind:value={bulkReason} placeholder="Shipped in this release"></textarea></label>
+          {:else if bulkOperation === 'block'}
+            <label>Blocking reason<textarea aria-label="Bulk blocking reason" rows="2" bind:value={bulkReason} placeholder="Waiting on a decision" required></textarea></label>
+          {/if}
+          <section class="bulk-review-list" aria-labelledby="bulk-review-heading"><div class="section-heading-inline"><h3 id="bulk-review-heading">Tasks in this change</h3><span class="optional">{bulkReviewTasks.length} of 100 maximum</span></div>{#if bulkReviewTasks.length}<ul>{#each bulkReviewTasks as task (task.id)}<li><span class="task-key">{task.key}</span><span>{task.title}</span><span class="bulk-review-version">v{task.version}</span></li>{/each}</ul>{:else}<p class="bulk-empty-review">Applied tasks have been cleared from the selection. Close this review or select more tasks.</p>{/if}</section>
+          {#if bulkResult}<section class="bulk-result" aria-labelledby="bulk-result-heading" role="status" aria-live="polite"><div class="section-heading-inline"><h3 id="bulk-result-heading">Result summary</h3><span>{bulkResult.applied} applied · {bulkResult.conflicts} conflicts · {bulkResult.skipped} skipped</span></div><ul>{#each bulkResult.results as result (result.reference)}<li><span class={`bulk-result-status ${result.status}`}>{bulkResultLabel(result.status)}</span><span class="task-key">{result.reference}</span>{#if result.error}<span class="bulk-result-error">{result.error.message}</span>{/if}</li>{/each}</ul></section>{/if}
+          <div class="modal-actions"><button class="text-button" type="button" on:click={closeBulkModal}>Close</button><button class="button primary" type="submit" disabled={bulkSubmitting || !bulkReviewTasks.length}>{#if bulkSubmitting}<span class="button-spinner"></span>{/if}{bulkResult ? 'Retry remaining changes' : `Apply changes to ${bulkReviewTasks.length} tasks`}</button></div>
         </form>
       </div>
     {/if}

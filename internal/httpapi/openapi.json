@@ -102,6 +102,10 @@
       "description": "Append-only event feed for incremental polling"
     },
     {
+      "name": "Notifications",
+      "description": "In-app inbox, watches, and notification preferences"
+    },
+    {
       "name": "Agents",
       "description": "Agent identities and scoped API tokens"
     }
@@ -691,7 +695,7 @@
       "get": {
         "operationId": "getReadiness",
         "summary": "Check service readiness",
-        "description": "Returns 200 when the database and required dependencies are ready to serve traffic.",
+        "description": "Returns bounded machine-readable database, schema, migration, writable-capacity, and storage checks. It returns 200 when all checks pass and 503 with status degraded when a check fails. Unknown newer additive migrations are reported as a compatibility warning for retained-binary rollback and do not by themselves fail readiness. Writable-capacity is a read-only preflight and cannot prove ACL or effective-user write access.",
         "tags": [
           "Health"
         ],
@@ -726,7 +730,22 @@
             "$ref": "#/components/responses/MethodNotAllowed"
           },
           "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
+            "description": "Service is not ready",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
           }
         }
       }
@@ -804,7 +823,66 @@
             "$ref": "#/components/responses/MethodNotAllowed"
           },
           "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
+            "description": "Service is not ready",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "summary": "Fetch production metrics",
+        "description": "Returns bounded Prometheus text. Unauthenticated requests are accepted only from a loopback peer without forwarding or proxy identity headers; a loopback request carrying those headers is treated as proxied and requires a Helm session or scoped bearer token. Metrics never contain task text, request bodies, credentials, or user-provided labels. Unknown API paths and non-standard methods use bounded labels. Remote authenticated collection uses the normal auth path and may update throttled session or token usage bookkeeping.",
+        "tags": [
+          "Health"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus metrics",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
           }
         }
       }
@@ -2714,6 +2792,102 @@
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/tasks/bulk": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "post": {
+        "operationId": "bulkMutateProjectTasks",
+        "summary": "Apply bounded guarded task mutations",
+        "description": "Apply one operation to at most 100 project-local task references. Each\nitem carries its own positive task version, so a mixed batch remains\nsafe when another writer changes one task while the request is in\nflight. Supported operations are `move`, `assign`, `priority`,\n`labels`, `due_at`, `complete`, and `block`. `partial` mode commits\neach item independently and returns `applied`, `skipped`, or\n`conflict` for every item. `atomic` mode commits all items in one\ntransaction; any conflict or invalid runtime precondition rolls back\nevery item and marks the failed item as `conflict` or `skipped` while\nthe other items report `skipped` with `atomic_rollback`.\nProject access, active claims, dependency/lifecycle guards, and stale\nversions are checked inside the same guarded task transactions as the\ncorresponding single-task mutations. Every committed item emits its\nnormal task activity event. Supplying an Idempotency-Key makes the\ncomplete bounded response safe to replay.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkTaskMutationRequest"
+              },
+              "example": {
+                "mode": "partial",
+                "mutations": [
+                  {
+                    "task": "OPS-41",
+                    "version": 7,
+                    "operation": "priority",
+                    "priority": "urgent"
+                  },
+                  {
+                    "task": "OPS-42",
+                    "version": 3,
+                    "operation": "move",
+                    "destination_column_id": "col_ready",
+                    "expected_source_column_id": "col_backlog",
+                    "source": "bulk_triage"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded per-task mutation outcomes. Runtime conflicts are represented in the item results rather than changing the HTTP status.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkTaskMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           },
           "413": {
             "$ref": "#/components/responses/RequestTooLarge"
@@ -7628,6 +7802,832 @@
         }
       }
     },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "listNotifications",
+        "summary": "List the authenticated actor's notification inbox",
+        "description": "Returns newest in-app notifications. Set `unread=true` to filter out items already marked read.",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "name": "unread",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated inbox items",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "markNotificationsRead",
+        "summary": "Mark selected or all notifications read",
+        "description": "Supply `ids` (up to 200) or `all=true`. Read state is idempotent.",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationReadBulkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Number of inbox items marked read",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "marked_read"
+                  ],
+                  "properties": {
+                    "marked_read": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/{notification}/read": {
+      "parameters": [
+        {
+          "name": "notification",
+          "in": "path",
+          "required": true,
+          "description": "Notification ID owned by the authenticated actor.",
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "markNotificationRead",
+        "summary": "Mark one notification read",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated notification for humans and read-scoped bearer tokens; write-only bearer tokens receive only id/read_at metadata.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Notification"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NotificationMutationSummary"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/{notification}": {
+      "parameters": [
+        {
+          "name": "notification",
+          "in": "path",
+          "required": true,
+          "description": "Notification ID owned by the authenticated actor.",
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "markNotificationReadAlias",
+        "summary": "Mark one notification read",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated notification for humans and read-scoped bearer tokens; write-only bearer tokens receive only id/read_at metadata.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Notification"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NotificationMutationSummary"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patchNotificationReadState",
+        "summary": "Mark one notification read with an explicit body",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "read"
+                ],
+                "properties": {
+                  "read": {
+                    "type": "boolean",
+                    "description": "Set true to mark read or false to return the item to the unread inbox."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated notification for humans and read-scoped bearer tokens; write-only bearer tokens receive only id/read_at metadata.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Notification"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NotificationMutationSummary"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/notification-preferences": {
+      "get": {
+        "operationId": "getNotificationPreferences",
+        "summary": "Read notification preferences",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "Current category preferences",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateNotificationPreferences",
+        "summary": "Update notification preferences",
+        "description": "Partial update of assignment, mention, blocker, and state-change categories.",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPreferencesPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated preferences",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/watches": {
+      "get": {
+        "operationId": "listWatches",
+        "summary": "List the authenticated actor's watches",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "task",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned project and task watches",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchCollection"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createWatch",
+        "summary": "Follow a project or task",
+        "description": "Provide exactly one project_id or task_id. A task watch inherits its task's project.",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Watch created",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Watch"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/watches/{watch}": {
+      "parameters": [
+        {
+          "name": "watch",
+          "in": "path",
+          "required": true,
+          "description": "Owned watch ID.",
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getWatch",
+        "summary": "Read one owned watch",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "Watch",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Watch"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteWatch",
+        "summary": "Stop following a project or task",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Watch deleted",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/watch": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "getProjectWatch",
+        "summary": "List the current actor's watches for a project",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "Project watches",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchCollection"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "operationId": "watchProject",
+        "summary": "Follow a project",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Project watch created",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Watch"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task}/watch": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TaskPath"
+        }
+      ],
+      "get": {
+        "operationId": "getTaskWatch",
+        "summary": "List the current actor's watches for a task",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "Task and inherited project watches",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchCollection"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "operationId": "watchTask",
+        "summary": "Follow a task",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Task watch created",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Watch"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/api/v1/agents": {
       "get": {
         "operationId": "listAgents",
@@ -7985,7 +8985,9 @@
           "tasks:read",
           "tasks:write",
           "tasks:claim",
-          "events:read"
+          "events:read",
+          "notifications:read",
+          "notifications:write"
         ]
       },
       "cookieAuth": {
@@ -9093,24 +10095,39 @@
           "tasks:read",
           "tasks:write",
           "tasks:claim",
-          "events:read"
+          "events:read",
+          "notifications:read",
+          "notifications:write"
         ]
       },
       "HealthStatus": {
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "service"
         ],
         "properties": {
           "status": {
             "type": "string",
             "enum": [
-              "ok"
+              "ok",
+              "degraded"
             ]
           },
           "service": {
             "type": "string",
             "example": "helm"
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Whether every readiness check passed."
+          },
+          "checks": {
+            "type": "object",
+            "description": "Bounded readiness diagnostics. Present on readiness responses.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReadinessCheck"
+            }
           },
           "revision": {
             "type": "string",
@@ -9178,6 +10195,110 @@
               "assigned"
             ],
             "description": "My Work view used for the my_work count."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReadinessCheck": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Safe bounded diagnostic message; paths and database errors are omitted."
+          },
+          "latency_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lock_latency_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "SQLite writer-lock probe latency when the database check runs."
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expected_schema_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "migration_state": {
+            "type": "string",
+            "enum": [
+              "current",
+              "pending",
+              "unknown",
+              "unreadable"
+            ]
+          },
+          "pending_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pending_versions": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "unknown_versions": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "available_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_free_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "writable": {
+            "type": "boolean"
+          },
+          "database_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "wal_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_page_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page_usage_ratio": {
+            "type": "number",
+            "minimum": 0
+          },
+          "journal_mode": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -12423,6 +13544,241 @@
           }
         ]
       },
+      "BulkTaskMutationMode": {
+        "type": "string",
+        "enum": [
+          "partial",
+          "atomic"
+        ],
+        "default": "partial"
+      },
+      "BulkTaskMutationOperation": {
+        "type": "string",
+        "enum": [
+          "move",
+          "assign",
+          "priority",
+          "labels",
+          "due_at",
+          "complete",
+          "block"
+        ]
+      },
+      "BulkTaskMutationItem": {
+        "type": "object",
+        "required": [
+          "task",
+          "version",
+          "operation"
+        ],
+        "description": "One independently versioned task intent. `task` accepts an opaque ID\nor a case-insensitive project-local key. Move intents require both\ncolumn IDs and non-empty provenance. Assign, priority, labels, and due\ndate intents require their corresponding value; null clears an\nassignee, label set, or due date. Completion and blocking preserve the\nnormal lifecycle and claim/dependency guards.\n",
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "operation": {
+            "$ref": "#/components/schemas/BulkTaskMutationOperation"
+          },
+          "destination_column_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expected_source_column_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Required provenance for move intents."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Blocking reason or optional move explanation."
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 10000,
+            "description": "Optional completion note."
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Actor ID; null clears the assignee."
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "description": "Label IDs or names; null clears labels."
+          },
+          "due_at": {
+            "$ref": "#/components/schemas/NullableTimestamp",
+            "description": "RFC 3339 due timestamp; null clears it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationRequest": {
+        "type": "object",
+        "required": [
+          "mutations"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/BulkTaskMutationMode"
+          },
+          "mutations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/BulkTaskMutationItem"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "status",
+          "details"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationResult": {
+        "type": "object",
+        "required": [
+          "reference",
+          "status"
+        ],
+        "properties": {
+          "reference": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Original task reference supplied in the mutation item."
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "skipped",
+              "conflict"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Resulting version when the mutation was applied."
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskMutationResponse",
+            "description": "Full task for humans/read-scoped tokens, or id/version metadata for write-only bearer tokens."
+          },
+          "error": {
+            "$ref": "#/components/schemas/BulkTaskMutationError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationResponse": {
+        "type": "object",
+        "required": [
+          "mode",
+          "status",
+          "requested",
+          "applied",
+          "skipped",
+          "conflicts",
+          "results"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/BulkTaskMutationMode"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete",
+              "failed"
+            ],
+            "description": "Partial mode reports partial; atomic mode reports complete or failed after rollback."
+          },
+          "requested": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "applied": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "results": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/BulkTaskMutationResult"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "TaskCreateRequest": {
         "type": "object",
         "required": [
@@ -14009,6 +15365,258 @@
           }
         },
         "additionalProperties": true
+      },
+      "Watch": {
+        "type": "object",
+        "required": [
+          "id",
+          "actor_id",
+          "project_id",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "task_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchCreateRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "project_id"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/components/schemas/Identifier"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "task_id"
+            ],
+            "properties": {
+              "task_id": {
+                "$ref": "#/components/schemas/Identifier"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Notification": {
+        "type": "object",
+        "required": [
+          "id",
+          "recipient_id",
+          "event_type",
+          "title",
+          "body",
+          "payload",
+          "dedupe_key",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "recipient_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "event_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "description": "Compatibility alias for event_type."
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "dedupe_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "read_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationMutationSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "read_at"
+        ],
+        "description": "Read-state mutation acknowledgement for bearer tokens without notifications:read or tasks:read. Read-scoped tokens and humans receive the full notification.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "read_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationReadBulkRequest": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "all": {
+            "const": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Provide ids or all=true; the server rejects an empty request."
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "required": [
+          "actor_id",
+          "assignments",
+          "mentions",
+          "blockers",
+          "state_changes",
+          "updated_at"
+        ],
+        "properties": {
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "assignments": {
+            "type": "boolean"
+          },
+          "mentions": {
+            "type": "boolean"
+          },
+          "blockers": {
+            "type": "boolean"
+          },
+          "state_changes": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationPreferencesPatch": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "assignments": {
+            "type": "boolean"
+          },
+          "mentions": {
+            "type": "boolean"
+          },
+          "blockers": {
+            "type": "boolean"
+          },
+          "state_changes": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Watch"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
       },
       "ProjectCollection": {
         "type": "object",

@@ -374,7 +374,8 @@ install_unit_alias() {
 healthy() {
 	local attempt
 	for attempt in $(seq 1 30); do
-		if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+		if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1 &&
+			curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/readyz >/dev/null 2>&1; then
 			return 0
 		fi
 		sleep 1
@@ -386,6 +387,7 @@ healthy_revision() {
 	local expected=$1 attempt response
 	for attempt in $(seq 1 30); do
 		if response=$(curl --fail --silent --show-error --max-time 3 --dump-header - http://127.0.0.1:8080/healthz) &&
+			curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/readyz >/dev/null 2>&1 &&
 			grep -Eq '^X-Roadmap-Revision:[[:space:]]*'"$expected"'[[:space:]]*$' <<<"$response" &&
 			grep -Eq '"revision"[[:space:]]*:[[:space:]]*"'"$expected"'"' <<<"$response"; then
 			return 0

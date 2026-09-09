@@ -25,6 +25,8 @@ import {
   type BugSeverity,
   type BugResolution,
   type BoardDescriptor,
+  type BulkTaskMutationRequest,
+  type BulkTaskMutationResponse,
   type RoadmapSummary,
   type SidebarCounts,
   type SavedView,
@@ -47,8 +49,14 @@ import {
   type ResolveInput,
   type ReopenInput,
   type PortableArchive,
-  type PortableImportReport
+  type PortableImportReport,
+  type Notification,
+  type NotificationPreferences,
+  type Watch
 } from './types';
+
+import { writesBlocked } from './connectivity';
+import { clearOfflineBoards } from './offlineBoards';
 
 export const API_PREFIX = '/api/v1';
 
@@ -141,6 +149,9 @@ function asBody(body: unknown): BodyInit | undefined {
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, idempotencyKey, ifMatch, ...init } = options;
+  if (!['GET', 'HEAD', 'OPTIONS'].includes((init.method || 'GET').toUpperCase()) && writesBlocked()) {
+    throw new ApiError('Offline mode is read-only. Reconnect before making changes.', 0, 'offline_read_only', {});
+  }
   const headers = new Headers(init.headers);
   if (body !== undefined && !(body instanceof FormData) && !(body instanceof Blob)) {
     headers.set('Content-Type', 'application/json');
@@ -151,12 +162,24 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     headers.set('If-Match', typeof ifMatch === 'number' ? etagForVersion(ifMatch) : ifMatch);
   }
 
-  const response = await fetch(`${API_PREFIX}${path}`, {
-    ...init,
-    body: asBody(body),
-    credentials: 'include',
-    headers
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_PREFIX}${path}`, {
+      ...init,
+      cache: 'no-store',
+      body: asBody(body),
+      credentials: 'include',
+      headers
+    });
+  } catch (error) {
+    // Auth bootstrap handles Access redirects itself. Other unreachable reads
+    // and writes enter read-only mode even when navigator.onLine stays true.
+    // Failed writes are never retried: the server may already have committed.
+    if (error instanceof TypeError && !path.startsWith('/auth/') && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('helm:network-unavailable'));
+    }
+    throw error;
+  }
 
   const text = await response.text();
   let parsed: unknown = undefined;
@@ -169,6 +192,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      await clearOfflineBoards();
+      // A forbidden mutation is a permission failure, not proof that the
+      // browser session expired. Only an explicit unauthorized response may
+      // invalidate session-bound UI such as the notification inbox.
+      if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event('helm:auth-invalidated'));
+    }
     const envelope = parsed as Partial<ApiErrorShape> | undefined;
     const error = envelope?.error;
     throw new ApiError(
@@ -380,6 +410,12 @@ export const api = {
       method: 'PATCH',
       body: input,
       ifMatch: version,
+      idempotencyKey: key()
+    }),
+  bulkTasks: (project: string, input: BulkTaskMutationRequest) =>
+    request<BulkTaskMutationResponse>(`/projects/${encodeURIComponent(project)}/tasks/bulk`, {
+      method: 'POST',
+      body: input,
       idempotencyKey: key()
     }),
   getTaskDependencies: (task: string) =>
@@ -635,6 +671,35 @@ export const api = {
     request<IssueMetrics>(pathWithQuery('/issues/metrics', { project: params.project })),
   sidebarCounts: (params: { project?: string; view?: WorkView } = {}) =>
     request<SidebarCounts>(pathWithQuery('/sidebar-counts', { project: params.project, view: params.view })),
+  listNotifications: (params: { unread?: boolean; cursor?: string; limit?: number } = {}) =>
+    request<Collection<Notification> | Notification[]>(
+      pathWithQuery('/notifications', {
+        unread: params.unread,
+        cursor: params.cursor,
+        limit: params.limit ?? 25
+      })
+    ).then(collectionFrom),
+  markNotificationRead: (notification: string, read = true) =>
+    request<Notification>('/notifications/' + encodeURIComponent(notification), {
+      method: 'PATCH',
+      body: { read },
+      idempotencyKey: key()
+    }),
+  markAllNotificationsRead: () =>
+    request<{ marked_read: number }>('/notifications', {
+      method: 'POST',
+      body: { all: true },
+      idempotencyKey: key()
+    }),
+  listWatches: (params: { project?: string; task?: string } = {}) =>
+    request<Collection<Watch> | Watch[]>(pathWithQuery('/watches', { project: params.project, task: params.task })).then(collectionFrom),
+  createWatch: (input: { project_id?: string; task_id?: string }) =>
+    request<Watch>('/watches', { method: 'POST', body: input, idempotencyKey: key() }),
+  deleteWatch: (watch: string) =>
+    request<void>('/watches/' + encodeURIComponent(watch), { method: 'DELETE', idempotencyKey: key() }),
+  getNotificationPreferences: () => request<NotificationPreferences>('/notification-preferences'),
+  patchNotificationPreferences: (input: Partial<Omit<NotificationPreferences, 'actor_id' | 'updated_at'>>) =>
+    request<NotificationPreferences>('/notification-preferences', { method: 'PATCH', body: input, idempotencyKey: key() }),
   search: (params: SearchParams = {}) =>
     request<SearchResponse>(
       pathWithQuery('/search', {
