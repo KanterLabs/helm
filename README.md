@@ -324,8 +324,8 @@ Changes are tested through a separate environment before production:
 ```text
 beta branch
   → beta GitHub environment and beta-only secrets
-  → beta-helm.home.shanekanterman.dev (private Tailnet target; route not active)
-  → private Tailnet route (pending activation)
+  → beta-helm.home.shanekanterman.dev (private Tailnet target; route pending)
+  → private Tailnet TLS listener at 10.0.0.39:8443 (pending activation)
   → the `helm-beta` LXC (CT 106, 10.0.0.39)
   → an independent /var/lib/roadmap/data/roadmap.db
 
@@ -346,13 +346,16 @@ compatibility identifiers. See
 [`docs/HELM_LEGACY_IDENTIFIERS.md`](docs/HELM_LEGACY_IDENTIFIERS.md) for the
 reviewed allowlist.
 
-The guest has no inbound application or SSH port; the application and
-connector communicate over loopback. Releases use an immutable SHA-tagged Go
-binary, a constrained Proxmox deployment identity, and Cloudflare Access/tunnel
-reconciliation. The full bootstrap, host assumptions, firewall posture, and
-recovery checks are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+The production guest has no inbound application or SSH port; the application
+and connector communicate over loopback. The beta private profile permits only
+the approved Tailnet peer to its TLS listener, masks `cloudflared.service`, and
+never performs public Cloudflare reconciliation. Releases use an immutable
+SHA-tagged Go binary, a constrained Proxmox deployment identity, and signed
+bundle/backup/rollback checks. The full bootstrap, host assumptions, firewall
+posture, private preprovisioning, and recovery checks are in
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
-After the one-time Proxmox and Cloudflare bootstrap described there, pushes to
+After the one-time Proxmox and private Tailnet preprovisioning described there, pushes to
 `beta` and `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Both branches run Go/frontend checks, browser tests, and a container smoke
 test. A `beta` push is paused pending the private route migration; public
@@ -370,9 +373,14 @@ before enabling CI; CI refuses to create a token whose secret would remain
 only on an ephemeral runner.
 
 Beta uses corresponding `BETA_*` environment secrets, including
-`BETA_ADMIN_EMAIL`, and a distinct forced SSH account and release-signing key.
-Dispatch `rollback_sha` from `beta` to roll back beta, or from `main` to roll
-back production; neither environment's job can select the other gateway.
+`BETA_ADMIN_EMAIL`, and the configured Tailnet owner login
+`ShaneKanterman04@github`, plus a distinct forced SSH account and
+release-signing key. Its signed private bundle omits cloudflared;
+the beta gateway validates only loopback health and an unauthenticated HTTP 401
+after deployment. The beta pause variable remains required while the private
+route/TLS is being verified. Dispatch `rollback_sha` from `beta` to roll back
+beta, or from `main` to roll back production; neither environment's job can
+select the other's gateway.
 
 ## Backups and rollback
 

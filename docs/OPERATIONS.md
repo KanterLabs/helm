@@ -22,12 +22,24 @@ The beta target is a second unprivileged Debian 12 LXC, `helm-beta` (CTID 106)
 at `10.0.0.39/24`. Its selected hostname is the private-only
 `beta-helm.home.shanekanterman.dev`; the private route is not activated yet,
 no public DNS record is allowed, and public Cloudflare provisioning is disabled.
-No public Cloudflare tunnel or Access application is active. The
+No public Cloudflare tunnel or Access application is active. The beta private
+profile permits only the approved Tailnet peer to the TLS listener at
+`10.0.0.39:8443`; it keeps the application health/auth checks on loopback and
+masks `cloudflared.service`. The
 `helm-beta-deploy` forced SSH account,
 `/var/lib/helm-beta-deploy` host staging, and a distinct Ed25519 signing trust
 under `/etc/helm-beta-deploy`. The separate guest gives beta its own database,
 backups, releases, services, connector token, and runtime credentials while
 allowing the stable in-guest `/var/lib/roadmap` compatibility layout.
+
+Before beta deployment, root must provision `/etc/roadmap/tailnet-owner.env`
+(`root:root`, `0600`), `/etc/roadmap/tailnet.key` (`roadmap:roadmap`, `0600`),
+`/etc/roadmap/tailnet-origin.crt` (`root:root`, `0644`), and
+`/etc/roadmap/tailnet-origin.key` (`roadmap:roadmap`, `0600`) inside CT 106.
+The `roadmap` service reads the two private keys directly. The
+signed release carries only matching paths and identity settings; it never
+carries key bytes. The beta job stays paused until this private route and TLS
+preprovisioning are verified.
 
 The complete design and promotion gates are in
 [`BETA_DEPLOYMENT_PLAN.md`](BETA_DEPLOYMENT_PLAN.md).

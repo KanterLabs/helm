@@ -15,6 +15,7 @@ BACKUP="$DEPLOY_DIR/helm-backup.sh"
 RESTORE="$DEPLOY_DIR/helm-restore.sh"
 ROLLBACK="$DEPLOY_DIR/helm-rollback.sh"
 INSTALL="$DEPLOY_DIR/install-inside-lxc.sh"
+PRIVATE_VALIDATE="$DEPLOY_DIR/validate-beta-private.sh"
 SERVICE="$DEPLOY_DIR/helm.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
@@ -40,13 +41,14 @@ count_contains() {
 }
 
 for file in "$GATEWAY" "$BOOTSTRAP" "$DEPLOY_CI" "$VERIFY" "$BUILD_BUNDLE" \
-	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
+	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
 	[[ -f "$file" && ! -L "$file" ]] || fail "deployment file is missing: $file"
 done
 
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/helm-deploy-security.XXXXXX")
 cleanup_fixture() { rm -rf -- "$fixture"; }
 trap cleanup_fixture EXIT
+sed -n '/^  beta_deploy:/,/^  deploy:/p' "$WORKFLOW" > "$fixture/beta-workflow.yml"
 # Mocked backup publication tests do not have a release binary from which to
 # query migration-info; use a deterministic non-secret fixture digest.
 export HELM_MIGRATION_DIGEST=0000000000000000000000000000000000000000000000000000000000000000
@@ -377,7 +379,7 @@ printf 'loopback_listener_runtime_tests=ok\n'
 # before systemd verifies the unit and before starting the new application so
 # a clean install cannot fail verification on a missing executable.
 install_switch_line=$(grep -n '^atomic_switch "\$release_target"' "$INSTALL" | cut -d: -f1 || true)
-install_verify_line=$(grep -n '^systemd-analyze verify ' "$INSTALL" | cut -d: -f1 || true)
+install_verify_line=$(grep -n 'systemd-analyze verify ' "$INSTALL" | sed -n '1p' | cut -d: -f1 || true)
 install_helm_start_line=$(grep -n '^systemctl start helm\.service$' "$INSTALL" | cut -d: -f1 || true)
 [[ -n "$install_switch_line" && -n "$install_verify_line" && -n "$install_helm_start_line" ]] \
 	|| fail 'install ordering regression checks could not find the release switch, unit verification, and Helm start'
@@ -431,7 +433,7 @@ not_contains 'atomically move it to /var/lib/roadmap/roadmap.db' "$DOCS"
 install_backup_line=$(grep -n 'roadmap-backup.sh" "\$SHA"' "$INSTALL" | cut -d: -f1 || true)
 install_preflight_line=$(grep -n 'schema-preflight' "$INSTALL" | sed -n '1p' | cut -d: -f1 || true)
 install_proof_line=$(grep -n "^printf 'pre_upgrade_backup=" "$INSTALL" | cut -d: -f1 || true)
-install_stop_line=$(grep -n '^stop_unit cloudflared\.service' "$INSTALL" | tail -n 1 | cut -d: -f1 || true)
+install_stop_line=$(grep -n 'stop_unit cloudflared\.service' "$INSTALL" | tail -n 1 | cut -d: -f1 || true)
 install_switch_line=$(grep -n '^atomic_switch "\$release_target"' "$INSTALL" | cut -d: -f1 || true)
 legacy_refusal_line=$(grep -n 'legacy database layout requires an explicit offline maintenance migration' "$INSTALL" | cut -d: -f1 || true)
 [[ -n "$install_backup_line" && -n "$install_preflight_line" && -n "$install_proof_line" && -n "$install_stop_line" && -n "$install_switch_line" && -n "$legacy_refusal_line" ]] \
@@ -808,6 +810,9 @@ fi
 rollback_systemctl() {
 	local action=${1:-} unit=${2:-} state_file state current
 	case "$action" in
+		daemon-reload|mask|unmask)
+			return 0
+			;;
 		show)
 			printf 'loaded\n'
 			;;
@@ -1544,14 +1549,15 @@ contains 'HELM_DEPLOY_ENVIRONMENT: beta' "$WORKFLOW"
 contains "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW"
 [[ "$(grep -Fc -- "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW" || true)" = 1 ]] \
 	|| fail 'beta deployment pause gate must apply only to beta_deploy'
-contains 'BETA_CLOUDFLARE_API_TOKEN' "$WORKFLOW"
 contains 'BETA_ADMIN_EMAIL' "$WORKFLOW"
+not_contains 'BETA_TAILNET_OWNER_LOGIN' "$WORKFLOW"
 contains 'BETA_DEPLOY_SSH_KEY' "$WORKFLOW"
 contains 'BETA_DEPLOY_KNOWN_HOSTS' "$WORKFLOW"
 contains 'BETA_RELEASE_SIGNING_KEY' "$WORKFLOW"
-contains 'BETA_CF_ACCESS_CLIENT_ID' "$WORKFLOW"
-contains 'BETA_CF_ACCESS_CLIENT_SECRET' "$WORKFLOW"
-count_contains 2 'HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}' "$WORKFLOW"
+not_contains 'BETA_CLOUDFLARE_API_TOKEN' "$WORKFLOW"
+not_contains 'BETA_CF_ACCESS_CLIENT_ID' "$WORKFLOW"
+not_contains 'BETA_CF_ACCESS_CLIENT_SECRET' "$WORKFLOW"
+count_contains 1 'HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}' "$WORKFLOW"
 contains 'ref: ${{ github.sha }}' "$WORKFLOW"
 contains 'actions/upload-artifact@' "$WORKFLOW"
 contains '# v7.0.1' "$WORKFLOW"
@@ -1569,8 +1575,24 @@ contains 'HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE: "1"' "$WORKFLOW"
 contains 'cloudflare_dir="$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"
 contains 'HELM_CLOUDFLARED_TOKEN_FILE=%s' "$WORKFLOW"
 contains 'HELM_OWNER_ENV_FILE=%s' "$WORKFLOW"
-count_contains 4 'rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"
-count_contains 4 'rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env' "$WORKFLOW"
+count_contains 2 'rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"
+count_contains 2 'rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env' "$WORKFLOW"
+contains 'name: Prepare private beta owner environment' "$WORKFLOW"
+contains 'HELM_TAILNET_OWNER_LOGIN: ShaneKanterman04@github' "$WORKFLOW"
+contains 'HELM_TAILNET_ALLOWED_PEER_IPS: 100.124.12.50' "$WORKFLOW"
+contains 'HELM_AUTH_MODE=tailnet' "$WORKFLOW"
+contains 'HELM_TAILNET_ASSERTION_KEY_FILE=/etc/roadmap/tailnet.key' "$WORKFLOW"
+contains 'HELM_TAILNET_TLS_ADDR=10.0.0.39:8443' "$WORKFLOW"
+contains 'HELM_TAILNET_TLS_CERT_FILE=/etc/roadmap/tailnet-origin.crt' "$WORKFLOW"
+contains 'HELM_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key' "$WORKFLOW"
+contains 'deploy-ci.sh private-ready' "$WORKFLOW"
+contains 'beta_private_ready=ok' "$PRIVATE_VALIDATE"
+contains 'status" = 401' "$PRIVATE_VALIDATE"
+contains 'cloudflared.service is active in the private beta profile' "$PRIVATE_VALIDATE"
+contains 'http://127.0.0.1:8080/healthz' "$PRIVATE_VALIDATE"
+not_contains 'cloudflare.sh' "$PRIVATE_VALIDATE"
+not_contains 'cloudflare.sh publish' "$fixture/beta-workflow.yml"
+not_contains 'validate-live.sh' "$fixture/beta-workflow.yml"
 contains 'HELM_CLOUDFLARED_TOKEN_FILE' "$ROOT_DIR/deploy/build-bundle.sh"
 contains 'HELM_OWNER_ENV_FILE' "$ROOT_DIR/deploy/build-bundle.sh"
 contains 'Capture previous release for recovery' "$WORKFLOW"
@@ -1815,6 +1837,59 @@ make_archive() {
 make_archive "$fixture/valid.tar.gz" "$source_dir"
 "$VERIFY" "$fixture/valid.tar.gz" "$SHA" "$fixture/public.pem" >/dev/null \
 	|| fail 'valid signed release archive was rejected'
+
+# Beta uses the same detached-signature and manifest machinery with a distinct
+# exact member set. Its profile is selected only by the root-installed beta
+# verifier basename and must not accept any Cloudflare connector member.
+BETA_PAYLOAD_MEMBERS=(
+	codex
+	codex.sha256
+	compose.yaml
+	install-inside-lxc.sh
+	nftables.conf
+	roadmap
+	roadmap-backup.service
+	roadmap-backup.sh
+	roadmap-backup.timer
+	roadmap.env
+	roadmap-restore.sh
+	roadmap-rollback.sh
+	roadmap.service
+	roadmap.sha256
+	release.sha
+	validate-beta-private.sh
+)
+BETA_BUNDLE_MEMBERS=(
+	codex codex.sha256 compose.yaml install-inside-lxc.sh
+	nftables.conf roadmap roadmap-backup.service roadmap-backup.sh roadmap-backup.timer
+	roadmap.env roadmap-restore.sh roadmap-rollback.sh roadmap.service roadmap.sha256
+	release.manifest release.manifest.sig release.sha validate-beta-private.sh
+)
+beta_source_dir="$fixture/beta-source"
+install -d -m 0700 "$beta_source_dir"
+for member in "${BETA_PAYLOAD_MEMBERS[@]}"; do
+	if [[ "$member" = release.sha ]]; then
+		printf '%s\n' "$SHA" > "$beta_source_dir/$member"
+	else
+		printf 'private beta fixture payload for %s\n' "$member" > "$beta_source_dir/$member"
+	fi
+done
+{
+	printf 'roadmap-release-manifest-v1\n'
+	for member in "${BETA_PAYLOAD_MEMBERS[@]}"; do
+		bytes=$(stat -c '%s' -- "$beta_source_dir/$member")
+		digest=$(sha256sum -- "$beta_source_dir/$member" | awk '{print $1}')
+		printf '%s\t%s\t%s\n' "$member" "$bytes" "$digest"
+	done
+} > "$beta_source_dir/release.manifest"
+openssl pkeyutl -sign -rawin -inkey "$fixture/private.pem" -in "$beta_source_dir/release.manifest" -out "$beta_source_dir/release.manifest.sig"
+GZIP=-n tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
+	-czf "$fixture/beta-valid.tar.gz" -C "$beta_source_dir" "${BETA_BUNDLE_MEMBERS[@]}"
+cp -- "$VERIFY" "$fixture/helm-beta-verify-release"
+chmod 0755 "$fixture/helm-beta-verify-release"
+"$fixture/helm-beta-verify-release" "$fixture/beta-valid.tar.gz" "$SHA" "$fixture/public.pem" >/dev/null \
+	|| fail 'valid private beta signed release archive was rejected'
+printf 'private_beta_release_profile_test=ok\n'
 
 expect_verify_fail() {
 	local label=$1 archive=$2

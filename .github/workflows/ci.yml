@@ -312,23 +312,49 @@ jobs:
           previous_sha=$(sed -n 's/^current_sha=//p' <<<"$status_output")
           [[ "$previous_sha" = none || "$previous_sha" =~ ^[0-9a-f]{40}$ ]]
           printf 'sha=%s\n' "$previous_sha" >> "$GITHUB_OUTPUT"
-      - name: Prepare beta Cloudflare Access and tunnel
+      - name: Prepare private beta owner environment
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.BETA_CLOUDFLARE_API_TOKEN }}
           HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}
-          HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE: "1"
+          HELM_TAILNET_OWNER_LOGIN: ShaneKanterman04@github
+          HELM_TAILNET_ALLOWED_PEER_IPS: 100.124.12.50
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$HELM_ADMIN_EMAIL"
+          test -n "$HELM_TAILNET_OWNER_LOGIN"
+          [[ "$HELM_ADMIN_EMAIL" != *$'\n'* && "$HELM_ADMIN_EMAIL" != *$'\r'* ]]
+          [[ "$HELM_TAILNET_OWNER_LOGIN" != *$'\n'* && "$HELM_TAILNET_OWNER_LOGIN" != *$'\r'* ]]
           chmod 0755 deploy/*.sh deploy/helm-deploy-gateway
-          cloudflare_dir="$RUNNER_TEMP/helm-cloudflare"
-          install -d -m 0700 "$cloudflare_dir"
-          printf 'HELM_CLOUDFLARED_TOKEN_FILE=%s\n' "$cloudflare_dir/cloudflared.token" >> "$GITHUB_ENV"
-          printf 'HELM_OWNER_ENV_FILE=%s\n' "$cloudflare_dir/owner.env" >> "$GITHUB_ENV"
-          ./deploy/cloudflare.sh prepare \
-            "$cloudflare_dir/cloudflared.token" \
-            "$cloudflare_dir/owner.env" \
-            "$cloudflare_dir/helm-access-token.env"
+          private_dir="$RUNNER_TEMP/helm-private"
+          install -d -m 0700 "$private_dir"
+          owner_file="$private_dir/owner.env"
+          {
+            printf 'HELM_ADDR=127.0.0.1:8080\n'
+            printf 'HELM_DB=/var/lib/roadmap/data/roadmap.db\n'
+            printf 'HELM_LUNA_ENABLED=true\nHELM_LUNA_MODEL=gpt-5.6-luna\nHELM_LUNA_EFFORT=medium\n'
+            printf 'HELM_AUTH_MODE=tailnet\n'
+            printf 'HELM_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev\n'
+            printf 'HELM_ADMIN_EMAIL=%s\n' "$HELM_ADMIN_EMAIL"
+            printf 'HELM_TAILNET_OWNER_LOGIN=%s\n' "$HELM_TAILNET_OWNER_LOGIN"
+            printf 'HELM_TAILNET_AUDIENCE=https://beta-helm.home.shanekanterman.dev\n'
+            printf 'HELM_TAILNET_ASSERTION_KEY_FILE=/etc/roadmap/tailnet.key\n'
+            printf 'HELM_TAILNET_TLS_ADDR=10.0.0.39:8443\n'
+            printf 'HELM_TAILNET_TLS_CERT_FILE=/etc/roadmap/tailnet-origin.crt\n'
+            printf 'HELM_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key\n'
+            printf 'HELM_TAILNET_ALLOWED_PEER_IPS=%s\n' "$HELM_TAILNET_ALLOWED_PEER_IPS"
+            printf 'HELM_SECURE_COOKIES=true\nHELM_DEMO_SEED=false\n'
+            printf 'ROADMAP_ADDR=127.0.0.1:8080\nROADMAP_DB=/var/lib/roadmap/data/roadmap.db\n'
+            printf 'ROADMAP_AUTH_MODE=tailnet\nROADMAP_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev\n'
+            printf 'ROADMAP_ADMIN_EMAIL=%s\n' "$HELM_ADMIN_EMAIL"
+            printf 'ROADMAP_TAILNET_OWNER_LOGIN=%s\n' "$HELM_TAILNET_OWNER_LOGIN"
+            printf 'ROADMAP_TAILNET_AUDIENCE=https://beta-helm.home.shanekanterman.dev\n'
+            printf 'ROADMAP_TAILNET_ASSERTION_KEY_FILE=/etc/roadmap/tailnet.key\n'
+            printf 'ROADMAP_TAILNET_TLS_ADDR=10.0.0.39:8443\n'
+            printf 'ROADMAP_TAILNET_TLS_CERT_FILE=/etc/roadmap/tailnet-origin.crt\n'
+            printf 'ROADMAP_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key\n'
+            printf 'ROADMAP_TAILNET_ALLOWED_PEER_IPS=%s\n' "$HELM_TAILNET_ALLOWED_PEER_IPS"
+            printf 'ROADMAP_SECURE_COOKIES=true\nROADMAP_DEMO_SEED=false\n'
+          } > "$owner_file"
+          chmod 0600 "$owner_file"
+          printf 'HELM_OWNER_ENV_FILE=%s\n' "$owner_file" >> "$GITHUB_ENV"
       - name: Materialize beta release signing key
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.BETA_RELEASE_SIGNING_KEY }}
@@ -341,19 +367,14 @@ jobs:
         env:
           HELM_RELEASE_SIGNING_KEY_FILE: ${{ runner.temp }}/helm-signing/private.pem
         run: ./deploy/deploy-ci.sh deploy "${GITHUB_SHA}"
-      - name: Publish beta DNS and validate live Access
+      - name: Validate private beta Tailnet readiness
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.BETA_CLOUDFLARE_API_TOKEN }}
-          HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.BETA_CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.BETA_CF_ACCESS_CLIENT_SECRET }}
-          HELM_REQUIRE_SERVICE_AUTH_PROBE: "1"
           PREVIOUS_RELEASE_SHA: ${{ steps.previous_release.outputs.sha }}
         run: |
-          if ./deploy/cloudflare.sh publish && ./deploy/validate-live.sh; then
+          if ./deploy/deploy-ci.sh private-ready; then
             exit 0
           fi
-          printf 'post-deploy beta live validation failed; attempting automatic rollback\n' >&2
+          printf 'post-deploy private beta readiness failed; attempting automatic rollback\n' >&2
           if [[ "$PREVIOUS_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             if ! ./deploy/deploy-ci.sh rollback "$PREVIOUS_RELEASE_SHA"; then
               printf 'automatic beta rollback to %s failed\n' "$PREVIOUS_RELEASE_SHA" >&2
@@ -368,8 +389,8 @@ jobs:
         if: ${{ always() }}
         run: |
           rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"
-          rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env
+          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-private"
+          rm -f -- dist/owner.env
 
   beta_rollback:
     if: ${{ github.ref == 'refs/heads/beta' && github.event_name == 'workflow_dispatch' && inputs.rollback_sha != '' }}
@@ -421,19 +442,14 @@ jobs:
         run: |
           [[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]]
           ./deploy/deploy-ci.sh rollback "$ROLLBACK_SHA"
-      - name: Validate beta live Access after rollback
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.BETA_CLOUDFLARE_API_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.BETA_CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.BETA_CF_ACCESS_CLIENT_SECRET }}
-          HELM_REQUIRE_SERVICE_AUTH_PROBE: "1"
-        run: ./deploy/validate-live.sh
+      - name: Validate private beta Tailnet after rollback
+        run: ./deploy/deploy-ci.sh private-ready
       - name: Remove beta deployment credentials
         if: ${{ always() }}
         run: |
           rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"
-          rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env
+          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-private"
+          rm -f -- dist/owner.env
 
   deploy:
     if: ${{ github.ref == 'refs/heads/main' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) }}
