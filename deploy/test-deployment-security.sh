@@ -1019,6 +1019,11 @@ contains 'restrict_to_account_members' "$CLOUDFLARE"
 contains 'restrict_to_account_members' "$VALIDATE"
 contains 'identity providers are ambiguous or nonconforming' "$CLOUDFLARE"
 contains 'identity provider is missing, ambiguous, or nonconforming' "$VALIDATE"
+contains 'PUBLIC_HOST=beta.tc.shanekanterman.dev' "$CLOUDFLARE"
+contains 'PUBLIC_HOST=beta.tc.shanekanterman.dev' "$VALIDATE"
+contains 'HELM_PUBLIC_ORIGIN=https://beta.tc.shanekanterman.dev' "$ROOT_DIR/.helm-beta-deploy.env.example"
+contains 'beta.tc.shanekanterman.dev' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
+contains 'owned by a different tunnel' "$CLOUDFLARE"
 not_contains 'onetimepin' "$CLOUDFLARE"
 not_contains 'onetimepin' "$VALIDATE"
 contains '.result.session_duration == "168h"' "$VALIDATE"
@@ -1160,6 +1165,7 @@ fi
 
 source <(awk '/^validate_tunnel_config\(\)/,/^}/' "$CLOUDFLARE")
 source <(awk '/^validate_dns_record\(\)/,/^}/' "$CLOUDFLARE")
+source <(awk '/^upsert_dns\(\)/,/^}/' "$CLOUDFLARE")
 ACCOUNT_ID=fixture-account
 ZONE_ID=fixture-zone
 PUBLIC_HOST=tc.shanekanterman.dev
@@ -1247,6 +1253,66 @@ for cloudflare_bad_dns in wrong-target unproxied extra-record wrong-type; do
 		fail "Cloudflare accepted malformed DNS topology: $cloudflare_bad_dns"
 	fi
 done
+
+# DNS publication must preserve an existing record only when it already points
+# at the selected tunnel. A different CNAME is owned by another service and
+# must fail closed without issuing a PUT or POST; an absent record remains
+# creatable and a correct record remains idempotently reconcilable.
+cloudflare_dns_mutation_log="$fixture/cloudflare-dns-upsert.calls"
+cloudflare_dns_mode=correct
+cloudflare_dns_response=$cloudflare_canonical_dns
+cloudflare_dns_request() {
+	local method=$1 path=$2 body=${3:-} get_count
+	printf '%s %s\n' "$method" "$path" >>"$cloudflare_dns_mutation_log"
+	case "$method $path" in
+		"GET /zones/$ZONE_ID/dns_records?name=$PUBLIC_HOST")
+			get_count=$(grep -Fc -- "GET /zones/$ZONE_ID/dns_records?name=$PUBLIC_HOST" "$cloudflare_dns_mutation_log" || true)
+			if [[ "$cloudflare_dns_mode" = absent && "$get_count" = 1 ]]; then
+				printf '%s' '{"success":true,"result":[]}'
+			else
+				printf '%s' "$cloudflare_dns_response"
+			fi
+			;;
+		"PUT /zones/$ZONE_ID/dns_records/dns-fixture"|"POST /zones/$ZONE_ID/dns_records")
+			printf '%s' '{"success":true,"result":{}}'
+			;;
+		*) return 1 ;;
+	esac
+}
+cf_request() { cloudflare_dns_request "$@"; }
+
+: >"$cloudflare_dns_mutation_log"
+if ! upsert_dns "$PUBLIC_HOST" "$cloudflare_fixture_tunnel_id" \
+	>"$fixture/cloudflare-dns-upsert-correct.out" 2>&1; then
+	fail 'correct Cloudflare DNS CNAME was not idempotently reconciled'
+fi
+[[ "$(grep -Fc -- "PUT /zones/$ZONE_ID/dns_records/dns-fixture" "$cloudflare_dns_mutation_log" || true)" = 1 ]] \
+	|| fail 'correct Cloudflare DNS CNAME did not use its existing record'
+[[ "$(grep -Fc -- 'POST /zones/fixture-zone/dns_records' "$cloudflare_dns_mutation_log" || true)" = 0 ]] \
+	|| fail 'correct Cloudflare DNS CNAME unexpectedly created a duplicate record'
+
+cloudflare_dns_mode=conflict
+cloudflare_dns_response=$(jq -c '.result[0].content="other.cfargotunnel.com"' <<<"$cloudflare_canonical_dns")
+: >"$cloudflare_dns_mutation_log"
+if upsert_dns "$PUBLIC_HOST" "$cloudflare_fixture_tunnel_id" \
+	>"$fixture/cloudflare-dns-upsert-conflict.out" 2>&1; then
+	fail 'conflicting Cloudflare DNS CNAME was overwritten'
+fi
+contains 'owned by a different tunnel' "$fixture/cloudflare-dns-upsert-conflict.out"
+[[ "$(grep -Ec -- '^(PUT|POST) ' "$cloudflare_dns_mutation_log" || true)" = 0 ]] \
+	|| fail 'conflicting Cloudflare DNS CNAME issued a mutation request'
+
+cloudflare_dns_mode=absent
+cloudflare_dns_response=$cloudflare_canonical_dns
+: >"$cloudflare_dns_mutation_log"
+if ! upsert_dns "$PUBLIC_HOST" "$cloudflare_fixture_tunnel_id" \
+	>"$fixture/cloudflare-dns-upsert-absent.out" 2>&1; then
+	fail 'absent Cloudflare DNS CNAME was not created'
+fi
+[[ "$(grep -Fc -- 'POST /zones/fixture-zone/dns_records' "$cloudflare_dns_mutation_log" || true)" = 1 ]] \
+	|| fail 'absent Cloudflare DNS CNAME did not create exactly one record'
+[[ "$(grep -Fc -- 'PUT /zones/fixture-zone/dns_records/dns-fixture' "$cloudflare_dns_mutation_log" || true)" = 0 ]] \
+	|| fail 'absent Cloudflare DNS CNAME unexpectedly used PUT'
 
 # Drive prepare through the real Cloudflare script with a deterministic curl
 # API mock. Each injected failure occurs after the one-time service token is
@@ -1438,8 +1504,11 @@ contains "github.ref == 'refs/heads/main'" "$WORKFLOW"
 contains "github.ref == 'refs/heads/beta'" "$WORKFLOW"
 contains 'branches: [main, beta]' "$WORKFLOW"
 contains 'name: beta' "$WORKFLOW"
-contains 'url: https://beta.shanekanterman.dev' "$WORKFLOW"
+contains 'url: https://beta.tc.shanekanterman.dev' "$WORKFLOW"
 contains 'HELM_DEPLOY_ENVIRONMENT: beta' "$WORKFLOW"
+contains "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW"
+[[ "$(grep -Fc -- "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW" || true)" = 1 ]] \
+	|| fail 'beta deployment pause gate must apply only to beta_deploy'
 contains 'BETA_CLOUDFLARE_API_TOKEN' "$WORKFLOW"
 contains 'BETA_ADMIN_EMAIL' "$WORKFLOW"
 contains 'BETA_DEPLOY_SSH_KEY' "$WORKFLOW"

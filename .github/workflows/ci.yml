@@ -240,18 +240,18 @@ jobs:
           retention-days: 14
 
   beta_deploy:
-    if: ${{ github.ref == 'refs/heads/beta' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) }}
+    if: ${{ github.ref == 'refs/heads/beta' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) && vars.HELM_BETA_DEPLOY_PAUSED != 'true' }}
     needs: [checks, browser, race, container]
     runs-on: homelab
     environment:
       name: beta
-      url: https://beta.shanekanterman.dev
+      url: https://beta.tc.shanekanterman.dev
     concurrency:
       group: helm-beta
       cancel-in-progress: false
     env:
       HELM_DEPLOY_ENVIRONMENT: beta
-      HELM_PUBLIC_ORIGIN: https://beta.shanekanterman.dev
+      HELM_PUBLIC_ORIGIN: https://beta.tc.shanekanterman.dev
     steps:
       # github.sha is the selected beta commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
@@ -376,13 +376,13 @@ jobs:
     runs-on: homelab
     environment:
       name: beta
-      url: https://beta.shanekanterman.dev
+      url: https://beta.tc.shanekanterman.dev
     concurrency:
       group: helm-beta
       cancel-in-progress: false
     env:
       HELM_DEPLOY_ENVIRONMENT: beta
-      HELM_PUBLIC_ORIGIN: https://beta.shanekanterman.dev
+      HELM_PUBLIC_ORIGIN: https://beta.tc.shanekanterman.dev
     steps:
       # A manual rollback is beta-authorized only when dispatched from beta,
       # and its scripts are pinned to the selected beta commit.
