@@ -89,7 +89,10 @@ func (c LocalAPIWhoIs) WhoIs(ctx context.Context, address string) (TailnetPeer, 
 			return http.ErrUseLastResponse
 		},
 	}
-	target := "http://tailscaled.local/localapi/v0/whois?addr=" + url.QueryEscape(address)
+	// tailscaled validates this Host value before dispatching LocalAPI
+	// requests. The connection is over the Unix socket above; the hostname is
+	// an API protocol marker, not a DNS destination.
+	target := "http://local-tailscaled.sock/localapi/v0/whois?addr=" + url.QueryEscape(address)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return TailnetPeer{}, errors.New("could not create tailscaled request")

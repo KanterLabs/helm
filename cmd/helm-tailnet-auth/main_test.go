@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,44 @@ type mockWhoIs struct {
 	peer TailnetPeer
 	err  error
 	addr string
+}
+
+func TestLocalAPIWhoIsUsesUnixLocalAPIHost(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "tailscaled.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "local-tailscaled.sock" {
+			t.Errorf("LocalAPI host = %q, want local-tailscaled.sock", r.Host)
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.URL.Path != "/localapi/v0/whois" || r.URL.Query().Get("addr") != "100.124.12.50:4123" {
+			t.Errorf("WhoIs request = %s?%s", r.URL.Path, r.URL.RawQuery)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`{"Node":{"Tags":[]},"UserProfile":{"LoginName":"ShaneKanterman04@github","DisplayName":"Shane"}}`))
+	})}
+	serveDone := make(chan struct{})
+	go func() {
+		_ = server.Serve(listener)
+		close(serveDone)
+	}()
+	t.Cleanup(func() {
+		_ = server.Shutdown(context.Background())
+		<-serveDone
+	})
+
+	peer, err := (LocalAPIWhoIs{Socket: socket, Timeout: time.Second}).WhoIs(context.Background(), "100.124.12.50:4123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if peer.LoginName != "ShaneKanterman04@github" || peer.DisplayName != "Shane" || len(peer.Tags) != 0 {
+		t.Fatalf("WhoIs peer = %#v", peer)
+	}
 }
 
 func (m *mockWhoIs) WhoIs(_ context.Context, addr string) (TailnetPeer, error) {
