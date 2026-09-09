@@ -286,7 +286,7 @@ func validForwardedURI(requestURI string) bool {
 		return false
 	}
 	parsed, err := url.ParseRequestURI(requestURI)
-	return err == nil && !parsed.IsAbs() && parsed.Host == ""
+	return err == nil && !parsed.IsAbs() && parsed.Host == "" && parsed.Fragment == ""
 }
 
 func normalizeRemoteAddr(value string) (string, error) {

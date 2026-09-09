@@ -322,7 +322,7 @@ func validTailnetRequestURI(requestURI string) bool {
 		return false
 	}
 	parsed, err := url.ParseRequestURI(requestURI)
-	return err == nil && parsed.IsAbs() == false && parsed.Host == ""
+	return err == nil && parsed.IsAbs() == false && parsed.Host == "" && parsed.Fragment == ""
 }
 
 // TailnetKeyFromConfig makes it harder for callers to accidentally share a
