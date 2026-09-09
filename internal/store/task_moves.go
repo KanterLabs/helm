@@ -252,7 +252,7 @@ func taskMoveDestinationStateAllowed(state string) bool {
 // taskMoveMutationFailure classifies a zero-row guarded UPDATE using the row
 // visible after the writer statement. The claim query uses SQLite's statement
 // clock rather than a timestamp captured before a possible lock wait.
-func (s *Store) taskMoveMutationFailure(ctx context.Context, tx *sql.Tx, id, actorID string, expected int64, expectedSourceColumnID, destinationColumnID string) error {
+func (s *Store) taskMoveMutationFailure(ctx context.Context, tx dependencySQL, id, actorID string, expected int64, expectedSourceColumnID, destinationColumnID string) error {
 	var claimedBy, claimExpiresAt sql.NullString
 	if err := tx.QueryRowContext(ctx, `SELECT claimed_by, claim_expires_at FROM tasks WHERE id=? AND deleted_at IS NULL`, id).Scan(&claimedBy, &claimExpiresAt); errors.Is(err, sql.ErrNoRows) {
 		return notFound("task not found")

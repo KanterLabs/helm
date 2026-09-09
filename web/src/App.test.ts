@@ -5,6 +5,7 @@ import {
   boardMetadataErrorMessage,
   boardMutationReloadCanAnnounce,
   boardRefreshTargetsAreCurrent,
+  bulkMutationRequestIsCurrent,
   mergeOwnedBoardMetadata
 } from './App.svelte';
 import {
@@ -131,5 +132,25 @@ describe('board refresh ownership and announcement guards', () => {
       }
     }))).toBe(true);
     expect(boardOrderingFiltersActive(orderingGate({ workFilter: 'waiting' }))).toBe(true);
+  });
+});
+
+describe('bulk mutation response ownership guards', () => {
+  const request = {
+    requestId: 4,
+    sessionGeneration: 8,
+    projectId: 'project-a',
+    projectSlug: 'alpha'
+  };
+
+  it('rejects a delayed response after the modal closes and a new review opens', () => {
+    expect(bulkMutationRequestIsCurrent(request, { ...request, requestId: 5, authenticated: true })).toBe(false);
+    expect(bulkMutationRequestIsCurrent(request, { ...request, authenticated: true })).toBe(true);
+  });
+
+  it('rejects a delayed response after switching projects or sessions', () => {
+    expect(bulkMutationRequestIsCurrent(request, { ...request, projectId: 'project-b', projectSlug: 'beta', authenticated: true })).toBe(false);
+    expect(bulkMutationRequestIsCurrent(request, { ...request, sessionGeneration: 9, authenticated: true })).toBe(false);
+    expect(bulkMutationRequestIsCurrent(request, { ...request, authenticated: false })).toBe(false);
   });
 });

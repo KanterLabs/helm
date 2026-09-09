@@ -779,7 +779,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, input TaskInput, expe
 	return s.UpdateTaskWithClaimOverride(ctx, id, input, expected, actorID, false)
 }
 
-func validateTaskBugLifecycleTx(ctx context.Context, tx *sql.Tx, taskID, kind, destinationState string) error {
+func validateTaskBugLifecycleTx(ctx context.Context, tx dependencySQL, taskID, kind, destinationState string) error {
 	if kind != bugKind {
 		return nil
 	}
@@ -1242,7 +1242,7 @@ func taskClaimStateTx(ctx context.Context, tx *sql.Tx, id, actorID string) (int6
 	return version, active, nil
 }
 
-func replaceTaskLabels(ctx context.Context, tx *sql.Tx, taskID, projectID string, values []string) error {
+func replaceTaskLabels(ctx context.Context, tx dependencySQL, taskID, projectID string, values []string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM task_labels WHERE task_id=?`, taskID); err != nil {
 		return err
 	}

@@ -165,6 +165,7 @@ use the separate documented SQLite workflow for exact database recovery.
 ## Tasks, comments, and claims
 
 - `GET|POST /api/v1/projects/{project}/tasks`
+- `POST /api/v1/projects/{project}/tasks/bulk`
 - `GET /api/v1/issues`
 - `GET|PATCH|DELETE /api/v1/tasks/{task}`
 - `GET|POST /api/v1/tasks/{task}/comments`
@@ -208,6 +209,47 @@ This reduced form applies to task creation, PATCH, claim, renew, release,
 complete, block, progress, triage, resolve, and reopen, and idempotent retries
 replay the already-reduced body.
 Direct task GET and task collections still require `tasks:read`.
+
+`POST /api/v1/projects/{project}/tasks/bulk` applies a bounded set of guarded
+task mutations. The request must contain 1–100 items, each with a `task`
+reference, positive `version`, and one operation: `move`, `assign`, `priority`,
+`labels`, `due_at`, `complete`, or `block`. Move items include destination and
+expected source column IDs plus non-empty provenance. Assignee, labels, and due
+date values may be JSON `null` to clear them. A typical request is:
+
+```json
+{
+  "mode": "partial",
+  "mutations": [
+    {"task": "OPS-41", "version": 7, "operation": "priority", "priority": "urgent"},
+    {"task": "OPS-42", "version": 3, "operation": "move", "destination_column_id": "col_ready", "expected_source_column_id": "col_backlog", "source": "bulk_triage"}
+  ]
+}
+```
+
+`partial` mode (the default) commits each item in its own transaction and
+returns a `200` response with `status: "partial"`. Every result contains the
+original `reference` and `status`: `"applied"`, `"skipped"`, or `"conflict"`;
+applied results include the resulting `version` and task response, while
+conflicts include a least-privilege error envelope. `atomic` mode evaluates
+all items in one transaction and rolls back every change if any item fails;
+rolled-back items are reported as `skipped` with an `atomic_rollback` error.
+Malformed envelopes, empty batches, and batches with more than 100 items are
+rejected as a normal top-level `400` error.
+
+Each item repeats the corresponding single-task version, claim, dependency,
+project, and lifecycle guards inside its write transaction. A batch never
+turns into an unguarded loop: active claims, unmet prerequisites, stale
+versions, invalid destinations, and cross-project references remain per-item
+outcomes in partial mode. Every committed item emits its normal task activity
+event (and an optional completion/block note emits its comment activity) with
+bulk provenance. The request uses the normal mutation rate limiter and agent
+resource budget once for the bounded body; an `Idempotency-Key` caches the
+complete response so replay cannot apply an item twice. Human lifecycle
+behavior matches the single-task routes; bearer lifecycle items require the
+`tasks:claim` scope and an active claim owned by that actor. All items must
+belong to the path project, and a project-scoped bearer token must include that
+project in its access ceiling.
 
 Comments contain `id`, `task_id`, `actor_id`, Markdown `body`, timestamps, and
 an optimistic-concurrency `version`. The API returns the Markdown source as

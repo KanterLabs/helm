@@ -655,6 +655,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			}
 			return
 		}
+		if len(parts) == 4 && parts[2] == "tasks" && (parts[3] == "bulk" || parts[3] == "batch") {
+			s.bulkTask(w, r, identity, parts[1])
+			return
+		}
 	}
 	if parts[0] == "codex" {
 		s.codexAccount(w, r, identity, parts[1:])
