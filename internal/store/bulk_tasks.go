@@ -403,9 +403,19 @@ func (s *Store) applyBulkUpdateTx(ctx context.Context, tx dependencySQL, current
 			return Task{}, err
 		}
 	}
-	if _, err := insertEvent(ctx, tx, "task.updated", actorID, current.ProjectID, current.ID, map[string]any{
+	eventPayload := map[string]any{
 		"version": expected + 1, "bulk": true, "operation": operation,
-	}); err != nil {
+	}
+	// Keep assignment transitions in the event payload aligned with direct
+	// task updates.  The notification read model uses these canonical fields
+	// to identify the direct assignee and suppress same-value reassignments;
+	// reading the task after the write would lose the previous value.
+	if validated.AssigneeSet {
+		eventPayload["assignee"] = assignee
+		eventPayload["previous_assignee"] = nullableStringValue(current.Assignee)
+		eventPayload["assignment_changed"] = assignee != nullableStringValue(current.Assignee)
+	}
+	if _, err := insertEvent(ctx, tx, "task.updated", actorID, current.ProjectID, current.ID, eventPayload); err != nil {
 		return Task{}, err
 	}
 	return bulkTaskAfterMutationTx(ctx, tx, current.ID)
