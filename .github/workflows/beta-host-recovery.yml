@@ -1,5 +1,10 @@
 name: Inspect beta hostname recovery
 on:
+  push:
+    branches: [beta]
+    paths:
+      - .github/workflows/beta-host-recovery.yml
+      - deploy/beta-host-recovery.py
   pull_request:
     branches: [beta]
     paths:
@@ -9,7 +14,7 @@ permissions:
   contents: read
 jobs:
   inspect:
-    if: github.head_ref == 'fix/beta-hostname-isolation' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.ref == 'refs/heads/beta'
     runs-on: homelab
     environment: beta
     steps:
