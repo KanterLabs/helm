@@ -74,6 +74,7 @@ func TestForwardAuthRejectsForgedHeadersAndPeers(t *testing.T) {
 	}{
 		{name: "non-loopback caller", edit: func(r *http.Request, _ *mockWhoIs) { r.RemoteAddr = "10.0.0.5:443" }, want: http.StatusForbidden},
 		{name: "duplicate method", edit: func(r *http.Request, _ *mockWhoIs) { r.Header.Add(forwardedMethodHeader, http.MethodPost) }, want: http.StatusBadRequest},
+		{name: "incoming assertion", edit: func(r *http.Request, _ *mockWhoIs) { r.Header.Set(auth.TailnetAssertionHeader, "smuggled") }, want: http.StatusBadRequest},
 		{name: "tagged node", edit: func(_ *http.Request, m *mockWhoIs) { m.peer.Tags = []string{"tag:server"} }, want: http.StatusUnauthorized},
 		{name: "wrong owner", edit: func(_ *http.Request, m *mockWhoIs) { m.peer.LoginName = "other@example.com" }, want: http.StatusUnauthorized},
 		{name: "unknown node", edit: func(_ *http.Request, m *mockWhoIs) { m.err = errUnknownPeer }, want: http.StatusUnauthorized},

@@ -245,7 +245,11 @@ func ValidateTailnetIdentity(claims TailnetClaims, issuer, audience, ownerLogin,
 	if claims.Email != adminEmail {
 		return errors.New("tailnet assertion administrator mismatch")
 	}
-	if canonicalMethod(claims.Method) != canonicalMethod(method) {
+	// The helper signs the exact request method. Do not case-fold or trim the
+	// current method here: HTTP method tokens are case-sensitive, and accepting
+	// a differently-spelled method would let a valid assertion be replayed on a
+	// distinct request.
+	if claims.Method != method {
 		return errors.New("tailnet assertion method mismatch")
 	}
 	if claims.RequestURI != requestURI {

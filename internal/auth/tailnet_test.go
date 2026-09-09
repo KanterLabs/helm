@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,6 +51,9 @@ func TestTailnetAssertionRoundTripAndRequestBinding(t *testing.T) {
 	}
 	if err := ValidateTailnetIdentity(claims, TailnetAssertionIssuer, claims.Audience, claims.Subject, claims.Email, http.MethodPost, claims.RequestURI, now); err == nil {
 		t.Fatal("wrong method accepted")
+	}
+	if err := ValidateTailnetIdentity(claims, TailnetAssertionIssuer, claims.Audience, claims.Subject, claims.Email, "get", claims.RequestURI, now); err == nil {
+		t.Fatal("case-folded method accepted")
 	}
 	if err := ValidateTailnetIdentity(claims, TailnetAssertionIssuer, claims.Audience, claims.Subject, claims.Email, claims.Method, "/api/v1/auth/status", now); err == nil {
 		t.Fatal("wrong URI accepted")
@@ -104,7 +108,8 @@ func (v staticTailnetVerifier) Verify(context.Context, string) (TailnetClaims, e
 func TestManagerTailnetRejectsMissingDuplicateWrongOwnerAndPreservesActor(t *testing.T) {
 	data := testStore(t)
 	mail := "owner@example.com"
-	actor, err := data.CreateActor(context.Background(), store.Actor{Kind: "human", Name: "Existing Owner", Email: &mail}, "")
+	const existingPasswordHash = "existing-password-hash"
+	actor, err := data.CreateActor(context.Background(), store.Actor{Kind: "human", Name: "Existing Owner", Email: &mail}, existingPasswordHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +141,50 @@ func TestManagerTailnetRejectsMissingDuplicateWrongOwnerAndPreservesActor(t *tes
 	}
 	if identity.Actor.ID != actor.ID || identity.Actor.EmailValue() != mail {
 		t.Fatalf("actor changed: got %#v want %s", identity.Actor, actor.ID)
+	}
+	_, passwordHash, err := data.GetPasswordHash(context.Background(), mail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passwordHash != existingPasswordHash {
+		t.Fatalf("Tailnet authentication changed existing password hash to %q", passwordHash)
+	}
+}
+
+func TestManagerTailnetRejectsDisabledExistingActor(t *testing.T) {
+	data := testStore(t)
+	mail := "owner@example.com"
+	disabledAt := "2026-09-09T00:00:00Z"
+	actor, err := data.CreateActor(context.Background(), store.Actor{
+		Kind:       "human",
+		Name:       "Disabled Owner",
+		Email:      &mail,
+		DisabledAt: &disabledAt,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	claims := tailnetTestClaims(now)
+	manager := NewManagerWithTailnetVerifier(data, config.Config{
+		AuthMode:          "tailnet",
+		AdminEmail:        mail,
+		TailnetOwnerLogin: claims.Subject,
+		TailnetAudience:   claims.Audience,
+	}, staticTailnetVerifier{claims: claims})
+	request := httptest.NewRequest(http.MethodGet, claims.RequestURI, nil)
+	request.Header.Set(TailnetAssertionHeader, "verified")
+	if _, err := manager.Authenticate(context.Background(), request); err == nil {
+		t.Fatal("disabled Tailnet actor accepted")
+	} else if !errors.Is(err, store.ErrForbidden) {
+		t.Fatalf("disabled Tailnet actor error = %v, want forbidden", err)
+	}
+	stillDisabled, err := data.GetActor(context.Background(), actor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillDisabled.DisabledAt == nil || *stillDisabled.DisabledAt != disabledAt {
+		t.Fatalf("disabled actor state changed: %#v", stillDisabled)
 	}
 }
 
