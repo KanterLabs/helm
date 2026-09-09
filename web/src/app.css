@@ -289,7 +289,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .column-page-error { display: flex; align-items: center; gap: 8px; padding: 4px 2px; color: var(--red); font-size: 9px; line-height: 1.35; }
 .column-page-error .text-button { margin-left: auto; }
 .drop-placeholder { min-height: 24px; border: 1.5px dashed var(--purple); border-radius: 9px; background: color-mix(in srgb, var(--purple-soft) 55%, transparent); }
-.task-card { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow-sm); transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.task-card { position: relative; height: 128px; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow-sm); transition: height var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.task-card.expanded { height: auto; min-height: 128px; }
 .task-card:hover { border-color: var(--border-strong); box-shadow: 0 5px 13px rgba(35, 42, 61, .08); transform: translateY(-1px); }
 .task-card.dragging { opacity: .5; transform: rotate(1.5deg) scale(1.02); box-shadow: var(--lift-md); cursor: grabbing; }
 .task-drag-handle { position: absolute; top: 7px; right: 7px; z-index: 2; width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: color-mix(in srgb, var(--surface-muted) 80%, transparent); font-size: 16px; line-height: 1; cursor: grab; }
@@ -319,6 +320,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .claim-mini { color: var(--green); font-size: 8px; }
 .task-title { display: -webkit-box; overflow: hidden; font-size: 12px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .task-excerpt { display: -webkit-box; margin-top: 6px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.task-card:not(.expanded) .task-excerpt, .task-card:not(.expanded) .task-labels, .task-card:not(.expanded) .checklist-card-progress, .task-card:not(.expanded) .hierarchy-badge, .task-card:not(.expanded) .agent-pulse { display: none; }
+.card-expand-toggle { position: absolute; right: 9px; bottom: 34px; z-index: 2; padding: 2px 5px; border: 0; border-radius: 4px; color: var(--muted); background: var(--surface-muted); font-size: 9px; font-weight: 700; }
+.card-expand-toggle:hover, .card-expand-toggle:focus-visible { color: var(--purple); background: var(--purple-soft); }
 .task-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 9px; }
 .label-chip { display: inline-block; max-width: 92px; overflow: hidden; padding: 3px 6px; border-radius: 4px; color: var(--label-color); background: color-mix(in srgb, var(--label-color), transparent 87%); font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .label-more { padding: 3px 3px; color: var(--muted); font-size: 11px; }
