@@ -16,7 +16,7 @@
   export let task: Task;
   export let now = Date.now();
   export let actorLabel = '';
-  export let compact = true;
+  export let compact = false;
 
   const stateLabels: Record<string, string> = {
     working: 'Working',
