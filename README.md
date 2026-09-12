@@ -363,13 +363,13 @@ Cloudflare Access
   → /var/lib/roadmap/data/roadmap.db
 ```
 
-Changes are tested through a separate environment before production:
+Changes are tested through a private beta environment before production:
 
 ```text
 beta branch
   → beta GitHub environment and beta-only secrets
-  → beta-helm.home.shanekanterman.dev (private Tailnet target; route pending)
-  → private Tailnet TLS listener at 10.0.0.39:8443 (pending activation)
+  → beta-helm.home.shanekanterman.dev (active private Tailnet target)
+  → private Tailnet TLS listener at 10.0.0.39:8443
   → the `helm-beta` LXC (CT 106, 10.0.0.39)
   → an independent /var/lib/roadmap/data/roadmap.db
 
@@ -403,8 +403,9 @@ firewall posture, private preprovisioning, and recovery checks are in
 After the one-time Proxmox and private Tailnet preprovisioning described there, pushes to
 `beta` and `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Both branches run Go/frontend checks, browser tests, and a container smoke
-test. A `beta` push is paused pending the private route migration; public
-Cloudflare beta provisioning is disabled. The selected target is
+test. A successful `beta` push automatically deploys to the active private
+Tailnet target and validates its private readiness; public Cloudflare beta
+provisioning remains disabled. The selected target is
 `beta-helm.home.shanekanterman.dev`, while a `main` push may deploy only through the
 `production` environment and validate <https://tc.shanekanterman.dev>. Normal
 production deployment requires the GitHub Actions
@@ -421,11 +422,13 @@ Beta uses corresponding `BETA_*` environment secrets, including
 `BETA_ADMIN_EMAIL`, and the configured Tailnet owner login
 `ShaneKanterman04@github`, plus a distinct forced SSH account and
 release-signing key. Its signed private bundle omits cloudflared;
-the beta gateway validates only loopback health and an unauthenticated HTTP 401
-after deployment. The beta pause variable remains required while the private
-route/TLS is being verified. Dispatch `rollback_sha` from `beta` to roll back
-beta, or from `main` to roll back production; neither environment's job can
-select the other's gateway.
+the beta gateway validates loopback health, private-profile invariants, and an
+unauthenticated HTTP 401 after deployment. The optional
+`HELM_BETA_DEPLOY_PAUSED=true` setting remains an explicit maintenance stop,
+not the normal private-beta state. Dispatch `rollback_sha` from `beta` to roll
+back beta, or from `main` to roll back production; neither environment's job
+can select the other's gateway. Beta does not use Cloudflare credentials or
+public routing.
 
 ## Backups and rollback
 

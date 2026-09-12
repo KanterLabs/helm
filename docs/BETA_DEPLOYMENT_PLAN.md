@@ -14,18 +14,18 @@ promoting a tested beta revision requires an explicit pull request or merge to
 | Git branch | `main` | `beta` |
 | GitHub environment | `production` | `beta` |
 | Deploy lock | `helm-production` | `helm-beta` |
-| Public origin | `https://tc.shanekanterman.dev` | private-only `https://beta-helm.home.shanekanterman.dev` (not public; route pending) |
+| Origin | `https://tc.shanekanterman.dev` (public Cloudflare) | `https://beta-helm.home.shanekanterman.dev` (private Tailnet only; no public route) |
 | Proxmox guest | CT 103, `roadmap`, `10.0.0.38` | CT 106, `helm-beta`, `10.0.0.39` |
 | Deploy account | `roadmap-deploy` | `helm-beta-deploy` |
 | Host state | `/var/lib/roadmap-deploy` | `/var/lib/helm-beta-deploy` |
 | Signing trust | `/etc/roadmap-deploy` | `/etc/helm-beta-deploy` |
 | Cloudflare tunnel | `roadmap-homelab` | none (private Tailnet profile; public provisioning disabled) |
-| Access resources | `Helm owner UI`, `Helm agents API` | none (private route pending) |
+| Access resources | `Helm owner UI`, `Helm agents API` | none (private Tailnet; no public Access resources) |
 
 The Portfolio deployment owns `beta.shanekanterman.dev`; Helm beta owns only
 `beta-helm.home.shanekanterman.dev`, and its public Cloudflare reconciler is
 disabled. This is a private Tailnet/split-DNS hostname: the private route is
-not activated yet, no public DNS record is allowed, and the reconciler must
+active, no public DNS record is allowed, and the reconciler must
 never create or mutate the Portfolio hostname or tunnel record.
 
 The beta guest intentionally retains the in-guest compatibility paths and
@@ -37,9 +37,9 @@ credentials are never copied into it.
 
 ### Private Tailnet preprovisioning
 
-Before enabling a beta deployment, root must provision these files in CT 106;
-they are deliberately outside signed release bundles and are never printed by
-CI or the installer:
+The active beta guest is preprovisioned with these root-managed files in CT
+106; they are deliberately outside signed release bundles and are never
+printed by CI or the installer:
 
 | Path | Owner/mode | Purpose |
 | --- | --- | --- |
@@ -63,12 +63,12 @@ signed for provenance and must match this preprovisioned file; it contains
 paths and identity values only, never key bytes. The helper's separate key
 file and any Tailnet edge configuration are root-managed.
 
-The beta job remains paused with `HELM_BETA_DEPLOY_PAUSED=true` while the
-private route and TLS are being verified. When explicitly unpaused, CI builds a
-signed beta bundle without Cloudflare preparation/publication and invokes the
-guest's localhost health plus unauthenticated-401 validator. It does not claim
-that the private hostname is reachable until a root operator completes the
-Tailnet route/TLS check.
+The beta job is enabled for private auto-deploy. Each successful push to
+`beta` builds a signed beta bundle without Cloudflare preparation/publication,
+deploys it to CT 106, and invokes the guest's private-profile, localhost
+health, and unauthenticated-401 validator. The private Tailnet route and TLS
+are active; `HELM_BETA_DEPLOY_PAUSED=true` remains available only as an
+explicit maintenance stop.
 
 ## Dependency order
 
@@ -78,15 +78,17 @@ Tailnet route/TLS check.
    concurrency locks, origins, and rollback jobs.
 3. Extend deployment security tests to prove a beta action cannot select any
    production identity and a production action cannot select beta.
-4. Provision the beta deploy/signing identities and CT only; hold the public
-   tunnel, Access apps, and DNS until the private route is separately approved.
+4. Provision the beta deploy/signing identities and CT, complete the private
+   Tailnet route/TLS setup, and keep the public tunnel, Access apps, and DNS
+   disabled for beta.
 5. Push `beta`, require the full checks, then protect `main` so production
    changes arrive through an explicit reviewed merge.
 
 ## Promotion and rollback
 
-- A push to `beta` builds and tests that exact commit but remains paused; the
-  public beta Cloudflare path is disabled while the private route is pending.
+- A push to `beta` builds, tests, and automatically deploys that exact commit
+  to the private Tailnet target; the public beta Cloudflare path remains
+  disabled.
 - A pull request from `beta` to `main` runs the normal checks. Merging it makes
   a new immutable `main` commit, which is the only automatic production
   deployment trigger.
@@ -101,8 +103,8 @@ Tailnet route/TLS check.
   Go tests, race tests, browser tests, and container smoke checks pass.
 - The beta gateway reports CT 106 and the production gateway reports CT 103.
 - Beta and production use different forced SSH users and Ed25519 signing keys.
-- No public beta tunnel, DNS record, Access app, or policy is created before
-  the private-route approval gate.
-- Private Tailnet acceptance must prove the revision and auth boundary before
-  any beta public path is considered; the production revision, database,
-  releases, and services remain unchanged throughout beta tests.
+- No public beta tunnel, DNS record, Access app, or policy is created; beta
+  remains reachable only through its active private Tailnet route.
+- Every private auto-deploy proves the revision and auth boundary before it is
+  considered ready; the production revision, database, releases, and services
+  remain unchanged throughout beta tests.

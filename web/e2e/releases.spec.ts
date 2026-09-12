@@ -22,6 +22,10 @@ type Collection<T> = { data: T[]; next_cursor?: string | null };
 
 const e2eOrigin = new URL(process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080').origin;
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function mutationHeaders(version?: number): Record<string, string> {
   return {
     Origin: e2eOrigin,
@@ -48,6 +52,37 @@ async function createTask(
       title,
       column_id: column.id,
       priority: 'normal',
+      ...(releaseId ? { release_id: releaseId } : {})
+    },
+    headers: mutationHeaders()
+  }), `create ${title}`);
+}
+
+async function createRelease(
+  request: APIRequestContext,
+  project: Project,
+  name: string
+): Promise<Release> {
+  return json<Release>(await request.post(`/api/v1/projects/${project.id}/releases`, {
+    data: { name },
+    headers: mutationHeaders()
+  }), `create ${name}`);
+}
+
+async function createBug(
+  request: APIRequestContext,
+  project: Project,
+  column: Column,
+  title: string,
+  releaseId?: string
+): Promise<Task> {
+  return json<Task>(await request.post(`/api/v1/projects/${project.id}/tasks`, {
+    data: {
+      title,
+      kind: 'bug',
+      column_id: column.id,
+      priority: 'normal',
+      bug: { actual_behavior: `Actual behavior for ${title}.` },
       ...(releaseId ? { release_id: releaseId } : {})
     },
     headers: mutationHeaders()
@@ -143,4 +178,158 @@ test('plans, filters, completes, and reopens a dependency-aware release', async 
   await reopenDialog.getByLabel('Reason').fill('One final validation item needs to join the release.');
   await reopenDialog.getByRole('button', { name: 'Reopen release' }).click();
   await expect(releaseRow.getByText('Planned', { exact: true })).toBeVisible();
+});
+
+test('does not inherit a released board filter when creating tasks or bugs', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
+  expect(status.mode, 'The E2E server must run with HELM_AUTH_MODE=disabled').toBe('disabled');
+
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+  const project = await json<Project>(await request.post('/api/v1/projects', {
+    data: { key: `NEW${suffix}`.slice(0, 16), name: `Release entrypoints ${suffix}` },
+    headers: mutationHeaders()
+  }), 'create release entrypoint project');
+  const columnsResponse = await json<Collection<Column> | Column[]>(
+    await request.get(`/api/v1/projects/${project.id}/columns?limit=20`),
+    'list release entrypoint columns'
+  );
+  const columns = Array.isArray(columnsResponse) ? columnsResponse : columnsResponse.data;
+  const ready = columns.find((column) => column.semantic_state === 'ready');
+  expect(ready, 'the project should have a Ready column').toBeTruthy();
+
+  const release = await createRelease(request, project, `Frozen ${suffix}`);
+  let direct = await createTask(request, project, ready!, `Frozen member ${suffix}`, release.id);
+  direct = await json<Task>(await request.post(`/api/v1/tasks/${direct.id}/complete`, {
+    headers: mutationHeaders(direct.version)
+  }), 'complete frozen release task');
+  const currentRelease = await json<Release>(await request.get(`/api/v1/releases/${release.id}`), 'refresh frozen release');
+  await json<Release>(await request.post(`/api/v1/releases/${release.id}/complete`, {
+    headers: mutationHeaders(currentRelease.version)
+  }), 'complete frozen release');
+
+  await page.goto(`/p/${project.slug}?release=${release.id}`);
+  await expect(page.locator('section.board')).toBeVisible();
+  await expect(page.getByLabel('Filter by release')).toHaveValue(release.id);
+
+  const createdTitles = {
+    quick: `Quick unassigned ${suffix}`,
+    task: `Task unassigned ${suffix}`,
+    bug: `Bug unassigned ${suffix}`
+  };
+  const readyColumn = page.locator('.board-column').filter({
+    has: page.getByRole('heading', { name: 'Ready', exact: true })
+  });
+  await readyColumn.getByRole('button', { name: /Add task$/ }).click();
+  await readyColumn.getByRole('textbox', { name: 'New task in Ready' }).fill(createdTitles.quick);
+  await readyColumn.getByRole('button', { name: 'Add task', exact: true }).click();
+
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
+  const taskDialog = page.getByRole('dialog', { name: 'Create a task' });
+  await expect(taskDialog.getByLabel('Target release')).toHaveValue('');
+  await taskDialog.getByLabel('Task title').fill(createdTitles.task);
+  await taskDialog.getByRole('button', { name: 'Create task', exact: true }).click();
+  await expect(taskDialog).toBeHidden();
+
+  await page.getByRole('button', { name: 'Report bug', exact: true }).click();
+  const bugDialog = page.getByRole('dialog', { name: 'Report a bug' });
+  await expect(bugDialog.getByLabel('Target release')).toHaveValue('');
+  await bugDialog.getByLabel('Bug title').fill(createdTitles.bug);
+  await bugDialog.getByLabel('Actual behavior').fill('The release filter must not become a new assignment.');
+  await bugDialog.getByRole('button', { name: 'Report bug', exact: true }).click();
+  await expect(bugDialog).toBeHidden();
+
+  const taskCollection = await json<Collection<Task> | Task[]>(
+    await request.get(`/api/v1/projects/${project.id}/tasks?limit=200`),
+    'list release entrypoint tasks'
+  );
+  const createdTasks = Array.isArray(taskCollection) ? taskCollection : taskCollection.data;
+  for (const title of Object.values(createdTitles)) {
+    const created = createdTasks.find((task) => task.title === title);
+    expect(created, `task ${title} should be created`).toBeTruthy();
+    expect(created?.release_id || null, `${title} must not be assigned to the released filter`).toBeNull();
+  }
+});
+
+test('clears invalid cross-project release links before loading board pages', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
+  expect(status.mode, 'The E2E server must run with HELM_AUTH_MODE=disabled').toBe('disabled');
+
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+  const project = await json<Project>(await request.post('/api/v1/projects', {
+    data: { key: `LNK${suffix}`.slice(0, 16), name: `Release link target ${suffix}` },
+    headers: mutationHeaders()
+  }), 'create release link target project');
+  const otherProject = await json<Project>(await request.post('/api/v1/projects', {
+    data: { key: `OTH${suffix}`.slice(0, 16), name: `Release link source ${suffix}` },
+    headers: mutationHeaders()
+  }), 'create release link source project');
+  const otherRelease = await createRelease(request, otherProject, `Other project release ${suffix}`);
+
+  await page.goto(`/p/${project.slug}?release=${encodeURIComponent(otherRelease.id)}`);
+  await expect(page.locator('section.board')).toBeVisible();
+  await expect(page.getByLabel('Filter by release')).toHaveValue('all');
+  await expect(page).toHaveURL(new RegExp(`/p/${escapeRegExp(project.slug)}/?$`));
+  await expect(page.locator('.content-alert.error')).toHaveCount(0);
+
+  await page.goto(`/p/${project.slug}?release=missing-${suffix}`);
+  await expect(page.locator('section.board')).toBeVisible();
+  await expect(page.getByLabel('Filter by release')).toHaveValue('all');
+  await expect(page).toHaveURL(new RegExp(`/p/${escapeRegExp(project.slug)}/?$`));
+  await expect(page.locator('.content-alert.error')).toHaveCount(0);
+});
+
+test('clear issue filters reloads unfiltered results after a stale release request', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
+  expect(status.mode, 'The E2E server must run with HELM_AUTH_MODE=disabled').toBe('disabled');
+
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+  const project = await json<Project>(await request.post('/api/v1/projects', {
+    data: { key: `CLR${suffix}`.slice(0, 16), name: `Clear release filter ${suffix}` },
+    headers: mutationHeaders()
+  }), 'create clear filter project');
+  const columnsResponse = await json<Collection<Column> | Column[]>(
+    await request.get(`/api/v1/projects/${project.id}/columns?limit=20`),
+    'list clear filter columns'
+  );
+  const columns = Array.isArray(columnsResponse) ? columnsResponse : columnsResponse.data;
+  const ready = columns.find((column) => column.semantic_state === 'ready');
+  expect(ready, 'the project should have a Ready column').toBeTruthy();
+  const release = await createRelease(request, project, `Filtered release ${suffix}`);
+  const releasedBug = await createBug(request, project, ready!, `Release issue ${suffix}`, release.id);
+  const unassignedBug = await createBug(request, project, ready!, `Unassigned issue ${suffix}`);
+
+  await page.goto('/issues');
+  await expect(page.getByRole('region', { name: 'Issue health' })).toBeVisible();
+  const releaseFilter = page.getByLabel('Filter issues by release');
+  await expect(releaseFilter.locator(`option[value="${release.id}"]`)).toHaveCount(1);
+
+  let releaseRequestBlocked = false;
+  let releaseRequestResolve!: () => void;
+  const releaseRequestGate = new Promise<void>((resolve) => { releaseRequestResolve = resolve; });
+  await page.route('**/api/v1/issues**', async (route) => {
+    const url = new URL(route.request().url());
+    if (!releaseRequestBlocked && url.searchParams.get('release_id') === release.id) {
+      releaseRequestBlocked = true;
+      await releaseRequestGate;
+    }
+    await route.continue();
+  });
+
+  try {
+    await releaseFilter.selectOption(release.id);
+    await expect.poll(() => releaseRequestBlocked).toBe(true);
+    await expect(page.getByRole('button', { name: 'Clear filters', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    await expect(page).toHaveURL(/\/issues\/?$/);
+    await expect(page.getByRole('button', { name: new RegExp(escapeRegExp(unassignedBug.title)) })).toBeVisible();
+    releaseRequestResolve();
+    await expect(page.getByRole('button', { name: new RegExp(escapeRegExp(unassignedBug.title)) })).toBeVisible();
+    expect(releasedBug.id).not.toBe(unassignedBug.id);
+  } finally {
+    releaseRequestResolve();
+    await page.unroute('**/api/v1/issues**');
+  }
 });

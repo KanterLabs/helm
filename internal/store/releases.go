@@ -81,6 +81,9 @@ func validateReleaseInput(input ReleaseInput, creating bool) (ReleaseInput, erro
 		if name == "" || len(name) > maxReleaseName {
 			return ReleaseInput{}, invalid("name must be between 1 and 200 characters", nil)
 		}
+		if reservedReleaseName(name) {
+			return ReleaseInput{}, invalid("name must not be unassigned or none", nil)
+		}
 		input.Name = &name
 	}
 	if input.Description != nil {
@@ -96,6 +99,11 @@ func validateReleaseInput(input ReleaseInput, creating bool) (ReleaseInput, erro
 	}
 	input.TargetDate = date
 	return input, nil
+}
+
+func reservedReleaseName(name string) bool {
+	name = strings.TrimSpace(name)
+	return strings.EqualFold(name, "unassigned") || strings.EqualFold(name, "none")
 }
 
 func releaseNameTx(ctx context.Context, q dependencySQL, releaseID string) (string, error) {
