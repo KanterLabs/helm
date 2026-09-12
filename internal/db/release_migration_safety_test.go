@@ -26,9 +26,19 @@ func TestReleasesMigrationIsAdditiveAndGuardsRetainedWrites(t *testing.T) {
 	applyMigrationPrefix(t, ctx, database, migrations, 21)
 	populateProductionFixture(t, ctx, database, 21)
 
-	var beforeID, beforeTitle string
-	if err := database.QueryRowContext(ctx, `SELECT id, title FROM tasks WHERE id='task-1'`).Scan(&beforeID, &beforeTitle); err != nil {
+	var beforeID, beforeProjectID, beforeColumnID, beforeTitle string
+	var beforeTaskCount, beforeProjectCount, beforeColumnCount int
+	if err := database.QueryRowContext(ctx, `SELECT id, project_id, column_id, title FROM tasks WHERE id='task-1'`).Scan(&beforeID, &beforeProjectID, &beforeColumnID, &beforeTitle); err != nil {
 		t.Fatal(err)
+	}
+	for query, destination := range map[string]*int{
+		`SELECT COUNT(*) FROM tasks`:    &beforeTaskCount,
+		`SELECT COUNT(*) FROM projects`: &beforeProjectCount,
+		`SELECT COUNT(*) FROM columns`:  &beforeColumnCount,
+	} {
+		if err := database.QueryRowContext(ctx, query).Scan(destination); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := Migrate(ctx, database); err != nil {
 		t.Fatalf("migrate populated pre-022 database: %v", err)
@@ -44,12 +54,25 @@ func TestReleasesMigrationIsAdditiveAndGuardsRetainedWrites(t *testing.T) {
 	if releaseID.Valid {
 		t.Fatalf("existing task release_id = %q, want NULL", releaseID.String)
 	}
-	var afterID, afterTitle string
-	if err := database.QueryRowContext(ctx, `SELECT id, title FROM tasks WHERE id='task-1'`).Scan(&afterID, &afterTitle); err != nil {
+	var afterID, afterProjectID, afterColumnID, afterTitle string
+	if err := database.QueryRowContext(ctx, `SELECT id, project_id, column_id, title FROM tasks WHERE id='task-1'`).Scan(&afterID, &afterProjectID, &afterColumnID, &afterTitle); err != nil {
 		t.Fatal(err)
 	}
-	if afterID != beforeID || afterTitle != beforeTitle {
-		t.Fatalf("existing task changed during migration: before=%s/%s after=%s/%s", beforeID, beforeTitle, afterID, afterTitle)
+	if afterID != beforeID || afterProjectID != beforeProjectID || afterColumnID != beforeColumnID || afterTitle != beforeTitle {
+		t.Fatalf("existing task changed during migration: before=%s/%s/%s/%s after=%s/%s/%s/%s", beforeID, beforeProjectID, beforeColumnID, beforeTitle, afterID, afterProjectID, afterColumnID, afterTitle)
+	}
+	for query, expected := range map[string]int{
+		`SELECT COUNT(*) FROM tasks`:    beforeTaskCount,
+		`SELECT COUNT(*) FROM projects`: beforeProjectCount,
+		`SELECT COUNT(*) FROM columns`:  beforeColumnCount,
+	} {
+		var actual int
+		if err := database.QueryRowContext(ctx, query).Scan(&actual); err != nil {
+			t.Fatal(err)
+		}
+		if actual != expected {
+			t.Fatalf("populated row count changed during migration for %q: got %d, want %d", query, actual, expected)
+		}
 	}
 
 	if _, err := database.ExecContext(ctx, `INSERT INTO releases(id, project_id, name, description, version, created_at, updated_at) VALUES ('release-1', 'project', '1.4', '', 1, '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z')`); err != nil {
@@ -107,6 +130,9 @@ func TestReleasesMigrationIsAdditiveAndGuardsRetainedWrites(t *testing.T) {
 	}
 	if err := CheckIntegrity(ctx, database); err != nil {
 		t.Fatalf("migration 022 integrity: %v", err)
+	}
+	if err := ForeignKeyCheck(ctx, database); err != nil {
+		t.Fatalf("migration 022 foreign keys: %v", err)
 	}
 }
 
