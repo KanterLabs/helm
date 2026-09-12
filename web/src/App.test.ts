@@ -6,7 +6,10 @@ import {
   boardMutationReloadCanAnnounce,
   boardRefreshTargetsAreCurrent,
   bulkMutationRequestIsCurrent,
-  mergeOwnedBoardMetadata
+  clearedIssueFilterState,
+  mergeOwnedBoardMetadata,
+  plannedReleaseIdForAssignment,
+  validBoardReleaseFilter
 } from './App.svelte';
 import {
   boardColumnHasKnownGlobalBounds,
@@ -152,5 +155,43 @@ describe('bulk mutation response ownership guards', () => {
     expect(bulkMutationRequestIsCurrent(request, { ...request, projectId: 'project-b', projectSlug: 'beta', authenticated: true })).toBe(false);
     expect(bulkMutationRequestIsCurrent(request, { ...request, sessionGeneration: 9, authenticated: true })).toBe(false);
     expect(bulkMutationRequestIsCurrent(request, { ...request, authenticated: false })).toBe(false);
+  });
+});
+
+describe('release-bound entrypoint guards', () => {
+  const releases = [
+    { id: 'planned-release', status: 'planned' },
+    { id: 'released-release', status: 'released' }
+  ];
+
+  it('allows only planned releases to be assigned by task entrypoints', () => {
+    expect(plannedReleaseIdForAssignment('planned-release', releases)).toBe('planned-release');
+    expect(plannedReleaseIdForAssignment('released-release', releases)).toBe('');
+    expect(plannedReleaseIdForAssignment('unassigned', releases)).toBe('');
+  });
+
+  it('clears invalid and cross-project board release links while retaining valid filters', () => {
+    expect(validBoardReleaseFilter('planned-release', releases)).toBe('planned-release');
+    expect(validBoardReleaseFilter('missing-release', releases)).toBe('all');
+    expect(validBoardReleaseFilter('released-release', releases)).toBe('released-release');
+    expect(validBoardReleaseFilter('unassigned', releases)).toBe('unassigned');
+  });
+
+  it('resets issue release state together with the local filters', () => {
+    expect(clearedIssueFilterState()).toEqual({
+      filters: {
+        query: '',
+        priority: 'all',
+        label: 'all',
+        assignee: 'all',
+        state: 'all',
+        kind: 'bug',
+        severity: 'all',
+        reporter: 'all',
+        resolution: 'all'
+      },
+      project: 'all',
+      release: 'all'
+    });
   });
 });

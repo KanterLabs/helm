@@ -78,6 +78,50 @@
       && requested.projectId === current.projectId
       && requested.projectSlug === current.projectSlug;
   }
+
+  export type ReleaseAssignmentReference = {
+    id: string;
+    status?: string;
+  };
+
+  /** Only planned releases may receive new task assignments. */
+  export function plannedReleaseIdForAssignment(
+    requestedId: string | null | undefined,
+    releases: readonly ReleaseAssignmentReference[]
+  ): string {
+    if (!requestedId) return '';
+    return releases.some((release) => release.id === requestedId && release.status === 'planned')
+      ? requestedId
+      : '';
+  }
+
+  /** Retained board URLs must never send an inaccessible release to task APIs. */
+  export function validBoardReleaseFilter(
+    requestedFilter: string | null | undefined,
+    releases: readonly ReleaseAssignmentReference[]
+  ): string {
+    if (!requestedFilter || requestedFilter === 'all' || requestedFilter === 'unassigned') return requestedFilter || 'all';
+    return releases.some((release) => release.id === requestedFilter) ? requestedFilter : 'all';
+  }
+
+  export function clearedIssueFilterState() {
+    return {
+      filters: {
+        query: '',
+        priority: 'all',
+        label: 'all',
+        assignee: 'all',
+        state: 'all',
+        kind: 'bug',
+        severity: 'all',
+        reporter: 'all',
+        resolution: 'all'
+      },
+      project: 'all',
+      release: 'all'
+    } as const;
+  }
+
 </script>
 
 <script lang="ts">
@@ -2005,8 +2049,6 @@
         boardReleaseFilter = 'all';
         announce('The release filter was cleared because it is not part of this project.');
       }
-      if (taskModalProjectId === requestedProjectId && !taskModalReleaseId && boardReleaseFilter !== 'unassigned' && releaseQueryValue(boardReleaseFilter)) taskModalReleaseId = boardReleaseFilter;
-      if (bugModalProjectId === requestedProjectId && !bugModalReleaseId && boardReleaseFilter !== 'unassigned' && releaseQueryValue(boardReleaseFilter)) bugModalReleaseId = boardReleaseFilter;
       return items;
     } catch (error) {
       if (page && releaseRequestsByProject[requestedProjectId] === requestId && sessionGeneration === requestedSession && user) releasesError = friendlyError(error, 'Releases could not be loaded.');
@@ -2369,7 +2411,31 @@
     // Release metadata is intentionally independent from board columns so a
     // retained API can still render cached board work while release support
     // rolls out. The release-aware task request below remains authoritative.
-    void loadProjectReleases(project.id);
+    const requestedReleaseFilter = boardReleaseFilter;
+    if (requestedReleaseFilter !== 'all' && requestedReleaseFilter !== 'unassigned') {
+      const projectReleases = await loadProjectReleases(project.id);
+      if (
+        requestId !== boardRequest
+        || activeProjectSlug !== requestedSlug
+        || sessionGeneration !== requestedSession
+        || !user
+      ) return false;
+      // A release deep link must be validated before the first task page is
+      // requested. Otherwise an inaccessible release can leave every column
+      // in a partial/error state. Preserve the filter when release metadata
+      // itself is unavailable so a transient outage can still be retried.
+      if (
+        boardReleaseFilter === requestedReleaseFilter
+        && releasesByProject[project.id] !== undefined
+        && validBoardReleaseFilter(requestedReleaseFilter, projectReleases) === 'all'
+      ) {
+        boardReleaseFilter = 'all';
+        syncBoardReleaseURL();
+        announce('The release filter was cleared because it is not part of this project.');
+      }
+    } else {
+      void loadProjectReleases(project.id);
+    }
     boardLoading = true;
     boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], '');
     boardError = '';
@@ -4415,9 +4481,9 @@
     taskModalPriority = 'normal';
     taskModalDueDate = '';
     taskModalAssignee = '';
-    taskModalReleaseId = parentTaskId && drawerTask?.id === parentTaskId
-      ? taskReleaseId(drawerTask)
-      : boardReleaseFilter !== 'unassigned' ? releaseQueryValue(boardReleaseFilter) || '' : '';
+    const parentReleaseId = parentTaskId && drawerTask?.id === parentTaskId ? taskReleaseId(drawerTask) : '';
+    const inheritsParentRelease = Boolean(parentTaskId && drawerTask?.id === parentTaskId);
+    taskModalReleaseId = '';
     taskModalParentId = parentTaskId;
     taskModalIdea = '';
     taskModalSuggestion = null;
@@ -4426,11 +4492,16 @@
     taskModalNeedsCodex = false;
     taskModalError = '';
     resetTaskModalSuggestionState();
+    const requestedTaskModalProjectId = taskModalProjectId;
     rememberDialogFocus('[data-task-modal-trigger]');
     showTaskModal = true;
     projectSwitcherOpen = false;
     void loadCodexAccount();
-    await loadProjectReleases(taskModalProjectId).catch(() => []);
+    const projectReleases = await loadProjectReleases(taskModalProjectId).catch(() => []);
+    if (showTaskModal && taskModalProjectId === requestedTaskModalProjectId) {
+      const requestedRelease = inheritsParentRelease ? parentReleaseId : boardReleaseFilter;
+      taskModalReleaseId = plannedReleaseIdForAssignment(requestedRelease, projectReleases);
+    }
     if (!taskModalColumns.length) await loadTaskModalColumns(taskModalProjectId);
     else taskModalColumnId = taskModalColumns.find((column) => column.semantic_state === 'ready')?.id || taskModalColumns[0]?.id || '';
   }
@@ -4569,7 +4640,7 @@
         column_id: taskModalColumnId || undefined,
         due_at: dateToIso(taskModalDueDate),
         assignee: taskModalAssignee.trim() || null,
-        release_id: taskModalReleaseId || null,
+        release_id: plannedReleaseIdForAssignment(taskModalReleaseId, releasesByProject[taskModalProjectId] || []) || null,
         parent_task_id: taskModalParentId
       });
       recordTaskMutation(created.id, 'upsert', ['board']);
@@ -4604,12 +4675,16 @@
     bugModalLabels = '';
     bugModalSeverity = '';
     bugModalPriority = 'normal';
-    bugModalReleaseId = boardReleaseFilter !== 'unassigned' ? releaseQueryValue(boardReleaseFilter) || '' : '';
+    bugModalReleaseId = '';
     bugModalError = '';
+    const requestedBugModalProjectId = bugModalProjectId;
     rememberDialogFocus('[data-report-bug-trigger]');
     showBugModal = true;
     projectSwitcherOpen = false;
-    await loadProjectReleases(bugModalProjectId).catch(() => []);
+    const projectReleases = await loadProjectReleases(bugModalProjectId).catch(() => []);
+    if (showBugModal && bugModalProjectId === requestedBugModalProjectId) {
+      bugModalReleaseId = plannedReleaseIdForAssignment(boardReleaseFilter, projectReleases);
+    }
     if (!bugModalColumns.length) {
       bugModalLoading = true;
       try {
@@ -4644,7 +4719,7 @@
         priority: bugModalPriority,
         column_id: bugModalColumnId || undefined,
           labels: labelIds,
-          release_id: bugModalReleaseId || null,
+          release_id: plannedReleaseIdForAssignment(bugModalReleaseId, releasesByProject[bugModalProjectId] || []) || null,
           bug: {
           actual_behavior: bugModalActual.trim(),
           expected_behavior: bugModalExpected.trim(),
@@ -4882,19 +4957,12 @@
   }
 
   function clearIssueFilters() {
-    issueFilters = {
-      query: '',
-      priority: 'all',
-      label: 'all',
-      assignee: 'all',
-      state: 'all',
-      kind: 'bug',
-      severity: 'all',
-      reporter: 'all',
-      resolution: 'all'
-    };
-    issueProjectFilter = 'all';
-    issueReleaseFilter = 'all';
+    const cleared = clearedIssueFilterState();
+    issueFilters = cleared.filters;
+    issueProjectFilter = cleared.project;
+    issueReleaseFilter = cleared.release;
+    syncIssueViewURL(issueFilters, issueProjectFilter, issueReleaseFilter);
+    void loadIssues();
   }
 
   function applyIssueRouteFilters(params: URLSearchParams) {
@@ -4918,7 +4986,7 @@
   }
 
   function syncIssueViewURL(current: BoardFilters, project: string, release = issueReleaseFilter) {
-    if (typeof window === 'undefined' || window.location.pathname !== '/issues') return;
+    if (typeof window === 'undefined' || !/^\/issues\/?$/.test(window.location.pathname)) return;
     const params = new URLSearchParams();
     if (current.query) params.set('q', current.query);
     if (current.priority !== 'all') params.set('priority', current.priority);
@@ -5459,7 +5527,7 @@
         title,
         column_id: columnId,
         priority: 'normal',
-        release_id: boardReleaseFilter !== 'unassigned' ? releaseQueryValue(boardReleaseFilter) || null : null
+        release_id: plannedReleaseIdForAssignment(boardReleaseFilter, activeProjectReleases) || null
       });
       recordTaskMutation(created.id, 'upsert', ['board']);
       tasks = [...tasks, created];

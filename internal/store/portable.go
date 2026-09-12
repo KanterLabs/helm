@@ -1020,7 +1020,7 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 		if _, ok := projectSet[release.ProjectID]; !ok {
 			addPortableIssue(report, "release", release.ID, "project_id", "project does not exist in archive")
 		}
-		if strings.TrimSpace(release.Name) == "" || len(release.Name) > 200 {
+		if strings.TrimSpace(release.Name) == "" || len(release.Name) > 200 || reservedReleaseName(release.Name) {
 			addPortableIssue(report, "release", release.ID, "name", "name is invalid")
 		}
 		if len(release.Description) > 10000 {
@@ -1616,6 +1616,16 @@ type portableEventPlan struct {
 	create    bool
 }
 
+type portableEventPayloadMaps struct {
+	projects map[string]string
+	releases map[string]string
+	tasks    map[string]string
+	actors   map[string]string
+	comments map[string]string
+	columns  map[string]string
+	labels   map[string]string
+}
+
 type portableWorkPlan struct {
 	source  PortableAgentWork
 	taskID  string
@@ -1896,6 +1906,66 @@ func portableExistingNamedRelease(q portableSQL, projectID, name string) (Portab
 	return release, true, nil
 }
 
+func portableReleaseNameKey(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func portableProjectReleaseNameKey(projectID, name string) string {
+	return projectID + "\x00" + portableReleaseNameKey(name)
+}
+
+func portableReleaseNameCandidate(base string, attempt int) string {
+	suffix := " (imported)"
+	if attempt > 0 {
+		suffix = fmt.Sprintf(" (imported %d)", attempt+1)
+	}
+	return portableSuffix(base, suffix, 200)
+}
+
+// portableUniqueReleaseName keeps the source and destination releases
+// separate when a same-project name collision has incompatible fields. The
+// suffix sequence is deterministic so retries can discover the same imported
+// release, while the used set also accounts for multiple releases planned in
+// one archive.
+func portableUniqueReleaseName(base, projectID string, used map[string]struct{}) string {
+	for attempt := 0; attempt < 1000; attempt++ {
+		candidate := portableReleaseNameCandidate(base, attempt)
+		if _, exists := used[portableProjectReleaseNameKey(projectID, candidate)]; !exists {
+			return candidate
+		}
+	}
+	// portableSafeID/portableValidateArchive bound release names, so this is
+	// only a defensive fallback for an unusually crowded destination.
+	sum := sha256.Sum256([]byte(base))
+	return portableSuffix(base, " (imported-"+hex.EncodeToString(sum[:])[:8]+")", 200)
+}
+
+// portableFindMatchingReleaseNameCandidate finds a previously imported copy
+// whose deterministic name was selected after a same-name release conflict.
+// It intentionally continues past occupied unrelated names: an earlier
+// import may have had to skip one or more candidates before inserting its
+// release.
+func portableFindMatchingReleaseNameCandidate(q portableSQL, projectID string, source PortableRelease) (PortableRelease, bool, error) {
+	for attempt := 0; attempt < 1000; attempt++ {
+		name := portableReleaseNameCandidate(source.Name, attempt)
+		candidate, exists, err := portableExistingNamedRelease(q, projectID, name)
+		if err != nil {
+			return PortableRelease{}, false, err
+		}
+		if !exists {
+			// A prior import would have selected the first free deterministic
+			// name, so no later name can be its remapped copy.
+			return PortableRelease{}, false, nil
+		}
+		expected := source
+		expected.Name = name
+		if portableReleaseFieldsEqual(candidate, expected) {
+			return candidate, true, nil
+		}
+	}
+	return PortableRelease{}, false, nil
+}
+
 func portableExistingColumnPosition(q portableSQL, projectID string, position int) (bool, error) {
 	var exists int
 	err := q.QueryRowContext(context.Background(), `SELECT EXISTS(SELECT 1 FROM columns WHERE project_id=? AND position=?)`, projectID, position).Scan(&exists)
@@ -2044,6 +2114,123 @@ func portableEventFieldsEqual(a, b PortableEvent) bool {
 func portableEventFieldsEqualIgnoringID(a, b PortableEvent) bool {
 	a.ID, b.ID = "", ""
 	return portableEventFieldsEqual(a, b)
+}
+
+func portableEventPayloadTargets(key, parentKey, eventType string, maps portableEventPayloadMaps) map[string]string {
+	switch key {
+	case "project_id":
+		return maps.projects
+	case "release_id", "previous_release_id", "new_release_id", "old_release_id":
+		return maps.releases
+	case "task_id", "dependent_id", "prerequisite_id", "parent_id", "previous_parent_id", "child_id", "before_task_id", "after_task_id", "duplicate_of":
+		return maps.tasks
+	case "actor_id", "actor", "released_by", "assignee", "previous_assignee", "assignee_id", "previous_assignee_id", "created_by", "resolved_by", "reporter_id":
+		return maps.actors
+	case "comment_id", "generated_comment_id":
+		return maps.comments
+	case "column_id", "from_column_id", "to_column_id":
+		return maps.columns
+	case "label_id":
+		return maps.labels
+	case "id":
+		// A few event payloads carry a typed nested object instead of a flat
+		// *_id field. Only remap an ambiguous id when its object type makes the
+		// entity unambiguous.
+		switch parentKey {
+		case "project":
+			return maps.projects
+		case "release":
+			return maps.releases
+		case "task", "dependent", "prerequisite":
+			return maps.tasks
+		case "actor":
+			return maps.actors
+		case "comment":
+			return maps.comments
+		case "column":
+			return maps.columns
+		case "label":
+			return maps.labels
+		case "from", "to":
+			if eventType == "task.moved" {
+				return maps.columns
+			}
+		}
+	}
+	return nil
+}
+
+func portableEventPayloadActorKey(key, parentKey string) bool {
+	if key == "actor_id" || key == "actor" || key == "released_by" || key == "assignee" || key == "previous_assignee" || key == "assignee_id" || key == "previous_assignee_id" || key == "created_by" || key == "resolved_by" || key == "reporter_id" {
+		return true
+	}
+	return key == "id" && parentKey == "actor"
+}
+
+func portableRemapEventPayloadValue(q portableSQL, value any, key, parentKey, eventType, importer string, report *PortableImportReport, actorMap map[string]string, maps portableEventPayloadMaps) (any, bool, error) {
+	switch typed := value.(type) {
+	case map[string]any:
+		changed := false
+		for childKey, child := range typed {
+			remapped, childChanged, err := portableRemapEventPayloadValue(q, child, childKey, key, eventType, importer, report, actorMap, maps)
+			if err != nil {
+				return nil, false, err
+			}
+			typed[childKey] = remapped
+			changed = changed || childChanged
+		}
+		return typed, changed, nil
+	case []any:
+		changed := false
+		for index, child := range typed {
+			remapped, childChanged, err := portableRemapEventPayloadValue(q, child, key, parentKey, eventType, importer, report, actorMap, maps)
+			if err != nil {
+				return nil, false, err
+			}
+			typed[index] = remapped
+			changed = changed || childChanged
+		}
+		return typed, changed, nil
+	case string:
+		targets := portableEventPayloadTargets(key, parentKey, eventType, maps)
+		if targets != nil && portableEventPayloadActorKey(key, parentKey) {
+			mapped, err := portableMapActor(q, typed, importer, report, actorMap)
+			if err != nil {
+				return nil, false, err
+			}
+			return mapped, mapped != typed, nil
+		}
+		if targets != nil {
+			if mapped, ok := targets[typed]; ok {
+				return mapped, mapped != typed, nil
+			}
+		}
+	}
+	return value, false, nil
+}
+
+func portableRemapEventPayload(q portableSQL, payload json.RawMessage, eventType, importer string, report *PortableImportReport, actorMap map[string]string, maps portableEventPayloadMaps) (json.RawMessage, error) {
+	if len(payload) == 0 {
+		return payload, nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(payload)))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	remapped, changed, err := portableRemapEventPayloadValue(q, value, "", "", eventType, importer, report, actorMap, maps)
+	if err != nil {
+		return nil, err
+	}
+	if !changed {
+		return payload, nil
+	}
+	encoded, err := json.Marshal(remapped)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(encoded), nil
 }
 
 func portableWorkExists(q portableSQL, taskID string) (bool, error) {
@@ -2302,6 +2489,24 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 	if err != nil {
 		return portableImportPlan{}, err
 	}
+	usedReleaseNames := map[string]struct{}{}
+	releaseNameRows, err := q.QueryContext(ctx, `SELECT project_id,lower(name) FROM releases`)
+	if err != nil {
+		return portableImportPlan{}, err
+	}
+	for releaseNameRows.Next() {
+		var projectID, name string
+		if err := releaseNameRows.Scan(&projectID, &name); err != nil {
+			releaseNameRows.Close()
+			return portableImportPlan{}, err
+		}
+		usedReleaseNames[portableProjectReleaseNameKey(projectID, name)] = struct{}{}
+	}
+	if err := releaseNameRows.Err(); err != nil {
+		releaseNameRows.Close()
+		return portableImportPlan{}, err
+	}
+	releaseNameRows.Close()
 	usedLabelIDs, err := portableIDSet(q, "labels")
 	if err != nil {
 		return portableImportPlan{}, err
@@ -2588,9 +2793,11 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 
 	// Releases are resolved after projects and before tasks because every task
 	// release reference must point at the destination release ID. Stable IDs
-	// are reused when the complete row matches; a same-name release in the
-	// destination project is also reused to honor the project's name unique
-	// constraint without overwriting its metadata.
+	// are reused when the complete row matches. A same-name release is reused
+	// only when its complete row matches too; otherwise remap mode creates a
+	// deterministic, uniquely named copy so neither release's status or
+	// metadata is silently discarded and imported tasks remain compatible with
+	// the source release lifecycle.
 	actorMap := map[string]string{}
 	for _, source := range archive.Releases {
 		projectID := plan.projectMap[source.ProjectID]
@@ -2608,50 +2815,87 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 		if exists && existing.ProjectID == projectID && portableReleaseFieldsEqual(existing, mappedSource) {
 			create = false
 			plan.report.Counts.ReleasesSkipped++
-		} else if named, namedExists, lookupErr := portableExistingNamedRelease(q, projectID, source.Name); lookupErr != nil {
-			return portableImportPlan{}, lookupErr
-		} else if namedExists {
-			if options.Conflict == portableConflictFail && !portableReleaseFieldsEqual(named, mappedSource) {
-				return portableImportPlan{}, portableConflictError(plan.report, "release name conflicts with a destination record")
-			}
-			targetID, create = named.ID, false
-			plan.report.Counts.ReleasesSkipped++
-			if targetID != source.ID {
-				portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "same project release name already exists")
-			}
-			if !portableReleaseFieldsEqual(named, mappedSource) {
-				plan.report.Warnings = append(plan.report.Warnings, fmt.Sprintf("release %s was retained because the destination already has the same name", source.ID))
-			}
 		} else {
-			if exists && options.Conflict == portableConflictFail {
-				return portableImportPlan{}, portableConflictError(plan.report, "release id conflict")
+			named, namedExists, lookupErr := portableExistingNamedRelease(q, projectID, source.Name)
+			if lookupErr != nil {
+				return portableImportPlan{}, lookupErr
 			}
-			if exists {
-				candidateID, candidateMatches, lookupErr := portableFindMatchingCandidate("release", source.ID, func(id string) (bool, bool, error) {
-					candidate, candidateExists, candidateErr := portableExistingRelease(q, id)
-					if candidateErr != nil {
-						return false, false, candidateErr
-					}
-					return candidateExists, candidateExists && candidate.ProjectID == projectID && portableReleaseFieldsEqual(candidate, mappedSource), nil
-				})
-				if lookupErr != nil {
-					return portableImportPlan{}, lookupErr
-				}
-				if candidateMatches {
-					targetID, create = candidateID, false
-					plan.report.Counts.ReleasesSkipped++
-					portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "reused deterministic remap from an earlier import")
-				}
-			}
-			if create {
-				if _, taken := usedReleaseIDs[targetID]; taken {
-					targetID = portableCandidateID("release", source.ID, usedReleaseIDs)
-				}
-				usedReleaseIDs[targetID] = struct{}{}
+			if namedExists && portableReleaseFieldsEqual(named, mappedSource) {
+				// The source ID may differ from a matching destination release ID;
+				// retaining the destination row is safe because all release fields
+				// (including status) agree.
+				targetID, create = named.ID, false
+				plan.report.Counts.ReleasesSkipped++
 				if targetID != source.ID {
-					portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "source id conflicted with a destination record")
+					portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "same project release name already exists with matching fields")
 				}
-				plan.report.Counts.ReleasesCreated++
+			} else {
+				if namedExists && options.Conflict == portableConflictFail {
+					return portableImportPlan{}, portableConflictError(plan.report, "release name conflicts with a destination record")
+				}
+
+				if namedExists {
+					// A same-name, incompatible release cannot be reused: doing so
+					// would either lose the source metadata or attach source tasks
+					// to a released destination release. First look for the stable
+					// remapped copy from an earlier import, then select a fresh
+					// deterministic name for a new copy.
+					candidateSource := mappedSource
+					candidate, candidateMatches, candidateErr := portableFindMatchingReleaseNameCandidate(q, projectID, candidateSource)
+					if candidateErr != nil {
+						return portableImportPlan{}, candidateErr
+					}
+					if candidateMatches {
+						mappedSource.Name = candidate.Name
+						targetID, create = candidate.ID, false
+						plan.report.Counts.ReleasesSkipped++
+						portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "reused deterministic remap from an earlier incompatible name collision")
+						portableAddRemap(&plan.report, "release", source.Name, mappedSource.Name, "name", "reused deterministic remap from an earlier incompatible name collision")
+					}
+					if !candidateMatches {
+						mappedSource.Name = portableUniqueReleaseName(source.Name, projectID, usedReleaseNames)
+						portableAddRemap(&plan.report, "release", source.Name, mappedSource.Name, "name", "same project release name conflicted with incompatible destination metadata")
+					}
+				}
+
+				if create {
+					if exists && options.Conflict == portableConflictFail {
+						return portableImportPlan{}, portableConflictError(plan.report, "release id conflict")
+					}
+					if exists {
+						candidateID, candidateMatches, candidateErr := portableFindMatchingCandidate("release", source.ID, func(id string) (bool, bool, error) {
+							candidate, candidateExists, candidateErr := portableExistingRelease(q, id)
+							if candidateErr != nil {
+								return false, false, candidateErr
+							}
+							return candidateExists, candidateExists && candidate.ProjectID == projectID && portableReleaseFieldsEqual(candidate, mappedSource), nil
+						})
+						if candidateErr != nil {
+							return portableImportPlan{}, candidateErr
+						}
+						if candidateMatches {
+							targetID, create = candidateID, false
+							plan.report.Counts.ReleasesSkipped++
+							portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "reused deterministic remap from an earlier import")
+						}
+					}
+				}
+				if create {
+					if _, nameTaken := usedReleaseNames[portableProjectReleaseNameKey(projectID, mappedSource.Name)]; nameTaken {
+						originalName := mappedSource.Name
+						mappedSource.Name = portableUniqueReleaseName(mappedSource.Name, projectID, usedReleaseNames)
+						portableAddRemap(&plan.report, "release", originalName, mappedSource.Name, "name", "release name conflicted with another imported release in the destination project")
+					}
+					if _, taken := usedReleaseIDs[targetID]; taken {
+						targetID = portableCandidateID("release", source.ID, usedReleaseIDs)
+					}
+					usedReleaseIDs[targetID] = struct{}{}
+					usedReleaseNames[portableProjectReleaseNameKey(projectID, mappedSource.Name)] = struct{}{}
+					if targetID != source.ID {
+						portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "source id conflicted with a destination record")
+					}
+					plan.report.Counts.ReleasesCreated++
+				}
 			}
 		}
 		plan.releases = append(plan.releases, portableReleasePlan{source: mappedSource, id: targetID, projectID: projectID, releasedBy: mappedSource.ReleasedBy, create: create})
@@ -3226,6 +3470,18 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 					mapped.ProjectID = &project
 				}
 			}
+		}
+		mapped.Payload, err = portableRemapEventPayload(q, source.Payload, source.Type, options.ActorID, &plan.report, actorMap, portableEventPayloadMaps{
+			projects: plan.projectMap,
+			releases: plan.releaseMap,
+			tasks:    plan.taskMap,
+			actors:   actorMap,
+			comments: plan.commentMap,
+			columns:  plan.columnMap,
+			labels:   plan.labelMap,
+		})
+		if err != nil {
+			return portableImportPlan{}, err
 		}
 		existing, exists, err := portableExistingEvent(q, targetID)
 		if err != nil {

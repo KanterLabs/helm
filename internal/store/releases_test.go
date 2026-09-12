@@ -40,8 +40,22 @@ func TestReleaseLifecycleAndTaskBinding(t *testing.T) {
 	if _, err := data.CreateRelease(ctx, project.ID, ReleaseInput{Name: stringPtrForTest(" 1.4 ")}, owner.ID); !errors.Is(err, ErrReleaseNameExists) {
 		t.Fatalf("case-insensitive duplicate error = %v, want ErrReleaseNameExists", err)
 	}
+	for _, reservedName := range []string{"unassigned", "NONE", " Unassigned "} {
+		if _, err := data.CreateRelease(ctx, project.ID, ReleaseInput{Name: stringPtrForTest(reservedName)}, owner.ID); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("reserved release name %q error = %v, want ErrInvalid", reservedName, err)
+		}
+	}
 	if _, err := data.CreateRelease(ctx, project.ID, ReleaseInput{Name: stringPtrForTest("bad date"), TargetDate: stringPtrForTest("2026-02-30")}, owner.ID); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("invalid date error = %v, want ErrInvalid", err)
+	}
+	mutableName := "mutable"
+	mutable, err := data.CreateRelease(ctx, project.ID, ReleaseInput{Name: &mutableName}, owner.ID)
+	if err != nil {
+		t.Fatalf("create mutable release: %v", err)
+	}
+	reservedUpdate := " none "
+	if _, err := data.UpdateRelease(ctx, mutable.ID, ReleaseInput{Name: &reservedUpdate}, mutable.Version, owner.ID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("reserved release rename error = %v, want ErrInvalid", err)
 	}
 
 	assigned, err := data.CreateTask(ctx, project.ID, TaskInput{Title: stringPtrForTest("Ship release"), ReleaseID: &release.ID}, owner.ID)

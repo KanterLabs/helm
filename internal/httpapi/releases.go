@@ -137,7 +137,7 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request, identity auth.I
 			s.writeStoreError(w, versionErr)
 			return
 		}
-		if !requireReleaseIdempotencyKey(w, r) || s.idempotencyReplay(w, r, identity) {
+		if !requireReleaseIdempotencyKey(w, r) {
 			return
 		}
 	default:
@@ -153,6 +153,11 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request, identity auth.I
 	if !identity.CanProject(release.ProjectID) {
 		s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to this project", nil)
 		return
+	}
+	if r.Method == http.MethodPatch || r.Method == http.MethodDelete {
+		if s.idempotencyReplay(w, r, identity) {
+			return
+		}
 	}
 
 	switch r.Method {
@@ -199,7 +204,7 @@ func (s *Server) completeRelease(w http.ResponseWriter, r *http.Request, identit
 		s.writeStoreError(w, err)
 		return
 	}
-	if !requireReleaseIdempotencyKey(w, r) || s.idempotencyReplay(w, r, identity) {
+	if !requireReleaseIdempotencyKey(w, r) {
 		return
 	}
 	release, err := s.Store.GetRelease(r.Context(), reference)
@@ -209,6 +214,9 @@ func (s *Server) completeRelease(w http.ResponseWriter, r *http.Request, identit
 	}
 	if !identity.CanProject(release.ProjectID) {
 		s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to this project", nil)
+		return
+	}
+	if s.idempotencyReplay(w, r, identity) {
 		return
 	}
 	s.mutation(w, r, identity, func() (int, []byte, string, error) {
@@ -237,7 +245,7 @@ func (s *Server) reopenRelease(w http.ResponseWriter, r *http.Request, identity 
 		s.writeStoreError(w, err)
 		return
 	}
-	if !requireReleaseIdempotencyKey(w, r) || s.idempotencyReplay(w, r, identity) {
+	if !requireReleaseIdempotencyKey(w, r) {
 		return
 	}
 	release, err := s.Store.GetRelease(r.Context(), reference)
@@ -247,6 +255,9 @@ func (s *Server) reopenRelease(w http.ResponseWriter, r *http.Request, identity 
 	}
 	if !identity.CanProject(release.ProjectID) {
 		s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to this project", nil)
+		return
+	}
+	if s.idempotencyReplay(w, r, identity) {
 		return
 	}
 	reason, decodeErr := decodeReleaseReopenReason(r)
@@ -289,9 +300,13 @@ func (s *Server) releaseWorkQueue(w http.ResponseWriter, r *http.Request, identi
 		s.writeError(w, http.StatusBadRequest, "invalid_request", paginationErr.Error(), nil)
 		return
 	}
-	cursor, _, err := queryValue(r, "cursor")
+	cursor, cursorPresent, err := queryValue(r, "cursor")
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
+	if cursorPresent && strings.TrimSpace(cursor) == "" {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "cursor must not be empty", nil)
 		return
 	}
 	queue, err := s.Store.GetReleaseWorkQueue(r.Context(), workRelease.ID, identity.Actor.ID, store.ReleaseWorkQueueFilter{Cursor: cursor, Limit: limit})
