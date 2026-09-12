@@ -13,7 +13,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateDevices=true
-ReadWritePaths=/var/lib/roadmap/data /var/lib/roadmap/backups
+ReadWritePaths=/var/lib/roadmap/data /var/lib/roadmap/backups /var/lib/roadmap/deploy.lock
 
 [Install]
 Alias=roadmap-backup.service
