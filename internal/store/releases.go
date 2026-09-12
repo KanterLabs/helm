@@ -485,7 +485,30 @@ func (s *Store) DeleteRelease(ctx context.Context, id string, expected int64, ac
 	if err != nil {
 		return err
 	}
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	if current.ReleasedAt != nil {
+		return releaseError(ErrReleaseFrozen, ErrConflict, "released release is frozen; reopen it first", map[string]any{"release_id": current.ID})
+	}
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		var releasedAt sql.NullString
+		if readErr := tx.QueryRowContext(ctx, `SELECT released_at FROM releases WHERE id=?`, current.ID).Scan(&releasedAt); errors.Is(readErr, sql.ErrNoRows) {
+			return releaseError(ErrReleaseNotFound, ErrNotFound, "release not found", map[string]any{"release_id": current.ID})
+		} else if readErr != nil {
+			return readErr
+		}
+		if releasedAt.Valid {
+			return releaseError(ErrReleaseFrozen, ErrConflict, "released release is frozen; reopen it first", map[string]any{"release_id": current.ID})
+		}
+		// Check the foreign-key membership boundary inside the same immediate
+		// writer transaction as the delete. This keeps the public lifecycle
+		// error stable even when a task was attached while the caller was
+		// preparing the request, and avoids exposing a driver-specific FK error.
+		var taskCount int
+		if countErr := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM tasks WHERE release_id=?`, current.ID).Scan(&taskCount); countErr != nil {
+			return countErr
+		}
+		if taskCount > 0 {
+			return releaseError(ErrReleaseHasTasks, ErrConflict, "release has task members", map[string]any{"release_id": current.ID, "task_count": taskCount})
+		}
 		result, deleteErr := tx.ExecContext(ctx, `DELETE FROM releases WHERE id=? AND version=? AND released_at IS NULL`, current.ID, expected)
 		if deleteErr != nil {
 			return mapReleaseMutationError(ctx, tx, deleteErr, current.ProjectID, "")
