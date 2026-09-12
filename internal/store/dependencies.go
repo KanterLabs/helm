@@ -87,6 +87,15 @@ func (s *Store) withImmediateDependencyTx(ctx context.Context, fn func(dependenc
 	return nil
 }
 
+// withImmediateTx is the shared immediate-writer transaction entrypoint for
+// bounded mutations that must validate task state before their first write.
+// It uses the same dedicated-connection implementation as dependency graph
+// mutations while keeping the dependency-specific helper name available to
+// its existing callers.
+func (s *Store) withImmediateTx(ctx context.Context, fn func(dependencySQL) error) error {
+	return s.withImmediateDependencyTx(ctx, fn)
+}
+
 func dependencyNotFound(message string, details any) error {
 	return &Error{Kind: errors.Join(ErrDependencyNotFound, ErrNotFound), Message: message, Details: details}
 }
@@ -714,7 +723,16 @@ func emitDependencyStateChanges(ctx context.Context, q dependencySQL, actorID st
 			"prerequisite_key": change.PrerequisiteKey,
 			"satisfied":        change.Satisfied,
 		}
-		if _, err := q.ExecContext(ctx, `INSERT INTO events(id, type, actor_id, project_id, task_id, payload, created_at) VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?)`, newID(), "task.dependency_state_changed", actorID, change.ProjectID, target.DependentID, eventPayload(payload), now()); err != nil {
+		eventID, createdAt := newID(), now()
+		result, err := q.ExecContext(ctx, `INSERT INTO events(id, type, actor_id, project_id, task_id, payload, created_at) VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?)`, eventID, "task.dependency_state_changed", actorID, change.ProjectID, target.DependentID, eventPayload(payload), createdAt)
+		if err != nil {
+			return err
+		}
+		eventCursor, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := notifyForEventTx(ctx, q, eventID, eventCursor, "task.dependency_state_changed", actorID, change.ProjectID, target.DependentID, eventPayload(payload), createdAt); err != nil && !isOptionalNotificationSchemaError(err) {
 			return err
 		}
 	}

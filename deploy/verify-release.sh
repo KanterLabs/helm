@@ -22,10 +22,7 @@ TAR_CPU_LIMIT_SECONDS=20
 TAR_MEMORY_LIMIT_KIB=262144
 TAR_LISTING_LIMIT_BYTES=1048576
 
-PAYLOAD_MEMBERS=(
-	cloudflared
-	cloudflared.service
-	cloudflared.token
+COMMON_PAYLOAD_MEMBERS=(
 	codex
 	codex.sha256
 	compose.yaml
@@ -43,10 +40,7 @@ PAYLOAD_MEMBERS=(
 	release.sha
 )
 ENVELOPE_MEMBERS=(release.manifest release.manifest.sig)
-ALL_MEMBERS=(
-	cloudflared
-	cloudflared.service
-	cloudflared.token
+COMMON_BUNDLE_MEMBERS=(
 	codex
 	codex.sha256
 	compose.yaml
@@ -65,7 +59,34 @@ ALL_MEMBERS=(
 	release.manifest.sig
 	release.sha
 )
+VERIFIER_BASENAME=${BASH_SOURCE[0]##*/}
+case "$VERIFIER_BASENAME" in
+	 helm-beta-verify-release)
+		PAYLOAD_MEMBERS=("${COMMON_PAYLOAD_MEMBERS[@]}" validate-beta-private.sh)
+		ALL_MEMBERS=("${COMMON_BUNDLE_MEMBERS[@]}" validate-beta-private.sh)
+		;;
+	*)
+		PAYLOAD_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_PAYLOAD_MEMBERS[@]}")
+		ALL_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_BUNDLE_MEMBERS[@]}")
+		;;
+esac
 ARCHIVE_MAX_MEMBERS=${#ALL_MEMBERS[@]}
+
+member_is_allowed() {
+	local candidate=$1 member
+	for member in "${ALL_MEMBERS[@]}"; do
+		[[ "$candidate" = "$member" ]] && return 0
+	done
+	return 1
+}
+
+payload_member_is_allowed() {
+	local candidate=$1 member
+	for member in "${PAYLOAD_MEMBERS[@]}"; do
+		[[ "$candidate" = "$member" ]] && return 0
+	done
+	return 1
+}
 
 fail() {
 	printf '[helm-verify-release] %s\n' "$*" >&2
@@ -198,29 +219,8 @@ for member in "${tar_members[@]}"; do
 	# Resolve only after an exact case match.  This keeps untrusted tar names
 	# out of associative-array subscripts and rejects ./ aliases, traversal,
 	# absolute paths, whitespace, and every unlisted file.
-	case "$member" in
-		cloudflared) member_key=cloudflared ;;
-		cloudflared.service) member_key=cloudflared.service ;;
-		cloudflared.token) member_key=cloudflared.token ;;
-		codex) member_key=codex ;;
-		codex.sha256) member_key=codex.sha256 ;;
-		compose.yaml) member_key=compose.yaml ;;
-		install-inside-lxc.sh) member_key=install-inside-lxc.sh ;;
-		nftables.conf) member_key=nftables.conf ;;
-		roadmap) member_key=roadmap ;;
-		roadmap-backup.service) member_key=roadmap-backup.service ;;
-		roadmap-backup.sh) member_key=roadmap-backup.sh ;;
-		roadmap-backup.timer) member_key=roadmap-backup.timer ;;
-		roadmap.env) member_key=roadmap.env ;;
-		roadmap-restore.sh) member_key=roadmap-restore.sh ;;
-		roadmap-rollback.sh) member_key=roadmap-rollback.sh ;;
-		roadmap.service) member_key=roadmap.service ;;
-		roadmap.sha256) member_key=roadmap.sha256 ;;
-		release.sha) member_key=release.sha ;;
-		release.manifest) member_key=release.manifest ;;
-		release.manifest.sig) member_key=release.manifest.sig ;;
-		*) fail "release archive contains a disallowed member: $member" ;;
-	esac
+	member_is_allowed "$member" || fail "release archive contains a disallowed member: $member"
+	member_key=$member
 	[[ -z "${seen_members[$member_key]+x}" ]] || fail "release archive contains duplicate member: $member"
 	seen_members[$member_key]=1
 done
@@ -236,10 +236,7 @@ for listing in "${tar_verbose[@]}"; do
 	read -r mode owner member_size member_date member_time member extra <<< "$listing"
 	[[ -z "$extra" && "$mode" = -* && -n "$member" ]] \
 		|| fail 'release archive members must all be regular files'
-	case "$member" in
-		cloudflared|cloudflared.service|cloudflared.token|codex|codex.sha256|compose.yaml|install-inside-lxc.sh|nftables.conf|roadmap|roadmap-backup.service|roadmap-backup.sh|roadmap-backup.timer|roadmap.env|roadmap-restore.sh|roadmap-rollback.sh|roadmap.service|roadmap.sha256|release.manifest|release.manifest.sig|release.sha) ;;
-		*) fail "release archive metadata names a disallowed member: $member" ;;
-	esac
+	member_is_allowed "$member" || fail "release archive metadata names a disallowed member: $member"
 	[[ "$member_size" =~ ^[0-9]+$ ]] || fail "release member size is invalid: $member"
 	(( member_size <= ARCHIVE_MAX_UNCOMPRESSED_BYTES )) || fail 'release member exceeds the uncompressed size cap'
 	if (( member_size > ARCHIVE_MAX_UNCOMPRESSED_BYTES - header_aggregate )); then
@@ -285,10 +282,7 @@ while IFS=$'\t' read -r name size digest extra; do
 		|| fail 'release manifest contains a malformed line'
 	[[ "$name" = "${PAYLOAD_MEMBERS[$payload_count]}" ]] \
 		|| fail 'release manifest is not in canonical member order'
-	case "$name" in
-		cloudflared|cloudflared.service|cloudflared.token|codex|codex.sha256|compose.yaml|install-inside-lxc.sh|nftables.conf|roadmap|roadmap-backup.service|roadmap-backup.sh|roadmap-backup.timer|roadmap.env|roadmap-restore.sh|roadmap-rollback.sh|roadmap.service|roadmap.sha256|release.sha) ;;
-		*) fail "release manifest names a non-payload member: $name" ;;
-	esac
+	payload_member_is_allowed "$name" || fail "release manifest names a non-payload member: $name"
 	[[ -z "${seen_payload[$name]+x}" ]] || fail "release manifest contains duplicate member: $name"
 	seen_payload[$name]=1
 	[[ "$size" =~ ^(0|[1-9][0-9]*)$ ]] || fail "release manifest size is invalid for $name"

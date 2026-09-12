@@ -43,6 +43,25 @@ describe('public API client', () => {
     expect(etagForVersion(14)).toBe('"v14"');
   });
 
+  it('sends a bounded project bulk mutation with an idempotency key', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({
+      mode: 'partial', status: 'partial', requested: 1, applied: 1, skipped: 0, conflicts: 0,
+      results: [{ reference: 'OPS-1', task_id: 'task-1', status: 'applied', version: 4 }]
+    }));
+    await api.bulkTasks('project/one', {
+      mode: 'partial',
+      mutations: [{ task: 'OPS-1', version: 3, operation: 'priority', priority: 'urgent' }]
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/api/v1/projects/project%2Fone/tasks/bulk');
+    expect((init as RequestInit).method).toBe('POST');
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      mode: 'partial',
+      mutations: [{ task: 'OPS-1', version: 3, operation: 'priority', priority: 'urgent' }]
+    });
+    expect((init?.headers as Headers).get('Idempotency-Key')).toBeTruthy();
+  });
+
   it('sends precise reorder anchors with the guarded task contract', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({ id: 'task-1', version: 4 }));
     await api.reorderTask('task-1', {

@@ -193,6 +193,7 @@ func (s *Server) admitBearerCredential(w http.ResponseWriter, r *http.Request) b
 	}
 	limiter := s.getBearerCredentialLimiter()
 	if allowed, retryAfter := limiter.allow(key); !allowed {
+		s.metricsValue().recordRateLimit("credential")
 		seconds := int64((retryAfter + time.Second - 1) / time.Second)
 		if seconds < 1 {
 			seconds = 1
@@ -212,6 +213,7 @@ func (s *Server) admitBearerRequest(w http.ResponseWriter, r *http.Request, iden
 	}
 	limiter := s.getAgentRequestLimiter()
 	if allowed, retryAfter := limiter.allow(identity.Actor.ID); !allowed {
+		s.metricsValue().recordRateLimit("request")
 		seconds := int64((retryAfter + time.Second - 1) / time.Second)
 		if seconds < 1 {
 			seconds = 1
@@ -234,6 +236,8 @@ func (s *Server) admitMutationRate(w http.ResponseWriter, r *http.Request, ident
 	}
 	limiter := s.getMutationLimiter()
 	if allowed, retryAfter := limiter.allow(identity.Actor.ID); !allowed {
+		s.metricsValue().recordRateLimit("mutation")
+		s.metricsValue().recordAgentMutation("rejected_rate_limit")
 		seconds := int64((retryAfter + time.Second - 1) / time.Second)
 		if seconds < 1 {
 			seconds = 1
@@ -256,6 +260,7 @@ func (s *Server) admitMutation(w http.ResponseWriter, r *http.Request, identity 
 	}
 	if err := s.Store.ReserveAgentMutation(r.Context(), identity.Actor.ID, len(bodyBytes(r))); err != nil {
 		if errors.Is(err, store.ErrResourceLimit) {
+			s.metricsValue().recordAgentMutation("rejected_resource_limit")
 			s.writeError(w, http.StatusInsufficientStorage, "resource_limit", "agent mutation resource budget exhausted", map[string]any{
 				"operator_reset": "ResetAgentMutationUsage",
 			})

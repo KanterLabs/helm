@@ -12,13 +12,6 @@ compat_env() {
 	printf '%s' "${canonical_value:-${legacy_value:-$default_value}}"
 }
 
-: "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
-[[ "$CLOUDFLARE_API_TOKEN" != *$'\n'* && "$CLOUDFLARE_API_TOKEN" != *$'\r'* ]] || {
-	printf 'CLOUDFLARE_API_TOKEN contains a control character\n' >&2
-	exit 1
-}
-CF_ACCESS_CLIENT_ID=${CF_ACCESS_CLIENT_ID:-}
-CF_ACCESS_CLIENT_SECRET=${CF_ACCESS_CLIENT_SECRET:-}
 DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
 case "$DEPLOY_ENVIRONMENT" in
 	production|beta) ;;
@@ -27,6 +20,19 @@ case "$DEPLOY_ENVIRONMENT" in
 		exit 1
 		;;
 esac
+
+if [[ "$DEPLOY_ENVIRONMENT" = beta ]]; then
+	printf 'beta public Cloudflare validation is disabled: beta-helm.home.shanekanterman.dev is a private Tailnet/split-DNS hostname; private route migration is not activated and no public DNS record is allowed\n' >&2
+	exit 78
+fi
+
+: "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
+[[ "$CLOUDFLARE_API_TOKEN" != *$'\n'* && "$CLOUDFLARE_API_TOKEN" != *$'\r'* ]] || {
+	printf 'CLOUDFLARE_API_TOKEN contains a control character\n' >&2
+	exit 1
+}
+CF_ACCESS_CLIENT_ID=${CF_ACCESS_CLIENT_ID:-}
+CF_ACCESS_CLIENT_SECRET=${CF_ACCESS_CLIENT_SECRET:-}
 REQUIRE_SERVICE_AUTH_PROBE=$(compat_env HELM_REQUIRE_SERVICE_AUTH_PROBE ROADMAP_REQUIRE_SERVICE_AUTH_PROBE 0)
 [[ "$REQUIRE_SERVICE_AUTH_PROBE" = 0 || "$REQUIRE_SERVICE_AUTH_PROBE" = 1 ]] || {
 	printf 'HELM_REQUIRE_SERVICE_AUTH_PROBE must be 0 or 1\n' >&2
@@ -99,8 +105,8 @@ case "$DEPLOY_ENVIRONMENT" in
 		SERVICE_POLICY_NAME='Helm agents Service Auth'
 		;;
 	beta)
-		PUBLIC_HOST=beta.shanekanterman.dev
-		PUBLIC_URL=https://beta.shanekanterman.dev
+		PUBLIC_HOST=beta-helm.home.shanekanterman.dev
+		PUBLIC_URL=https://beta-helm.home.shanekanterman.dev
 		API_PATH="$PUBLIC_HOST/api/v1/*"
 		TUNNEL_NAME=helm-beta-homelab
 		UI_APP_NAME='Helm beta owner UI'
@@ -414,6 +420,7 @@ jq -e --arg host "$PUBLIC_HOST" --arg target "$tunnel_id.cfargotunnel.com" \
 # Health and OpenAPI deliberately remain behind Access. This check must fail
 # if somebody adds a public bypass to either endpoint.
 expect_access /healthz
+expect_access /readyz
 expect_access /openapi.json
 expect_access /
 expect_access /api/v1/roadmap

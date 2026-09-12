@@ -251,9 +251,21 @@ test.describe('task drawer safeguards', () => {
     await page.goto(`/p/${project.slug}`);
     const board = page.locator('section.board');
     const claimedCard = board.locator('.task-card').filter({ hasText: claimed.title });
-    await expect(claimedCard.locator('.agent-pulse-claim')).toContainText('Claimed by');
-    await expect(claimedCard.locator('.agent-pulse-claim')).toContainText('task version v');
-    await expect(claimedCard.locator('.agent-pulse-claim')).toContainText('expiring soon');
+    const claimedPulse = claimedCard.locator('.agent-pulse');
+    const expandToggle = claimedCard.getByRole('button', { name: `Show details for ${claimed.key}` });
+    await expect(claimedCard).toHaveCSS('height', '128px');
+    await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(claimedPulse, 'board cards keep claim detail hidden until expanded').toBeHidden();
+    await expect(claimedPulse.locator('.agent-pulse-copy')).toHaveCount(0);
+
+    await expandToggle.click();
+    await expect(claimedCard).toHaveCSS('height', '220px');
+    await expect(claimedPulse).toBeVisible();
+    await expect(claimedPulse.locator('.agent-pulse-badge-label')).toHaveText('No live pulse');
+    await expect(claimedPulse.locator('.agent-pulse-copy')).toHaveCount(0);
+    await claimedCard.getByRole('button', { name: `Hide details for ${claimed.key}` }).click();
+    await expect(claimedCard).toHaveCSS('height', '128px');
+    await expect(claimedPulse).toBeHidden();
 
     await claimedCard.locator('[data-task-trigger]').click();
     const drawer = page.locator('.task-drawer');

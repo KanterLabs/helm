@@ -15,6 +15,8 @@ BACKUP="$DEPLOY_DIR/helm-backup.sh"
 RESTORE="$DEPLOY_DIR/helm-restore.sh"
 ROLLBACK="$DEPLOY_DIR/helm-rollback.sh"
 INSTALL="$DEPLOY_DIR/install-inside-lxc.sh"
+PRIVATE_VALIDATE="$DEPLOY_DIR/validate-beta-private.sh"
+PRIVATE_OWNER_TEMPLATE="$DEPLOY_DIR/tailnet-owner.env.example"
 SERVICE="$DEPLOY_DIR/helm.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
@@ -40,13 +42,14 @@ count_contains() {
 }
 
 for file in "$GATEWAY" "$BOOTSTRAP" "$DEPLOY_CI" "$VERIFY" "$BUILD_BUNDLE" \
-	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
+	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
 	[[ -f "$file" && ! -L "$file" ]] || fail "deployment file is missing: $file"
 done
 
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/helm-deploy-security.XXXXXX")
 cleanup_fixture() { rm -rf -- "$fixture"; }
 trap cleanup_fixture EXIT
+sed -n '/^  beta_deploy:/,/^  deploy:/p' "$WORKFLOW" > "$fixture/beta-workflow.yml"
 # Mocked backup publication tests do not have a release binary from which to
 # query migration-info; use a deterministic non-secret fixture digest.
 export HELM_MIGRATION_DIGEST=0000000000000000000000000000000000000000000000000000000000000000
@@ -377,7 +380,7 @@ printf 'loopback_listener_runtime_tests=ok\n'
 # before systemd verifies the unit and before starting the new application so
 # a clean install cannot fail verification on a missing executable.
 install_switch_line=$(grep -n '^atomic_switch "\$release_target"' "$INSTALL" | cut -d: -f1 || true)
-install_verify_line=$(grep -n '^systemd-analyze verify ' "$INSTALL" | cut -d: -f1 || true)
+install_verify_line=$(grep -n 'systemd-analyze verify ' "$INSTALL" | sed -n '1p' | cut -d: -f1 || true)
 install_helm_start_line=$(grep -n '^systemctl start helm\.service$' "$INSTALL" | cut -d: -f1 || true)
 [[ -n "$install_switch_line" && -n "$install_verify_line" && -n "$install_helm_start_line" ]] \
 	|| fail 'install ordering regression checks could not find the release switch, unit verification, and Helm start'
@@ -431,7 +434,7 @@ not_contains 'atomically move it to /var/lib/roadmap/roadmap.db' "$DOCS"
 install_backup_line=$(grep -n 'roadmap-backup.sh" "\$SHA"' "$INSTALL" | cut -d: -f1 || true)
 install_preflight_line=$(grep -n 'schema-preflight' "$INSTALL" | sed -n '1p' | cut -d: -f1 || true)
 install_proof_line=$(grep -n "^printf 'pre_upgrade_backup=" "$INSTALL" | cut -d: -f1 || true)
-install_stop_line=$(grep -n '^stop_unit cloudflared\.service' "$INSTALL" | tail -n 1 | cut -d: -f1 || true)
+install_stop_line=$(grep -n 'stop_unit cloudflared\.service' "$INSTALL" | tail -n 1 | cut -d: -f1 || true)
 install_switch_line=$(grep -n '^atomic_switch "\$release_target"' "$INSTALL" | cut -d: -f1 || true)
 legacy_refusal_line=$(grep -n 'legacy database layout requires an explicit offline maintenance migration' "$INSTALL" | cut -d: -f1 || true)
 [[ -n "$install_backup_line" && -n "$install_preflight_line" && -n "$install_proof_line" && -n "$install_stop_line" && -n "$install_switch_line" && -n "$legacy_refusal_line" ]] \
@@ -459,10 +462,12 @@ not_contains 'roadmap.db' "$ROLLBACK"
 # re-read its reviewed configuration after stopping it and refuse destruction
 # when the configuration has drifted.
 source <(awk '/^ct_config_field\(\)/,/^}/' "$GATEWAY")
+source <(awk '/^ct_config_field_count\(\)/,/^}/' "$GATEWAY")
 source <(awk '/^ct_option_matches\(\)/,/^}/' "$GATEWAY")
 source <(awk '/^ct_net0_is_exact\(\)/,/^}/' "$GATEWAY")
 source <(awk '/^ct_rootfs_is_exact\(\)/,/^}/' "$GATEWAY")
 source <(awk '/^ct_tags_are_exact\(\)/,/^}/' "$GATEWAY")
+source <(awk '/^ct_reviewed_field\(\)/,/^}/' "$GATEWAY")
 source <(awk '/^target_vmid_state\(\)/,/^}/' "$GATEWAY")
 source <(awk '/^target_vmid_is_lxc_for_cleanup\(\)/,/^}/' "$GATEWAY")
 source <(awk '/^ct_config_matches_helm_identity\(\)/,/^}/' "$GATEWAY")
@@ -486,6 +491,7 @@ qm() {
 	return 1
 }
 gateway_canonical_config=$'hostname: roadmap\nunprivileged: 1\nnet0: name=eth0,bridge=vmbr0,gw=10.0.0.1,hwaddr=BC:24:11:12:34:56,ip=10.0.0.38/24,type=veth\narch: amd64\nonboot: 1\nostype: debian\ncores: 1\nmemory: 2048\nswap: 512\nrootfs: local-lvm:vm-103-disk-0,size=16G\nnameserver: 10.0.0.1 1.1.1.1\nsearchdomain: lan\nstartup: order=5,up=10,down=30\ntags: lan;roadmap;service'
+gateway_secret_marker='ct-config-secret-marker-must-not-appear'
 
 # A QEMU guest occupying the reviewed VMID must fail status before pct is
 # consulted; otherwise pct config would report "not found" and status would
@@ -517,6 +523,40 @@ contains 'VMID 103 is assigned to a QEMU VM' "$gateway_status_output"
 not_contains 'current_sha=none' "$gateway_status_output"
 [[ ! -s "$gateway_status_calls" ]] || fail 'gateway status touched pct during a QEMU VMID collision'
 printf 'gateway_qemu_vmid_collision_test=ok\n'
+
+# A rejected metadata preflight is read-only too: status may read pct config,
+# but must not reach any lifecycle or guest-exec operation after validation
+# fails. Keep the bad value secret-like to assert that diagnostics stay fixed.
+gateway_status_bad_config=${gateway_canonical_config/10.0.0.1 1.1.1.1/$gateway_secret_marker}
+gateway_status_bad_calls="$fixture/gateway-status-bad.calls"
+gateway_status_bad_output="$fixture/gateway-status-bad.out"
+: > "$gateway_status_bad_calls"
+gateway_status_bad_pct() {
+	printf '%s\n' "$*" >> "$GATEWAY_STATUS_BAD_CALLS"
+	case "${1:-}" in
+		config) printf '%s\n' "$GATEWAY_STATUS_BAD_CONFIG" ;;
+		*) return 1 ;;
+	esac
+}
+gateway_status_free_qm() {
+	printf "Configuration file 'nodes/pve/qemu-server/%s.conf' does not exist\n" "$1" >&2
+	return 1
+}
+if (
+	export GATEWAY_STATUS_BAD_CALLS="$gateway_status_bad_calls"
+	export GATEWAY_STATUS_BAD_CONFIG="$gateway_status_bad_config"
+	qm() { gateway_status_free_qm "$@"; }
+	pct() { gateway_status_bad_pct "$@"; }
+	export -f qm pct gateway_status_free_qm gateway_status_bad_pct
+	HELM_GATEWAY_LOCAL_TEST=1 "$gateway_status_script" status
+) >"$gateway_status_bad_output" 2>&1; then
+	fail 'status accepted a rejected metadata preflight'
+fi
+contains 'Roadmap CT has an invalid nameserver setting' "$gateway_status_bad_output"
+not_contains "$gateway_secret_marker" "$gateway_status_bad_output"
+! grep -Eq '^(start|stop|destroy|exec|status) ' "$gateway_status_bad_calls" \
+	|| fail 'status reached a lifecycle or guest-exec operation after config rejection'
+printf 'gateway_status_read_only_config_rejection_test=ok\n'
 
 # Installing the same gateway under the exact beta basename must select only
 # CT 106 and the beta host staging root. The selection is not controllable by
@@ -550,6 +590,10 @@ fi
 contains 'current_sha=none' "$gateway_beta_output"
 contains 'config 106' "$gateway_beta_calls"
 not_contains 'config 103' "$gateway_beta_calls"
+contains 'if [[ "$PROFILE" = beta ]]; then' "$GATEWAY"
+contains 'pct exec "$CTID" -- systemctl is-active roadmap.service' "$GATEWAY"
+contains 'if [[ "$PROFILE" = production ]]; then' "$GATEWAY"
+contains 'pct exec "$CTID" -- systemctl is-active --quiet cloudflared.service' "$GATEWAY"
 printf 'gateway_beta_profile_test=ok\n'
 
 gateway_drift_config=${gateway_canonical_config/hostname: roadmap/hostname: unrelated}
@@ -563,6 +607,89 @@ fi
 if ct_config_matches_helm_identity "$gateway_extra_net_config"; then
 	fail 'Helm CT configuration accepted an unreviewed network option'
 fi
+
+gateway_expect_config_error() {
+	local name=$1 expected=$2 config=$3
+	CT_CONFIG_ERROR='stale diagnostic'
+	if ct_config_matches_helm_identity "$config"; then
+		fail "gateway config fixture unexpectedly passed: $name"
+	fi
+	[[ "$CT_CONFIG_ERROR" = "$expected" ]] \
+		|| fail "gateway config fixture $name returned unexpected diagnostic: $CT_CONFIG_ERROR"
+	[[ "$CT_CONFIG_ERROR" != *"$gateway_secret_marker"* ]] \
+		|| fail "gateway config fixture $name leaked uncontrolled config content"
+	printf 'gateway_config_%s=ok\n' "$name"
+}
+
+gateway_expect_config_error \
+	nameserver_invalid \
+	'Roadmap CT has an invalid nameserver setting' \
+	"${gateway_canonical_config/10.0.0.1 1.1.1.1/$gateway_secret_marker}"
+gateway_expect_config_error \
+	nameserver_missing \
+	'Roadmap CT is missing the reviewed nameserver setting' \
+	"$(sed '/^nameserver: /d' <<<"$gateway_canonical_config")"
+gateway_expect_config_error \
+	nameserver_duplicate \
+	'Roadmap CT has duplicate nameserver settings' \
+	"$gateway_canonical_config"$'\nnameserver: 10.0.0.1 1.1.1.1'
+gateway_expect_config_error \
+	nameserver_malformed \
+	'Roadmap CT has a malformed nameserver setting' \
+	"${gateway_canonical_config/nameserver: 10.0.0.1 1.1.1.1/nameserver:10.0.0.1 1.1.1.1}"
+
+gateway_expect_config_error \
+	searchdomain_invalid \
+	'Roadmap CT has an invalid searchdomain setting' \
+	"${gateway_canonical_config/searchdomain: lan/searchdomain: invalid.example}"
+gateway_expect_config_error \
+	searchdomain_missing \
+	'Roadmap CT is missing the reviewed searchdomain setting' \
+	"$(sed '/^searchdomain: /d' <<<"$gateway_canonical_config")"
+gateway_expect_config_error \
+	searchdomain_duplicate \
+	'Roadmap CT has duplicate searchdomain settings' \
+	"$gateway_canonical_config"$'\nsearchdomain: lan'
+gateway_expect_config_error \
+	searchdomain_malformed \
+	'Roadmap CT has a malformed searchdomain setting' \
+	"${gateway_canonical_config/searchdomain: lan/searchdomain:lan}"
+
+gateway_expect_config_error \
+	startup_invalid \
+	'Roadmap CT has an invalid startup setting' \
+	"${gateway_canonical_config/startup: order=5,up=10,down=30/startup: order=5,up=10,down=20}"
+gateway_expect_config_error \
+	startup_missing \
+	'Roadmap CT is missing the reviewed startup setting' \
+	"$(sed '/^startup: /d' <<<"$gateway_canonical_config")"
+gateway_expect_config_error \
+	startup_duplicate \
+	'Roadmap CT has duplicate startup settings' \
+	"$gateway_canonical_config"$'\nstartup: order=5,up=10,down=30'
+gateway_expect_config_error \
+	startup_malformed \
+	'Roadmap CT has a malformed startup setting' \
+	"${gateway_canonical_config/startup: order=5,up=10,down=30/startup:order=5,up=10,down=30}"
+
+gateway_expect_config_error \
+	tags_invalid \
+	'Roadmap CT has an invalid tags setting' \
+	"${gateway_canonical_config/lan;roadmap;service/lan;other;service}"
+gateway_expect_config_error \
+	tags_missing \
+	'Roadmap CT is missing a required deployment tag' \
+	"${gateway_canonical_config/lan;roadmap;service/lan;service}"
+gateway_expect_config_error \
+	tags_duplicate \
+	'Roadmap CT has duplicate deployment tags' \
+	"${gateway_canonical_config/lan;roadmap;service/lan;roadmap;service;service}"
+gateway_expect_config_error \
+	tags_malformed \
+	'Roadmap CT has an invalid tags setting' \
+	"${gateway_canonical_config/lan;roadmap;service/lan;roadmap;}"
+printf 'gateway_config_diagnostics_test=ok\n'
+
 gateway_pct_mode=
 gateway_pct_config_calls=
 gateway_pct_calls=
@@ -637,6 +764,7 @@ contains 'validate_ct_config()' "$GATEWAY"
 contains 'pct config "$CTID"' "$GATEWAY"
 contains 'current_sha=none' "$GATEWAY"
 contains 'created=1' "$GATEWAY"
+not_contains 'unexpected deployment metadata or resolver settings' "$GATEWAY"
 not_contains 'systemctl stop cloudflared.service 2>/dev/null || true' "$ROLLBACK"
 not_contains 'systemctl stop helm.service 2>/dev/null || true' "$ROLLBACK"
 not_contains 'systemctl stop cloudflared.service >/dev/null 2>&1 || true' "$RESTORE"
@@ -687,6 +815,9 @@ fi
 rollback_systemctl() {
 	local action=${1:-} unit=${2:-} state_file state current
 	case "$action" in
+		daemon-reload|mask|unmask)
+			return 0
+			;;
 		show)
 			printf 'loaded\n'
 			;;
@@ -898,6 +1029,13 @@ contains 'restrict_to_account_members' "$CLOUDFLARE"
 contains 'restrict_to_account_members' "$VALIDATE"
 contains 'identity providers are ambiguous or nonconforming' "$CLOUDFLARE"
 contains 'identity provider is missing, ambiguous, or nonconforming' "$VALIDATE"
+contains 'PUBLIC_HOST=beta-helm.home.shanekanterman.dev' "$CLOUDFLARE"
+contains 'PUBLIC_HOST=beta-helm.home.shanekanterman.dev' "$VALIDATE"
+contains 'HELM_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev' "$ROOT_DIR/.helm-beta-deploy.env.example"
+contains 'beta-helm.home.shanekanterman.dev' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
+contains 'private Tailnet/split-DNS hostname' "$CLOUDFLARE"
+contains 'private Tailnet/split-DNS hostname' "$VALIDATE"
+contains 'owned by a different tunnel' "$CLOUDFLARE"
 not_contains 'onetimepin' "$CLOUDFLARE"
 not_contains 'onetimepin' "$VALIDATE"
 contains '.result.session_duration == "168h"' "$VALIDATE"
@@ -1025,6 +1163,39 @@ run_service_probe_case eventual-failure $'dns\nconnect' failure
 unset -f curl sleep probe_curl
 unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET PROBE_KIND PROBE_RESPONSES PROBE_CALL_LOG PROBE_SLEEP_LOG
 
+# The selected beta hostname is private Tailnet/split-DNS only. Both public
+# Cloudflare entrypoints must reject beta before requiring credentials, looking
+# up tools, creating temporary files, or invoking curl.
+beta_guard_curl() {
+	printf '%s\n' "$*" >> "$BETA_GUARD_CURL_LOG"
+	return 99
+}
+curl() { beta_guard_curl "$@"; }
+export -f beta_guard_curl curl
+BETA_GUARD_CURL_LOG="$fixture/beta-guard-curl.calls"
+: >"$BETA_GUARD_CURL_LOG"
+if (
+	unset CLOUDFLARE_API_TOKEN
+	export HELM_DEPLOY_ENVIRONMENT=beta BETA_GUARD_CURL_LOG
+	"$CLOUDFLARE" publish
+) >"$fixture/cloudflare-beta-guard.out" 2>&1; then
+	fail 'Cloudflare beta public provisioning unexpectedly succeeded'
+fi
+contains 'private Tailnet/split-DNS hostname' "$fixture/cloudflare-beta-guard.out"
+[[ ! -s "$BETA_GUARD_CURL_LOG" ]] || fail 'Cloudflare beta guard invoked curl'
+: >"$BETA_GUARD_CURL_LOG"
+if (
+	unset CLOUDFLARE_API_TOKEN
+	export HELM_DEPLOY_ENVIRONMENT=beta BETA_GUARD_CURL_LOG
+	"$VALIDATE"
+) >"$fixture/validate-beta-guard.out" 2>&1; then
+	fail 'live beta public validation unexpectedly succeeded'
+fi
+contains 'private Tailnet/split-DNS hostname' "$fixture/validate-beta-guard.out"
+[[ ! -s "$BETA_GUARD_CURL_LOG" ]] || fail 'live beta guard invoked curl'
+unset -f curl beta_guard_curl
+unset BETA_GUARD_CURL_LOG
+
 # Exercise Cloudflare's exact origin, ingress, and DNS predicates with mocked
 # API responses. The production functions reject alternate loopback, host,
 # scheme, route, fallback, and DNS forms rather than normalizing them.
@@ -1039,6 +1210,7 @@ fi
 
 source <(awk '/^validate_tunnel_config\(\)/,/^}/' "$CLOUDFLARE")
 source <(awk '/^validate_dns_record\(\)/,/^}/' "$CLOUDFLARE")
+source <(awk '/^upsert_dns\(\)/,/^}/' "$CLOUDFLARE")
 ACCOUNT_ID=fixture-account
 ZONE_ID=fixture-zone
 PUBLIC_HOST=tc.shanekanterman.dev
@@ -1126,6 +1298,66 @@ for cloudflare_bad_dns in wrong-target unproxied extra-record wrong-type; do
 		fail "Cloudflare accepted malformed DNS topology: $cloudflare_bad_dns"
 	fi
 done
+
+# DNS publication must preserve an existing record only when it already points
+# at the selected tunnel. A different CNAME is owned by another service and
+# must fail closed without issuing a PUT or POST; an absent record remains
+# creatable and a correct record remains idempotently reconcilable.
+cloudflare_dns_mutation_log="$fixture/cloudflare-dns-upsert.calls"
+cloudflare_dns_mode=correct
+cloudflare_dns_response=$cloudflare_canonical_dns
+cloudflare_dns_request() {
+	local method=$1 path=$2 body=${3:-} get_count
+	printf '%s %s\n' "$method" "$path" >>"$cloudflare_dns_mutation_log"
+	case "$method $path" in
+		"GET /zones/$ZONE_ID/dns_records?name=$PUBLIC_HOST")
+			get_count=$(grep -Fc -- "GET /zones/$ZONE_ID/dns_records?name=$PUBLIC_HOST" "$cloudflare_dns_mutation_log" || true)
+			if [[ "$cloudflare_dns_mode" = absent && "$get_count" = 1 ]]; then
+				printf '%s' '{"success":true,"result":[]}'
+			else
+				printf '%s' "$cloudflare_dns_response"
+			fi
+			;;
+		"PUT /zones/$ZONE_ID/dns_records/dns-fixture"|"POST /zones/$ZONE_ID/dns_records")
+			printf '%s' '{"success":true,"result":{}}'
+			;;
+		*) return 1 ;;
+	esac
+}
+cf_request() { cloudflare_dns_request "$@"; }
+
+: >"$cloudflare_dns_mutation_log"
+if ! upsert_dns "$PUBLIC_HOST" "$cloudflare_fixture_tunnel_id" \
+	>"$fixture/cloudflare-dns-upsert-correct.out" 2>&1; then
+	fail 'correct Cloudflare DNS CNAME was not idempotently reconciled'
+fi
+[[ "$(grep -Fc -- "PUT /zones/$ZONE_ID/dns_records/dns-fixture" "$cloudflare_dns_mutation_log" || true)" = 1 ]] \
+	|| fail 'correct Cloudflare DNS CNAME did not use its existing record'
+[[ "$(grep -Fc -- 'POST /zones/fixture-zone/dns_records' "$cloudflare_dns_mutation_log" || true)" = 0 ]] \
+	|| fail 'correct Cloudflare DNS CNAME unexpectedly created a duplicate record'
+
+cloudflare_dns_mode=conflict
+cloudflare_dns_response=$(jq -c '.result[0].content="other.cfargotunnel.com"' <<<"$cloudflare_canonical_dns")
+: >"$cloudflare_dns_mutation_log"
+if upsert_dns "$PUBLIC_HOST" "$cloudflare_fixture_tunnel_id" \
+	>"$fixture/cloudflare-dns-upsert-conflict.out" 2>&1; then
+	fail 'conflicting Cloudflare DNS CNAME was overwritten'
+fi
+contains 'owned by a different tunnel' "$fixture/cloudflare-dns-upsert-conflict.out"
+[[ "$(grep -Ec -- '^(PUT|POST) ' "$cloudflare_dns_mutation_log" || true)" = 0 ]] \
+	|| fail 'conflicting Cloudflare DNS CNAME issued a mutation request'
+
+cloudflare_dns_mode=absent
+cloudflare_dns_response=$cloudflare_canonical_dns
+: >"$cloudflare_dns_mutation_log"
+if ! upsert_dns "$PUBLIC_HOST" "$cloudflare_fixture_tunnel_id" \
+	>"$fixture/cloudflare-dns-upsert-absent.out" 2>&1; then
+	fail 'absent Cloudflare DNS CNAME was not created'
+fi
+[[ "$(grep -Fc -- 'POST /zones/fixture-zone/dns_records' "$cloudflare_dns_mutation_log" || true)" = 1 ]] \
+	|| fail 'absent Cloudflare DNS CNAME did not create exactly one record'
+[[ "$(grep -Fc -- 'PUT /zones/fixture-zone/dns_records/dns-fixture' "$cloudflare_dns_mutation_log" || true)" = 0 ]] \
+	|| fail 'absent Cloudflare DNS CNAME unexpectedly used PUT'
 
 # Drive prepare through the real Cloudflare script with a deterministic curl
 # API mock. Each injected failure occurs after the one-time service token is
@@ -1317,16 +1549,20 @@ contains "github.ref == 'refs/heads/main'" "$WORKFLOW"
 contains "github.ref == 'refs/heads/beta'" "$WORKFLOW"
 contains 'branches: [main, beta]' "$WORKFLOW"
 contains 'name: beta' "$WORKFLOW"
-contains 'url: https://beta.shanekanterman.dev' "$WORKFLOW"
+contains 'url: https://beta-helm.home.shanekanterman.dev' "$WORKFLOW"
 contains 'HELM_DEPLOY_ENVIRONMENT: beta' "$WORKFLOW"
-contains 'BETA_CLOUDFLARE_API_TOKEN' "$WORKFLOW"
+contains "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW"
+[[ "$(grep -Fc -- "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW" || true)" = 1 ]] \
+	|| fail 'beta deployment pause gate must apply only to beta_deploy'
 contains 'BETA_ADMIN_EMAIL' "$WORKFLOW"
+not_contains 'BETA_TAILNET_OWNER_LOGIN' "$WORKFLOW"
 contains 'BETA_DEPLOY_SSH_KEY' "$WORKFLOW"
 contains 'BETA_DEPLOY_KNOWN_HOSTS' "$WORKFLOW"
 contains 'BETA_RELEASE_SIGNING_KEY' "$WORKFLOW"
-contains 'BETA_CF_ACCESS_CLIENT_ID' "$WORKFLOW"
-contains 'BETA_CF_ACCESS_CLIENT_SECRET' "$WORKFLOW"
-count_contains 2 'HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}' "$WORKFLOW"
+not_contains 'BETA_CLOUDFLARE_API_TOKEN' "$WORKFLOW"
+not_contains 'BETA_CF_ACCESS_CLIENT_ID' "$WORKFLOW"
+not_contains 'BETA_CF_ACCESS_CLIENT_SECRET' "$WORKFLOW"
+count_contains 1 'HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}' "$WORKFLOW"
 contains 'ref: ${{ github.sha }}' "$WORKFLOW"
 contains 'actions/upload-artifact@' "$WORKFLOW"
 contains '# v7.0.1' "$WORKFLOW"
@@ -1344,8 +1580,81 @@ contains 'HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE: "1"' "$WORKFLOW"
 contains 'cloudflare_dir="$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"
 contains 'HELM_CLOUDFLARED_TOKEN_FILE=%s' "$WORKFLOW"
 contains 'HELM_OWNER_ENV_FILE=%s' "$WORKFLOW"
-count_contains 4 'rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"
-count_contains 4 'rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env' "$WORKFLOW"
+count_contains 2 'rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"
+count_contains 2 'rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env' "$WORKFLOW"
+contains 'name: Prepare private beta owner environment' "$WORKFLOW"
+contains 'HELM_TAILNET_OWNER_LOGIN: ShaneKanterman04@github' "$WORKFLOW"
+contains 'HELM_TAILNET_ALLOWED_PEER_IPS: 10.0.0.101' "$WORKFLOW"
+contains 'HELM_AUTH_MODE=tailnet' "$WORKFLOW"
+contains 'HELM_TAILNET_ASSERTION_KEY_FILE=/etc/roadmap/tailnet.key' "$WORKFLOW"
+contains 'HELM_TAILNET_TLS_ADDR=10.0.0.39:8443' "$WORKFLOW"
+contains 'HELM_TAILNET_TLS_CERT_FILE=/etc/roadmap/tailnet-origin.crt' "$WORKFLOW"
+contains 'HELM_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key' "$WORKFLOW"
+contains 'deploy-ci.sh private-ready' "$WORKFLOW"
+contains 'HELM_TAILNET_ALLOWED_PEER_IPS=10.0.0.101' "$PRIVATE_OWNER_TEMPLATE"
+contains 'ROADMAP_TAILNET_ALLOWED_PEER_IPS=10.0.0.101' "$PRIVATE_OWNER_TEMPLATE"
+contains 'REPLACE_WITH_EXISTING_ADMIN_EMAIL' "$PRIVATE_OWNER_TEMPLATE"
+contains 'beta_private_ready=ok' "$PRIVATE_VALIDATE"
+contains 'status" = 401' "$PRIVATE_VALIDATE"
+contains 'cloudflared.service is active in the private beta profile' "$PRIVATE_VALIDATE"
+contains 'http://127.0.0.1:8080/healthz' "$PRIVATE_VALIDATE"
+not_contains 'cloudflare.sh' "$PRIVATE_VALIDATE"
+contains 'ip saddr %s tcp dport 8443 accept' "$INSTALL"
+contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$INSTALL"
+contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$BUILD_BUNDLE"
+contains 'PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101' "$PRIVATE_VALIDATE"
+contains 'nft -c -f /etc/nftables.conf' "$INSTALL"
+not_contains '/etc/nftables.conf' "$ROLLBACK"
+not_contains 'tailscale0' "$INSTALL"
+not_contains 'tailscale0' "$DEPLOY_DIR/nftables.conf"
+contains 'homelab-edge' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
+contains '10.0.0.101' "$DOCS"
+contains '10.0.0.101' "$ROOT_DIR/README.md"
+
+# The private profile's generated rules must replace the release marker in the
+# file nftables.service actually loads. Mock install so this exercises the
+# helper body without changing the host firewall or requiring root.
+private_nft_dir="$fixture/private-nft"
+install -d -m 0700 "$private_nft_dir/release"
+cat > "$private_nft_dir/release/nftables.conf" <<'EOF'
+table inet roadmap_filter {
+    # HELM_BETA_TAILNET_RULES
+    ct state established,related accept
+}
+EOF
+printf 'HELM_TAILNET_ALLOWED_PEER_IPS=10.0.0.101\n' > "$private_nft_dir/owner.env"
+private_nft_output="$private_nft_dir/loaded-nftables.conf"
+private_nft_destination="$private_nft_dir/destination"
+source <(awk '/^private_owner_value\(\)/,/^}/' "$INSTALL")
+source <(awk '/^install_private_nftables\(\)/,/^}/' "$INSTALL")
+(
+	CONFIG_DIR="$private_nft_dir/config"
+	RELEASE_DIR="$private_nft_dir/release"
+	install -d -m 0700 "$CONFIG_DIR"
+	install() {
+		local -a positional=() source_path destination
+		while [[ $# -gt 0 ]]; do
+			case "$1" in
+				-m|-o|-g) shift 2 ;;
+				*) positional+=("$1"); shift ;;
+			esac
+		done
+		[[ ${#positional[@]} -eq 2 ]] || return 1
+		source_path=${positional[0]}
+		destination=${positional[1]}
+		printf '%s\n' "$destination" > "$private_nft_destination"
+		[[ "$destination" = /etc/nftables.conf ]] || return 1
+		cp -- "$source_path" "$private_nft_output"
+	}
+	install_private_nftables "$private_nft_dir/owner.env"
+)
+grep -Fxq /etc/nftables.conf "$private_nft_destination" || fail 'private nftables policy was not installed at the service load path'
+contains 'ip saddr 10.0.0.101 tcp dport 8443 accept' "$private_nft_output"
+contains 'ct state established,related accept' "$private_nft_output"
+printf 'private_nftables_runtime_test=ok\n'
+
+not_contains 'cloudflare.sh publish' "$fixture/beta-workflow.yml"
+not_contains 'validate-live.sh' "$fixture/beta-workflow.yml"
 contains 'HELM_CLOUDFLARED_TOKEN_FILE' "$ROOT_DIR/deploy/build-bundle.sh"
 contains 'HELM_OWNER_ENV_FILE' "$ROOT_DIR/deploy/build-bundle.sh"
 contains 'Capture previous release for recovery' "$WORKFLOW"
@@ -1590,6 +1899,59 @@ make_archive() {
 make_archive "$fixture/valid.tar.gz" "$source_dir"
 "$VERIFY" "$fixture/valid.tar.gz" "$SHA" "$fixture/public.pem" >/dev/null \
 	|| fail 'valid signed release archive was rejected'
+
+# Beta uses the same detached-signature and manifest machinery with a distinct
+# exact member set. Its profile is selected only by the root-installed beta
+# verifier basename and must not accept any Cloudflare connector member.
+BETA_PAYLOAD_MEMBERS=(
+	codex
+	codex.sha256
+	compose.yaml
+	install-inside-lxc.sh
+	nftables.conf
+	roadmap
+	roadmap-backup.service
+	roadmap-backup.sh
+	roadmap-backup.timer
+	roadmap.env
+	roadmap-restore.sh
+	roadmap-rollback.sh
+	roadmap.service
+	roadmap.sha256
+	release.sha
+	validate-beta-private.sh
+)
+BETA_BUNDLE_MEMBERS=(
+	codex codex.sha256 compose.yaml install-inside-lxc.sh
+	nftables.conf roadmap roadmap-backup.service roadmap-backup.sh roadmap-backup.timer
+	roadmap.env roadmap-restore.sh roadmap-rollback.sh roadmap.service roadmap.sha256
+	release.manifest release.manifest.sig release.sha validate-beta-private.sh
+)
+beta_source_dir="$fixture/beta-source"
+install -d -m 0700 "$beta_source_dir"
+for member in "${BETA_PAYLOAD_MEMBERS[@]}"; do
+	if [[ "$member" = release.sha ]]; then
+		printf '%s\n' "$SHA" > "$beta_source_dir/$member"
+	else
+		printf 'private beta fixture payload for %s\n' "$member" > "$beta_source_dir/$member"
+	fi
+done
+{
+	printf 'roadmap-release-manifest-v1\n'
+	for member in "${BETA_PAYLOAD_MEMBERS[@]}"; do
+		bytes=$(stat -c '%s' -- "$beta_source_dir/$member")
+		digest=$(sha256sum -- "$beta_source_dir/$member" | awk '{print $1}')
+		printf '%s\t%s\t%s\n' "$member" "$bytes" "$digest"
+	done
+} > "$beta_source_dir/release.manifest"
+openssl pkeyutl -sign -rawin -inkey "$fixture/private.pem" -in "$beta_source_dir/release.manifest" -out "$beta_source_dir/release.manifest.sig"
+GZIP=-n tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
+	-czf "$fixture/beta-valid.tar.gz" -C "$beta_source_dir" "${BETA_BUNDLE_MEMBERS[@]}"
+cp -- "$VERIFY" "$fixture/helm-beta-verify-release"
+chmod 0755 "$fixture/helm-beta-verify-release"
+"$fixture/helm-beta-verify-release" "$fixture/beta-valid.tar.gz" "$SHA" "$fixture/public.pem" >/dev/null \
+	|| fail 'valid private beta signed release archive was rejected'
+printf 'private_beta_release_profile_test=ok\n'
 
 expect_verify_fail() {
 	local label=$1 archive=$2
@@ -2077,5 +2439,8 @@ if compgen -G "$backup_drift_dir/roadmap-*.db*" >/dev/null; then
 	fail 'source identity drift left a published backup artifact'
 fi
 printf 'backup_publication_runtime_tests=ok\n'
+
+python3 "$DEPLOY_DIR/test-helm-restore-drill.py"
+printf 'restore_drill_runtime_tests=ok\n'
 
 printf 'deployment_security_tests=ok\n'

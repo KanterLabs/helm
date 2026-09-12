@@ -330,9 +330,10 @@ it, and a human can observe the entire history in the UI.
 - Bug notifications, service-level agreements, and separate bug permissions
 - OAuth, SAML, and directory synchronization
 - Complex team roles and per-task permissions
-- Email and push notifications
-- Webhooks and WebSocket event delivery
-- Rule-based automations
+- Safe event-driven notification automations (TC-165 follow-up)
+- Provider-specific notification integrations and external delivery (TC-166 follow-up)
+- Webhooks and WebSocket event streams
+- Arbitrary user-defined workflow graphs and code execution
 - Rich-text collaborative editing
 - Native mobile applications
 

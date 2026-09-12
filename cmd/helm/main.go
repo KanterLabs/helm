@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +25,7 @@ import (
 
 const (
 	healthcheckURL     = "http://127.0.0.1:8080/healthz"
+	readinesscheckURL  = "http://127.0.0.1:8080/readyz"
 	healthcheckTimeout = 2 * time.Second
 	healthcheckMaxBody = 64 * 1024
 )
@@ -33,52 +36,52 @@ func main() {
 		switch os.Args[1] {
 		case "healthcheck":
 			if len(os.Args) != 2 {
-				log.Fatalf("healthcheck does not accept arguments")
+				fatalLog("healthcheck does not accept arguments", "invalid_arguments")
 			}
 			if err := runHealthcheck(); err != nil {
-				log.Printf("healthcheck: %v", err)
+				errorLog("healthcheck failed", err)
 				os.Exit(1)
 			}
 			return
 		case "migration-info":
 			if len(os.Args) != 2 {
-				log.Fatalf("migration-info does not accept arguments")
+				fatalLog("migration-info does not accept arguments", "invalid_arguments")
 			}
 			if err := runMigrationInfo(os.Stdout); err != nil {
-				log.Printf("migration-info: %v", err)
+				errorLog("migration info failed", err)
 				os.Exit(1)
 			}
 			return
 		case "schema-preflight", "migration-preflight":
 			if len(os.Args) != 3 {
-				log.Fatalf("%s requires exactly one database path", os.Args[1])
+				fatalLog("schema preflight requires exactly one database path", "invalid_arguments")
 			}
 			if err := runSchemaPreflight(context.Background(), os.Args[2], os.Stdout); err != nil {
-				log.Printf("schema preflight: %v", err)
+				errorLog("schema preflight failed", err)
 				os.Exit(1)
 			}
 			return
 		case "migration-apply":
 			if len(os.Args) != 3 {
-				log.Fatalf("migration-apply requires exactly one staged database path")
+				fatalLog("migration apply requires exactly one staged database path", "invalid_arguments")
 			}
 			if err := runMigrationApply(context.Background(), os.Args[2], os.Stdout); err != nil {
-				log.Printf("migration apply: %v", err)
+				errorLog("migration apply failed", err)
 				os.Exit(1)
 			}
 			return
 		default:
-			log.Fatalf("unknown command %q", os.Args[1])
+			fatalLog("unknown command", "invalid_command")
 		}
 	}
 	cfg, err := config.FromEnv()
 	if err != nil {
-		log.Fatalf("configuration: %v", err)
+		fatalLog("configuration failed", classifyMainError(err))
 	}
 	ctx := context.Background()
 	database, err := db.Open(ctx, cfg.DB)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		fatalLog("database open failed", classifyMainError(err))
 	}
 	defer database.Close()
 	data := store.New(database)
@@ -90,12 +93,12 @@ func main() {
 		if cfg.AuthMode == "disabled" {
 			actor, seedErr := data.EnsureDisabledActor(ctx)
 			if seedErr != nil {
-				log.Fatalf("demo actor: %v", seedErr)
+				fatalLog("demo actor seed failed", classifyMainError(seedErr))
 			}
 			seedActorID = actor.ID
 		}
 		if seedErr := data.SeedDemo(ctx, seedActorID); seedErr != nil {
-			log.Fatalf("demo seed: %v", seedErr)
+			fatalLog("demo data seed failed", classifyMainError(seedErr))
 		}
 	}
 	manager := auth.NewManager(data, cfg)
@@ -106,22 +109,89 @@ func main() {
 	})
 	api := httpapi.New(data, manager, cfg, codexManager)
 	server := &http.Server{Addr: cfg.Addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
+	var privateServer *http.Server
+	var privateListener net.Listener
+	if cfg.AuthMode == "tailnet" {
+		privateHandler, handlerErr := httpapi.NewTailnetPrivateHandler(api, cfg.TailnetAllowedPeerIPs)
+		if handlerErr != nil {
+			fatalLog("tailnet private listener configuration failed", classifyMainError(handlerErr))
+		}
+		certificate, certErr := tls.LoadX509KeyPair(cfg.TailnetTLSCertFile, cfg.TailnetTLSKeyFile)
+		if certErr != nil {
+			fatalLog("tailnet private TLS configuration failed", classifyMainError(certErr))
+		}
+		privateListener, err = net.Listen("tcp", cfg.TailnetTLSAddr)
+		if err != nil {
+			fatalLog("tailnet private listener failed", classifyMainError(err))
+		}
+		privateListener = tls.NewListener(privateListener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}})
+		privateServer = &http.Server{Handler: privateHandler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
+	}
 	go func() {
 		log.Printf(`{"level":"info","msg":"helm listening","addr":%q}`, cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server: %v", err)
+			errorLog("server stopped unexpectedly", err)
+			os.Exit(1)
 		}
 	}()
+	if privateServer != nil {
+		go func() {
+			log.Printf(`{"level":"info","msg":"helm tailnet private listener started","addr":%q}`, cfg.TailnetTLSAddr)
+			if serveErr := privateServer.Serve(privateListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				errorLog("tailnet private listener stopped unexpectedly", serveErr)
+				os.Exit(1)
+			}
+		}()
+	}
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-signalCtx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown: %v", err)
+		errorLog("server shutdown failed", err)
+	}
+	if privateServer != nil {
+		if err := privateServer.Shutdown(shutdownCtx); err != nil {
+			errorLog("tailnet private listener shutdown failed", err)
+		}
 	}
 	if err := codexManager.Close(shutdownCtx); err != nil {
-		log.Printf("Codex shutdown: %v", err)
+		errorLog("Codex shutdown failed", err)
+	}
+}
+
+func fatalLog(message, class string) {
+	errorLogClass(message, class)
+	os.Exit(1)
+}
+
+func errorLog(message string, err error) {
+	errorLogClass(message, classifyMainError(err))
+}
+
+func errorLogClass(message, class string) {
+	if class == "" {
+		class = "internal"
+	}
+	log.Printf(`{"level":"error","msg":%q,"error_class":%q}`, message, class)
+}
+
+func classifyMainError(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline"
+	case errors.Is(err, os.ErrNotExist):
+		return "not_found"
+	case errors.Is(err, os.ErrPermission):
+		return "permission"
+	default:
+		return "internal"
 	}
 }
 
@@ -162,9 +232,9 @@ func runHealthcheck() error {
 		return fmt.Errorf("unexpected default HTTP transport")
 	}
 	transport = transport.Clone()
-	// The endpoint is intentionally fixed to loopback. Do not allow proxy
-	// environment variables to turn a local liveness check into an outbound
-	// request.
+	// The endpoints are intentionally fixed to loopback. Do not allow proxy
+	// environment variables to turn a local liveness/readiness check into an
+	// outbound request.
 	transport.Proxy = nil
 	client := &http.Client{
 		Transport: transport,
@@ -177,7 +247,10 @@ func runHealthcheck() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), healthcheckTimeout)
 	defer cancel()
-	return checkHealth(ctx, client, healthcheckURL)
+	if err := checkHealth(ctx, client, healthcheckURL); err != nil {
+		return err
+	}
+	return checkHealth(ctx, client, readinesscheckURL)
 }
 
 func checkHealth(ctx context.Context, client *http.Client, endpoint string) error {

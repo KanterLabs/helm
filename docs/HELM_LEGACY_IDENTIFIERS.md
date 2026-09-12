@@ -77,10 +77,11 @@ managed root gateway verifier to be updated before the release is deployed.
 - Existing GitHub Actions secrets retain their `ROADMAP_*` names because
   secret values cannot be copied or renamed through repository code. The
   workflow maps them into canonical `HELM_*` runtime variables.
-- The isolated beta deployment uses `beta.shanekanterman.dev`, CTID 106,
-  guest `helm-beta` at `10.0.0.39`, tunnel `helm-beta-homelab`, forced account
-  `helm-beta-deploy`, and `/var/lib/helm-beta-deploy` plus
-  `/etc/helm-beta-deploy`. Those identifiers must never alias the production
+- The isolated beta deployment uses the private-only hostname
+  `beta-helm.home.shanekanterman.dev`, CTID 106, guest `helm-beta` at
+  `10.0.0.39`, and the forced account `helm-beta-deploy`. Its private route is
+  not activated yet; no public DNS record, Cloudflare tunnel, or public Access
+  application is allowed. Those identifiers must never alias the production
   identities above. Beta GitHub environment secrets use the `BETA_*` prefix
   and are intentionally distinct from retained production `ROADMAP_*` names.
 - `ROADMAP_*` application and deployment variables remain equal-value aliases

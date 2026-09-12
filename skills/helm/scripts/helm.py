@@ -1825,6 +1825,193 @@ def cmd_tasks(client: Client, args: argparse.Namespace) -> Any:
     return {"project": project.get("key"), "tasks": tasks, "next_cursor": next_cursor}
 
 
+def cmd_notifications_list(client: Client, args: argparse.Namespace) -> Any:
+    """List the authenticated actor's notification inbox."""
+
+    params: list[tuple[str, str]] = []
+    if bool(getattr(args, "unread", False)):
+        params.append(("unread", "true"))
+    params.append(("limit", str(_validate_limit(getattr(args, "limit", 50)))))
+    items, next_cursor = _paged_collection_with_cursor(
+        client,
+        "/notifications",
+        params,
+        context="notifications",
+        initial_cursor=str(getattr(args, "cursor", "") or "").strip(),
+        collect_all=bool(getattr(args, "all", False)),
+    )
+    return {"data": items, "next_cursor": next_cursor}
+
+
+def _notification_read_selection(args: argparse.Namespace) -> tuple[str, list[str], bool]:
+    """Validate and normalize the mutually-exclusive read targets."""
+
+    raw_notification = getattr(args, "notification", None)
+    notification = _optional_text(args, "notification")
+    notification_supplied = raw_notification is not None
+    if notification_supplied and notification is None:
+        raise HelmError("notification must not be empty")
+    raw_ids = getattr(args, "ids", None)
+    if raw_ids is None:
+        raw_ids = getattr(args, "id", None)
+    ids_supplied = raw_ids is not None
+    if raw_ids is None:
+        ids: list[Any] = []
+    elif isinstance(raw_ids, (list, tuple)):
+        ids = list(raw_ids)
+    else:
+        ids = [raw_ids]
+    normalized_ids: list[str] = []
+    for value in ids:
+        if not isinstance(value, str) or not value.strip():
+            raise HelmError("notification IDs must be non-empty")
+        normalized_ids.append(value.strip())
+    if ids_supplied and not normalized_ids:
+        raise HelmError("at least one --id is required")
+    if len(normalized_ids) > 200:
+        raise HelmError("at most 200 notification IDs may be selected")
+    if len(set(normalized_ids)) != len(normalized_ids):
+        raise HelmError("notification IDs must be unique")
+    all_notifications = bool(getattr(args, "all", False))
+    selected = int(notification_supplied) + int(ids_supplied) + int(all_notifications)
+    if selected != 1:
+        raise HelmError("exactly one of --notification, --id, or --all is required")
+    if notification is not None:
+        return notification, [], False
+    return "", normalized_ids, all_notifications
+
+
+def cmd_notifications_read(client: Client, args: argparse.Namespace) -> Any:
+    """Mark one or more visible notifications read."""
+
+    notification, ids, all_notifications = _notification_read_selection(args)
+    operation_id = _new_operation_id(getattr(args, "operation_id", None))
+    if notification:
+        path = "/notifications/" + parse.quote(notification, safe="") + "/read"
+        payload, _ = client.call(
+            "POST",
+            path,
+            idempotency_key=_new_mutation_idempotency(operation_id),
+        )
+        return {"notification": payload, "operation_id": operation_id}
+
+    path = "/notifications/read"
+    body: dict[str, Any] = {"all": True} if all_notifications else {"ids": ids}
+    payload, _ = client.call(
+        "POST",
+        path,
+        body=body,
+        idempotency_key=_new_mutation_idempotency(operation_id),
+    )
+    if isinstance(payload, dict):
+        result = dict(payload)
+        result["operation_id"] = operation_id
+        return result
+    return {"result": payload, "operation_id": operation_id}
+
+
+def _parse_strict_bool(value: str) -> bool:
+    normalized = str(value).strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise argparse.ArgumentTypeError("value must be true or false")
+
+
+def cmd_notification_preferences(client: Client, args: argparse.Namespace) -> Any:
+    """Read or update explicitly selected notification preference categories."""
+
+    fields = ("assignments", "mentions", "blockers", "state_changes")
+    body: dict[str, bool] = {}
+    for field in fields:
+        value = getattr(args, field, None)
+        if value is None:
+            continue
+        if not isinstance(value, bool):
+            raise HelmError(f"{field} must be true or false")
+        body[field] = value
+    path = "/notification-preferences"
+    if not body:
+        payload, _ = client.call("GET", path)
+        return {"preferences": payload}
+
+    operation_id = _new_operation_id(getattr(args, "operation_id", None))
+    payload, _ = client.call(
+        "PATCH",
+        path,
+        body=body,
+        idempotency_key=_new_mutation_idempotency(operation_id),
+    )
+    return {"preferences": payload, "operation_id": operation_id}
+
+
+# Keep the command-family spelling available to callers that dispatch by the
+# top-level ``notifications`` resource name.
+cmd_notifications_preferences = cmd_notification_preferences
+
+
+def cmd_watches_list(client: Client, args: argparse.Namespace) -> Any:
+    """List watches owned by the authenticated actor."""
+
+    params: list[tuple[str, str]] = []
+    project = _optional_text(args, "project")
+    task = _optional_text(args, "task")
+    if getattr(args, "project", None) is not None and project is None:
+        raise HelmError("project must not be empty")
+    if getattr(args, "task", None) is not None and task is None:
+        raise HelmError("task must not be empty")
+    if project:
+        params.append(("project", project))
+    if task:
+        params.append(("task", task))
+    payload, _ = client.call("GET", _query_path("/watches", params))
+    return {"data": _data(payload), "next_cursor": _collection_cursor(payload)}
+
+
+def cmd_watches_add(client: Client, args: argparse.Namespace) -> Any:
+    """Follow exactly one project or task through its canonical watch route."""
+
+    project = _optional_text(args, "project")
+    task = _optional_text(args, "task")
+    if (project is None) == (task is None):
+        raise HelmError("exactly one of --project or --task is required")
+    if getattr(args, "project", None) is not None and project is None:
+        raise HelmError("project must not be empty")
+    if getattr(args, "task", None) is not None and task is None:
+        raise HelmError("task must not be empty")
+    operation_id = _new_operation_id(getattr(args, "operation_id", None))
+    if project is not None:
+        path = "/projects/" + parse.quote(project, safe="") + "/watch"
+    else:
+        path = "/tasks/" + parse.quote(task or "", safe="") + "/watch"
+    payload, _ = client.call(
+        "POST",
+        path,
+        idempotency_key=_new_mutation_idempotency(operation_id),
+    )
+    return {"watch": payload, "operation_id": operation_id}
+
+
+def cmd_watches_remove(client: Client, args: argparse.Namespace) -> Any:
+    """Remove one owned watch."""
+
+    watch = _optional_text(args, "watch")
+    if watch is None:
+        raise HelmError("watch must not be empty")
+    operation_id = _new_operation_id(getattr(args, "operation_id", None))
+    path = "/watches/" + parse.quote(watch, safe="")
+    payload, _ = client.call(
+        "DELETE",
+        path,
+        idempotency_key=_new_mutation_idempotency(operation_id),
+    )
+    result: dict[str, Any] = {"operation_id": operation_id}
+    if payload is not None:
+        result["watch"] = payload
+    return result
+
+
 def cmd_auth_check(client: Client, _args: argparse.Namespace) -> Any:
     """Validate the configured agent credential without mutating Helm."""
 
@@ -2473,6 +2660,64 @@ def build_parser() -> argparse.ArgumentParser:
     tasks.add_argument("--cursor", default="")
     tasks.add_argument("--all", action="store_true", help="Follow every cursor page")
     tasks.set_defaults(handler=cmd_tasks)
+
+    notifications = subparsers.add_parser(
+        "notifications", aliases=("notification",), help="List, read, or configure notifications"
+    )
+    notification_actions = notifications.add_subparsers(dest="notification_action", required=True)
+
+    notifications_list = notification_actions.add_parser("list", help="List notification inbox items")
+    notifications_list.add_argument("--unread", action="store_true", help="Only show unread items")
+    notifications_list.add_argument("--cursor", default="")
+    notifications_list.add_argument("--limit", type=int, default=50)
+    notifications_list.add_argument("--all", action="store_true", help="Follow every cursor page")
+    notifications_list.set_defaults(handler=cmd_notifications_list)
+
+    notifications_read = notification_actions.add_parser("read", help="Mark notification items read")
+    notification_target = notifications_read.add_mutually_exclusive_group(required=True)
+    notification_target.add_argument("--notification", help="One notification ID")
+    notification_target.add_argument("--id", dest="ids", action="append", help="Notification ID (repeatable)")
+    notification_target.add_argument("--all", action="store_true", help="Mark all visible notifications read")
+    notifications_read.add_argument(
+        "--operation-id", help="UUIDv4 for deterministic replay (generated when omitted)"
+    )
+    notifications_read.set_defaults(handler=cmd_notifications_read)
+
+    notifications_preferences = notification_actions.add_parser(
+        "preferences", help="Read or update notification preferences"
+    )
+    for field in ("assignments", "mentions", "blockers", "state_changes"):
+        option = "--" + field.replace("_", "-")
+        option_names = (option, "--" + field) if "_" in field else (option,)
+        notifications_preferences.add_argument(
+            *option_names,
+            type=_parse_strict_bool,
+            metavar="true|false",
+            help=f"Enable or disable {field.replace('_', ' ')} notifications",
+        )
+    notifications_preferences.add_argument(
+        "--operation-id", help="UUIDv4 for deterministic replay (generated when omitted)"
+    )
+    notifications_preferences.set_defaults(handler=cmd_notification_preferences)
+
+    watches = subparsers.add_parser("watches", aliases=("watch",), help="List or mutate notification watches")
+    watch_actions = watches.add_subparsers(dest="watch_action", required=True)
+    watches_list = watch_actions.add_parser("list", help="List owned watches")
+    watches_list.add_argument("--project", help="Filter by project ID, key, or slug")
+    watches_list.add_argument("--task", help="Filter by task key or opaque ID")
+    watches_list.set_defaults(handler=cmd_watches_list)
+
+    watches_add = watch_actions.add_parser("add", help="Follow one project or task")
+    watch_target = watches_add.add_mutually_exclusive_group(required=True)
+    watch_target.add_argument("--project", help="Project ID, key, or slug")
+    watch_target.add_argument("--task", help="Task key or opaque ID")
+    watches_add.add_argument("--operation-id", help="UUIDv4 for deterministic replay (generated when omitted)")
+    watches_add.set_defaults(handler=cmd_watches_add)
+
+    watches_remove = watch_actions.add_parser("remove", help="Remove an owned watch")
+    watches_remove.add_argument("--watch", required=True, help="Watch ID")
+    watches_remove.add_argument("--operation-id", help="UUIDv4 for deterministic replay (generated when omitted)")
+    watches_remove.set_defaults(handler=cmd_watches_remove)
 
     auth_check = subparsers.add_parser(
         "auth-check",

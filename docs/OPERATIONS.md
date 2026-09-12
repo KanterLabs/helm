@@ -19,12 +19,28 @@ nftables input policy is default-drop; both the application and cloudflared
 connector use loopback while cloudflared makes the outbound tunnel connection.
 
 The beta target is a second unprivileged Debian 12 LXC, `helm-beta` (CTID 106)
-at `10.0.0.39/24`. It uses `beta.shanekanterman.dev`, the
-`helm-beta-homelab` tunnel, the `helm-beta-deploy` forced SSH account,
+at `10.0.0.39/24`. Its selected hostname is the private-only
+`beta-helm.home.shanekanterman.dev`; the private route is not activated yet,
+no public DNS record is allowed, and public Cloudflare provisioning is disabled.
+No public Cloudflare tunnel or Access application is active. The beta private
+profile permits only the homelab-edge LAN source `10.0.0.101` to the TLS
+listener at `10.0.0.39:8443`; it keeps the application health/auth checks on
+loopback, does not require a Tailscale interface in CT 106, and masks
+`cloudflared.service`. The
+`helm-beta-deploy` forced SSH account,
 `/var/lib/helm-beta-deploy` host staging, and a distinct Ed25519 signing trust
 under `/etc/helm-beta-deploy`. The separate guest gives beta its own database,
 backups, releases, services, connector token, and runtime credentials while
 allowing the stable in-guest `/var/lib/roadmap` compatibility layout.
+
+Before beta deployment, root must provision `/etc/roadmap/tailnet-owner.env`
+(`root:root`, `0600`), `/etc/roadmap/tailnet.key` (`roadmap:roadmap`, `0600`),
+`/etc/roadmap/tailnet-origin.crt` (`root:root`, `0644`), and
+`/etc/roadmap/tailnet-origin.key` (`roadmap:roadmap`, `0600`) inside CT 106.
+The `roadmap` service reads the two private keys directly. The
+signed release carries only matching paths and identity settings; it never
+carries key bytes. The beta job stays paused until this private route and TLS
+preprovisioning are verified.
 
 The complete design and promotion gates are in
 [`BETA_DEPLOYMENT_PLAN.md`](BETA_DEPLOYMENT_PLAN.md).
@@ -33,7 +49,7 @@ The complete design and promotion gates are in
 
 The Compose file runs exactly one unprivileged Helm container. It publishes
 only `127.0.0.1:8080`, mounts a persistent `/data` volume, drops all Linux
-capabilities, uses a read-only root filesystem, and has a `/healthz`
+capabilities, uses a read-only root filesystem, and has `/healthz` and `/readyz`
 healthcheck.
 
 ```sh
@@ -43,6 +59,9 @@ make vet
 make lint
 docker compose up --build -d
 curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+# Metrics are loopback-only unless a normal Helm session or bearer token is used.
+curl http://127.0.0.1:8080/metrics
 docker compose down
 ```
 
@@ -108,6 +127,29 @@ Store the beta private keys only in the approved secret manager and the GitHub
 The gateway checks the QEMU VMID namespace before every status, deploy, or
 rollback request. A QEMU guest at VMID 103 is a hard collision: the request
 fails closed instead of treating the missing LXC config as `current_sha=none`.
+
+### CT configuration preflight diagnostics
+
+Before status, rollback, or deployment work, the gateway reads the existing
+CT configuration and compares it with the reviewed identity. A rejection is
+fail-closed and read-only; it does not change the guest, release link, or
+database. The diagnostic names only the bounded field reason, for example:
+
+* `nameserver`: missing, duplicate, malformed, or invalid setting. Production
+  expects `10.0.0.1 1.1.1.1`.
+* `searchdomain`: missing, duplicate, malformed, or invalid setting.
+  Production expects `lan`.
+* `startup`: missing, duplicate, malformed, or invalid setting. The reviewed
+  options are `order=5`, `up=10`, and `down=30`.
+* `tags`: missing, duplicate, malformed, or invalid setting. Production uses
+  the exact set `lan`, `roadmap`, and `service`; beta uses `lan`, `beta`, and
+  `service`.
+
+For a failed preflight, first run the forced read-only status command and, if
+needed, inspect `pct config 103` from an approved PVE console. Do not paste
+the full CT configuration into CI or logs, and do not bypass the gateway or
+relax its identity checks; configuration repair is a separately reviewed
+maintenance action.
 
 The gateway refuses to reuse a CTID with a different hostname, address, or
 privilege mode. Deploy CI sends the validated release bundle only on standard
@@ -212,7 +254,7 @@ After a successful deploy, create the proxied CNAME and validate it:
 
 The live validator checks both Access applications and their policies, the
 named tunnel status, the proxied CNAME, and Access responses for `/`,
-`/api/v1/roadmap`, `/healthz`, and `/openapi.json`. Health and OpenAPI are not
+`/api/v1/roadmap`, `/healthz`, `/readyz`, and `/openapi.json`. Health and OpenAPI are not
 bypassed; an unauthenticated request must receive an Access redirect (or the
 configured service-auth 401 for the API path). In CI, the validator also sends
 `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` to `/api/v1/roadmap`
@@ -242,11 +284,13 @@ the constrained PVE identity, publishes DNS, and performs live validation.
 
 The same checks run for `beta`, but its deployment job uses only the GitHub
 `beta` environment, `BETA_*` secrets, the `helm-beta` concurrency lock, and
-`HELM_DEPLOY_ENVIRONMENT=beta`. A beta push cannot invoke the production
-gateway because its SSH key is forced to
-`/usr/local/sbin/helm-beta-deploy-gateway`. Promotion is an explicit pull
-request or merge from `beta` to `main`; the resulting `main` push remains the
-only automatic production trigger.
+`HELM_DEPLOY_ENVIRONMENT=beta`. Its public deployment remains paused while
+the private route is pending: `cloudflare.sh prepare`, `cloudflare.sh publish`,
+and `validate-live.sh` fail closed for beta, so no public DNS or Access/tunnel
+resources are provisioned. A beta push cannot invoke the production gateway
+because its SSH key is forced to `/usr/local/sbin/helm-beta-deploy-gateway`.
+Promotion is an explicit pull request or merge from `beta` to `main`; the
+resulting `main` push remains the only automatic production trigger.
 
 The beta environment also stores `BETA_ADMIN_EMAIL` explicitly so its
 least-privilege Cloudflare token does not need account-membership read access.
@@ -374,6 +418,49 @@ credentials that may have been exposed by the incident; reissue agent
 credentials after validation. Never swap a raw SQLite file or bypass this
 helper.
 
+### Isolated restore drill (TC-163)
+
+To rehearse recovery without a maintenance window, run the standalone drill
+from an approved operator shell with one explicit retained backup:
+
+```sh
+./deploy/helm-restore-drill.py \
+  --backup /var/lib/roadmap/backups/roadmap-<timestamp>-<sha-or-manual>.db \
+  --report /tmp/helm-restore-drill.json
+```
+
+The report path must be a new file; publication is atomic and no-clobber.
+
+This TC-163 slice is intentionally SQLite-only. It does not execute a
+candidate binary, apply migrations, or start an application process. The
+report records external migration/startup compatibility as `not_run`.
+Candidate migration and loopback readiness require a separately sandboxed
+implementation (TC-164), so a successful TC-163 report is not evidence that a
+new binary can open or migrate the backup.
+
+The selected `.db`, `.sha256`, and `.metadata` files must be regular mode-0600
+files with no `.`/`..` traversal or symlink path components. The filename,
+checksum sidecar, UTC metadata, and optional schema/digest fields are checked
+before the database is copied. The source is held open read-only and its inode,
+size, timestamps, and digest are checked again after every drill path. The
+isolated copy is mode 0600 inside a fresh mode-0700 directory. SQLite `integrity_check`,
+`foreign_key_check`, every source table's row count, primary-key identity, and
+foreign-key relationship are compared before and after the isolated copy;
+`schema_migrations` must remain unchanged. A failed check removes
+the disposable directory (and reports `retained: true` if an unexpected
+cleanup error prevents removal) and leaves the selected source unchanged.
+The retained `.db` is treated as a standalone SQLite snapshot: pending WAL/SHM
+companions are not part of this artifact and are ignored during the read-only
+source inspection.
+
+The command prints exactly one sanitized JSON report. It includes check
+statuses and row counts but never database values, credentials, candidate
+output, or filesystem paths. It does not replace the live database, open the
+live database, stop or start systemd units, run `helm-restore.sh`, or revoke
+sessions/tokens. This is an isolated validation rehearsal, not a production
+restore. TC-119's encrypted backup and remote/off-host repository, transfer,
+retention, and scheduling work is intentionally not part of TC-163.
+
 ## Recovery checks
 
 Useful read-only checks from the PVE host are:
@@ -383,6 +470,7 @@ pct status 103
 pct exec 103 -- systemctl is-active helm.service roadmap.service cloudflared.service
 pct exec 103 -- ss -ltn
 pct exec 103 -- curl --fail http://127.0.0.1:8080/healthz
+pct exec 103 -- curl --fail http://127.0.0.1:8080/readyz
 pct exec 103 -- nft list ruleset
 ```
 

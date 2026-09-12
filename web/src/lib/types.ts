@@ -5,7 +5,7 @@ export type BugSeverity = 's1' | 's2' | 's3' | 's4';
 export type BugResolution = 'fixed' | 'duplicate' | 'not_planned' | 'cannot_reproduce' | 'works_as_designed';
 export type ActorKind = 'human' | 'agent';
 export type ChecklistCompletionPolicy = 'warn' | 'require';
-export type Scope = 'projects:read' | 'projects:write' | 'tasks:read' | 'tasks:write' | 'tasks:claim' | 'events:read';
+export type Scope = 'projects:read' | 'projects:write' | 'tasks:read' | 'tasks:write' | 'tasks:claim' | 'events:read' | 'notifications:read' | 'notifications:write';
 
 /** States published by an agent while it is actively working a task. */
 export type AgentWorkState = 'working' | 'waiting' | 'verifying' | 'handoff';
@@ -369,6 +369,42 @@ export interface ActivityEvent {
   metadata?: never;
 }
 
+/** A project- or task-scoped inbox watch owned by the current actor. */
+export interface Watch {
+  id: string;
+  actor_id: string;
+  project_id: string;
+  task_id?: string | null;
+  created_at: string;
+}
+
+/** Durable in-app notification emitted by an event or watched task change. */
+export interface Notification {
+  id: string;
+  recipient_id: string;
+  actor_id?: string | null;
+  event_type: string;
+  type?: string;
+  project_id?: string | null;
+  task_id?: string | null;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  dedupe_key: string;
+  read_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationPreferences {
+  actor_id: string;
+  assignments: boolean;
+  mentions: boolean;
+  blockers: boolean;
+  state_changes: boolean;
+  updated_at: string;
+}
+
 /** The discriminated payload kinds returned by the durable task timeline. */
 export type TaskTimelineKind = 'agent_progress' | 'comment' | 'task_change';
 export type TaskTimelineFilter = 'all' | TaskTimelineKind;
@@ -493,7 +529,7 @@ export interface ApiToken {
 }
 
 export interface AuthStatus {
-  mode: 'local' | 'cloudflare' | 'disabled';
+  mode: 'local' | 'cloudflare' | 'tailnet' | 'disabled';
   configured: boolean;
   setup_required: boolean;
   authenticated: boolean;
@@ -598,6 +634,56 @@ export type TaskPatch = Partial<Pick<Task, 'title' | 'description' | 'priority' 
   parent_id?: string | null;
   parent_task_id?: string | null;
 };
+
+/** A bounded, optimistic-concurrency guarded project task mutation. */
+export type BulkTaskMutationMode = 'partial' | 'atomic';
+export type BulkTaskMutationOperation = 'move' | 'assign' | 'priority' | 'labels' | 'due_at' | 'complete' | 'block';
+
+export interface BulkTaskMutationInput {
+  task: string;
+  version: number;
+  operation: BulkTaskMutationOperation;
+  destination_column_id?: string;
+  expected_source_column_id?: string;
+  source?: string;
+  reason?: string;
+  comment?: string;
+  assignee?: string | null;
+  priority?: Priority;
+  labels?: string[] | null;
+  due_at?: string | null;
+}
+
+export interface BulkTaskMutationRequest {
+  mode: BulkTaskMutationMode;
+  mutations: BulkTaskMutationInput[];
+}
+
+export type BulkTaskMutationResultStatus = 'applied' | 'skipped' | 'conflict';
+
+export interface BulkTaskMutationResult {
+  reference: string;
+  task_id?: string;
+  status: BulkTaskMutationResultStatus;
+  version?: number;
+  task?: Task;
+  error?: {
+    code: string;
+    message: string;
+    status?: number;
+    details?: Record<string, unknown>;
+  };
+}
+
+export interface BulkTaskMutationResponse {
+  mode: BulkTaskMutationMode;
+  status: 'partial' | 'complete' | 'failed';
+  requested: number;
+  applied: number;
+  skipped: number;
+  conflicts: number;
+  results: BulkTaskMutationResult[];
+}
 
 /** A server-owned board audit lifecycle state. */
 export type AuditRunStatus = 'queued' | 'running' | 'complete' | 'partial' | 'failed' | 'finalized';

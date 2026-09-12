@@ -1009,6 +1009,187 @@ class WorkflowCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(helper.HelmError, "UUIDv4"):
             helper._new_operation_id("legacy-operation")
 
+    def test_notifications_and_watches_parser_surface(self) -> None:
+        notifications = helper.build_parser().parse_args(
+            ["notifications", "list", "--unread", "--cursor", "cursor-1", "--limit", "10", "--all"]
+        )
+        self.assertIs(notifications.handler, helper.cmd_notifications_list)
+        self.assertTrue(notifications.unread)
+        self.assertEqual(notifications.cursor, "cursor-1")
+        self.assertEqual(notifications.limit, 10)
+        self.assertTrue(notifications.all)
+
+        read = helper.build_parser().parse_args(["notifications", "read", "--id", "n-1", "--id", "n-2"])
+        self.assertIs(read.handler, helper.cmd_notifications_read)
+        self.assertEqual(read.ids, ["n-1", "n-2"])
+
+        preferences = helper.build_parser().parse_args(
+            ["notifications", "preferences", "--mentions", "false", "--state-changes", "true"]
+        )
+        self.assertIs(preferences.handler, helper.cmd_notification_preferences)
+        self.assertIs(preferences.mentions, False)
+        self.assertIs(preferences.state_changes, True)
+        with self.assertRaises(SystemExit):
+            helper.build_parser().parse_args(["notifications", "preferences", "--mentions", "maybe"])
+
+        watch_add = helper.build_parser().parse_args(["watches", "add", "--project", "project-1"])
+        self.assertIs(watch_add.handler, helper.cmd_watches_add)
+        self.assertEqual(watch_add.project, "project-1")
+        watch_remove = helper.build_parser().parse_args(["watches", "remove", "--watch", "watch-1"])
+        self.assertIs(watch_remove.handler, helper.cmd_watches_remove)
+        self.assertEqual(watch_remove.watch, "watch-1")
+
+    def test_notifications_list_follows_cursor_pages(self) -> None:
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if "cursor=" not in path:
+                    return {"data": [{"id": "n-1"}], "next_cursor": "cursor-2"}, {}
+                return {"data": [{"id": "n-2"}], "next_cursor": ""}, {}
+
+        result = helper.cmd_notifications_list(
+            StubClient(),
+            argparse.Namespace(unread=True, cursor="", limit=1, all=True),  # type: ignore[arg-type]
+        )
+        self.assertEqual([item["id"] for item in result["data"]], ["n-1", "n-2"])
+        self.assertEqual(result["next_cursor"], "")
+        self.assertEqual([path for _method, path, _kwargs in calls], [
+            "/notifications?unread=true&limit=1",
+            "/notifications?unread=true&limit=1&cursor=cursor-2",
+        ])
+
+    def test_notifications_read_uses_canonical_routes_and_uuid_idempotency(self) -> None:
+        fixed = "11111111-1111-4111-8111-111111111111"
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if path == "/notifications/read":
+                    return {"marked_read": 2}, {}
+                return {"id": "n/1", "read_at": "now"}, {}
+
+        one = helper.cmd_notifications_read(
+            StubClient(),
+            argparse.Namespace(
+                notification="n/1", ids=None, all=False, operation_id=fixed
+            ),  # type: ignore[arg-type]
+        )
+        self.assertEqual(one["notification"]["id"], "n/1")
+        self.assertEqual(calls[0][0:2], ("POST", "/notifications/n%2F1/read"))
+        self.assertNotIn("body", calls[0][2])
+        self.assertEqual(
+            calls[0][2]["idempotency_key"],
+            helper._new_mutation_idempotency(fixed),
+        )
+        self.assertEqual(uuid.UUID(calls[0][2]["idempotency_key"]).version, 4)
+
+        calls.clear()
+        selected = helper.cmd_notifications_read(
+            StubClient(),
+            argparse.Namespace(notification=None, ids=["n-1", "n-2"], all=False, operation_id=fixed),  # type: ignore[arg-type]
+        )
+        self.assertEqual(selected["marked_read"], 2)
+        self.assertEqual(calls[0][0:2], ("POST", "/notifications/read"))
+        self.assertEqual(calls[0][2]["body"], {"ids": ["n-1", "n-2"]})
+        self.assertEqual(
+            calls[0][2]["idempotency_key"],
+            helper._new_mutation_idempotency(fixed),
+        )
+
+        calls.clear()
+        helper.cmd_notifications_read(
+            StubClient(),
+            argparse.Namespace(notification=None, ids=None, all=True, operation_id=fixed),  # type: ignore[arg-type]
+        )
+        self.assertEqual(calls[0][2]["body"], {"all": True})
+        with self.assertRaisesRegex(helper.HelmError, "notification must not be empty"):
+            helper.cmd_notifications_read(
+                StubClient(),
+                argparse.Namespace(notification="", ids=["n-1"], all=False, operation_id=fixed),  # type: ignore[arg-type]
+            )
+        with self.assertRaisesRegex(helper.HelmError, "must be unique"):
+            helper.cmd_notifications_read(
+                StubClient(),
+                argparse.Namespace(notification=None, ids=["n-1", "n-1"], all=False, operation_id=fixed),  # type: ignore[arg-type]
+            )
+
+    def test_notification_preferences_get_and_patch_only_explicit_categories(self) -> None:
+        fixed = "22222222-2222-4222-8222-222222222222"
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                return {"mentions": False, "assignments": True}, {}
+
+        result = helper.cmd_notification_preferences(
+            StubClient(),
+            argparse.Namespace(assignments=None, mentions=None, blockers=None, state_changes=None, operation_id=None),  # type: ignore[arg-type]
+        )
+        self.assertEqual(result["preferences"]["assignments"], True)
+        self.assertEqual(calls[0][0:2], ("GET", "/notification-preferences"))
+        self.assertNotIn("idempotency_key", calls[0][2])
+
+        calls.clear()
+        result = helper.cmd_notification_preferences(
+            StubClient(),
+            argparse.Namespace(assignments=None, mentions=False, blockers=None, state_changes=None, operation_id=fixed),  # type: ignore[arg-type]
+        )
+        self.assertEqual(result["preferences"]["mentions"], False)
+        self.assertEqual(calls[0][0:2], ("PATCH", "/notification-preferences"))
+        self.assertEqual(calls[0][2]["body"], {"mentions": False})
+        self.assertEqual(
+            calls[0][2]["idempotency_key"],
+            helper._new_mutation_idempotency(fixed),
+        )
+
+    def test_watches_use_specific_routes_and_reject_empty_targets_before_mutation(self) -> None:
+        fixed = "33333333-3333-4333-8333-333333333333"
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if method == "GET":
+                    return {"data": [{"id": "watch-1"}], "next_cursor": ""}, {}
+                return {"id": "watch-1"}, {}
+
+        listed = helper.cmd_watches_list(
+            StubClient(), argparse.Namespace(project="project-1", task="task-1")  # type: ignore[arg-type]
+        )
+        self.assertEqual(listed["data"][0]["id"], "watch-1")
+        self.assertEqual(calls[0][0:2], ("GET", "/watches?project=project-1&task=task-1"))
+
+        calls.clear()
+        helper.cmd_watches_add(
+            StubClient(), argparse.Namespace(project="project-1", task=None, operation_id=fixed)  # type: ignore[arg-type]
+        )
+        self.assertEqual(calls[0][0:2], ("POST", "/projects/project-1/watch"))
+        self.assertNotIn("body", calls[0][2])
+        self.assertEqual(uuid.UUID(calls[0][2]["idempotency_key"]).version, 4)
+
+        calls.clear()
+        helper.cmd_watches_add(
+            StubClient(), argparse.Namespace(project=None, task="task-1", operation_id=fixed)  # type: ignore[arg-type]
+        )
+        self.assertEqual(calls[0][0:2], ("POST", "/tasks/task-1/watch"))
+
+        calls.clear()
+        helper.cmd_watches_remove(
+            StubClient(), argparse.Namespace(watch="watch-1", operation_id=fixed)  # type: ignore[arg-type]
+        )
+        self.assertEqual(calls[0][0:2], ("DELETE", "/watches/watch-1"))
+        self.assertNotIn("body", calls[0][2])
+        call_count = len(calls)
+        with self.assertRaisesRegex(helper.HelmError, "project must not be empty"):
+            helper.cmd_watches_add(
+                StubClient(), argparse.Namespace(project="", task="task-1", operation_id=fixed)  # type: ignore[arg-type]
+            )
+        self.assertEqual(len(calls), call_count)
+
     def test_uuid_operation_derives_distinct_replay_safe_keys_per_mutation(self) -> None:
         operation_id = "11111111-1111-4111-8111-111111111111"
         first = helper._command_mutation_id(operation_id, "POST", "/tasks/a", {"x": 1})

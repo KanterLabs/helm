@@ -25,6 +25,8 @@ import {
   type BugSeverity,
   type BugResolution,
   type BoardDescriptor,
+  type BulkTaskMutationRequest,
+  type BulkTaskMutationResponse,
   type RoadmapSummary,
   type SidebarCounts,
   type SavedView,
@@ -47,7 +49,10 @@ import {
   type ResolveInput,
   type ReopenInput,
   type PortableArchive,
-  type PortableImportReport
+  type PortableImportReport,
+  type Notification,
+  type NotificationPreferences,
+  type Watch
 } from './types';
 
 import { writesBlocked } from './connectivity';
@@ -189,7 +194,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
       await clearOfflineBoards();
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event('helm:auth-invalidated'));
+      // A forbidden mutation is a permission failure, not proof that the
+      // browser session expired. Only an explicit unauthorized response may
+      // invalidate session-bound UI such as the notification inbox.
+      if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event('helm:auth-invalidated'));
     }
     const envelope = parsed as Partial<ApiErrorShape> | undefined;
     const error = envelope?.error;
@@ -402,6 +410,12 @@ export const api = {
       method: 'PATCH',
       body: input,
       ifMatch: version,
+      idempotencyKey: key()
+    }),
+  bulkTasks: (project: string, input: BulkTaskMutationRequest) =>
+    request<BulkTaskMutationResponse>(`/projects/${encodeURIComponent(project)}/tasks/bulk`, {
+      method: 'POST',
+      body: input,
       idempotencyKey: key()
     }),
   getTaskDependencies: (task: string) =>
@@ -657,6 +671,35 @@ export const api = {
     request<IssueMetrics>(pathWithQuery('/issues/metrics', { project: params.project })),
   sidebarCounts: (params: { project?: string; view?: WorkView } = {}) =>
     request<SidebarCounts>(pathWithQuery('/sidebar-counts', { project: params.project, view: params.view })),
+  listNotifications: (params: { unread?: boolean; cursor?: string; limit?: number } = {}) =>
+    request<Collection<Notification> | Notification[]>(
+      pathWithQuery('/notifications', {
+        unread: params.unread,
+        cursor: params.cursor,
+        limit: params.limit ?? 25
+      })
+    ).then(collectionFrom),
+  markNotificationRead: (notification: string, read = true) =>
+    request<Notification>('/notifications/' + encodeURIComponent(notification), {
+      method: 'PATCH',
+      body: { read },
+      idempotencyKey: key()
+    }),
+  markAllNotificationsRead: () =>
+    request<{ marked_read: number }>('/notifications', {
+      method: 'POST',
+      body: { all: true },
+      idempotencyKey: key()
+    }),
+  listWatches: (params: { project?: string; task?: string } = {}) =>
+    request<Collection<Watch> | Watch[]>(pathWithQuery('/watches', { project: params.project, task: params.task })).then(collectionFrom),
+  createWatch: (input: { project_id?: string; task_id?: string }) =>
+    request<Watch>('/watches', { method: 'POST', body: input, idempotencyKey: key() }),
+  deleteWatch: (watch: string) =>
+    request<void>('/watches/' + encodeURIComponent(watch), { method: 'DELETE', idempotencyKey: key() }),
+  getNotificationPreferences: () => request<NotificationPreferences>('/notification-preferences'),
+  patchNotificationPreferences: (input: Partial<Omit<NotificationPreferences, 'actor_id' | 'updated_at'>>) =>
+    request<NotificationPreferences>('/notification-preferences', { method: 'PATCH', body: input, idempotencyKey: key() }),
   search: (params: SearchParams = {}) =>
     request<SearchResponse>(
       pathWithQuery('/search', {

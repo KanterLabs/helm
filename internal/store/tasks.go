@@ -779,7 +779,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, input TaskInput, expe
 	return s.UpdateTaskWithClaimOverride(ctx, id, input, expected, actorID, false)
 }
 
-func validateTaskBugLifecycleTx(ctx context.Context, tx *sql.Tx, taskID, kind, destinationState string) error {
+func validateTaskBugLifecycleTx(ctx context.Context, tx dependencySQL, taskID, kind, destinationState string) error {
 	if kind != bugKind {
 		return nil
 	}
@@ -1031,6 +1031,15 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		taskMutation := validated.Title != nil || validated.Description != nil || validated.Priority != nil || validated.ColumnID != nil || validated.Position != nil || validated.AssigneeSet || validated.DueAtSet || validated.LabelsSet || kind != current.Kind
 		if taskMutation {
 			eventPayload := map[string]any{"version": expected + 1}
+			// Keep assignment transitions in the event payload so the additive
+			// notification read model can fan out without guessing from a later
+			// task snapshot. Preserve the historic payload for unrelated patches.
+			if validated.AssigneeSet {
+				assignmentChanged := assignee != nullableStringValue(current.Assignee)
+				eventPayload["assignee"] = assignee
+				eventPayload["previous_assignee"] = nullableStringValue(current.Assignee)
+				eventPayload["assignment_changed"] = assignmentChanged
+			}
 			if completionTransition {
 				addChecklistCompletionEventFields(eventPayload, checklistStatus)
 			}
@@ -1242,7 +1251,7 @@ func taskClaimStateTx(ctx context.Context, tx *sql.Tx, id, actorID string) (int6
 	return version, active, nil
 }
 
-func replaceTaskLabels(ctx context.Context, tx *sql.Tx, taskID, projectID string, values []string) error {
+func replaceTaskLabels(ctx context.Context, tx dependencySQL, taskID, projectID string, values []string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM task_labels WHERE task_id=?`, taskID); err != nil {
 		return err
 	}

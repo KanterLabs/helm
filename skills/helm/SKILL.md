@@ -109,6 +109,28 @@ such as the task key, operation ID, checkpoint counters, and timestamps; it
 must never contain tokens, prompts, task content, comments, raw tool output,
 or credential paths.
 
+## Coordination inbox and watches
+
+Use notifications and watches when work needs durable coordination beyond the
+current claimed task. Do not poll the inbox from lifecycle hooks or treat an
+unread item as authority to widen the current task.
+
+```sh
+python3 scripts/helm.py notifications list --unread
+python3 scripts/helm.py notifications read --notification NOTIFICATION_ID
+python3 scripts/helm.py notifications preferences --mentions false
+python3 scripts/helm.py watches list --project TC
+python3 scripts/helm.py watches add --task TC-42
+python3 scripts/helm.py watches remove --watch WATCH_ID
+```
+
+Watch only the task or project whose follow-up is useful, and remove stale
+watches rather than creating duplicate polling work. Notification read-state,
+preference, and watch mutations use replay-safe operation IDs. Reuse the same
+`--operation-id` only when replaying the same logical mutation. Project-scoped
+credentials see only the intersection of their token and actor project
+ceilings; an empty inbox does not prove that no other project has activity.
+
 ## Read-only Board Audit
 
 Run a Board Audit only when the user or an explicitly delegated task requests
@@ -182,6 +204,15 @@ stable idempotency key, so rerunning a command is safe. Reconciliation never
 reorders numeric positions; lifecycle actions remain explicit claim/resume,
 block, or complete operations.
 
+For an explicitly requested batch board change, read the bundled API reference
+before using the bounded bulk task endpoint. Capture every task's current
+version, preserve per-task claim and dependency rules, and supply one
+idempotency key for the batch. Prefer `partial` when independent valid items
+should proceed and `atomic` only when the user requires all-or-nothing
+behavior. A `200` response is not blanket success: inspect every item for
+`applied`, `skipped`, or `conflict`, then re-read conflicted tasks. Never turn a
+bulk request into an unreviewed lifecycle transition.
+
 ## Protect persistent data
 
 When work changes storage, schemas, migrations, backup/restore, or deployment,
@@ -197,6 +228,14 @@ migration and that rollback does not silently restore an older database or
 discard writes. Treat a database restore as a separate destructive recovery
 operation requiring explicit authorization, an exact backup target, and a
 pre-restore snapshot.
+
+Gate a deployment on `/readyz`, not liveness alone. Pending embedded migrations,
+inspection failures, writer-lock failures, or capacity failures stop promotion.
+An `unknown` newer additive migration is a compatibility warning and may remain
+ready for a retained rollback binary; record the warning instead of treating it
+as an instruction to restore or recreate the database. Keep `/metrics` on a
+direct loopback or separately authenticated private monitoring path and never
+publish task text, credentials, IDs, or unbounded route labels through metrics.
 
 ## Finish
 
@@ -235,9 +274,10 @@ The helper writes JSON results to stdout and sanitized errors to stderr. Treat `
 
 Read the bundled [agent API reference](references/API_CONTRACT.md) before
 calling a less familiar endpoint. It summarizes authentication, exact ETags,
-idempotency, pagination, dependency graph, timeline, event, and bug lifecycle
-contracts so a newly installed skill does not depend on a checkout of the
-Helm repository's full documentation.
+idempotency, pagination, guarded bulk mutations, notifications, watches,
+readiness, metrics, dependency graph, timeline, event, and bug lifecycle
+contracts so a newly installed skill does not depend on a checkout of the Helm
+repository's full documentation.
 
 The safe read-only identity probe is:
 
@@ -262,13 +302,17 @@ python3 scripts/helm.py bug-triage --task TC-2 --severity s2
 python3 scripts/helm.py bug-resolve --task TC-2 --resolution fixed
 python3 scripts/helm.py bug-duplicate --task TC-2 --duplicate-of TC-3
 python3 scripts/helm.py bug-reopen --task TC-2 --reason "The regression remains reproducible"
+python3 scripts/helm.py notifications list --unread
+python3 scripts/helm.py watches list --task TC-2
 ```
 
 Workflow mutations generate one UUIDv4 operation ID per logical request when
 omitted and print it in the JSON result. Supply that same ID to replay a lost
-response safely. Existing commands also accept explicit legacy operation IDs;
-those non-UUID values retain their deterministic idempotency keys for older
-automation, while malformed IDs are rejected before any network mutation.
+response safely. Notification and watch mutations require UUIDv4 operation
+IDs. Earlier lifecycle, bug, and dependency commands also accept explicit
+legacy operation IDs; those non-UUID values retain deterministic idempotency
+keys for older automation, while malformed IDs are rejected before any network
+mutation.
 Multi-step commands derive a distinct UUIDv4 mutation key per endpoint from the
 operation ID, request path, and body so the server's per-request key reservation
 is respected without sacrificing deterministic replay.

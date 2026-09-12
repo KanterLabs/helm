@@ -126,6 +126,16 @@ describe('AgentPulse accessible state text', () => {
     expect(pulse?.textContent).toContain('2026-08-28T11:59:00.000Z');
   });
 
+  it('uses only the visible status label for a compact badge', () => {
+    const value = task({});
+    mountedComponents.push(mount(AgentPulse, { target: document.body, props: { task: value, now, compact: true } }));
+    const pulse = document.querySelector<HTMLElement>('[data-agent-pulse]');
+    expect(pulse?.getAttribute('aria-labelledby')).toBe(`agent-pulse-${value.id}-state`);
+    expect(pulse?.getAttribute('aria-describedby')).toBeNull();
+    expect(pulse?.textContent).toContain('Working');
+    expect(pulse?.querySelector('.agent-pulse-copy')).toBeNull();
+  });
+
   it('never describes a retained completed snapshot as stale or actionable', () => {
     const completed = {
       ...task({ updated_at: '2026-08-28T10:00:00Z', stale: true, action_needed: true }),

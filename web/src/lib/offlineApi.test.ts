@@ -47,10 +47,17 @@ describe('offline API boundary', () => {
     expect(events.mock.calls.some(([event]) => event.type === 'helm:network-unavailable')).toBe(false);
   });
 
-  it.each([401, 403])('invalidates saved authorization after HTTP %s', async status => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status }));
+  it('invalidates saved authorization after HTTP 401', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 401 }));
     const events = vi.spyOn(window, 'dispatchEvent');
-    await expect(request('/projects')).rejects.toMatchObject({ status });
+    await expect(request('/projects')).rejects.toMatchObject({ status: 401 });
     expect(events.mock.calls.some(([event]) => event.type === 'helm:auth-invalidated')).toBe(true);
+  });
+
+  it('keeps an authenticated session on HTTP 403 permission failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 403 }));
+    const events = vi.spyOn(window, 'dispatchEvent');
+    await expect(request('/projects')).rejects.toMatchObject({ status: 403 });
+    expect(events.mock.calls.some(([event]) => event.type === 'helm:auth-invalidated')).toBe(false);
   });
 });

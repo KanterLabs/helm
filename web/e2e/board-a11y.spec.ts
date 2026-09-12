@@ -372,15 +372,40 @@ test.describe('board accessibility regressions', () => {
     const state = fixture(3);
     await installFixture(page, state);
     await openBoard(page, state);
-    const pulse = page.locator('[data-agent-pulse]').first();
+    const card = page.locator('.task-card').filter({ hasText: state.task.title });
+    const pulse = card.locator('[data-agent-pulse]');
+    const expandToggle = card.getByRole('button', { name: `Show details for ${state.task.key}` });
+    await expect(card).toHaveCSS('height', '128px');
+    await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(pulse, 'board cards keep live-work details hidden until expanded').toBeHidden();
+    await expect(pulse.locator('.agent-pulse-copy')).toHaveCount(0);
+
+    await expandToggle.click();
+    await expect(card).toHaveCSS('height', '220px');
+    await expect(card.getByRole('button', { name: `Hide details for ${state.task.key}` })).toHaveAttribute('aria-expanded', 'true');
+    await expect(pulse).toBeVisible();
     await expect(pulse).toHaveAttribute('role', 'group');
     await expect(pulse).not.toHaveAttribute('role', 'img');
     await expect(pulse).not.toHaveAttribute('aria-label');
-    await expect(pulse).toContainText('Progress: 1 of 2 checkpoints (50%)');
-    await expect(pulse).toContainText('Updated');
-    await expect(pulse).toContainText('2026-09-03T23:00:00.000Z');
-    await expect(pulse).toContainText('Claimed by Build bot');
-    await expect(pulse).toContainText('2030-01-02T03:04:05.000Z');
+    await expect(pulse).not.toHaveAttribute('aria-describedby');
+    await expect(pulse.locator('.agent-pulse-badge-label')).toHaveText('Stale');
+    await expect(pulse.locator('.agent-pulse-copy')).toHaveCount(0);
+
+    await card.locator('[data-task-trigger]').click();
+    const drawer = page.locator('.task-drawer');
+    await expect(drawer).toBeVisible();
+    const workPanel = drawer.locator('.agent-work-panel');
+    await expect(workPanel).toBeVisible();
+    await expect(workPanel.locator('.agent-work-details')).toContainText('Regression coverage');
+    await expect(workPanel.locator('.agent-work-details')).toContainText('1 of 2 checkpoints (50%)');
+    await expect(workPanel.locator('.agent-work-details')).toContainText('Testing board accessibility.');
+    await expect(workPanel.locator('.agent-work-details')).toContainText('Review the result.');
+
+    const detailedPulse = workPanel.locator('.agent-pulse');
+    await expect(detailedPulse).toContainText('Updated');
+    await expect(detailedPulse).toContainText('2026-09-03T23:00:00.000Z');
+    await expect(detailedPulse).toContainText('Claimed by Build bot');
+    await expect(detailedPulse).toContainText('2030-01-02T03:04:05.000Z');
   });
 
   test('keeps drag and move controls at least 24px on mobile', async ({ page }) => {

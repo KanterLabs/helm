@@ -59,6 +59,25 @@
   ): boolean {
     return boardChanged || Boolean(nextCursor);
   }
+
+  export type BulkMutationRequestContext = {
+    requestId: number;
+    sessionGeneration: number;
+    projectId: string;
+    projectSlug: string;
+  };
+
+  /** Delayed bulk responses may update state only while their session/project owns the request. */
+  export function bulkMutationRequestIsCurrent(
+    requested: BulkMutationRequestContext,
+    current: BulkMutationRequestContext & { authenticated: boolean }
+  ): boolean {
+    return current.authenticated
+      && requested.requestId === current.requestId
+      && requested.sessionGeneration === current.sessionGeneration
+      && requested.projectId === current.projectId
+      && requested.projectSlug === current.projectSlug;
+  }
 </script>
 
 <script lang="ts">
@@ -122,6 +141,9 @@
     type Agent,
     type ApiToken,
     type AuthStatus,
+    type BulkTaskMutationInput,
+    type BulkTaskMutationOperation,
+    type BulkTaskMutationResponse,
     type BugResolution,
     type BugSeverity,
     type Column,
@@ -146,15 +168,18 @@
     type Priority,
     type SemanticState,
     type PortableArchive,
-    type PortableImportReport
+    type PortableImportReport,
+    type Notification
   } from './lib/types';
   import AgentPulse from './lib/components/AgentPulse.svelte';
   import AgentWorkPanel from './lib/components/AgentWorkPanel.svelte';
   import AuditReview from './lib/components/AuditReview.svelte';
   import BoardTimeline from './lib/components/BoardTimeline.svelte';
+  import BoardOverflowNavigation from './lib/components/BoardOverflowNavigation.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import HelmMark from './lib/components/HelmMark.svelte';
   import LiveWorkRow from './lib/components/LiveWorkRow.svelte';
+  import NotificationsInbox from './lib/components/NotificationsInbox.svelte';
   import RoadmapActivity from './lib/components/RoadmapActivity.svelte';
   import RoadmapLiveWork from './lib/components/RoadmapLiveWork.svelte';
   import TaskActivityTimeline from './lib/components/TaskActivityTimeline.svelte';
@@ -162,6 +187,8 @@
   import TaskDependencies from './lib/components/TaskDependencies.svelte';
   import TaskDependencyStatus from './lib/components/TaskDependencyStatus.svelte';
   import TaskHierarchy from './lib/components/TaskHierarchy.svelte';
+  import TaskShareActions from './lib/components/TaskShareActions.svelte';
+  import TaskWatchToggle from './lib/components/TaskWatchToggle.svelte';
   import {
     mergeAuthoritativeTask,
     mergeAuthoritativeTaskList,
@@ -205,9 +232,10 @@
     type BoardOrderingGate,
     type BoardTaskSort
   } from './lib/boardOrdering';
+  import { buildTaskShareUrl } from './lib/taskShare';
 
   type View = CommandView;
-  type AuthView = 'login' | 'setup';
+  type AuthView = 'login' | 'setup' | 'tailnet';
   type ToastKind = 'success' | 'error' | 'info';
   type ToastAction = {
     label: string;
@@ -361,6 +389,22 @@
   let issueMetricsRequest = 0;
   let filters: BoardFilters = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all', dependency: 'all' };
   let boardWorkFilter: WorkFilter = 'all';
+  let selectedTaskIds = new Set<string>();
+  let expandedBoardTaskIds = new Set<string>();
+  let bulkReviewTasks: Task[] = [];
+  let showBulkModal = false;
+  let bulkSubmitting = false;
+  let bulkError = '';
+  let bulkResult: BulkTaskMutationResponse | null = null;
+  let bulkMode: 'partial' | 'atomic' = 'partial';
+  let bulkOperation: BulkTaskMutationOperation = 'priority';
+  let bulkPriority: Priority = 'normal';
+  let bulkAssignee = '';
+  let bulkLabels = '';
+  let bulkDueDate = '';
+  let bulkDestinationColumnId = '';
+  let bulkReason = '';
+  let bulkRequest = 0;
   let issueFilters: BoardFilters = {
     query: '',
     priority: 'all',
@@ -472,6 +516,13 @@
   let drawerDraftDirty = false;
 
   let draggingTaskId = '';
+
+  function toggleBoardTaskExpanded(taskId: string): void {
+    const next = new Set(expandedBoardTaskIds);
+    if (next.has(taskId)) next.delete(taskId);
+    else next.add(taskId);
+    expandedBoardTaskIds = next;
+  }
   let dragOverColumnId = '';
   let quickAddColumn = '';
   let quickAddTitle: Record<string, string> = {};
@@ -650,6 +701,8 @@
   $: adminLiveColumns = adminColumns.filter((column) => !column.archived_at).sort((a, b) => a.position - b.position);
   $: adminLiveColumnIndexes = new Map(adminLiveColumns.map((column, index) => [column.id, index]));
   $: visibleTasks = filterTasks(tasks, columns, filters).filter((task) => matchesWorkFilter(task, boardWorkFilter, pulseClock));
+  $: selectedTasks = tasks.filter((task) => selectedTaskIds.has(task.id));
+  $: allVisibleTasksSelected = visibleTasks.length > 0 && visibleTasks.every((task) => selectedTaskIds.has(task.id));
   $: boardWorkCounts = agentWorkStatusCounts(tasks, pulseClock, (task) => semanticStateForTask(task));
   $: visibleIssues = filterTasks(
     issueTasks.filter((task) => issueProjectFilter === 'all' || task.project_id === issueProjectFilter),
@@ -1481,7 +1534,10 @@
         await clearSavedBoards();
         user = null;
         offlineReadOnly.set(false);
-        authView = 'login';
+        // Tailnet identity is established by the private edge and the
+        // request-bound assertion. Never offer a local password form in this
+        // mode, including after an explicit logout.
+        authView = authStatus.mode === 'tailnet' ? 'tailnet' : 'login';
         booting = false;
         return;
       }
@@ -1496,7 +1552,7 @@
           await clearSavedBoards();
           user = null;
           offlineReadOnly.set(false);
-          authView = 'login';
+          authView = authStatus.mode === 'tailnet' ? 'tailnet' : 'login';
           booting = false;
           return;
         } else {
@@ -1547,6 +1603,10 @@
     // Every successful authentication starts a fresh client session. Any
     // request left behind by a previous session must fail its generation
     // check even when the browser logs back in as the same actor.
+    invalidateBulkRequest();
+    bulkReviewTasks = [];
+    showBulkModal = false;
+    bulkResult = null;
     sessionGeneration += 1;
     const requestedSession = sessionGeneration;
     if (user) await setOfflineOwner(user.id);
@@ -1579,7 +1639,7 @@
         // workspace instead of leaving the UI with an unauthenticated actor.
         const result = await api.authLogin({ email: setupEmail.trim(), password: setupPassword });
         user = unwrapActor(result);
-      } else {
+      } else if (authView === 'login') {
         if (!loginEmail.trim() || !loginPassword) throw new Error('Enter your email and password.');
         const result = await api.authLogin({ email: loginEmail.trim(), password: loginPassword });
         user = unwrapActor(result);
@@ -1618,6 +1678,11 @@
     projects = [];
     columns = [];
     tasks = [];
+    selectedTaskIds = new Set();
+    invalidateBulkRequest();
+    bulkReviewTasks = [];
+    showBulkModal = false;
+    bulkResult = null;
     labels = [];
     issueTasks = [];
     issueColumns = [];
@@ -1655,6 +1720,7 @@
     codexStatusLoading = false;
     codexLoading = false;
     codexError = '';
+    authView = authStatus?.mode === 'tailnet' ? 'tailnet' : 'login';
     adminProjects = [];
     adminProjectId = '';
     adminColumns = [];
@@ -3275,6 +3341,11 @@
     roadmapProjectId = undefined;
     columns = [];
     tasks = [];
+    selectedTaskIds = new Set();
+    invalidateBulkRequest();
+    bulkReviewTasks = [];
+    showBulkModal = false;
+    bulkResult = null;
     labels = [];
     invalidateBoardColumnRequests(Object.keys(boardPages));
     boardPages = {};
@@ -3554,6 +3625,18 @@
     restoreDialogFocus();
   }
 
+  function invalidateBulkRequest() {
+    bulkRequest += 1;
+    bulkSubmitting = false;
+  }
+
+  function closeBulkModal() {
+    invalidateBulkRequest();
+    if (!showBulkModal) return;
+    showBulkModal = false;
+    restoreDialogFocus();
+  }
+
   function closeTokenReveal() {
     revealedToken = null;
     restoreDialogFocus();
@@ -3600,6 +3683,7 @@
       else if (showProjectModal) closeProjectModal();
       else if (showTaskModal) closeTaskModal();
       else if (showBugModal) closeBugModal();
+      else if (showBulkModal) closeBulkModal();
       else if (revealedToken) closeTokenReveal();
       else if (drawerTask) closeDrawer();
     }
@@ -4088,6 +4172,174 @@
     filters = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all', dependency: 'all' };
     boardWorkFilter = 'all';
     scheduleBoardReload();
+  }
+
+  function toggleTaskSelection(task: Task) {
+    const next = new Set(selectedTaskIds);
+    if (next.has(task.id)) {
+      next.delete(task.id);
+    } else if (next.size < 100) {
+      next.add(task.id);
+    } else {
+      toast('info', 'Bulk changes are limited to 100 tasks. Clear a selection before adding another.');
+      return;
+    }
+    selectedTaskIds = next;
+  }
+
+  function selectVisibleTasks() {
+    if (!visibleTasks.length) return;
+    const next = new Set(selectedTaskIds);
+    const available = Math.max(0, 100 - next.size);
+    const unselected = visibleTasks.filter((task) => !next.has(task.id));
+    unselected.slice(0, available).forEach((task) => next.add(task.id));
+    selectedTaskIds = next;
+    if (unselected.length > available) {
+      toast('info', 'Only 100 tasks can be selected for one bulk change.');
+    }
+  }
+
+  function clearTaskSelection() {
+    selectedTaskIds = new Set();
+    bulkReviewTasks = [];
+    bulkResult = null;
+    bulkError = '';
+  }
+
+  function resetBulkForm() {
+    bulkMode = 'partial';
+    bulkOperation = 'priority';
+    bulkPriority = 'normal';
+    bulkAssignee = '';
+    bulkLabels = '';
+    bulkDueDate = '';
+    bulkDestinationColumnId = sortedColumns.find((column) => column.semantic_state === 'ready')?.id
+      || sortedColumns.find((column) => column.semantic_state === 'backlog')?.id
+      || sortedColumns[0]?.id
+      || '';
+    bulkReason = '';
+    bulkError = '';
+    bulkResult = null;
+  }
+
+  function openBulkModal() {
+    if (!selectedTasks.length || !activeProject) return;
+    rememberDialogFocus('[data-bulk-review-trigger]');
+    resetBulkForm();
+    // Keep the reviewed task/version set stable while the confirmation dialog
+    // is open. Background board refreshes may replace `tasks`, but they must
+    // not silently change what the person is about to submit.
+    bulkReviewTasks = selectedTasks.map((task) => ({ ...task }));
+    showBulkModal = true;
+    projectSwitcherOpen = false;
+  }
+
+  function bulkDueAt(): string | null {
+    return bulkDueDate ? `${bulkDueDate}T23:59:59Z` : null;
+  }
+
+  function bulkLabelsInput(): string[] {
+    return Array.from(new Set(bulkLabels.split(',').map((value) => value.trim()).filter(Boolean)));
+  }
+
+  function buildBulkMutations(reviewTasks: readonly Task[] = bulkReviewTasks): BulkTaskMutationInput[] {
+    return reviewTasks.map((task) => {
+      const mutation: BulkTaskMutationInput = {
+        task: task.key || task.id,
+        version: task.version,
+        operation: bulkOperation
+      };
+      if (bulkOperation === 'move') {
+        mutation.destination_column_id = bulkDestinationColumnId;
+        mutation.expected_source_column_id = task.column_id;
+        mutation.source = 'bulk-ui';
+      } else if (bulkOperation === 'assign') {
+        mutation.assignee = bulkAssignee.trim() || null;
+      } else if (bulkOperation === 'priority') {
+        mutation.priority = bulkPriority;
+      } else if (bulkOperation === 'labels') {
+        mutation.labels = bulkLabelsInput();
+      } else if (bulkOperation === 'due_at') {
+        mutation.due_at = bulkDueAt();
+      } else if (bulkOperation === 'complete') {
+        mutation.comment = bulkReason.trim() || undefined;
+      } else if (bulkOperation === 'block') {
+        mutation.reason = bulkReason.trim();
+      }
+      return mutation;
+    });
+  }
+
+  function bulkResultLabel(status: string): string {
+    return status === 'applied' ? 'Applied' : status === 'conflict' ? 'Conflict' : 'Skipped';
+  }
+
+  async function submitBulkChanges() {
+    if (!activeProject || !bulkReviewTasks.length || bulkSubmitting) return;
+    if (bulkOperation === 'move' && !bulkDestinationColumnId) {
+      bulkError = 'Choose a destination column.';
+      return;
+    }
+    if (bulkOperation === 'block' && !bulkReason.trim()) {
+      bulkError = 'Add a reason before blocking the selected tasks.';
+      return;
+    }
+    const requested = {
+      requestId: ++bulkRequest,
+      sessionGeneration,
+      projectId: activeProject.id,
+      projectSlug: activeProjectSlug
+    };
+    const reviewedTasks = bulkReviewTasks.map((task) => ({ ...task }));
+    const input = {
+      mode: bulkMode,
+      mutations: buildBulkMutations(reviewedTasks)
+    };
+    const ownsRequest = () => bulkMutationRequestIsCurrent(requested, {
+      requestId: bulkRequest,
+      sessionGeneration,
+      projectId: activeProject?.id || '',
+      projectSlug: activeProjectSlug,
+      authenticated: Boolean(user)
+    });
+    bulkSubmitting = true;
+    bulkError = '';
+    try {
+      const result = await api.bulkTasks(requested.projectId, input);
+      if (!ownsRequest()) return;
+      bulkResult = result;
+      const refreshedReviewTasks = new Map<string, Task>();
+      result.results.forEach((item) => {
+        if (item.status === 'applied' && item.task) replaceTask(item.task, true);
+        const current = item.error?.details?.current;
+        if (item.status === 'conflict' && typeof current === 'object' && current !== null && 'id' in current) {
+          const currentTask = current as Task;
+          // Conflict envelopes carry the authoritative version for human
+          // callers. Merge it into the board and the review snapshot so a
+          // retry visibly uses the server's current optimistic-concurrency
+          // validator instead of silently resubmitting the stale version.
+          replaceTask(currentTask);
+          refreshedReviewTasks.set(currentTask.id, currentTask);
+        }
+      });
+      const appliedIds = new Set(
+        result.results
+          .filter((item) => item.status === 'applied' && item.task_id)
+          .map((item) => item.task_id as string)
+      );
+      if (appliedIds.size) {
+        selectedTaskIds = new Set([...selectedTaskIds].filter((id) => !appliedIds.has(id)));
+      }
+      bulkReviewTasks = reviewedTasks
+        .filter((task) => !appliedIds.has(task.id))
+        .map((task) => refreshedReviewTasks.get(task.id) || task);
+      const summary = `${result.applied} applied · ${result.conflicts} conflicts · ${result.skipped} skipped`;
+      toast(result.conflicts ? 'info' : 'success', `Bulk changes finished: ${summary}.`);
+    } catch (error) {
+      if (ownsRequest()) bulkError = friendlyError(error, 'The bulk change could not be completed.');
+    } finally {
+      if (ownsRequest()) bulkSubmitting = false;
+    }
   }
 
   function clearIssueFilters() {
@@ -5510,8 +5762,10 @@
   }
 
   async function editDrawerComment(comment: Comment, body: string): Promise<void> {
-    if (!drawerTask) return;
-    const taskId = drawerTask.id;
+    if (!drawerTask || drawerTask.id !== comment.task_id) {
+      throw new Error('The task changed while this comment was saving. Your draft was kept.');
+    }
+    const taskId = comment.task_id;
     try {
       const updatedComment = await api.patchComment(taskId, comment.id, body.trim(), comment.version ?? 1);
       drawerTimelineRequest += 1;
@@ -5558,7 +5812,46 @@
     return projects.find((project) => project.id === task.project_id);
   }
 
-  async function openWorkTask(task: Task, returnFocus: DialogReturnFocus | null = null) {
+  function drawerTaskShareUrl(task: Task): string {
+    const projectSlug = projectForTask(task)?.slug || getProjectSlugFromLocation() || activeProjectSlug;
+    return buildTaskShareUrl(projectSlug, task.key, {
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      intent: drawerView
+    });
+  }
+
+  async function openNotification(notification: Notification): Promise<void> {
+    const requestedSession = sessionGeneration;
+    const projectId = notification.project_id || '';
+    const taskId = notification.task_id || '';
+    if (!user || !projectId || !taskId) {
+      toast('info', 'This notification has no task to open.');
+      return;
+    }
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) {
+      toast('error', 'The project for this notification is no longer available.');
+      return;
+    }
+    const knownTask = [...tasks, ...myWorkTasks, ...roadmapLiveTasks, ...issueTasks].find((item) => item.id === taskId);
+    try {
+      const task = knownTask || await api.getTask(taskId);
+      if (requestedSession !== sessionGeneration || !user || task.project_id !== projectId) {
+        if (requestedSession === sessionGeneration && user) toast('error', 'This notification points to a task that is no longer available.');
+        return;
+      }
+      await openWorkTask(task, null, 'details');
+    } catch (error) {
+      if (requestedSession === sessionGeneration && user) toast('error', friendlyError(error, 'This notification points to a task that is no longer available.'));
+    }
+  }
+
+  async function openWorkTask(
+    task: Task,
+    returnFocus: DialogReturnFocus | null = null,
+    intent: TaskRouteIntent = taskRouteIntent
+  ) {
+    const requestedSession = sessionGeneration;
     if (!confirmDrawerTaskSwitch(task)) return;
     const project = projectForTask(task);
     const origin = window.location.pathname + window.location.search;
@@ -5576,7 +5869,8 @@
       // There is no stable project route to push until the project metadata is
       // available, so leave the current URL untouched.
     }
-    await openTask(task, taskRouteIntent, { skipDiscardGuard: true, returnFocus });
+    if (requestedSession !== sessionGeneration || !user) return;
+    await openTask(task, intent, { skipDiscardGuard: true, returnFocus });
   }
 
   async function openRoadmapTask(task: Task): Promise<void> {
@@ -5853,6 +6147,18 @@
           <span>One calm place for humans and agents to move work forward.</span>
         </div>
       </div>
+      {#if authView === 'tailnet'}
+        <div class="auth-form">
+          <div class="form-heading">
+            <h2>Tailnet access required</h2>
+            <p>Open Helm from the authorized private Tailnet device. Helm does not use a local password in this mode.</p>
+          </div>
+          {#if authError}
+            <div class="inline-alert error" role="alert"><span>!</span><span>{authError}</span></div>
+          {/if}
+          <button class="button primary button-large" type="button" on:click={bootstrap} disabled={authSubmitting}>Retry private access</button>
+        </div>
+      {:else}
       <form class="auth-form" on:submit|preventDefault={submitAuth}>
         <div class="form-heading">
           <h2>{authView === 'setup' ? 'Create your workspace' : 'Welcome back'}</h2>
@@ -5879,6 +6185,7 @@
           </button>
         {/if}
       </form>
+      {/if}
     </section>
   </main>
 {:else}
@@ -5966,6 +6273,11 @@
         </div>
         <div class="topbar-actions">
           <button class="command-trigger" type="button" aria-label="Search anything" data-command-trigger on:click={openCommandPalette}><span>⌕</span><span class="command-trigger-label">Search anything</span><kbd data-command-shortcut>{commandShortcut}</kbd></button>
+          <NotificationsInbox
+            sessionKey={`${user.id}:${sessionGeneration}`}
+            {activeProject}
+            onOpenNotification={openNotification}
+          />
           <button class="icon-button" type="button" aria-label={theme === 'dark' ? 'Use light theme' : 'Use dark theme'} on:click={toggleTheme}>{theme === 'dark' ? '☼' : '◐'}</button>
           <button class="avatar top-avatar" type="button" aria-label="Open settings" on:click={() => setView('settings')}>{projectInitials({ name: user.name, key: user.name })}</button>
         </div>
@@ -6007,6 +6319,7 @@
               <div class="filter-search"><span aria-hidden="true">⌕</span><input bind:this={boardSearchInput} aria-label="Search tasks" bind:value={filters.query} on:input={scheduleBoardReload} placeholder="Search tasks…" /><kbd>/</kbd></div>
               <div class="filter-group"><select aria-label="Filter by state" bind:value={filters.state} on:change={scheduleBoardReload}><option value="all">All states</option>{#each sortedColumns as column}<option value={column.semantic_state}>{stateLabels[column.semantic_state] || column.name}</option>{/each}</select><select aria-label="Filter by priority" bind:value={filters.priority} on:change={scheduleBoardReload}><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select><select aria-label="Filter by agent work" bind:value={boardWorkFilter} on:change={scheduleBoardReload}><option value="all">All agent work</option><option value="action-needed">Action needed{boardWorkCounts.actionNeeded ? ` · ${boardWorkCounts.actionNeeded}` : ''}</option><option value="missing">Missing{boardWorkCounts.missing ? ` · ${boardWorkCounts.missing}` : ''}</option><option value="stale">Stale{boardWorkCounts.stale ? ` · ${boardWorkCounts.stale}` : ''}</option><option value="waiting">Waiting{boardWorkCounts.waiting ? ` · ${boardWorkCounts.waiting}` : ''}</option><option value="handoff">Handoff{boardWorkCounts.handoff ? ` · ${boardWorkCounts.handoff}` : ''}</option><option value="working">Working{boardWorkCounts.working ? ` · ${boardWorkCounts.working}` : ''}</option><option value="verifying">Verifying{boardWorkCounts.verifying ? ` · ${boardWorkCounts.verifying}` : ''}</option></select><select aria-label="Filter by dependency readiness" bind:value={filters.dependency} on:change={scheduleBoardReload}><option value="all">All dependencies</option><option value="blocked">Waiting on prerequisites</option><option value="ready">Prerequisites finished</option></select><select aria-label="Filter by label" bind:value={filters.label} on:change={scheduleBoardReload}><option value="all">All labels</option>{#each labels as label}<option value={label.id}>{label.name}</option>{/each}</select><select aria-label="Filter by assignee" bind:value={filters.assignee} on:change={scheduleBoardReload}><option value="all">All assignees</option>{#each Array.from(new Map(tasks.map((task) => [actorId(task.assignee), task.assignee])).entries()).filter(([id]) => id) as pair}<option value={pair[0]}>{actorName(pair[1]) || pair[0]}</option>{/each}</select><select aria-label="Sort tasks" bind:value={boardSort} on:change={scheduleBoardReload}><option value="position">Board order</option><option value="number">Task number</option><option value="priority">Priority</option><option value="title">Title</option><option value="created_at">Created</option><option value="updated_at">Updated</option></select><select aria-label="Sort direction" bind:value={boardOrder} on:change={scheduleBoardReload}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div>
               {#if boardFiltersActive()}<button class="clear-filters" type="button" on:click={clearFilters}>Clear filters</button>{/if}
+              <div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={!visibleTasks.length || allVisibleTasksSelected}>Select loaded tasks</button>{#if selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div>
               <span class="toolbar-spacer"></span><span class="task-total">{visibleTasks.length}{boardPartial ? '+' : ''} {visibleTasks.length === 1 ? 'task' : 'tasks'}</span><button class="icon-button" type="button" aria-label="Refresh board" on:click={() => loadBoard()}>↻</button>
             </section>
 
@@ -6020,7 +6333,8 @@
             {:else if !sortedColumns.length}
               <div class="empty-state board-empty"><div class="empty-icon">◇</div><h2>Your board is almost ready</h2><p>Columns will appear here once this project has been initialized.</p><button class="button primary" type="button" on:click={() => loadBoard()}>Refresh board</button></div>
             {:else}
-              <section class="board" use:boardCardHeight aria-label={`${activeProject.name} board`}>
+              <BoardOverflowNavigation label={`${activeProject.name} board columns`}>
+              <section class="board" data-board-overflow-scroll use:boardCardHeight aria-label={`${activeProject.name} board`}>
                 {#each sortedColumns as column (column.id)}
                 {@const orderingGate = makeBoardOrderingGate({
                   criteriaTransition: boardCriteriaTransition,
@@ -6055,7 +6369,12 @@
                         <div class="column-empty">{#if boardPages[column.id]?.error}<span>{boardPages[column.id].error}</span><button class="text-button" type="button" on:click={() => loadBoardColumn(column.id, { reset: true })}>Retry</button>{:else if boardFiltersActive()}<span>No tasks match the current filters.</span><button class="text-button" type="button" on:click={clearFilters}>Clear filters</button>{:else}<span>Nothing here yet</span><button class="text-button quick-add-trigger" type="button" data-quick-add-trigger={column.id} on:click={(event) => openQuickAdd(column.id, event.currentTarget as HTMLButtonElement)}>Add the first task</button>{/if}</div>
                       {:else}
                         {#each orderedColumnTasks.slice(cardOffset, cardOffset + boardRenderLimit) as task (task.id)}
-                          <article class="task-card" class:dependency-blocked={dependencyBlocked(task)} class:dragging={draggingTaskId === task.id} on:dragend={endDrag} on:dragover|preventDefault={(event) => { if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'; }} on:drop={(event) => dropTask(event, column.id, task.id)}>
+                          <article class="task-card" class:expanded={expandedBoardTaskIds.has(task.id)} class:dependency-blocked={dependencyBlocked(task)} class:dragging={draggingTaskId === task.id} on:dragend={endDrag} on:dragover|preventDefault={(event) => { if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'; }} on:drop={(event) => dropTask(event, column.id, task.id)}>
+                            <label class="task-select">
+                              <span class="sr-only">Select {task.key}</span>
+                              <input type="checkbox" aria-label={`Select ${task.key}`} checked={selectedTaskIds.has(task.id)} on:click|stopPropagation on:change={() => toggleTaskSelection(task)} />
+                              <span class="task-select-box" aria-hidden="true"></span>
+                            </label>
                             <button class="task-drag-handle" type="button" draggable="true" aria-label={`Drag ${task.key}, ${task.title}`} title="Drag task" on:click|stopPropagation={() => undefined} on:dragstart|stopPropagation={(event) => dragStart(event, task)}>⠿</button>
                             <button class="task-main" type="button" data-task-trigger aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
                               <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{/if}{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
@@ -6066,7 +6385,8 @@
 	                              {#if task.checklist_summary?.total}<span class="checklist-card-progress" title={`${task.checklist_summary.completed} of ${task.checklist_summary.total} checklist items complete`} aria-label={`${task.checklist_summary.completed} of ${task.checklist_summary.total} checklist items complete`}>☑ {task.checklist_summary.completed}/{task.checklist_summary.total}</span>{/if}
 	                              {#if hierarchyBadgeLabel(task)}<span class="hierarchy-badge" aria-label={`Hierarchy: ${hierarchyBadgeLabel(task)}`}><span aria-hidden="true">⌘</span>{hierarchyBadgeLabel(task)}</span>{/if}
                             </button>
-                            {#if showAgentPulse(task)}<AgentPulse {task} now={pulseClock} actorLabel={agentLabelForTask(task)} />{/if}
+                            <button class="card-expand-toggle" type="button" aria-expanded={expandedBoardTaskIds.has(task.id)} aria-label={`${expandedBoardTaskIds.has(task.id) ? 'Hide' : 'Show'} details for ${task.key}`} on:click|stopPropagation={() => toggleBoardTaskExpanded(task.id)}>{expandedBoardTaskIds.has(task.id) ? '⌃ Hide details' : '⌄ Show details'}</button>
+                            {#if showAgentPulse(task)}<AgentPulse {task} now={pulseClock} actorLabel={agentLabelForTask(task)} compact />{/if}
                             <div class="task-card-footer"><span class={`due-date ${taskDueClass(task)}`}>{#if task.due_at}<span aria-hidden="true">◷</span>{formatDate(task.due_at)}{/if}</span><span class="card-footer-spacer"></span>{#if task.assignee}<span class="mini-avatar" title={`Assigned to ${actorName(task.assignee) || actorId(task.assignee)}`}>{(actorName(task.assignee) || actorId(task.assignee)).slice(0, 1).toUpperCase()}</span>{/if}{#if task.comment_count}<span class="comment-count" title={`${task.comment_count} comments`}>◌ {task.comment_count}</span>{/if}<button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'first', orderingGate)} title={orderingMoveTitle('first', orderingGate)} disabled={orderingMoveDisabled(task, 'first', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'first')}>⇈</button><button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'previous', orderingGate)} title={orderingMoveTitle('previous', orderingGate)} disabled={orderingMoveDisabled(task, 'previous', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'previous')}>↑</button><button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'next', orderingGate)} title={orderingMoveTitle('next', orderingGate)} disabled={orderingMoveDisabled(task, 'next', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'next')}>↓</button><button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'last', orderingGate)} title={orderingMoveTitle('last', orderingGate)} disabled={orderingMoveDisabled(task, 'last', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'last')}>⇊</button><button class="icon-button card-move" type="button" aria-label={cardMoveLabel(task, -1)} title={cardMoveReason(task, -1) || undefined} disabled={!adjacentTaskColumn(task, -1) || Boolean(cardMoveReason(task, -1)) || taskActionLoading === task.id} on:click={() => moveTaskBy(task, -1)}>←</button><button class="icon-button card-move" type="button" aria-label={cardMoveLabel(task, 1)} title={cardMoveReason(task, 1) || undefined} disabled={!adjacentTaskColumn(task, 1) || Boolean(cardMoveReason(task, 1)) || taskActionLoading === task.id} on:click={() => moveTaskBy(task, 1)}>→</button></div>
                           </article>
                         {/each}
@@ -6085,6 +6405,7 @@
                   </article>
                 {/each}
               </section>
+              </BoardOverflowNavigation>
             {/if}
             {:else}
               <BoardTimeline
@@ -6271,13 +6592,14 @@
       <div class="drawer-backdrop" role="presentation" on:click={() => closeDrawer()}></div>
       <div class="task-drawer" role="dialog" aria-modal="true" aria-label={`${drawerTask.key}: ${drawerTask.title}`} use:focusTrap>
         <div class="drawer-focus-target sr-only" tabindex="-1" data-dialog-initial-focus aria-label="Task details"></div>
-        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span></div><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
+        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span></div><TaskWatchToggle task={drawerTask} sessionKey={`${user.id}:${sessionGeneration}`} disabled={drawerSaving || drawerLoading} /><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
         {#if drawerLoading}<div class="drawer-loading"><span class="spinner"></span><span>Loading task details…</span></div>{/if}
         {#if drawerError}<div class="inline-alert error drawer-alert" role="alert"><span>!</span>{drawerError}</div>{/if}
         <div class="drawer-tabs" role="tablist" aria-label="Task views">
           <button class:active={drawerView === 'details'} id="drawer-details-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'details'} aria-controls="drawer-details-panel" tabindex={drawerView === 'details' ? 0 : -1} on:click={() => setDrawerView('details')} on:keydown={drawerTabKeydown}>Details</button>
           <button class:active={drawerView === 'activity'} id="drawer-activity-tab" class="drawer-tab" type="button" role="tab" aria-selected={drawerView === 'activity'} aria-controls="drawer-activity-panel" tabindex={drawerView === 'activity' ? 0 : -1} on:click={() => setDrawerView('activity')} on:keydown={drawerTabKeydown}>Activity</button>
         </div>
+        <TaskShareActions taskKey={drawerTask.key} taskUrl={drawerTaskShareUrl(drawerTask)} />
         {#if drawerView === 'details'}
         <div id="drawer-details-panel" class="drawer-details-panel" role="tabpanel" aria-labelledby="drawer-details-tab">
           <div class="drawer-scroll" data-drawer-scroll>
@@ -6350,6 +6672,7 @@
                 onRetry={() => { void loadDrawerTimeline(drawerTask?.id); }}
                 currentActorId={user?.id || ''}
                 canManageComments={Boolean(user?.admin)}
+                taskId={drawerTask?.id || ''}
                 onEditComment={editDrawerComment}
                 onConfirmDelete={confirmDrawerCommentDelete}
                 onDeleteComment={deleteDrawerComment}
@@ -6439,6 +6762,37 @@
           <label>Description <span class="optional">Optional · Markdown supported</span><textarea rows="2" bind:value={bugModalDescription} placeholder="Add context beyond the reproduction details."></textarea></label>
           <label>Labels <span class="optional">Optional · comma separated</span><input bind:value={bugModalLabels} placeholder="frontend, regression" /></label>
           <div class="modal-actions"><button class="text-button" type="button" on:click={closeBugModal}>Cancel</button><button class="button primary" type="submit" disabled={bugModalCreating || bugModalLoading || !bugModalTitle.trim() || !bugModalActual.trim()}>{#if bugModalCreating}<span class="button-spinner"></span>{/if}Report bug</button></div>
+        </form>
+      </div>
+    {/if}
+
+    {#if showBulkModal}
+      <div class="modal-backdrop" role="presentation" on:click={closeBulkModal}></div>
+      <div class="modal bulk-task-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-task-modal-title" aria-describedby="bulk-task-modal-description" use:focusTrap>
+        <div class="modal-header"><div><span class="eyebrow">{bulkReviewTasks.length} selected</span><h2 id="bulk-task-modal-title">Review bulk changes</h2></div><button class="icon-button" type="button" aria-label="Close bulk changes" on:click={closeBulkModal}>×</button></div>
+        <p id="bulk-task-modal-description" class="bulk-modal-description">Choose one guarded change for every selected task. Each task keeps its own version and reports its own outcome.</p>
+        {#if bulkError}<div class="inline-alert error" role="alert"><span>!</span>{bulkError}</div>{/if}
+        <form on:submit|preventDefault={submitBulkChanges}>
+          <fieldset class="bulk-mode-fieldset"><legend>Apply mode</legend><label class="check-label"><input type="radio" name="bulk-mode" value="partial" bind:group={bulkMode} /><span><strong>Partial</strong><small>Apply valid tasks and report conflicts individually.</small></span></label><label class="check-label"><input type="radio" name="bulk-mode" value="atomic" bind:group={bulkMode} /><span><strong>Atomic</strong><small>Apply all or roll back the whole selection.</small></span></label></fieldset>
+          <label>Change<select aria-label="Bulk change" bind:value={bulkOperation}><option value="move">Move to a column</option><option value="assign">Assign to an actor</option><option value="priority">Set priority</option><option value="labels">Replace labels</option><option value="due_at">Set due date</option><option value="complete">Complete tasks</option><option value="block">Block tasks</option></select></label>
+          {#if bulkOperation === 'move'}
+            <label>Destination column<select aria-label="Bulk destination column" bind:value={bulkDestinationColumnId}>{#each sortedColumns.filter((column) => column.semantic_state === 'backlog' || column.semantic_state === 'ready') as column}<option value={column.id}>{column.name}</option>{/each}</select></label>
+          {:else if bulkOperation === 'assign'}
+            <label>Assignee <span class="optional">Optional · leave blank to unassign</span><input aria-label="Bulk assignee actor ID" bind:value={bulkAssignee} placeholder="Actor ID" /></label>
+          {:else if bulkOperation === 'priority'}
+            <label>Priority<select aria-label="Bulk priority" bind:value={bulkPriority}><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label>
+          {:else if bulkOperation === 'labels'}
+            <label>Labels <span class="optional">Comma separated · replaces current labels</span><input aria-label="Bulk labels" bind:value={bulkLabels} placeholder="frontend, release" /></label>
+          {:else if bulkOperation === 'due_at'}
+            <label>Due date <span class="optional">Optional · leave blank to clear</span><input aria-label="Bulk due date" type="date" bind:value={bulkDueDate} /></label>
+          {:else if bulkOperation === 'complete'}
+            <label>Completion note <span class="optional">Optional · added to activity</span><textarea aria-label="Bulk completion note" rows="2" bind:value={bulkReason} placeholder="Shipped in this release"></textarea></label>
+          {:else if bulkOperation === 'block'}
+            <label>Blocking reason<textarea aria-label="Bulk blocking reason" rows="2" bind:value={bulkReason} placeholder="Waiting on a decision" required></textarea></label>
+          {/if}
+          <section class="bulk-review-list" aria-labelledby="bulk-review-heading"><div class="section-heading-inline"><h3 id="bulk-review-heading">Tasks in this change</h3><span class="optional">{bulkReviewTasks.length} of 100 maximum</span></div>{#if bulkReviewTasks.length}<ul>{#each bulkReviewTasks as task (task.id)}<li><span class="task-key">{task.key}</span><span>{task.title}</span><span class="bulk-review-version">v{task.version}</span></li>{/each}</ul>{:else}<p class="bulk-empty-review">Applied tasks have been cleared from the selection. Close this review or select more tasks.</p>{/if}</section>
+          {#if bulkResult}<section class="bulk-result" aria-labelledby="bulk-result-heading" role="status" aria-live="polite"><div class="section-heading-inline"><h3 id="bulk-result-heading">Result summary</h3><span>{bulkResult.applied} applied · {bulkResult.conflicts} conflicts · {bulkResult.skipped} skipped</span></div><ul>{#each bulkResult.results as result (result.reference)}<li><span class={`bulk-result-status ${result.status}`}>{bulkResultLabel(result.status)}</span><span class="task-key">{result.reference}</span>{#if result.error}<span class="bulk-result-error">{result.error.message}</span>{/if}</li>{/each}</ul></section>{/if}
+          <div class="modal-actions"><button class="text-button" type="button" on:click={closeBulkModal}>Close</button><button class="button primary" type="submit" disabled={bulkSubmitting || !bulkReviewTasks.length}>{#if bulkSubmitting}<span class="button-spinner"></span>{/if}{bulkResult ? 'Retry remaining changes' : `Apply changes to ${bulkReviewTasks.length} tasks`}</button></div>
         </form>
       </div>
     {/if}

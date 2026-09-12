@@ -18,11 +18,26 @@ fields are omitted when they have no value unless a route explicitly documents
 - `GET /api/v1` is public discovery and returns `{ "name": "helm", "version": "v1" }`, plus `revision` when configured.
 - `GET /openapi.json` returns the OpenAPI 3.1 contract and is served with
   `Cache-Control: no-store`, like the JSON API responses.
+- `GET /metrics` returns bounded Prometheus text. Unauthenticated collection is
+  allowed only from a loopback peer without forwarding or proxy identity
+  headers; a loopback request carrying those headers is treated as proxied and
+  requires a normal Helm session or scoped bearer token. The endpoint never
+  includes task text, request bodies, credentials, or user-provided labels.
+  Remote authenticated collection uses the normal auth path and may update
+  the existing throttled session `last_seen_at` or token `last_used_at` fields.
+- `GET /readyz` (and `/ready`) returns bounded machine-readable database,
+  schema, migration, writable-capacity, and storage checks. It returns 200
+  with `ready: true` when all checks pass and 503 with `ready: false` and
+  `status: "degraded"` when a check fails. See
+  [`docs/OBSERVABILITY.md`](OBSERVABILITY.md) for thresholds and operator
+  responses. Unknown newer additive migrations are reported as a compatibility
+  warning but remain ready for retained-binary rollback; pending embedded
+  migrations and inspection errors are degraded.
 - Every response includes `X-Request-ID`. Deployments with a release SHA also include `X-Roadmap-Revision`.
 - API responses are `Cache-Control: no-store`. Clients may send `X-Request-ID` (up to 128 characters); otherwise the server generates one.
-- Cookie- and Cloudflare-authenticated mutations require an `Origin` exactly equal to the configured public origin. Missing or different origins return `403` (`csrf_origin`). Bearer-token requests are exempt from this Origin check. `GET`, `HEAD`, and `OPTIONS` do not require Origin.
+- Cookie-, Cloudflare-, and Tailnet-authenticated mutations require an `Origin` exactly equal to the configured public origin. Missing or different origins return `403` (`csrf_origin`). Bearer-token requests are exempt from this Origin check. `GET`, `HEAD`, and `OPTIONS` do not require Origin.
 - Public mutation routes (`setup`, `login`, and `logout`) use the same exact-Origin rule and reject `Idempotency-Key` with `400` (`idempotency_not_supported`).
-- Humans use the local session cookie or verified Cloudflare Access identity. Agents use scoped `Authorization: Bearer` tokens. Missing credentials return `401`; valid credentials without the required permission or scope return `403`.
+- Humans use the local session cookie, verified Cloudflare Access identity, or the private Tailnet edge identity. Agents use scoped `Authorization: Bearer` tokens. Missing credentials return `401`; valid credentials without the required permission or scope return `403`.
 
 ## Authentication
 
@@ -32,15 +47,28 @@ fields are omitted when they have no value unless a route explicitly documents
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 
-The server supports `local`, `cloudflare`, and development-only `disabled`
-authentication modes. Cloudflare identity comes from the protected Tunnel
-`Cf-Access-Jwt-Assertion` header. The server verifies its RS256 signature,
-issuer, expiration, and configured UI/API application audience before using the
-signed email claim; generic proxy identity headers are not trusted.
+The server supports `local`, `cloudflare`, `tailnet`, and development-only
+`disabled` authentication modes. Cloudflare identity comes from the protected
+Tunnel `Cf-Access-Jwt-Assertion` header. The server verifies its RS256
+signature, issuer, expiration, and configured UI/API application audience
+before using the signed email claim; generic proxy identity headers are not
+trusted.
 
-Setup accepts required `email` and `password`, with optional `name`; when name
-is omitted it defaults to the email's local part. Setup is single-use. Login
-accepts email and password. Logout is safe to call without an active session.
+Tailnet identity is established only by the private edge. The edge resolves
+the real Tailnet peer through tailscaled, requires the configured untagged
+owner, and forwards a short-lived HMAC assertion bound to the exact private
+origin, method, and request URI. Helm accepts only that request-bound
+assertion; raw Tailscale or proxy identity headers are not credentials. In
+Tailnet mode, `setup_required` remains false because authentication is
+deployment-owned; `configured` may remain false until the first verified owner
+request creates or reconciles the configured human actor.
+
+Setup accepts required `email` and `password`, with optional `name`, only in
+`local` mode; when name is omitted it defaults to the email's local part.
+Setup is single-use. Login accepts email and password only in `local` mode;
+Cloudflare and Tailnet deployments do not use password login. Logout is safe to
+call without an active session and does not turn Tailnet access into a password
+login.
 Missing, explicit-null, mistyped, malformed, or schema-invalid setup/login
 fields are `400` (`invalid_request` or `invalid_json`). Only a syntactically
 valid request whose credentials are not accepted is `401` (`invalid_credentials`);
@@ -150,6 +178,7 @@ use the separate documented SQLite workflow for exact database recovery.
 ## Tasks, comments, and claims
 
 - `GET|POST /api/v1/projects/{project}/tasks`
+- `POST /api/v1/projects/{project}/tasks/bulk`
 - `GET /api/v1/issues`
 - `GET|PATCH|DELETE /api/v1/tasks/{task}`
 - `GET|POST /api/v1/tasks/{task}/comments`
@@ -193,6 +222,47 @@ This reduced form applies to task creation, PATCH, claim, renew, release,
 complete, block, progress, triage, resolve, and reopen, and idempotent retries
 replay the already-reduced body.
 Direct task GET and task collections still require `tasks:read`.
+
+`POST /api/v1/projects/{project}/tasks/bulk` applies a bounded set of guarded
+task mutations. The request must contain 1–100 items, each with a `task`
+reference, positive `version`, and one operation: `move`, `assign`, `priority`,
+`labels`, `due_at`, `complete`, or `block`. Move items include destination and
+expected source column IDs plus non-empty provenance. Assignee, labels, and due
+date values may be JSON `null` to clear them. A typical request is:
+
+```json
+{
+  "mode": "partial",
+  "mutations": [
+    {"task": "OPS-41", "version": 7, "operation": "priority", "priority": "urgent"},
+    {"task": "OPS-42", "version": 3, "operation": "move", "destination_column_id": "col_ready", "expected_source_column_id": "col_backlog", "source": "bulk_triage"}
+  ]
+}
+```
+
+`partial` mode (the default) commits each item in its own transaction and
+returns a `200` response with `status: "partial"`. Every result contains the
+original `reference` and `status`: `"applied"`, `"skipped"`, or `"conflict"`;
+applied results include the resulting `version` and task response, while
+conflicts include a least-privilege error envelope. `atomic` mode evaluates
+all items in one transaction and rolls back every change if any item fails;
+rolled-back items are reported as `skipped` with an `atomic_rollback` error.
+Malformed envelopes, empty batches, and batches with more than 100 items are
+rejected as a normal top-level `400` error.
+
+Each item repeats the corresponding single-task version, claim, dependency,
+project, and lifecycle guards inside its write transaction. A batch never
+turns into an unguarded loop: active claims, unmet prerequisites, stale
+versions, invalid destinations, and cross-project references remain per-item
+outcomes in partial mode. Every committed item emits its normal task activity
+event (and an optional completion/block note emits its comment activity) with
+bulk provenance. The request uses the normal mutation rate limiter and agent
+resource budget once for the bounded body; an `Idempotency-Key` caches the
+complete response so replay cannot apply an item twice. Human lifecycle
+behavior matches the single-task routes; bearer lifecycle items require the
+`tasks:claim` scope and an active claim owned by that actor. All items must
+belong to the path project, and a project-scoped bearer token must include that
+project in its access ceiling.
 
 Comments contain `id`, `task_id`, `actor_id`, Markdown `body`, timestamps, and
 an optimistic-concurrency `version`. The API returns the Markdown source as
@@ -625,8 +695,11 @@ the actor and appends its bug lifecycle event atomically with the task update;
 clients can poll those events through `/api/v1/events?after=...`.
 
 This is an internal-only MVP. It does not provide public issue intake, external
-issue-tracker synchronization, email/Slack notifications, attachments,
-service-level agreements, or a separate bug-permission model. Bugs remain
+issue-tracker synchronization, provider-specific email/Slack integrations,
+attachments, service-level agreements, or a separate bug-permission model.
+Core in-app notifications and watches are documented in
+[`docs/NOTIFICATIONS.md`](NOTIFICATIONS.md). Safe event-driven automations and
+external delivery are tracked separately as TC-165 and TC-166. Bugs remain
 project tasks and use the existing board columns, claims, labels, comments,
 scopes, and audit/event feed.
 
