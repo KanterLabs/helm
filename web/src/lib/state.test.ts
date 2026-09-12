@@ -7,6 +7,8 @@ import {
   bugReporterId,
   bugResolution,
   bugSeverity,
+  boardFiltersFromSearchParams,
+  boardFiltersToSearchParams,
   columnLookupByProject,
   dateToIso,
   displayAgentWorkStatus,
@@ -20,6 +22,7 @@ import {
   loadRecentProjects,
   liveWorkGroup,
   matchesAgentWorkFilter,
+  matchesReleaseFilter,
   moveTaskLocal,
   nextPosition,
   projectInitials,
@@ -33,6 +36,8 @@ import {
   sortRoadmapLiveWork,
   sortLiveWork,
   sortTasks,
+  taskReleaseId,
+  taskReleaseIsUnassigned,
   taskOrderingAnchors,
   reorderTaskLocal,
   shouldShowAgentPulse,
@@ -109,6 +114,48 @@ describe('board state helpers', () => {
     expect(filterTasks(tasks, columns, { query: '', priority: 'high', label: 'all', assignee: 'all', state: 'all' }).map((task) => task.id)).toEqual(['1']);
     expect(filterTasks(tasks, columns, { query: '', priority: 'all', label: 'design', assignee: 'all', state: 'all' }).map((task) => task.id)).toEqual(['1']);
     expect(filterTasks(tasks, columns, { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'active' }).map((task) => task.id)).toEqual(['2']);
+  });
+
+  it('matches assigned and unassigned release filters from task fields or references', () => {
+    const assigned = { ...tasks[0], release_id: 'release-1', release: { id: 'release-1', name: '1.4', status: 'planned' as const } };
+    const referenceOnly = { ...tasks[1], release: { id: 'release-2', name: '1.5', status: 'released' as const } };
+    const unassigned = { ...tasks[0], id: 'unassigned', release_id: null, release: null };
+
+    expect(taskReleaseId(assigned)).toBe('release-1');
+    expect(taskReleaseId(referenceOnly)).toBe('release-2');
+    expect(taskReleaseIsUnassigned(unassigned)).toBe(true);
+    expect(matchesReleaseFilter(assigned, 'release-1')).toBe(true);
+    expect(matchesReleaseFilter(assigned, 'release-2')).toBe(false);
+    expect(matchesReleaseFilter(unassigned, 'unassigned')).toBe(true);
+    expect(matchesReleaseFilter(unassigned, 'none')).toBe(true);
+    expect(matchesReleaseFilter(assigned, 'all')).toBe(true);
+
+    const base = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all' };
+    expect(filterTasks([assigned, unassigned], columns, { ...base, release: 'release-1' })).toEqual([assigned]);
+    expect(filterTasks([assigned, unassigned], columns, { ...base, release: 'unassigned' })).toEqual([unassigned]);
+    expect(filterTasks([assigned], columns, { ...base, query: '1.4' })).toEqual([assigned]);
+  });
+
+  it('round-trips release filters through project and global URL state', () => {
+    const filters = {
+      query: 'ship API',
+      priority: 'high',
+      label: 'all',
+      assignee: 'all',
+      state: 'active',
+      dependency: 'all' as const,
+      release: 'unassigned'
+    };
+    const projectParams = boardFiltersToSearchParams(filters);
+    expect(projectParams.toString()).toContain('q=ship+API');
+    expect(projectParams.get('release')).toBe('unassigned');
+    expect(projectParams.get('release_id')).toBeNull();
+    expect(boardFiltersFromSearchParams(projectParams)).toMatchObject(filters);
+
+    const globalParams = boardFiltersToSearchParams({ ...filters, release: undefined, release_id: 'release/1' }, 'global');
+    expect(globalParams.get('release_id')).toBe('release/1');
+    expect(globalParams.get('release')).toBeNull();
+    expect(boardFiltersFromSearchParams(globalParams, {}, 'global')).toMatchObject({ release_id: 'release/1' });
   });
 
   it('filters dependency-blocked and dependency-ready tasks with server-equivalent semantics', () => {

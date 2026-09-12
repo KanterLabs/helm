@@ -128,6 +128,92 @@ describe('public API client', () => {
     expect((init as RequestInit).headers).toBeInstanceOf(Headers);
   });
 
+  it('supports release assignment filters across task, issue, My Work, and search routes', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(response({ data: [], next_cursor: null })));
+
+    await api.listTasks('project-1', { release: 'unassigned' });
+    await api.listIssues({ release_id: 'release-14' });
+    await api.myWork({ release_id: 'unassigned' });
+    await api.search({ release_id: 'release-14' });
+    await api.searchSavedView('view-1', { release_id: 'unassigned' });
+
+    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('release')).toBe('unassigned');
+    expect(new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost').searchParams.get('release_id')).toBe('release-14');
+    expect(new URL(String(fetchMock.mock.calls[2][0]), 'http://localhost').searchParams.get('release_id')).toBe('unassigned');
+    expect(new URL(String(fetchMock.mock.calls[3][0]), 'http://localhost').searchParams.get('release_id')).toBe('release-14');
+    expect(new URL(String(fetchMock.mock.calls[4][0]), 'http://localhost').searchParams.get('view')).toBe('view-1');
+    expect(new URL(String(fetchMock.mock.calls[4][0]), 'http://localhost').searchParams.get('release_id')).toBe('unassigned');
+  });
+
+  it('creates and patches nullable task release assignments without dropping null', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ id: 'task-1', version: 2 }))
+      .mockResolvedValueOnce(response({ id: 'task-1', version: 3 }));
+
+    await api.createTask('project-1', { title: 'Unassigned task', release_id: null });
+    await api.patchTask('task-1', { release_id: null }, 2);
+
+    const createInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(createInit.body))).toMatchObject({ title: 'Unassigned task', release_id: null });
+    expect((createInit.headers as Headers).get('Idempotency-Key')).toBeTruthy();
+    const patchInit = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(String(patchInit.body))).toEqual({ release_id: null });
+    expect((patchInit.headers as Headers).get('If-Match')).toBe('"v2"');
+  });
+
+  it('lists, mutates, and reads the dependency-aware release work queue', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ data: [{ id: 'release-1' }], next_cursor: null }))
+      .mockResolvedValueOnce(response({ id: 'release-1', version: 2 }))
+      .mockResolvedValueOnce(response({ id: 'release-1', version: 3 }))
+      .mockResolvedValueOnce(response({ id: 'release-1', version: 4 }))
+      .mockResolvedValueOnce(response(undefined, 204))
+      .mockResolvedValueOnce(response({ id: 'release-1', version: 5 }))
+      .mockResolvedValueOnce(response({ id: 'release-1', version: 6 }))
+      .mockResolvedValueOnce(response({
+        release: { id: 'release-1', name: '1.4', version: 6 },
+        snapshot: { project_revision: 12, read_at: '2026-09-12T00:00:00Z' },
+        summary: { direct: 1, required: 1, completed: 0, claimable: 1, owned: 0, dependency_blocked: 0, manually_blocked: 0, claimed_elsewhere: 0, cross_release_conflicts: 0 },
+        data: [],
+        next_cursor: ''
+      }));
+
+    await api.listProjectReleases('project/one', { status: 'planned', target_from: '2026-09-01', target_to: '2026-09-30', cursor: 'next/1', limit: 25 });
+    await api.createProjectRelease('project/one', { name: '1.4', description: null, target_date: null });
+    await api.patchRelease('release/1', { description: null, target_date: null }, 2);
+    await api.updateRelease('release/1', { name: '1.4.1' }, 3);
+    await api.deleteRelease('release/1', 4);
+    await api.completeRelease('release/1', 5);
+    await api.reopenRelease('release/1', 6, { reason: 'Scope changed' });
+    await api.getReleaseWorkQueue('release/1', { cursor: 'queue/2', limit: 10 });
+
+    const listURL = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(listURL.pathname).toBe('/api/v1/projects/project%2Fone/releases');
+    expect(listURL.searchParams.get('status')).toBe('planned');
+    expect(listURL.searchParams.get('target_from')).toBe('2026-09-01');
+    expect(listURL.searchParams.get('target_to')).toBe('2026-09-30');
+    expect(listURL.searchParams.get('cursor')).toBe('next/1');
+    const createInit = fetchMock.mock.calls[1][1] as RequestInit;
+    expect((createInit.method)).toBe('POST');
+    expect(JSON.parse(String(createInit.body))).toEqual({ name: '1.4', description: null, target_date: null });
+    expect((createInit.headers as Headers).get('Idempotency-Key')).toBeTruthy();
+    const patchInit = fetchMock.mock.calls[2][1] as RequestInit;
+    expect(String(fetchMock.mock.calls[2][0])).toBe('/api/v1/releases/release%2F1');
+    expect((patchInit.headers as Headers).get('If-Match')).toBe('"v2"');
+    expect(JSON.parse(String(patchInit.body))).toEqual({ description: null, target_date: null });
+    const completeInit = fetchMock.mock.calls[5][1] as RequestInit;
+    expect(String(fetchMock.mock.calls[5][0])).toContain('/api/v1/releases/release%2F1/complete');
+    expect(completeInit.method).toBe('POST');
+    expect((completeInit.headers as Headers).get('If-Match')).toBe('"v5"');
+    const reopenInit = fetchMock.mock.calls[6][1] as RequestInit;
+    expect(JSON.parse(String(reopenInit.body))).toEqual({ reason: 'Scope changed' });
+    expect((reopenInit.headers as Headers).get('If-Match')).toBe('"v6"');
+    const queueURL = new URL(String(fetchMock.mock.calls[7][0]), 'http://localhost');
+    expect(queueURL.pathname).toBe('/api/v1/releases/release%2F1/work-queue');
+    expect(queueURL.searchParams.get('cursor')).toBe('queue/2');
+    expect(queueURL.searchParams.get('limit')).toBe('10');
+  });
+
   it('forwards live-agent filters on task and issue collections', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(response({ data: [], next_cursor: null })));
 
