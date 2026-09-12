@@ -347,8 +347,11 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   await expect(missingCard, 'a task without an agent pulse is not live working work').toBeHidden();
   await boardWorkFilter.selectOption('missing');
   await expect(missingCard).toBeVisible();
-  await expect(missingCard.locator('.agent-pulse')).toContainText('No live pulse');
-  await expect(missingCard.locator('.agent-pulse')).toHaveAccessibleName('No live pulse');
+  const missingPulse = missingCard.locator('.agent-pulse');
+  await expect(missingPulse).toBeHidden();
+  await missingCard.getByRole('button', { name: `Show details for ${missingTask.key}` }).click();
+  await expect(missingPulse).toBeVisible();
+  await expect(missingPulse).toHaveAccessibleName('No live pulse');
   await expect(workingCard).toBeHidden();
   await expect(completedCard).toBeHidden();
   await boardWorkFilter.selectOption('stale');
