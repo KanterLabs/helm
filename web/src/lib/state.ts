@@ -7,6 +7,7 @@ import type {
   Project,
   RoadmapActivityFilter,
   RoadmapActivityKind,
+  ReleaseFilterValue,
   Task,
   TaskRouteIntent
 } from './types';
@@ -19,6 +20,10 @@ export interface BoardFilters {
   assignee: string;
   state: string;
   dependency?: 'all' | 'blocked' | 'ready';
+  /** Project-local release ID, or `unassigned`; `all` means no filter. */
+  release?: ReleaseFilterValue;
+  /** Stable global alias used by Issues/Search/My Work URL state. */
+  release_id?: ReleaseFilterValue;
   /** Issue filters remain optional so existing board callers stay source-compatible. */
   kind?: string;
   severity?: string;
@@ -499,6 +504,130 @@ export function bugResolution(task: Task): string {
   return task.bug?.resolution || '';
 }
 
+/** Return the stable target release ID from either task release field. */
+export function taskReleaseId(task: Pick<Task, 'release_id' | 'release'> | null | undefined): string {
+  const explicit = task?.release_id;
+  // An explicit null is authoritative (for example, an optimistic clear in
+  // the drawer); only an omitted release_id should fall back to the compact
+  // relation for retained/legacy task payloads.
+  if (explicit !== undefined) return typeof explicit === 'string' ? explicit.trim() : '';
+  const reference = task?.release?.id;
+  return typeof reference === 'string' ? reference.trim() : '';
+}
+
+/** Whether a task has no explicit product release assignment. */
+export function taskReleaseIsUnassigned(task: Pick<Task, 'release_id' | 'release'> | null | undefined): boolean {
+  return !taskReleaseId(task);
+}
+
+/** Match a task against a local release filter without mutating the snapshot. */
+export function matchesReleaseFilter(
+  task: Pick<Task, 'release_id' | 'release'>,
+  filter?: ReleaseFilterValue | null
+): boolean {
+  const value = typeof filter === 'string' ? filter.trim() : '';
+  if (!value || value.toLowerCase() === 'all') return true;
+  if (value.toLowerCase() === 'unassigned' || value.toLowerCase() === 'none') return taskReleaseIsUnassigned(task);
+  return taskReleaseId(task) === value;
+}
+
+export const matchesTaskReleaseFilter = matchesReleaseFilter;
+export const releaseIdForTask = taskReleaseId;
+
+export type BoardFilterReleaseParam = 'release' | 'release_id';
+export type BoardFilterURLMode = 'project' | 'global';
+export interface BoardFilterURLParams {
+  /** Project routes use `release`; global routes use `release_id`. */
+  releaseParam?: BoardFilterReleaseParam;
+  mode?: BoardFilterURLMode;
+}
+
+function releaseParamForURL(options: BoardFilterURLParams | BoardFilterURLMode | BoardFilterReleaseParam = 'project'): BoardFilterReleaseParam {
+  if (typeof options === 'string') {
+    if (options === 'global' || options === 'release_id') return 'release_id';
+    return 'release';
+  }
+  return options.releaseParam || (options.mode === 'global' ? 'release_id' : 'release');
+}
+
+/**
+ * Serialize board/issue filter state into bookmark-safe query parameters.
+ * `release` is emitted for project-scoped routes and `release_id` for global
+ * routes; the unassigned sentinel is kept explicit rather than represented by
+ * an empty value.
+ */
+export function boardFiltersToSearchParams(
+  filters: Partial<BoardFilters>,
+  options: BoardFilterURLParams | BoardFilterURLMode | BoardFilterReleaseParam = 'project'
+): URLSearchParams {
+  const params = new URLSearchParams();
+  const setIfMeaningful = (name: string, value: unknown, allValues = ['all']): void => {
+    if (typeof value !== 'string') return;
+    const normalized = value.trim();
+    if (!normalized || allValues.includes(normalized.toLowerCase())) return;
+    params.set(name, normalized);
+  };
+  setIfMeaningful('q', filters.query);
+  setIfMeaningful('priority', filters.priority);
+  setIfMeaningful('label', filters.label);
+  setIfMeaningful('assignee', filters.assignee);
+  setIfMeaningful('state', filters.state);
+  setIfMeaningful('dependency', filters.dependency);
+  setIfMeaningful('kind', filters.kind);
+  setIfMeaningful('severity', filters.severity);
+  setIfMeaningful('reporter', filters.reporter);
+  setIfMeaningful('resolution', filters.resolution);
+  const releaseParam = releaseParamForURL(options);
+  const release = releaseParam === 'release_id'
+    ? filters.release_id ?? filters.release
+    : filters.release ?? filters.release_id;
+  setIfMeaningful(releaseParam, release);
+  return params;
+}
+
+/** Parse bookmark-safe filter state from either a query string or URLSearchParams. */
+export function boardFiltersFromSearchParams(
+  input: URLSearchParams | string = '',
+  defaults: Partial<BoardFilters> = {},
+  options: BoardFilterURLParams | BoardFilterURLMode | BoardFilterReleaseParam = 'project'
+): BoardFilters {
+  const params = input instanceof URLSearchParams
+    ? input
+    : new URLSearchParams(input.trim().replace(/^\?/, ''));
+  const result: BoardFilters = {
+    query: '',
+    priority: 'all',
+    label: 'all',
+    assignee: 'all',
+    state: 'all',
+    dependency: 'all',
+    ...defaults
+  };
+  const value = (name: string): string | undefined => {
+    const candidate = params.get(name);
+    return candidate === null ? undefined : candidate;
+  };
+  const query = value('q') ?? value('query');
+  if (query !== undefined) result.query = query;
+  for (const field of ['priority', 'label', 'assignee', 'state', 'kind', 'severity', 'reporter', 'resolution'] as const) {
+    const candidate = value(field);
+    if (candidate !== undefined) result[field] = candidate;
+  }
+  const dependency = value('dependency');
+  if (dependency !== undefined && ['all', 'blocked', 'ready'].includes(dependency)) result.dependency = dependency as BoardFilters['dependency'];
+  const releaseKey = releaseParamForURL(options);
+  const release = value(releaseKey) ?? value(releaseKey === 'release' ? 'release_id' : 'release');
+  if (release !== undefined) {
+    if (releaseKey === 'release_id') result.release_id = release;
+    else result.release = release;
+  }
+  return result;
+}
+
+/** Naming aliases for callers that describe the same conversion as serialize/parse. */
+export const serializeBoardFilters = boardFiltersToSearchParams;
+export const parseBoardFilters = boardFiltersFromSearchParams;
+
 export function filterTasks(tasks: Task[], columns: Column[], filters: BoardFilters): Task[] {
   const query = filters.query.trim().toLowerCase();
   const columnById = new Map(columns.map((column) => [column.id, column]));
@@ -506,7 +635,7 @@ export function filterTasks(tasks: Task[], columns: Column[], filters: BoardFilt
     const column = columnById.get(task.column_id);
     if (
       query &&
-      !`${task.key} ${task.title} ${task.description ?? ''} ${task.bug?.actual_behavior ?? ''} ${task.bug?.expected_behavior ?? ''} ${task.bug?.reproduction_steps ?? ''} ${task.bug?.environment ?? ''} ${task.bug?.affected_version ?? ''}`
+      !`${task.key} ${task.title} ${task.description ?? ''} ${task.release?.name ?? ''} ${task.bug?.actual_behavior ?? ''} ${task.bug?.expected_behavior ?? ''} ${task.bug?.reproduction_steps ?? ''} ${task.bug?.environment ?? ''} ${task.bug?.affected_version ?? ''}`
         .toLowerCase()
         .includes(query)
     ) return false;
@@ -527,6 +656,7 @@ export function filterTasks(tasks: Task[], columns: Column[], filters: BoardFilt
       if ((filters.resolution === 'open' || filters.resolution === 'unresolved' || filters.resolution === 'none') && bugResolution(task)) return false;
       if (filters.resolution !== 'open' && filters.resolution !== 'unresolved' && filters.resolution !== 'none' && bugResolution(task) !== filters.resolution) return false;
     }
+    if (!matchesReleaseFilter(task, filters.release ?? filters.release_id)) return false;
     return true;
   });
 }

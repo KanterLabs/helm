@@ -54,6 +54,8 @@ tags:
     description: Local account, session, and deployment identity operations
   - name: Projects
     description: Projects and their board columns
+  - name: Releases
+    description: Project delivery boundaries and dependency-aware release work
   - name: Columns
     description: Ordered semantic board columns
   - name: Tasks
@@ -90,7 +92,9 @@ paths:
         supplied, matching projects and saved views are included in the
         optional `projects` and `views` response fields for command navigation.
         `view` loads a saved view first; explicit query parameters override its
-        matching filters without changing the saved view.
+        matching filters without changing the saved view. `release_id` accepts
+        an opaque release ID or `unassigned`; global search never resolves a
+        bare release name because names can repeat across projects.
       tags:
         - Search
       parameters:
@@ -127,6 +131,7 @@ paths:
             maxLength: 200
         - $ref: '#/components/parameters/TaskState'
         - $ref: '#/components/parameters/PriorityFilter'
+        - $ref: '#/components/parameters/ReleaseIDFilter'
         - name: project
           in: query
           description: Restrict results to a project ID, key, or stable slug.
@@ -374,6 +379,7 @@ paths:
         - Search
       parameters:
         - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/ReleaseIDFilter'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -580,7 +586,10 @@ paths:
       summary: Export a versioned portable archive
       description: |
         Exports live projects, columns, tasks, labels, comments, relationships,
-        and activity references as a `helm.portable` v1 JSON archive. A
+        and activity references as a `helm.portable` v2 JSON archive. A
+        v2 archive includes project-local releases and explicit task release
+        references; v1 archives remain import-compatible and treat every task
+        as unassigned.
         `project` query selects one project; an unscoped caller may omit it to
         export every accessible project. This is a portability snapshot, not
         a database backup or restore operation.
@@ -603,7 +612,7 @@ paths:
               schema: { type: string, example: helm.portable }
             X-Helm-Portable-Version:
               description: Portable envelope version.
-              schema: { type: integer, example: 1 }
+              schema: { type: integer, const: 2, example: 2 }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PortableArchive' }
@@ -1266,7 +1275,7 @@ paths:
     get:
       operationId: exportProjectPortableArchive
       summary: Export one project's portable archive
-      description: Exports the live project and its related records in the versioned `helm.portable` format.
+      description: Exports the live project and its related records in the versioned `helm.portable` v2 format, including releases and explicit task release references. v1 archives remain import-compatible and treat tasks as unassigned.
       tags: [Projects]
       responses:
         '200':
@@ -1585,7 +1594,9 @@ paths:
         `state`,
         `column`, `kind`, `priority`, `severity`, `label`, `assignee`,
         `reporter`, `resolution`, `agent_state`, `action_needed`, `dependency`,
-        `q`, and `updated_after` can be combined. `agent_state` filters the latest
+        `release`, `q`, and `updated_after` can be combined. The project-local
+        `release` filter accepts a release ID, case-insensitive release name,
+        or `unassigned`. `agent_state` filters the latest
         structured agent-work snapshot; `stale` and `missing` identify
         read-time liveness conditions. `action_needed=true` selects waiting,
         handoff, or stale snapshots among unfinished tasks; completed tasks
@@ -1613,6 +1624,7 @@ paths:
         - $ref: '#/components/parameters/AgentStateFilter'
         - $ref: '#/components/parameters/ActionNeededFilter'
         - $ref: '#/components/parameters/DependencyFilter'
+        - $ref: '#/components/parameters/ReleaseFilter'
         - $ref: '#/components/parameters/SearchQuery'
         - $ref: '#/components/parameters/UpdatedAfter'
         - $ref: '#/components/parameters/TaskSort'
@@ -1667,6 +1679,7 @@ paths:
               priority: high
               column_id: col_ready
               assignee_id: agent_ada
+              release_id: release_14
               due_at: '2026-09-01T12:00:00Z'
               label_ids:
                 - label_api
@@ -1705,6 +1718,414 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '507':
           $ref: '#/components/responses/InsufficientStorage'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/projects/{project}/releases:
+    parameters:
+      - $ref: '#/components/parameters/ProjectPath'
+    get:
+      operationId: listProjectReleases
+      summary: List releases in a project
+      description: |
+        Returns planned and released project-local delivery boundaries in a
+        stable cursor-paginated collection. `status` filters planned or
+        released releases; `target_from` and `target_to` are inclusive ISO
+        calendar-date bounds. Release names are unique case-insensitively
+        within a project. The caller's project ceiling is applied before any
+        release is returned.
+      tags:
+        - Releases
+      parameters:
+        - $ref: '#/components/parameters/ReleaseStatusFilter'
+        - $ref: '#/components/parameters/ReleaseTargetFrom'
+        - $ref: '#/components/parameters/ReleaseTargetTo'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor-paginated project releases.
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseCollection'
+              examples:
+                releases:
+                  $ref: '#/components/examples/ReleaseCollectionExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createProjectRelease
+      summary: Create a planned project release
+      description: |
+        Creates an empty planned release. A release is a product-planning
+        boundary and is unrelated to the task claim action at
+        `POST /api/v1/tasks/{task}/release` or to a bug's `affected_version`.
+        Release names are unique case-insensitively within the project.
+      tags:
+        - Releases
+      parameters:
+        - $ref: '#/components/parameters/ReleaseIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseCreateRequest'
+            example:
+              name: '1.4'
+              description: Search and release planning.
+              target_date: '2026-11-15'
+      responses:
+        '201':
+          description: |
+            Planned release created. Humans and bearer tokens with
+            `tasks:read` receive the full release; a write-only bearer
+            receives only its id and version.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseMutationResponse'
+              examples:
+                release:
+                  $ref: '#/components/examples/ReleaseExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ReleaseConflict'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '507':
+          $ref: '#/components/responses/InsufficientStorage'
+
+  /api/v1/releases/{release}:
+    parameters:
+      - $ref: '#/components/parameters/ReleasePath'
+    get:
+      operationId: getRelease
+      summary: Get a release
+      description: |
+        Reads one release by opaque ID. A caller must have `tasks:read` and
+        access to the release's project. The response includes direct task
+        progress, transitive prerequisite progress, and cross-release
+        conflicts in `summary`.
+      tags:
+        - Releases
+      responses:
+        '200':
+          description: Release.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Release'
+              examples:
+                release:
+                  $ref: '#/components/examples/ReleaseExample'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReleaseNotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updateRelease
+      summary: Update a planned release
+      description: |
+        Updates release metadata. Released releases are frozen; reopen the
+        release before changing its metadata. Omitted patch fields remain
+        unchanged, while explicit null clears `description` or `target_date`.
+      tags:
+        - Releases
+      parameters:
+        - $ref: '#/components/parameters/ReleaseIfMatch'
+        - $ref: '#/components/parameters/ReleaseIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleasePatchRequest'
+      responses:
+        '200':
+          description: Updated release.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseMutationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReleaseNotFound'
+        '409':
+          $ref: '#/components/responses/ReleaseConflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '507':
+          $ref: '#/components/responses/InsufficientStorage'
+    delete:
+      operationId: deleteRelease
+      summary: Delete an empty planned release
+      description: A release can be deleted only while planned and with no live task members. Deletion is explicit and never clears task assignments implicitly.
+      tags:
+        - Releases
+      parameters:
+        - $ref: '#/components/parameters/ReleaseIfMatch'
+        - $ref: '#/components/parameters/ReleaseIdempotencyKey'
+      responses:
+        '204':
+          description: Release deleted.
+          headers: *commonResponseHeaders
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReleaseNotFound'
+        '409':
+          $ref: '#/components/responses/ReleaseConflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '507':
+          $ref: '#/components/responses/InsufficientStorage'
+
+  /api/v1/releases/{release}/complete:
+    parameters:
+      - $ref: '#/components/parameters/ReleasePath'
+    post:
+      operationId: completeRelease
+      summary: Mark a release as released
+      description: |
+        Explicitly completes a planned release after rechecking direct task
+        membership and the transitive prerequisite closure in the write
+        transaction. It fails when the release is empty, required work is
+        incomplete, or an incomplete prerequisite belongs to another planned
+        release. Completing the last task only makes a release ready; it does
+        not perform this action automatically.
+      tags:
+        - Releases
+      parameters:
+        - $ref: '#/components/parameters/ReleaseIfMatch'
+        - $ref: '#/components/parameters/ReleaseIdempotencyKey'
+      responses:
+        '200':
+          description: Released release.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseMutationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReleaseNotFound'
+        '409':
+          $ref: '#/components/responses/ReleaseConflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '507':
+          $ref: '#/components/responses/InsufficientStorage'
+
+  /api/v1/releases/{release}/reopen:
+    parameters:
+      - $ref: '#/components/parameters/ReleasePath'
+    post:
+      operationId: reopenRelease
+      summary: Reopen a released release
+      description: Reopens a released release with a required human-readable reason. The reason is recorded in the release event; membership and task lifecycle guards become writable again.
+      tags:
+        - Releases
+      parameters:
+        - $ref: '#/components/parameters/ReleaseIfMatch'
+        - $ref: '#/components/parameters/ReleaseIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseReopenRequest'
+            example:
+              reason: Scope changed after release review.
+      responses:
+        '200':
+          description: Reopened planned release.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseMutationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReleaseNotFound'
+        '409':
+          $ref: '#/components/responses/ReleaseConflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '507':
+          $ref: '#/components/responses/InsufficientStorage'
+
+  /api/v1/releases/{release}/work-queue:
+    parameters:
+      - $ref: '#/components/parameters/ReleasePath'
+    get:
+      operationId: getReleaseWorkQueue
+      summary: Read the dependency-aware release work queue
+      description: |
+        Returns a bounded, read-only snapshot of direct release members and
+        their transitive live prerequisites. Tasks with no prerequisites are
+        claimable when otherwise eligible. Queue dispositions classify
+        completed, owned, claimable, dependency-blocked, manually blocked,
+        foreign-claimed, and cross-release-conflict work. Results are ordered
+        with owned work first, then claimable work in topological prerequisite
+        order, with priority, board position, task number, and ID tie-breakers.
+        The queue never claims or mutates tasks.
+
+        The cursor captures release version, project/task-collection revision,
+        filter, and read timestamp. Any task, dependency, claim, or release
+        change invalidates it with `409 release_queue_changed`; discard the
+        cursor and restart from the first page.
+      tags:
+        - Releases
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Snapshot of the dependency-aware release queue.
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseWorkQueue'
+              examples:
+                queue:
+                  $ref: '#/components/examples/ReleaseWorkQueueExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ReleaseNotFound'
+        '409':
+          $ref: '#/components/responses/ReleaseQueueConflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -2332,7 +2753,8 @@ paths:
         outside that project ceiling. An optional `project` narrows the
         result to one permitted project. Requires `tasks:read`.
         `severity=untriaged` and `resolution=unresolved` select bugs whose
-        corresponding lifecycle field is unset.
+        corresponding lifecycle field is unset. `release_id` accepts an
+        opaque release ID or `unassigned` and is applied before pagination.
       tags:
         - Tasks
       parameters:
@@ -2351,6 +2773,7 @@ paths:
         - $ref: '#/components/parameters/AssigneeFilter'
         - $ref: '#/components/parameters/ReporterFilter'
         - $ref: '#/components/parameters/IssueResolutionFilter'
+        - $ref: '#/components/parameters/ReleaseIDFilter'
         - $ref: '#/components/parameters/AgentStateFilter'
         - $ref: '#/components/parameters/ActionNeededFilter'
         - $ref: '#/components/parameters/SearchQuery'
@@ -4776,7 +5199,9 @@ paths:
         tasks that have a structured agent-work snapshot, ordered with
         action-needed pulses first. `view=assigned` is an explicit spelling of
         the legacy actor-assignment and active-claim view. `agent_state`,
-        `action_needed`, and `dependency` can be combined with either view.
+        `action_needed`, `dependency`, and `release_id` can be combined with
+        either view. `release_id` accepts an opaque release ID or `unassigned`
+        and is applied before pagination.
         `dependency=blocked` selects work with an unmet live prerequisite;
         `dependency=ready` requires at least one live prerequisite and none
         unmet, so tasks with no prerequisites do not match. An unknown requested
@@ -4799,6 +5224,7 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/Identifier'
+        - $ref: '#/components/parameters/ReleaseIDFilter'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -4931,6 +5357,12 @@ paths:
         action. Resolution events include the selected resolution; a reopen
         reason is recorded in the atomic comment.created event associated with
         the action.
+        Release lifecycle events (`release.created`, `release.updated`,
+        `release.completed`, `release.reopened`, and `release.deleted`) carry
+        only safe release IDs, names, target dates, statuses, and versions.
+        `task.release_changed` carries old/new release IDs and names, with
+        nullable values for assignment and clearing. Release events are
+        project-scoped and follow the same `events:read` ceiling.
         A prerequisite's satisfied-state transition emits one bounded
         `task.dependency_state_changed` event for each direct live dependent.
         The enclosing event's `task_id` is the dependent; its payload contains
@@ -5718,6 +6150,14 @@ components:
       schema:
         $ref: '#/components/schemas/Identifier'
       example: operations
+    ReleasePath:
+      name: release
+      in: path
+      required: true
+      description: Opaque release ID.
+      schema:
+        $ref: '#/components/schemas/Identifier'
+      example: release_14
     ColumnPath:
       name: column
       in: path
@@ -5925,6 +6365,23 @@ components:
         maxLength: 255
         pattern: '.*\S.*'
       example: dependency-add-20260903-01
+    ReleaseIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Required client-generated key for safely retrying this release
+        mutation. Reusing it with the same authenticated principal, method,
+        path, and payload replays the original response; using it for a
+        different method, path, or payload under that principal returns 409
+        with `idempotency_key_reused`. Different principals (and bearer
+        credentials) have isolated key namespaces.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: '.*\S.*'
+      example: release-update-20260903-01
     IfMatch:
       name: If-Match
       in: header
@@ -5948,6 +6405,19 @@ components:
         administration edit. Values use the quoted "vN" format. Omit this
         header only for legacy unguarded writes; stale guarded edits return
         409 with the current resource version in error details.
+      schema:
+        type: string
+        pattern: '^"v[1-9][0-9]*"$'
+      example: '"v3"'
+    ReleaseIfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: |
+        Exact strong release ETag in the quoted `"vN"` form. Missing
+        If-Match returns 428, malformed values return 400, and a stale release
+        version returns 409. Release PATCH, DELETE, complete, and reopen all
+        require this guard.
       schema:
         type: string
         pattern: '^"v[1-9][0-9]*"$'
@@ -5984,6 +6454,61 @@ components:
       schema:
         $ref: '#/components/schemas/Priority'
       example: high
+    ReleaseFilter:
+      name: release
+      in: query
+      required: false
+      description: |
+        Project-scoped target-release filter. Accepts an opaque release ID or
+        a case-insensitive release name in the selected project. Use the
+        literal `unassigned` to select tasks with no release; `none` remains a
+        compatibility alias. The filter is applied before pagination.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+      example: '1.4'
+    ReleaseIDFilter:
+      name: release_id
+      in: query
+      required: false
+      description: |
+        Stable global target-release filter. Accepts an opaque release ID or
+        the literal `unassigned` for tasks with no release. Global routes do
+        not interpret a bare release name because names may repeat across
+        projects. The filter is applied before pagination.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+      example: release_14
+    ReleaseStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Restrict releases to planned or released lifecycle status.
+      schema:
+        type: string
+        enum: [planned, released]
+      example: planned
+    ReleaseTargetFrom:
+      name: target_from
+      in: query
+      required: false
+      description: Inclusive ISO YYYY-MM-DD lower bound for a release target date.
+      schema:
+        type: string
+        format: date
+      example: '2026-11-01'
+    ReleaseTargetTo:
+      name: target_to
+      in: query
+      required: false
+      description: Inclusive ISO YYYY-MM-DD upper bound for a release target date.
+      schema:
+        type: string
+        format: date
+      example: '2026-12-31'
     SeverityFilter:
       name: severity
       in: query
@@ -6192,6 +6717,63 @@ components:
           examples:
             conflict:
               $ref: '#/components/examples/ConflictExample'
+    ReleaseNotFound:
+      description: Release ID was not found or is outside the caller's project ceiling.
+      headers: *commonResponseHeaders
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ReleaseNotFoundErrorResponse'
+          example:
+            error:
+              code: release_not_found
+              message: release not found
+              details: {}
+    ReleaseConflict:
+      description: |
+        Release lifecycle or membership conflict. The stable `error.code` is
+        one of `release_name_exists`, `release_cross_project`,
+        `release_already_completed`, `release_not_completed`,
+        `release_has_tasks`, `release_incomplete`,
+        `release_dependency_conflict`, `release_frozen`, `stale_release`, or
+        `idempotency_key_reused`. Details are redacted for write-only bearer
+        tokens in the same way as other mutation conflicts.
+      headers: *commonResponseHeaders
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ReleaseConflictErrorResponse'
+          examples:
+            releaseIncomplete:
+              value:
+                error:
+                  code: release_incomplete
+                  message: release has incomplete required work
+                  details:
+                    release_id: release_14
+                    summary:
+                      required_task_count: 15
+                      required_completed_count: 9
+    ReleaseQueueConflict:
+      description: |
+        A release work-queue cursor is no longer valid because a task,
+        dependency, claim, or release changed. Discard the cursor and restart
+        from the first page.
+      headers: *commonResponseHeaders
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ReleaseQueueConflictErrorResponse'
+          example:
+            error:
+              code: release_queue_changed
+              message: release work queue changed; restart pagination from the first page
+              details:
+                expected_release_version: 3
+                current_release_version: 4
+                expected_project_revision: 812
+                current_project_revision: 813
+                restart: true
     StaleTask:
       description: |
         Task version is stale. Humans and tokens with tasks:read receive the
@@ -6961,6 +7543,37 @@ components:
         updated_at: { $ref: '#/components/schemas/Timestamp' }
       additionalProperties: false
 
+    PortableRelease:
+      type: object
+      required: [id, project_id, name, description, version, created_at, updated_at]
+      description: |
+        Project-local release record included by portable v2 archives. A v1
+        archive has no release records; v1 imports leave every task
+        unassigned. Release status is derived from released_at.
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        project_id: { $ref: '#/components/schemas/Identifier' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 10000 }
+        target_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        status:
+          type: string
+          enum: [planned, released]
+          description: Optional import hint; the server derives status from released_at.
+        released_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        released_by:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+        version: { type: integer, format: int64, minimum: 1 }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+      additionalProperties: false
+
     PortableLabel:
       type: object
       required: [id, project_id, name, color, created_at, updated_at]
@@ -6992,6 +7605,11 @@ components:
         due_at: { $ref: '#/components/schemas/NullableTimestamp' }
         version: { type: integer, minimum: 1 }
         completed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+          description: Explicit release membership in a v2 archive; omitted or null means unassigned.
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
         bug: { $ref: '#/components/schemas/PortableBug' }
@@ -7072,9 +7690,14 @@ components:
     PortableArchive:
       type: object
       required: [format, version, exported_at, source, projects, columns, tasks, labels, relationships, activity, comments]
+      description: |
+        Version 2 archives include the `releases` collection and task
+        `release_id` references. Version 1 remains accepted for import and is
+        normalized to no releases and unassigned tasks; unknown versions are
+        rejected.
       properties:
         format: { type: string, const: helm.portable }
-        version: { type: integer, const: 1 }
+        version: { type: integer, enum: [1, 2] }
         exported_at: { $ref: '#/components/schemas/Timestamp' }
         source:
           type: object
@@ -7085,6 +7708,7 @@ components:
           additionalProperties: false
         projects: { type: array, items: { $ref: '#/components/schemas/PortableProject' } }
         columns: { type: array, items: { $ref: '#/components/schemas/PortableColumn' } }
+        releases: { type: array, items: { $ref: '#/components/schemas/PortableRelease' } }
         tasks: { type: array, items: { $ref: '#/components/schemas/PortableTask' } }
         labels: { type: array, items: { $ref: '#/components/schemas/PortableLabel' } }
         actors: { type: array, items: { $ref: '#/components/schemas/PortableActorReference' } }
@@ -8289,6 +8913,353 @@ components:
             $ref: '#/components/schemas/Identifier'
       additionalProperties: false
 
+    ReleaseReference:
+      type: object
+      required: [id, name, status]
+      description: Compact project-local release relation embedded on task reads.
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        status:
+          type: string
+          enum: [planned, released]
+        target_date:
+          type:
+            - string
+            - 'null'
+          format: date
+      additionalProperties: false
+
+    ReleaseSummary:
+      type: object
+      required:
+        - task_count
+        - completed_count
+        - blocked_count
+        - claimed_count
+        - checklist_warning_count
+        - required_task_count
+        - required_completed_count
+        - cross_release_conflict_count
+        - ready_to_release
+      description: |
+        Direct membership progress plus the bounded transitive prerequisite
+        closure required before a release can be completed.
+      properties:
+        task_count:
+          type: integer
+          minimum: 0
+        completed_count:
+          type: integer
+          minimum: 0
+        blocked_count:
+          type: integer
+          minimum: 0
+        claimed_count:
+          type: integer
+          minimum: 0
+        checklist_warning_count:
+          type: integer
+          minimum: 0
+        required_task_count:
+          type: integer
+          minimum: 0
+        required_completed_count:
+          type: integer
+          minimum: 0
+        cross_release_conflict_count:
+          type: integer
+          minimum: 0
+        ready_to_release:
+          type: boolean
+      additionalProperties: false
+
+    Release:
+      type: object
+      required:
+        - id
+        - project_id
+        - name
+        - description
+        - status
+        - version
+        - created_at
+        - updated_at
+        - summary
+      description: Project-local planned or released product delivery boundary.
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        project_id:
+          $ref: '#/components/schemas/Identifier'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 10000
+        target_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        status:
+          type: string
+          enum: [planned, released]
+        released_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        released_by:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        summary:
+          $ref: '#/components/schemas/ReleaseSummary'
+      additionalProperties: false
+
+    ReleaseCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 10000
+          default: ''
+          description: Optional description; null is normalized to an empty description.
+        target_date:
+          type:
+            - string
+            - 'null'
+          format: date
+          description: ISO YYYY-MM-DD planning date; null leaves it unset.
+      additionalProperties: false
+
+    ReleasePatchRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 10000
+          description: Explicit null clears the description.
+        target_date:
+          type:
+            - string
+            - 'null'
+          format: date
+          description: Explicit null clears the ISO YYYY-MM-DD planning date.
+      additionalProperties: false
+
+    ReleaseReopenRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Human-readable reason retained in the release event.
+      additionalProperties: false
+
+    ReleaseMutationReference:
+      type: object
+      required: [id, version]
+      description: Least-privilege release mutation body for a bearer without tasks:read.
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: false
+
+    ReleaseMutationResponse:
+      oneOf:
+        - $ref: '#/components/schemas/Release'
+        - $ref: '#/components/schemas/ReleaseMutationReference'
+
+    ReleaseCollection:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Release'
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+      additionalProperties: false
+
+    ReleaseQueueTaskReference:
+      type: object
+      required: [id, key, version]
+      description: Bounded task identity/version needed to inspect or claim one queue item.
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        key:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$'
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        project_id:
+          $ref: '#/components/schemas/Identifier'
+      additionalProperties: false
+
+    ReleaseQueueBlocker:
+      type: object
+      required: [id, key, title, completed_at, satisfied]
+      description: Compact prerequisite reference preventing a queue item from being claimable.
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        key:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        completed_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        satisfied:
+          type: boolean
+      additionalProperties: false
+
+    ReleaseQueueItem:
+      type: object
+      required: [task, relationship, disposition, blocked_by]
+      properties:
+        task:
+          $ref: '#/components/schemas/ReleaseQueueTaskReference'
+        relationship:
+          type: string
+          enum: [direct, prerequisite]
+        disposition:
+          type: string
+          enum:
+            - completed
+            - owned
+            - claimable
+            - dependency_blocked
+            - manually_blocked
+            - claimed_elsewhere
+            - cross_release_conflict
+        blocked_by:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ReleaseQueueBlocker'
+      additionalProperties: false
+
+    ReleaseQueueSnapshot:
+      type: object
+      required: [project_revision, read_at]
+      properties:
+        project_revision:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Project event revision captured by the queue snapshot.
+        task_collection_revision:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Task collection revision captured when available.
+        read_at:
+          $ref: '#/components/schemas/Timestamp'
+      additionalProperties: false
+
+    ReleaseQueueSummary:
+      type: object
+      required:
+        - direct
+        - required
+        - completed
+        - claimable
+        - owned
+        - dependency_blocked
+        - manually_blocked
+        - claimed_elsewhere
+        - cross_release_conflicts
+      properties:
+        direct: { type: integer, minimum: 0 }
+        required: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+        claimable: { type: integer, minimum: 0 }
+        owned: { type: integer, minimum: 0 }
+        dependency_blocked: { type: integer, minimum: 0 }
+        manually_blocked: { type: integer, minimum: 0 }
+        claimed_elsewhere: { type: integer, minimum: 0 }
+        cross_release_conflicts: { type: integer, minimum: 0 }
+      additionalProperties: false
+
+    ReleaseQueueRelease:
+      type: object
+      required: [id, name, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: false
+
+    ReleaseWorkQueue:
+      type: object
+      required: [release, snapshot, summary, data, next_cursor]
+      properties:
+        release:
+          $ref: '#/components/schemas/ReleaseQueueRelease'
+        snapshot:
+          $ref: '#/components/schemas/ReleaseQueueSnapshot'
+        summary:
+          $ref: '#/components/schemas/ReleaseQueueSummary'
+        data:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ReleaseQueueItem'
+        next_cursor:
+          type: string
+          description: Opaque queue cursor; empty string when there is no next page.
+      additionalProperties: false
+
     Task:
       type: object
       required:
@@ -8407,6 +9378,16 @@ components:
         hierarchy_summary:
           $ref: '#/components/schemas/HierarchySummary'
           description: Server-derived direct-child rollup; arrays and counts never include deleted or cross-project rows.
+        release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+          description: Explicit project-local target release ID; omitted when the task is unassigned.
+        release:
+          oneOf:
+            - $ref: '#/components/schemas/ReleaseReference'
+            - type: 'null'
+          description: Compact target-release reference; omitted when the task is unassigned.
       additionalProperties: false
 
     AgentWork:
@@ -9018,6 +9999,11 @@ components:
             - $ref: '#/components/schemas/Identifier'
             - type: 'null'
           description: Compatibility alias for parent.
+        release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+          description: Optional project-local target release ID; explicit null leaves the new task unassigned.
       additionalProperties: false
 
     TaskPatchRequest:
@@ -9100,6 +10086,11 @@ components:
             - $ref: '#/components/schemas/Identifier'
             - type: 'null'
           description: Compatibility alias for parent.
+        release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+          description: Target release ID; omission preserves the current assignment and explicit null clears it.
       additionalProperties: false
 
     ClaimRequest:
@@ -9701,6 +10692,113 @@ components:
           description: Whether the prerequisite is now complete in its completed semantic column.
       additionalProperties: false
 
+    ReleaseEventPayload:
+      type: object
+      required: [release_id, name, status]
+      description: |
+        Safe payload for `release.created`, `release.updated`,
+        `release.completed`, `release.reopened`, and `release.deleted`.
+        Release events contain planning metadata only; task text and claim
+        details are not embedded.
+      properties:
+        release_id:
+          $ref: '#/components/schemas/Identifier'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        previous_name:
+          type:
+            - string
+            - 'null'
+          maxLength: 200
+        status:
+          type: string
+          enum: [planned, released]
+        previous_status:
+          type:
+            - string
+            - 'null'
+          enum: [planned, released, null]
+        target_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        previous_target_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        released_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        released_by:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+        reason:
+          type: string
+          maxLength: 10000
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Resulting release version; omitted by the delete event when no row remains.
+      additionalProperties: true
+
+    TaskReleaseChangedEventPayload:
+      type: object
+      required: [version]
+      description: |
+        Safe payload for `task.release_changed`. New and old release IDs and
+        names are nullable so assignment and clearing use the same shape.
+      properties:
+        release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+        previous_release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+        new_release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+        old_release_id:
+          oneOf:
+            - $ref: '#/components/schemas/Identifier'
+            - type: 'null'
+        release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: 'null'
+        previous_release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: 'null'
+        new_release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: 'null'
+        old_release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: 'null'
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: true
+
     Event:
       type: object
       required:
@@ -9721,7 +10819,7 @@ components:
         type:
           type: string
           minLength: 1
-          description: Event type, for example task.claimed, task.progressed, task.moved, task.completed, task.dependency_added, task.dependency_removed, task.dependency_state_changed, bug.triaged, bug.resolved, bug.duplicated, or bug.reopened.
+          description: Event type, for example task.claimed, task.progressed, task.moved, task.completed, task.release_changed, task.dependency_added, task.dependency_removed, task.dependency_state_changed, release.created, release.updated, release.completed, release.reopened, release.deleted, bug.triaged, bug.resolved, bug.duplicated, or bug.reopened.
           example: task.claimed
         actor_id:
           $ref: '#/components/schemas/Identifier'
@@ -9733,7 +10831,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
         payload:
           type: object
-          description: For task.dependency_added and task.dependency_removed, payload conforms to DependencyEventPayload; for task.dependency_state_changed, it conforms to DependencyStateChangedEventPayload; other event types define their own payload fields.
+          description: For task.dependency_added and task.dependency_removed, payload conforms to DependencyEventPayload; for task.dependency_state_changed, it conforms to DependencyStateChangedEventPayload; for task.release_changed, it conforms to TaskReleaseChangedEventPayload; for release.* events, it conforms to ReleaseEventPayload; other event types define their own payload fields.
           additionalProperties: true
       additionalProperties: false
 
@@ -9894,6 +10992,106 @@ components:
       properties:
         error:
           $ref: '#/components/schemas/Error'
+      additionalProperties: false
+
+    ReleaseConflictErrorResponse:
+      type: object
+      required: [error]
+      description: Stable release lifecycle conflict envelope. Tokens without `tasks:read` receive redacted details.
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              enum:
+                - release_name_exists
+                - release_cross_project
+                - release_already_completed
+                - release_not_completed
+                - release_has_tasks
+                - release_incomplete
+                - release_dependency_conflict
+                - release_frozen
+                - stale_release
+                - idempotency_key_reused
+                - conflict
+            message:
+              type: string
+              minLength: 1
+            details:
+              type: object
+              additionalProperties: true
+          additionalProperties: false
+      additionalProperties: false
+
+    ReleaseNotFoundErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              const: release_not_found
+            message:
+              type: string
+              minLength: 1
+            details:
+              type: object
+              additionalProperties: true
+          additionalProperties: false
+      additionalProperties: false
+
+    ReleaseQueueConflictErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              const: release_queue_changed
+            message:
+              type: string
+              minLength: 1
+            details:
+              type: object
+              required: [restart]
+              properties:
+                expected_release_version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                current_release_version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                expected_project_revision:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                current_project_revision:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                expected_task_collection_revision:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                current_task_collection_revision:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                restart:
+                  const: true
+              additionalProperties: false
+          additionalProperties: false
       additionalProperties: false
 
     StaleTaskErrorResponse:
@@ -10326,7 +11524,11 @@ components:
           maxLength: 2000
         filters:
           type: object
-          description: Search filter values. Supported keys are q, key, title, description, label, state, priority, assignee, claim_owner, project, project_ids, due_from, and due_to.
+          description: >-
+            Search filter values. Supported keys are q, key, title, description,
+            label, state, priority, assignee, claim_owner, release_id, project,
+            project_ids, due_from, and due_to. `release_id: unassigned` selects
+            tasks without a target release.
           additionalProperties: true
         sort:
           type: array
@@ -10578,6 +11780,82 @@ components:
           - proj_ops
         created_at: '2026-08-27T09:00:00Z'
         updated_at: '2026-08-27T09:00:00Z'
+    ReleaseExample:
+      summary: Planned project release
+      value:
+        id: release_14
+        project_id: proj_ops
+        name: '1.4'
+        description: Search and release planning.
+        target_date: '2026-11-15'
+        status: planned
+        version: 3
+        created_at: '2026-08-27T08:00:00Z'
+        updated_at: '2026-08-27T10:00:00Z'
+        summary:
+          task_count: 12
+          completed_count: 7
+          blocked_count: 2
+          claimed_count: 1
+          checklist_warning_count: 0
+          required_task_count: 15
+          required_completed_count: 9
+          cross_release_conflict_count: 1
+          ready_to_release: false
+    ReleaseCollectionExample:
+      summary: Project release collection
+      value:
+        data:
+          - id: release_14
+            project_id: proj_ops
+            name: '1.4'
+            description: Search and release planning.
+            target_date: '2026-11-15'
+            status: planned
+            version: 3
+            created_at: '2026-08-27T08:00:00Z'
+            updated_at: '2026-08-27T10:00:00Z'
+            summary:
+              task_count: 12
+              completed_count: 7
+              blocked_count: 2
+              claimed_count: 1
+              checklist_warning_count: 0
+              required_task_count: 15
+              required_completed_count: 9
+              cross_release_conflict_count: 1
+              ready_to_release: false
+        next_cursor: ''
+    ReleaseWorkQueueExample:
+      summary: Dependency-aware release queue snapshot
+      value:
+        release:
+          id: release_14
+          name: '1.4'
+          version: 3
+        snapshot:
+          project_revision: 812
+          read_at: '2026-08-27T10:00:00Z'
+        summary:
+          direct: 12
+          required: 15
+          completed: 9
+          claimable: 1
+          owned: 1
+          dependency_blocked: 2
+          manually_blocked: 1
+          claimed_elsewhere: 1
+          cross_release_conflicts: 1
+        data:
+          - task:
+              id: task_42
+              key: OPS-42
+              version: 8
+              project_id: proj_ops
+            relationship: direct
+            disposition: claimable
+            blocked_by: []
+        next_cursor: ''
     ProjectExample:
       summary: Operations project
       value:
@@ -10626,6 +11904,12 @@ components:
           unmet_prerequisite_count: 0
           dependent_count: 2
           blocked: false
+        release_id: release_14
+        release:
+          id: release_14
+          name: '1.4'
+          status: planned
+          target_date: '2026-11-15'
     TaskDependenciesExample:
       summary: Direct task dependencies
       value:

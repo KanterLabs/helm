@@ -337,6 +337,97 @@ class CommandTests(unittest.TestCase):
         with self.assertRaisesRegex(helper.RoadmapError, "no backlog column"):
             helper.cmd_backlog(StubClient(), args)  # type: ignore[arg-type]
 
+    def test_release_commands_resolve_project_and_release_name(self) -> None:
+        calls: list[tuple[str, str, dict[str, object]]] = []
+        release = {
+            "id": "release-1",
+            "project_id": "project-1",
+            "name": "1.4",
+            "status": "planned",
+            "version": 3,
+        }
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if path == "/projects?limit=200":
+                    return {"data": [{"id": "project-1", "key": "TC"}], "next_cursor": ""}, {}
+                if path in {
+                    "/projects/project-1/releases?limit=50&status=planned",
+                    "/projects/project-1/releases?limit=200",
+                }:
+                    return {"data": [release], "next_cursor": ""}, {}
+                if path == "/releases/release-1":
+                    return release, {}
+                raise AssertionError(f"unexpected mocked API call: {method} {path}")
+
+        listed = helper.cmd_releases_list(
+            StubClient(),
+            argparse.Namespace(
+                project="TC",
+                status="planned",
+                target_from=None,
+                target_to=None,
+                cursor="",
+                limit=50,
+                all=False,
+            ),  # type: ignore[arg-type]
+        )
+        self.assertEqual(listed["project"], "TC")
+        self.assertEqual(listed["releases"], [release])
+        self.assertEqual(helper.cmd_releases_get(StubClient(), argparse.Namespace(project="TC", release="1.4")), release)  # type: ignore[arg-type]
+        self.assertTrue(all(method == "GET" for method, _path, _kwargs in calls))
+        self.assertTrue(all(not kwargs for _method, _path, kwargs in calls))
+
+    def test_release_work_queue_is_read_only_and_projects_workflow_state(self) -> None:
+        release = {"id": "release-1", "project_id": "project-1", "name": "1.4", "status": "planned", "version": 1}
+        queue = {
+            "release": {"id": "release-1", "name": "1.4", "version": 1},
+            "snapshot": {"project_revision": 1, "read_at": "2026-09-12T00:00:00Z"},
+            "summary": {
+                "direct": 1,
+                "required": 1,
+                "completed": 0,
+                "claimable": 1,
+                "owned": 0,
+                "dependency_blocked": 0,
+                "manually_blocked": 0,
+                "claimed_elsewhere": 0,
+                "cross_release_conflicts": 0,
+            },
+            "data": [{"task": {"id": "task-1", "key": "TC-1", "version": 1}, "relationship": "direct", "disposition": "claimable", "blocked_by": []}],
+            "next_cursor": "",
+        }
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if path == "/projects?limit=200":
+                    return {"data": [{"id": "project-1", "key": "TC"}], "next_cursor": ""}, {}
+                if path == "/projects/project-1/releases?limit=200":
+                    return {"data": [release], "next_cursor": ""}, {}
+                if path == "/releases/release-1/work-queue?limit=50":
+                    return queue, {}
+                raise AssertionError(f"unexpected mocked API call: {method} {path}")
+
+        result = helper.cmd_release_work(StubClient(), argparse.Namespace(project="TC", release="1.4", limit=50, cursor="", all=False))  # type: ignore[arg-type]
+        self.assertEqual(result["state"], "handoff")
+        self.assertEqual(result["workflow"]["next"], "claim_one_task")
+        self.assertEqual([method for method, _path, _kwargs in calls], ["GET"] * len(calls))
+        self.assertTrue(all("body" not in kwargs for _method, _path, kwargs in calls))
+
+    def test_release_parser_preserves_claim_release_and_adds_unclaim_alias(self) -> None:
+        release = helper.build_parser().parse_args(["release", "--task", "TC-1", "--operation-id", "release-1"])
+        unclaim = helper.build_parser().parse_args(["unclaim", "--task", "TC-1", "--operation-id", "release-1"])
+        self.assertEqual(release.command, "release")
+        self.assertEqual(unclaim.command, "unclaim")
+        self.assertIs(release.handler, helper.cmd_release)
+        self.assertIs(unclaim.handler, helper.cmd_release)
+        self.assertIs(helper.build_parser().parse_args(["releases", "list", "--project", "TC"]).handler, helper.cmd_releases_list)
+        self.assertIs(helper.build_parser().parse_args(["releases", "get", "--project", "TC", "--release", "1.4"]).handler, helper.cmd_releases_get)
+        self.assertIs(helper.build_parser().parse_args(["release-work", "--project", "TC", "--release", "1.4"]).handler, helper.cmd_release_work)
+
     def test_resume_claims_then_activates_only_when_needed(self) -> None:
         calls: list[tuple[str, str, dict[str, object]]] = []
         current = {"id": "task-1", "key": "TC-1", "project_id": "project-1", "column_id": "ready", "version": 3}

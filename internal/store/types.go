@@ -34,6 +34,19 @@ var (
 	ErrDependencyInUse         = errors.New("dependency_in_use")
 	ErrChecklistLimitExceeded  = errors.New("checklist_limit_exceeded")
 	ErrChecklistIncomplete     = errors.New("checklist_incomplete")
+
+	// Release errors retain the broad store sentinels through errors.Join while
+	// exposing stable lifecycle-specific identities to API callers.
+	ErrReleaseNotFound           = errors.New("release_not_found")
+	ErrReleaseNameExists         = errors.New("release_name_exists")
+	ErrReleaseCrossProject       = errors.New("release_cross_project")
+	ErrReleaseAlreadyCompleted   = errors.New("release_already_completed")
+	ErrReleaseNotCompleted       = errors.New("release_not_completed")
+	ErrReleaseHasTasks           = errors.New("release_has_tasks")
+	ErrReleaseIncomplete         = errors.New("release_incomplete")
+	ErrReleaseDependencyConflict = errors.New("release_dependency_conflict")
+	ErrReleaseFrozen             = errors.New("release_frozen")
+	ErrReleaseQueueChanged       = errors.New("release_queue_changed")
 )
 
 type Error struct {
@@ -161,6 +174,74 @@ type Task struct {
 	ParentID         *string                 `json:"parent_id,omitempty"`
 	Parent           *TaskHierarchyReference `json:"parent,omitempty"`
 	HierarchySummary HierarchySummary        `json:"hierarchy_summary"`
+	// ReleaseID is an explicit, nullable project-local planning assignment.
+	// Release is the compact read reference populated by the store in batches
+	// for task collections.
+	ReleaseID *string           `json:"release_id,omitempty"`
+	Release   *ReleaseReference `json:"release,omitempty"`
+}
+
+// ReleaseReference is the compact release relation embedded on task reads.
+// Status is derived from ReleasedAt on the release row and is never persisted
+// redundantly on tasks.
+type ReleaseReference struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	TargetDate *string `json:"target_date,omitempty"`
+}
+
+// ReleaseRef is a compatibility alias for callers that use the shorter
+// relation name.
+type ReleaseRef = ReleaseReference
+
+// ReleaseSummary contains direct membership progress and the transitive
+// dependency closure required before a release can be completed.
+type ReleaseSummary struct {
+	TaskCount                 int  `json:"task_count"`
+	CompletedCount            int  `json:"completed_count"`
+	BlockedCount              int  `json:"blocked_count"`
+	ClaimedCount              int  `json:"claimed_count"`
+	ChecklistWarningCount     int  `json:"checklist_warning_count"`
+	RequiredTaskCount         int  `json:"required_task_count"`
+	RequiredCompletedCount    int  `json:"required_completed_count"`
+	CrossReleaseConflictCount int  `json:"cross_release_conflict_count"`
+	ReadyToRelease            bool `json:"ready_to_release"`
+}
+
+// Release is a project-local planned or released delivery boundary.
+type Release struct {
+	ID          string         `json:"id"`
+	ProjectID   string         `json:"project_id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	TargetDate  *string        `json:"target_date,omitempty"`
+	Status      string         `json:"status"`
+	ReleasedAt  *string        `json:"released_at,omitempty"`
+	ReleasedBy  *string        `json:"released_by,omitempty"`
+	Version     int64          `json:"version"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
+	Summary     ReleaseSummary `json:"summary"`
+}
+
+// ReleaseInput is used for create and patch operations. TargetDateSet and
+// DescriptionSet distinguish explicit null/empty updates from omission.
+type ReleaseInput struct {
+	Name           *string
+	Description    *string
+	DescriptionSet bool
+	TargetDate     *string
+	TargetDateSet  bool
+}
+
+// ReleaseFilter controls project-scoped release listings.
+type ReleaseFilter struct {
+	Status     string
+	TargetFrom *string
+	TargetTo   *string
+	Cursor     int
+	Limit      int
 }
 
 // TaskChecklistItem is one ordered, actor-aware acceptance criterion on a
@@ -484,6 +565,12 @@ type TaskFilter struct {
 	Severity   string
 	Reporter   string
 	Resolution string
+	// ReleaseID filters explicit release membership. The value "unassigned"
+	// (or "none") selects tasks whose release_id is NULL.
+	ReleaseID string
+	// Release is a compatibility alias for project-scoped callers that use the
+	// shorter query vocabulary; ReleaseID takes precedence when both are set.
+	Release string
 	// Dependency selects derived graph readiness. "blocked" matches tasks
 	// with an unmet prerequisite; "ready" matches tasks with at least one
 	// prerequisite and none unmet. Empty leaves the graph state unfiltered.
@@ -535,12 +622,15 @@ type SearchFilter struct {
 	Assignee    string
 	ClaimOwner  string
 	Project     string
-	ProjectIDs  []string
-	DueFrom     *time.Time
-	DueTo       *time.Time
-	Sort        []SearchSort
-	Cursor      int
-	Limit       int
+	// ReleaseID is a stable opaque release identifier or "unassigned" for
+	// cross-project searches. The HTTP layer resolves project-local names.
+	ReleaseID  string
+	ProjectIDs []string
+	DueFrom    *time.Time
+	DueTo      *time.Time
+	Sort       []SearchSort
+	Cursor     int
+	Limit      int
 }
 
 // SavedView stores a named search/filter combination. Filters are kept as a
@@ -762,19 +852,19 @@ func labelFromRow(scanner interface{ Scan(...any) error }) (Label, error) {
 
 func taskFromRow(scanner interface{ Scan(...any) error }) (Task, error) {
 	var t Task
-	var assignee, claimed, claimExpiry, due, completed, parent sql.NullString
-	if err := scanner.Scan(&t.ID, &t.Number, &t.ProjectID, &t.Kind, &t.ColumnID, &t.Title, &t.Description, &t.Priority, &t.Position, &assignee, &claimed, &claimExpiry, &due, &t.Version, &completed, &t.CreatedAt, &t.UpdatedAt, &parent); err != nil {
+	var assignee, claimed, claimExpiry, due, completed, parent, release sql.NullString
+	if err := scanner.Scan(&t.ID, &t.Number, &t.ProjectID, &t.Kind, &t.ColumnID, &t.Title, &t.Description, &t.Priority, &t.Position, &assignee, &claimed, &claimExpiry, &due, &t.Version, &completed, &t.CreatedAt, &t.UpdatedAt, &parent, &release); err != nil {
 		return Task{}, err
 	}
 	t.Key = "" // populated by callers because it requires a project key.
-	t.Assignee, t.ClaimedBy, t.ClaimExpiresAt, t.DueAt, t.CompletedAt, t.ParentTaskID = nullableString(assignee), nullableString(claimed), nullableString(claimExpiry), nullableString(due), nullableString(completed), nullableString(parent)
+	t.Assignee, t.ClaimedBy, t.ClaimExpiresAt, t.DueAt, t.CompletedAt, t.ParentTaskID, t.ReleaseID = nullableString(assignee), nullableString(claimed), nullableString(claimExpiry), nullableString(due), nullableString(completed), nullableString(parent), nullableString(release)
 	t.ParentID = t.ParentTaskID
 	return t, nil
 }
 
 const taskColumns = `t.id, t.number, t.project_id, t.kind, t.column_id, t.title, t.description,
 	t.priority, t.position, t.assignee_id, t.claimed_by, t.claim_expires_at, t.due_at,
-	t.version, t.completed_at, t.created_at, t.updated_at, t.parent_task_id`
+	t.version, t.completed_at, t.created_at, t.updated_at, t.parent_task_id, t.release_id`
 
 func (s *Store) withTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	tx, err := s.DB.BeginTx(ctx, nil)

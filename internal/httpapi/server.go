@@ -636,6 +636,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			switch parts[2] {
 			case "tasks":
 				s.tasks(w, r, identity, parts[1])
+			case "releases":
+				s.releases(w, r, identity, parts[1])
 			case "task-context":
 				s.taskContext(w, r, identity, parts[1])
 			case "task-draft":
@@ -665,6 +667,16 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		}
 		if len(parts) == 4 && parts[2] == "tasks" && (parts[3] == "bulk" || parts[3] == "batch") {
 			s.bulkTask(w, r, identity, parts[1])
+			return
+		}
+	}
+	if parts[0] == "releases" {
+		if len(parts) == 2 {
+			s.release(w, r, identity, parts[1], "")
+			return
+		}
+		if len(parts) == 3 && (parts[2] == "complete" || parts[2] == "reopen" || parts[2] == "work-queue") {
+			s.release(w, r, identity, parts[1], parts[2])
 			return
 		}
 	}
@@ -1452,6 +1464,26 @@ func (s *Server) writeStoreErrorForIdentity(w http.ResponseWriter, identity auth
 		status, code, message = http.StatusNotFound, "hierarchy_not_found", err.Error()
 	case errors.Is(err, store.ErrHierarchyInUse):
 		status, code, message = http.StatusConflict, "hierarchy_in_use", err.Error()
+	case errors.Is(err, store.ErrReleaseNotFound):
+		status, code, message = http.StatusNotFound, "release_not_found", err.Error()
+	case errors.Is(err, store.ErrReleaseNameExists):
+		status, code, message = http.StatusConflict, "release_name_exists", err.Error()
+	case errors.Is(err, store.ErrReleaseCrossProject):
+		status, code, message = http.StatusBadRequest, "release_cross_project", err.Error()
+	case errors.Is(err, store.ErrReleaseAlreadyCompleted):
+		status, code, message = http.StatusConflict, "release_already_completed", err.Error()
+	case errors.Is(err, store.ErrReleaseNotCompleted):
+		status, code, message = http.StatusConflict, "release_not_completed", err.Error()
+	case errors.Is(err, store.ErrReleaseHasTasks):
+		status, code, message = http.StatusConflict, "release_has_tasks", err.Error()
+	case errors.Is(err, store.ErrReleaseIncomplete):
+		status, code, message = http.StatusConflict, "release_incomplete", err.Error()
+	case errors.Is(err, store.ErrReleaseDependencyConflict):
+		status, code, message = http.StatusConflict, "release_dependency_conflict", err.Error()
+	case errors.Is(err, store.ErrReleaseFrozen):
+		status, code, message = http.StatusConflict, "release_frozen", err.Error()
+	case errors.Is(err, store.ErrReleaseQueueChanged):
+		status, code, message = http.StatusConflict, "release_queue_changed", err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, code, message = http.StatusBadRequest, "invalid_request", err.Error()
 	case errors.Is(err, store.ErrNotFound):
@@ -1490,7 +1522,49 @@ func (s *Server) writeStoreErrorForIdentity(w http.ResponseWriter, identity auth
 	}
 	details = redactTaskConflictDetails(identity, details)
 	details = redactDependencyDetails(identity, err, details)
+	details = redactReleaseDetails(identity, err, details)
 	s.writeError(w, status, code, message, details)
+}
+
+// redactReleaseDetails keeps a write-only bearer from learning release names,
+// task counts, or dependency metadata through a lifecycle error. A queue
+// restart marker and optimistic versions are safe retry metadata; everything
+// else requires the tasks:read capability.
+func redactReleaseDetails(identity auth.Identity, err error, details any) any {
+	if !identity.IsToken || identity.HasScope("tasks:read") || !isReleaseError(err) {
+		return details
+	}
+	value, ok := details.(map[string]any)
+	if !ok {
+		return map[string]any{}
+	}
+	redacted := make(map[string]any)
+	for _, key := range []string{"current_version", "expected_version", "restart"} {
+		if item, exists := value[key]; exists {
+			redacted[key] = item
+		}
+	}
+	return redacted
+}
+
+func isReleaseError(err error) bool {
+	for _, candidate := range []error{
+		store.ErrReleaseNotFound,
+		store.ErrReleaseNameExists,
+		store.ErrReleaseCrossProject,
+		store.ErrReleaseAlreadyCompleted,
+		store.ErrReleaseNotCompleted,
+		store.ErrReleaseHasTasks,
+		store.ErrReleaseIncomplete,
+		store.ErrReleaseDependencyConflict,
+		store.ErrReleaseFrozen,
+		store.ErrReleaseQueueChanged,
+	} {
+		if errors.Is(err, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // redactDependencyDetails keeps dependency error envelopes useful to tokens

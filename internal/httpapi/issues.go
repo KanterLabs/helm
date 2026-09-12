@@ -93,10 +93,21 @@ func (s *Server) issues(w http.ResponseWriter, r *http.Request, identity auth.Id
 		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
+	if filter.ReleaseID, err = parseOptionalIdentifier(r, "release_id"); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
+	if filter.ReleaseID != "" {
+		filter.ReleaseID, err = s.resolveGlobalReleaseFilter(r, identity, filter.ReleaseID)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+	}
 
 	issues, more, err := s.Store.ListIssuesWithExtra(r.Context(), filter)
 	if err != nil {
-		s.writeInternal(w, err)
+		s.writeStoreError(w, err)
 		return
 	}
 	next := ""

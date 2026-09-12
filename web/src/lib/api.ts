@@ -21,6 +21,13 @@ import {
   type IssueMetrics,
   type Label,
   type Project,
+  type Release,
+  type ReleaseCreateInput,
+  type ReleaseFilterValue,
+  type ReleasePatchInput,
+  type ReleaseReopenInput,
+  type ReleaseStatus,
+  type ReleaseWorkQueue,
   type BugInput,
   type BugSeverity,
   type BugResolution,
@@ -30,6 +37,7 @@ import {
   type RoadmapSummary,
   type SidebarCounts,
   type SavedView,
+  type SavedViewFilters,
   type SearchResponse,
   type SearchSort,
   type Task,
@@ -72,6 +80,10 @@ export interface TaskListParams {
   priority?: string;
   label?: string;
   assignee?: string;
+  /** Project-local target release ID/name, or `unassigned`. */
+  release?: ReleaseFilterValue;
+  /** Compatibility alias; project task routes serialize this as `release`. */
+  release_id?: ReleaseFilterValue;
   kind?: Task['kind'];
   severity?: BugSeverity | 'untriaged' | 'none';
   reporter?: string;
@@ -87,8 +99,12 @@ export interface TaskListParams {
   limit?: number;
 }
 
-export interface IssueListParams extends Omit<TaskListParams, 'kind'> {
+export interface IssueListParams extends Omit<TaskListParams, 'kind' | 'release' | 'release_id'> {
   project?: string;
+  /** Global issue route uses the stable `release_id` query parameter. */
+  release_id?: ReleaseFilterValue;
+  /** Accepted as a client-side alias and serialized to `release_id`. */
+  release?: ReleaseFilterValue;
 }
 
 export type WorkView = 'assigned' | 'live';
@@ -98,6 +114,10 @@ export interface MyWorkParams {
   state?: string;
   priority?: string;
   label?: string;
+  /** Global My Work route uses the stable `release_id` query parameter. */
+  release_id?: ReleaseFilterValue;
+  /** Accepted as a client-side alias and serialized to `release_id`. */
+  release?: ReleaseFilterValue;
   q?: string;
   updated_after?: string;
   view?: WorkView;
@@ -118,11 +138,28 @@ export interface SearchParams {
   priority?: string;
   assignee?: string;
   claim_owner?: string;
+  /** Stable opaque release ID or the `unassigned` sentinel. */
+  release_id?: ReleaseFilterValue;
   project?: string;
   due_from?: string;
   due_to?: string;
   sort?: string;
   view?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/** Cursor-paginated project release list filters. */
+export interface ReleaseListParams {
+  status?: ReleaseStatus;
+  target_from?: string;
+  target_to?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/** Cursor pagination for the dependency-aware release work queue. */
+export interface ReleaseWorkQueueParams {
   cursor?: string;
   limit?: number;
 }
@@ -285,6 +322,99 @@ export const api = {
   listAllProjects: (params: { includeArchived?: boolean } = {}) => collectPages((cursor) =>
     request<Collection<Project>>(pathWithQuery('/projects', { cursor, limit: 200, archived: params.includeArchived ? true : undefined })).then(collectionFrom)
   ),
+
+  /** List project-local product releases, including planned and released history. */
+  listProjectReleases: (project: string, params: ReleaseListParams = {}) =>
+    request<Collection<Release> | Release[]>(
+      pathWithQuery(`/projects/${encodeURIComponent(project)}/releases`, {
+        status: params.status,
+        target_from: params.target_from,
+        target_to: params.target_to,
+        cursor: params.cursor,
+        limit: params.limit
+      })
+    ).then(collectionFrom),
+  /** Short alias for project-scoped release discovery. */
+  listReleases: (project: string, params: ReleaseListParams = {}) =>
+    api.listProjectReleases(project, params),
+  listAllProjectReleases: (project: string, params: ReleaseListParams = {}) => collectPages((cursor) =>
+    api.listProjectReleases(project, { ...params, cursor, limit: params.limit ?? 200 }), params.cursor
+  ),
+  listAllReleases: (project: string, params: ReleaseListParams = {}) =>
+    api.listAllProjectReleases(project, params),
+  createProjectRelease: (project: string, input: ReleaseCreateInput) =>
+    request<Release>(`/projects/${encodeURIComponent(project)}/releases`, {
+      method: 'POST',
+      body: input,
+      idempotencyKey: key()
+    }),
+  /** Short alias for creating a project-local product release. */
+  createRelease: (project: string, input: ReleaseCreateInput) =>
+    api.createProjectRelease(project, input),
+  getRelease: (release: string) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}`),
+  patchRelease: (release: string, input: ReleasePatchInput, version: number) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}`, {
+      method: 'PATCH',
+      body: input,
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  /** OpenAPI operation-name alias for patchRelease. */
+  updateRelease: (release: string, input: ReleasePatchInput, version: number) =>
+    api.patchRelease(release, input, version),
+  deleteRelease: (release: string, version: number) =>
+    request<void>(`/releases/${encodeURIComponent(release)}`, {
+      method: 'DELETE',
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  completeRelease: (release: string, version: number) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}/complete`, {
+      method: 'POST',
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  reopenRelease: (release: string, version: number, input: ReleaseReopenInput | string) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}/reopen`, {
+      method: 'POST',
+      body: typeof input === 'string' ? { reason: input } : input,
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  getReleaseWorkQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    request<ReleaseWorkQueue>(
+      pathWithQuery(`/releases/${encodeURIComponent(release)}/work-queue`, {
+        cursor: params.cursor,
+        limit: params.limit
+      })
+    ),
+  getAllReleaseWorkQueue: async (release: string): Promise<ReleaseWorkQueue> => {
+    let cursor: string | undefined;
+    let first: ReleaseWorkQueue | undefined;
+    const data: ReleaseWorkQueue['data'] = [];
+    const seen = new Set<string>();
+    for (let page = 0; page < 10; page += 1) {
+      const result = await api.getReleaseWorkQueue(release, { cursor, limit: 200 });
+      first ??= result;
+      data.push(...result.data);
+      if (!result.next_cursor) return { ...first, data, next_cursor: '' };
+      if (seen.has(result.next_cursor) || result.next_cursor === cursor) {
+        throw new ApiError('The server repeated a release queue cursor.', 500, 'invalid_pagination_cursor');
+      }
+      seen.add(result.next_cursor);
+      cursor = result.next_cursor;
+    }
+    throw new ApiError('The release work queue exceeded its browser pagination safety limit.', 500, 'pagination_limit');
+  },
+  /** Short alias for the read-only dependency-aware release queue. */
+  releaseWorkQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    api.getReleaseWorkQueue(release, params),
+  listReleaseWorkQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    api.getReleaseWorkQueue(release, params),
+  getReleaseQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    api.getReleaseWorkQueue(release, params),
+
   createProject: (input: { key: string; name: string; description?: string; color?: string; favorite?: boolean; checklist_completion_policy?: Project['checklist_completion_policy'] }) =>
     request<Project>('/projects', { method: 'POST', body: input, idempotencyKey: key() }),
   getProject: (project: string) => request<Project>(`/projects/${encodeURIComponent(project)}`),
@@ -343,6 +473,7 @@ export const api = {
         priority: params.priority,
         label: params.label,
         assignee: params.assignee,
+        release: params.release ?? params.release_id,
         kind: params.kind,
         severity: params.severity,
         reporter: params.reporter,
@@ -368,6 +499,7 @@ export const api = {
         priority: params.priority,
         label: params.label,
         assignee: params.assignee,
+        release_id: params.release_id ?? params.release,
         severity: params.severity,
         reporter: params.reporter,
         resolution: params.resolution,
@@ -392,6 +524,8 @@ export const api = {
       position?: number;
       due_at?: string | null;
       assignee?: string | null;
+      /** Omit for no assignment; pass null to leave the new task unassigned. */
+      release_id?: string | null;
       labels?: string[];
       label_ids?: string[];
       parent?: string | null;
@@ -645,6 +779,7 @@ export const api = {
         agent_state: params.agent_state,
         action_needed: params.action_needed,
         dependency: params.dependency,
+        release_id: params.release_id ?? params.release,
         cursor: params.cursor,
         limit: params.limit
       })
@@ -662,6 +797,7 @@ export const api = {
         agent_state: params.agent_state,
         action_needed: params.action_needed,
         dependency: params.dependency,
+        release_id: params.release_id ?? params.release,
         cursor,
         limit: params.limit ?? 200
       })
@@ -712,6 +848,7 @@ export const api = {
         priority: params.priority,
         assignee: params.assignee,
         claim_owner: params.claim_owner,
+        release_id: params.release_id,
         project: params.project,
         due_from: params.due_from,
         due_to: params.due_to,
@@ -729,9 +866,9 @@ export const api = {
     request<Collection<SavedView> | SavedView[]>(pathWithQuery('/views', { cursor, limit: 200 })).then(collectionFrom)
   ),
   getSavedView: (view: string) => request<SavedView>(`/views/${encodeURIComponent(view)}`),
-  createSavedView: (input: { name: string; description?: string; filters: Record<string, unknown>; sort?: SearchSort[]; shared?: boolean }) =>
+  createSavedView: (input: { name: string; description?: string; filters: SavedViewFilters; sort?: SearchSort[]; shared?: boolean }) =>
     request<SavedView>('/views', { method: 'POST', body: input, idempotencyKey: key() }),
-  patchSavedView: (view: string, input: Partial<{ name: string; description: string; filters: Record<string, unknown>; sort: SearchSort[]; shared: boolean }>) =>
+  patchSavedView: (view: string, input: Partial<{ name: string; description: string; filters: SavedViewFilters; sort: SearchSort[]; shared: boolean }>) =>
     request<SavedView>(`/views/${encodeURIComponent(view)}`, { method: 'PATCH', body: input, idempotencyKey: key() }),
   deleteSavedView: (view: string) =>
     request<void>(`/views/${encodeURIComponent(view)}`, { method: 'DELETE', idempotencyKey: key() }),
@@ -833,6 +970,14 @@ export async function listAllTasks(project: string, params: TaskListParams = {})
 export async function listAllIssues(params: IssueListParams = {}): Promise<Collection<Task>> {
   return collectPages((cursor) => api.listIssues({ ...params, cursor, limit: params.limit ?? 200 }), params.cursor);
 }
+
+/** Fetch every release page while retaining the public cursor API. */
+export async function listAllProjectReleases(project: string, params: ReleaseListParams = {}): Promise<Collection<Release>> {
+  return collectPages((cursor) => api.listProjectReleases(project, { ...params, cursor, limit: params.limit ?? 200 }), params.cursor);
+}
+
+/** Concise top-level alias matching the api object's release collection helper. */
+export const listAllReleases = listAllProjectReleases;
 
 export function unwrapActor(value: Actor | { user: Actor }): Actor {
   return 'user' in value ? value.user : value;

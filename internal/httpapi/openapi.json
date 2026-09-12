@@ -67,6 +67,10 @@
       "description": "Projects and their board columns"
     },
     {
+      "name": "Releases",
+      "description": "Project delivery boundaries and dependency-aware release work"
+    },
+    {
       "name": "Columns",
       "description": "Ordered semantic board columns"
     },
@@ -116,7 +120,7 @@
       "get": {
         "operationId": "searchTasks",
         "summary": "Search tasks across visible projects",
-        "description": "Returns tasks matching the supplied full-text or field filters. The\nproject ceiling is applied before pagination, so a scoped bearer token\nnever spends a page slot on an inaccessible match. `q` searches task\nkeys, titles, descriptions, project names, labels, board state,\npriority, assignee/claim owner names, and bug details. When `q` is\nsupplied, matching projects and saved views are included in the\noptional `projects` and `views` response fields for command navigation.\n`view` loads a saved view first; explicit query parameters override its\nmatching filters without changing the saved view.\n",
+        "description": "Returns tasks matching the supplied full-text or field filters. The\nproject ceiling is applied before pagination, so a scoped bearer token\nnever spends a page slot on an inaccessible match. `q` searches task\nkeys, titles, descriptions, project names, labels, board state,\npriority, assignee/claim owner names, and bug details. When `q` is\nsupplied, matching projects and saved views are included in the\noptional `projects` and `views` response fields for command navigation.\n`view` loads a saved view first; explicit query parameters override its\nmatching filters without changing the saved view. `release_id` accepts\nan opaque release ID or `unassigned`; global search never resolves a\nbare release name because names can repeat across projects.\n",
         "tags": [
           "Search"
         ],
@@ -175,6 +179,9 @@
           },
           {
             "$ref": "#/components/parameters/PriorityFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIDFilter"
           },
           {
             "name": "project",
@@ -599,6 +606,9 @@
             "$ref": "#/components/parameters/SearchQuery"
           },
           {
+            "$ref": "#/components/parameters/ReleaseIDFilter"
+          },
+          {
             "$ref": "#/components/parameters/Cursor"
           },
           {
@@ -972,7 +982,7 @@
       "get": {
         "operationId": "exportPortableArchive",
         "summary": "Export a versioned portable archive",
-        "description": "Exports live projects, columns, tasks, labels, comments, relationships,\nand activity references as a `helm.portable` v1 JSON archive. A\n`project` query selects one project; an unscoped caller may omit it to\nexport every accessible project. This is a portability snapshot, not\na database backup or restore operation.\n",
+        "description": "Exports live projects, columns, tasks, labels, comments, relationships,\nand activity references as a `helm.portable` v2 JSON archive. A\nv2 archive includes project-local releases and explicit task release\nreferences; v1 archives remain import-compatible and treat every task\nas unassigned.\n`project` query selects one project; an unscoped caller may omit it to\nexport every accessible project. This is a portability snapshot, not\na database backup or restore operation.\n",
         "tags": [
           "Projects"
         ],
@@ -1008,7 +1018,8 @@
                 "description": "Portable envelope version.",
                 "schema": {
                   "type": "integer",
-                  "example": 1
+                  "const": 2,
+                  "example": 2
                 }
               }
             },
@@ -2117,7 +2128,7 @@
       "get": {
         "operationId": "exportProjectPortableArchive",
         "summary": "Export one project's portable archive",
-        "description": "Exports the live project and its related records in the versioned `helm.portable` format.",
+        "description": "Exports the live project and its related records in the versioned `helm.portable` v2 format, including releases and explicit task release references. v1 archives remain import-compatible and treat tasks as unassigned.",
         "tags": [
           "Projects"
         ],
@@ -2616,7 +2627,7 @@
       "get": {
         "operationId": "listProjectTasks",
         "summary": "List tasks in a project",
-        "description": "Results use a stable server-side ordering. `sort` accepts `board`,\n`position`, `number`, `created_at`, `updated_at`, `priority`, or\n`title`; `order` selects ascending or descending direction. The\ndefault is board order (column position, task position, number, ID).\nThe returned `next_cursor` is a keyset marker scoped to that ordering;\nunchanged collections traverse without gaps or duplicates.\nEach task cursor also records the project collection revision, a fixed\nread timestamp, and a task-collection revision. If the project\ncollection changes between pages, or while a page and its enrichment\nare being read, the server returns `409 task_collection_changed` with\n`details.restart=true`; discard the cursor and restart from the first\npage. Continuations use the cursor's original read timestamp for\n`stale` and `action_needed` filters.\n`state`,\n`column`, `kind`, `priority`, `severity`, `label`, `assignee`,\n`reporter`, `resolution`, `agent_state`, `action_needed`, `dependency`,\n`q`, and `updated_after` can be combined. `agent_state` filters the latest\nstructured agent-work snapshot; `stale` and `missing` identify\nread-time liveness conditions. `action_needed=true` selects waiting,\nhandoff, or stale snapshots among unfinished tasks; completed tasks\nretain their snapshot as history but never match an agent-work filter.\n`action_needed=false` is accepted as an explicit no-op filter for\nclients that build filters dynamically.\n`state` filters by a column's semantic state. `dependency=blocked`\nselects tasks with an unmet live prerequisite; `dependency=ready`\nselects tasks with at least one live prerequisite and none unmet (so a\ntask with no prerequisites does not match). Supplied scalar filters are\nsingle-valued; empty identifier/enum/timestamp values and values outside\ntheir declared enum, format, or length are rejected with `400`.\n",
+        "description": "Results use a stable server-side ordering. `sort` accepts `board`,\n`position`, `number`, `created_at`, `updated_at`, `priority`, or\n`title`; `order` selects ascending or descending direction. The\ndefault is board order (column position, task position, number, ID).\nThe returned `next_cursor` is a keyset marker scoped to that ordering;\nunchanged collections traverse without gaps or duplicates.\nEach task cursor also records the project collection revision, a fixed\nread timestamp, and a task-collection revision. If the project\ncollection changes between pages, or while a page and its enrichment\nare being read, the server returns `409 task_collection_changed` with\n`details.restart=true`; discard the cursor and restart from the first\npage. Continuations use the cursor's original read timestamp for\n`stale` and `action_needed` filters.\n`state`,\n`column`, `kind`, `priority`, `severity`, `label`, `assignee`,\n`reporter`, `resolution`, `agent_state`, `action_needed`, `dependency`,\n`release`, `q`, and `updated_after` can be combined. The project-local\n`release` filter accepts a release ID, case-insensitive release name,\nor `unassigned`. `agent_state` filters the latest\nstructured agent-work snapshot; `stale` and `missing` identify\nread-time liveness conditions. `action_needed=true` selects waiting,\nhandoff, or stale snapshots among unfinished tasks; completed tasks\nretain their snapshot as history but never match an agent-work filter.\n`action_needed=false` is accepted as an explicit no-op filter for\nclients that build filters dynamically.\n`state` filters by a column's semantic state. `dependency=blocked`\nselects tasks with an unmet live prerequisite; `dependency=ready`\nselects tasks with at least one live prerequisite and none unmet (so a\ntask with no prerequisites does not match). Supplied scalar filters are\nsingle-valued; empty identifier/enum/timestamp values and values outside\ntheir declared enum, format, or length are rejected with `400`.\n",
         "tags": [
           "Tasks"
         ],
@@ -2656,6 +2667,9 @@
           },
           {
             "$ref": "#/components/parameters/DependencyFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseFilter"
           },
           {
             "$ref": "#/components/parameters/SearchQuery"
@@ -2751,6 +2765,7 @@
                 "priority": "high",
                 "column_id": "col_ready",
                 "assignee_id": "agent_ada",
+                "release_id": "release_14",
                 "due_at": "2026-09-01T12:00:00Z",
                 "label_ids": [
                   "label_api"
@@ -2818,6 +2833,621 @@
           },
           "507": {
             "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/releases": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listProjectReleases",
+        "summary": "List releases in a project",
+        "description": "Returns planned and released project-local delivery boundaries in a\nstable cursor-paginated collection. `status` filters planned or\nreleased releases; `target_from` and `target_to` are inclusive ISO\ncalendar-date bounds. Release names are unique case-insensitively\nwithin a project. The caller's project ceiling is applied before any\nrelease is returned.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseStatusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseTargetFrom"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseTargetTo"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated project releases.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseCollection"
+                },
+                "examples": {
+                  "releases": {
+                    "$ref": "#/components/examples/ReleaseCollectionExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProjectRelease",
+        "summary": "Create a planned project release",
+        "description": "Creates an empty planned release. A release is a product-planning\nboundary and is unrelated to the task claim action at\n`POST /api/v1/tasks/{task}/release` or to a bug's `affected_version`.\nRelease names are unique case-insensitively within the project.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseCreateRequest"
+              },
+              "example": {
+                "name": "1.4",
+                "description": "Search and release planning.",
+                "target_date": "2026-11-15"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Planned release created. Humans and bearer tokens with\n`tasks:read` receive the full release; a write-only bearer\nreceives only its id and version.\n",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                },
+                "examples": {
+                  "release": {
+                    "$ref": "#/components/examples/ReleaseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{release}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "get": {
+        "operationId": "getRelease",
+        "summary": "Get a release",
+        "description": "Reads one release by opaque ID. A caller must have `tasks:read` and\naccess to the release's project. The response includes direct task\nprogress, transitive prerequisite progress, and cross-release\nconflicts in `summary`.\n",
+        "tags": [
+          "Releases"
+        ],
+        "responses": {
+          "200": {
+            "description": "Release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Release"
+                },
+                "examples": {
+                  "release": {
+                    "$ref": "#/components/examples/ReleaseExample"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateRelease",
+        "summary": "Update a planned release",
+        "description": "Updates release metadata. Released releases are frozen; reopen the\nrelease before changing its metadata. Omitted patch fields remain\nunchanged, while explicit null clears `description` or `target_date`.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleasePatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteRelease",
+        "summary": "Delete an empty planned release",
+        "description": "A release can be deleted only while planned and with no live task members. Deletion is explicit and never clears task assignments implicitly.",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Release deleted.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{release}/complete": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "post": {
+        "operationId": "completeRelease",
+        "summary": "Mark a release as released",
+        "description": "Explicitly completes a planned release after rechecking direct task\nmembership and the transitive prerequisite closure in the write\ntransaction. It fails when the release is empty, required work is\nincomplete, or an incomplete prerequisite belongs to another planned\nrelease. Completing the last task only makes a release ready; it does\nnot perform this action automatically.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Released release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{release}/reopen": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "post": {
+        "operationId": "reopenRelease",
+        "summary": "Reopen a released release",
+        "description": "Reopens a released release with a required human-readable reason. The reason is recorded in the release event; membership and task lifecycle guards become writable again.",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseReopenRequest"
+              },
+              "example": {
+                "reason": "Scope changed after release review."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reopened planned release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{release}/work-queue": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "get": {
+        "operationId": "getReleaseWorkQueue",
+        "summary": "Read the dependency-aware release work queue",
+        "description": "Returns a bounded, read-only snapshot of direct release members and\ntheir transitive live prerequisites. Tasks with no prerequisites are\nclaimable when otherwise eligible. Queue dispositions classify\ncompleted, owned, claimable, dependency-blocked, manually blocked,\nforeign-claimed, and cross-release-conflict work. Results are ordered\nwith owned work first, then claimable work in topological prerequisite\norder, with priority, board position, task number, and ID tie-breakers.\nThe queue never claims or mutates tasks.\n\nThe cursor captures release version, project/task-collection revision,\nfilter, and read timestamp. Any task, dependency, claim, or release\nchange invalidates it with `409 release_queue_changed`; discard the\ncursor and restart from the first page.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot of the dependency-aware release queue.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseWorkQueue"
+                },
+                "examples": {
+                  "queue": {
+                    "$ref": "#/components/examples/ReleaseWorkQueueExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseQueueConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -3761,7 +4391,7 @@
       "get": {
         "operationId": "listIssues",
         "summary": "List internal bugs across projects",
-        "description": "Agent-friendly global listing of bug tasks. Results are ordered by\nproject, column position, and task position and always have\n`kind: bug`. An unscoped identity may search every project; a\nproject-scoped bearer token searches the union of its permitted\nprojects when `project` is omitted and can never receive issues\noutside that project ceiling. An optional `project` narrows the\nresult to one permitted project. Requires `tasks:read`.\n`severity=untriaged` and `resolution=unresolved` select bugs whose\ncorresponding lifecycle field is unset.\n",
+        "description": "Agent-friendly global listing of bug tasks. Results are ordered by\nproject, column position, and task position and always have\n`kind: bug`. An unscoped identity may search every project; a\nproject-scoped bearer token searches the union of its permitted\nprojects when `project` is omitted and can never receive issues\noutside that project ceiling. An optional `project` narrows the\nresult to one permitted project. Requires `tasks:read`.\n`severity=untriaged` and `resolution=unresolved` select bugs whose\ncorresponding lifecycle field is unset. `release_id` accepts an\nopaque release ID or `unassigned` and is applied before pagination.\n",
         "tags": [
           "Tasks"
         ],
@@ -3799,6 +4429,9 @@
           },
           {
             "$ref": "#/components/parameters/IssueResolutionFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIDFilter"
           },
           {
             "$ref": "#/components/parameters/AgentStateFilter"
@@ -7519,7 +8152,7 @@
       "get": {
         "operationId": "listMyWork",
         "summary": "List work assigned to the current actor",
-        "description": "By default, returns tasks assigned to the authenticated actor across\nall projects, or across the requested project. Results include\nassigned tasks and tasks with an active claim owned by the actor. Set\n`view=live` for the coordination pulse view: it returns unfinished\ntasks that have a structured agent-work snapshot, ordered with\naction-needed pulses first. `view=assigned` is an explicit spelling of\nthe legacy actor-assignment and active-claim view. `agent_state`,\n`action_needed`, and `dependency` can be combined with either view.\n`dependency=blocked` selects work with an unmet live prerequisite;\n`dependency=ready` requires at least one live prerequisite and none\nunmet, so tasks with no prerequisites do not match. An unknown requested\nproject returns 404; a project-scoped token must name a project.\n",
+        "description": "By default, returns tasks assigned to the authenticated actor across\nall projects, or across the requested project. Results include\nassigned tasks and tasks with an active claim owned by the actor. Set\n`view=live` for the coordination pulse view: it returns unfinished\ntasks that have a structured agent-work snapshot, ordered with\naction-needed pulses first. `view=assigned` is an explicit spelling of\nthe legacy actor-assignment and active-claim view. `agent_state`,\n`action_needed`, `dependency`, and `release_id` can be combined with\neither view. `release_id` accepts an opaque release ID or `unassigned`\nand is applied before pagination.\n`dependency=blocked` selects work with an unmet live prerequisite;\n`dependency=ready` requires at least one live prerequisite and none\nunmet, so tasks with no prerequisites do not match. An unknown requested\nproject returns 404; a project-scoped token must name a project.\n",
         "tags": [
           "My work"
         ],
@@ -7559,6 +8192,9 @@
             "schema": {
               "$ref": "#/components/schemas/Identifier"
             }
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIDFilter"
           },
           {
             "$ref": "#/components/parameters/Cursor"
@@ -7744,7 +8380,7 @@
       "get": {
         "operationId": "listEvents",
         "summary": "Poll the append-only event feed",
-        "description": "Supply `after` with the last integer cursor seen to receive subsequent\nproject, task, claim, comment, completion, dependency, and bug\nlifecycle events.\nAgent progress publishes `task.progressed` events containing the\nmachine-readable state and checkpoint counts. Bearer tokens with\n`events:read` but without `tasks:read` receive those coordination\nfields with progress narrative (`phase`, `summary`, `next_action`,\nand `checkpoint_refs`) redacted.\nBug lifecycle events (`bug.created`, `bug.updated`, `bug.triaged`,\n`bug.resolved`, `bug.duplicated`, and `bug.reopened`) carry lifecycle\nand version metadata and are emitted in the same transaction as the\naction. Resolution events include the selected resolution; a reopen\nreason is recorded in the atomic comment.created event associated with\nthe action.\nA prerequisite's satisfied-state transition emits one bounded\n`task.dependency_state_changed` event for each direct live dependent.\nThe enclosing event's `task_id` is the dependent; its payload contains\ndependent/prerequisite IDs and keys plus the resulting `satisfied`\nboolean. This derived notification does not increment the dependent's\neditable task version. Clients should refetch the affected task or\ndependency graph.\n",
+        "description": "Supply `after` with the last integer cursor seen to receive subsequent\nproject, task, claim, comment, completion, dependency, and bug\nlifecycle events.\nAgent progress publishes `task.progressed` events containing the\nmachine-readable state and checkpoint counts. Bearer tokens with\n`events:read` but without `tasks:read` receive those coordination\nfields with progress narrative (`phase`, `summary`, `next_action`,\nand `checkpoint_refs`) redacted.\nBug lifecycle events (`bug.created`, `bug.updated`, `bug.triaged`,\n`bug.resolved`, `bug.duplicated`, and `bug.reopened`) carry lifecycle\nand version metadata and are emitted in the same transaction as the\naction. Resolution events include the selected resolution; a reopen\nreason is recorded in the atomic comment.created event associated with\nthe action.\nRelease lifecycle events (`release.created`, `release.updated`,\n`release.completed`, `release.reopened`, and `release.deleted`) carry\nonly safe release IDs, names, target dates, statuses, and versions.\n`task.release_changed` carries old/new release IDs and names, with\nnullable values for assignment and clearing. Release events are\nproject-scoped and follow the same `events:read` ceiling.\nA prerequisite's satisfied-state transition emits one bounded\n`task.dependency_state_changed` event for each direct live dependent.\nThe enclosing event's `task_id` is the dependent; its payload contains\ndependent/prerequisite IDs and keys plus the resulting `satisfied`\nboolean. This derived notification does not increment the dependent's\neditable task version. Clients should refetch the affected task or\ndependency graph.\n",
         "tags": [
           "Events"
         ],
@@ -9067,6 +9703,16 @@
         },
         "example": "operations"
       },
+      "ReleasePath": {
+        "name": "release",
+        "in": "path",
+        "required": true,
+        "description": "Opaque release ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "release_14"
+      },
       "ColumnPath": {
         "name": "column",
         "in": "path",
@@ -9287,6 +9933,19 @@
         },
         "example": "dependency-add-20260903-01"
       },
+      "ReleaseIdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Required client-generated key for safely retrying this release\nmutation. Reusing it with the same authenticated principal, method,\npath, and payload replays the original response; using it for a\ndifferent method, path, or payload under that principal returns 409\nwith `idempotency_key_reused`. Different principals (and bearer\ncredentials) have isolated key namespaces.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": ".*\\S.*"
+        },
+        "example": "release-update-20260903-01"
+      },
       "IfMatch": {
         "name": "If-Match",
         "in": "header",
@@ -9303,6 +9962,17 @@
         "in": "header",
         "required": false,
         "description": "Optional last observed project or column ETag for an optimistic\nadministration edit. Values use the quoted \"vN\" format. Omit this\nheader only for legacy unguarded writes; stale guarded edits return\n409 with the current resource version in error details.\n",
+        "schema": {
+          "type": "string",
+          "pattern": "^\"v[1-9][0-9]*\"$"
+        },
+        "example": "\"v3\""
+      },
+      "ReleaseIfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "description": "Exact strong release ETag in the quoted `\"vN\"` form. Missing\nIf-Match returns 428, malformed values return 400, and a stale release\nversion returns 409. Release PATCH, DELETE, complete, and reopen all\nrequire this guard.\n",
         "schema": {
           "type": "string",
           "pattern": "^\"v[1-9][0-9]*\"$"
@@ -9348,6 +10018,66 @@
           "$ref": "#/components/schemas/Priority"
         },
         "example": "high"
+      },
+      "ReleaseFilter": {
+        "name": "release",
+        "in": "query",
+        "required": false,
+        "description": "Project-scoped target-release filter. Accepts an opaque release ID or\na case-insensitive release name in the selected project. Use the\nliteral `unassigned` to select tasks with no release; `none` remains a\ncompatibility alias. The filter is applied before pagination.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "example": "1.4"
+      },
+      "ReleaseIDFilter": {
+        "name": "release_id",
+        "in": "query",
+        "required": false,
+        "description": "Stable global target-release filter. Accepts an opaque release ID or\nthe literal `unassigned` for tasks with no release. Global routes do\nnot interpret a bare release name because names may repeat across\nprojects. The filter is applied before pagination.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "example": "release_14"
+      },
+      "ReleaseStatusFilter": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "description": "Restrict releases to planned or released lifecycle status.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "released"
+          ]
+        },
+        "example": "planned"
+      },
+      "ReleaseTargetFrom": {
+        "name": "target_from",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive ISO YYYY-MM-DD lower bound for a release target date.",
+        "schema": {
+          "type": "string",
+          "format": "date"
+        },
+        "example": "2026-11-01"
+      },
+      "ReleaseTargetTo": {
+        "name": "target_to",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive ISO YYYY-MM-DD upper bound for a release target date.",
+        "schema": {
+          "type": "string",
+          "format": "date"
+        },
+        "example": "2026-12-31"
       },
       "SeverityFilter": {
         "name": "severity",
@@ -9651,6 +10381,97 @@
             "examples": {
               "conflict": {
                 "$ref": "#/components/examples/ConflictExample"
+              }
+            }
+          }
+        }
+      },
+      "ReleaseNotFound": {
+        "description": "Release ID was not found or is outside the caller's project ceiling.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReleaseNotFoundErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "release_not_found",
+                "message": "release not found",
+                "details": {}
+              }
+            }
+          }
+        }
+      },
+      "ReleaseConflict": {
+        "description": "Release lifecycle or membership conflict. The stable `error.code` is\none of `release_name_exists`, `release_cross_project`,\n`release_already_completed`, `release_not_completed`,\n`release_has_tasks`, `release_incomplete`,\n`release_dependency_conflict`, `release_frozen`, `stale_release`, or\n`idempotency_key_reused`. Details are redacted for write-only bearer\ntokens in the same way as other mutation conflicts.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReleaseConflictErrorResponse"
+            },
+            "examples": {
+              "releaseIncomplete": {
+                "value": {
+                  "error": {
+                    "code": "release_incomplete",
+                    "message": "release has incomplete required work",
+                    "details": {
+                      "release_id": "release_14",
+                      "summary": {
+                        "required_task_count": 15,
+                        "required_completed_count": 9
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ReleaseQueueConflict": {
+        "description": "A release work-queue cursor is no longer valid because a task,\ndependency, claim, or release changed. Discard the cursor and restart\nfrom the first page.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReleaseQueueConflictErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "release_queue_changed",
+                "message": "release work queue changed; restart pagination from the first page",
+                "details": {
+                  "expected_release_version": 3,
+                  "current_release_version": 4,
+                  "expected_project_revision": 812,
+                  "current_project_revision": 813,
+                  "restart": true
+                }
               }
             }
           }
@@ -10851,6 +11672,76 @@
         },
         "additionalProperties": false
       },
+      "PortableRelease": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "description",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "description": "Project-local release record included by portable v2 archives. A v1\narchive has no release records; v1 imports leave every task\nunassigned. Release status is derived from released_at.\n",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "released"
+            ],
+            "description": "Optional import hint; the server derives status from released_at."
+          },
+          "released_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "released_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
       "PortableLabel": {
         "type": "object",
         "required": [
@@ -10953,6 +11844,17 @@
           },
           "completed_at": {
             "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Explicit release membership in a v2 archive; omitted or null means unassigned."
           },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp"
@@ -11181,6 +12083,7 @@
           "activity",
           "comments"
         ],
+        "description": "Version 2 archives include the `releases` collection and task\n`release_id` references. Version 1 remains accepted for import and is\nnormalized to no releases and unassigned tasks; unknown versions are\nrejected.\n",
         "properties": {
           "format": {
             "type": "string",
@@ -11188,7 +12091,10 @@
           },
           "version": {
             "type": "integer",
-            "const": 1
+            "enum": [
+              1,
+              2
+            ]
           },
           "exported_at": {
             "$ref": "#/components/schemas/Timestamp"
@@ -11219,6 +12125,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PortableColumn"
+            }
+          },
+          "releases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PortableRelease"
             }
           },
           "tasks": {
@@ -12989,6 +13901,532 @@
         },
         "additionalProperties": false
       },
+      "ReleaseReference": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status"
+        ],
+        "description": "Compact project-local release relation embedded on task reads.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "released"
+            ]
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseSummary": {
+        "type": "object",
+        "required": [
+          "task_count",
+          "completed_count",
+          "blocked_count",
+          "claimed_count",
+          "checklist_warning_count",
+          "required_task_count",
+          "required_completed_count",
+          "cross_release_conflict_count",
+          "ready_to_release"
+        ],
+        "description": "Direct membership progress plus the bounded transitive prerequisite\nclosure required before a release can be completed.\n",
+        "properties": {
+          "task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blocked_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "claimed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "checklist_warning_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_completed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cross_release_conflict_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ready_to_release": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Release": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "description",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "summary"
+        ],
+        "description": "Project-local planned or released product delivery boundary.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "released"
+            ]
+          },
+          "released_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "released_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ReleaseSummary"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10000,
+            "default": "",
+            "description": "Optional description; null is normalized to an empty description."
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "ISO YYYY-MM-DD planning date; null leaves it unset."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleasePatchRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10000,
+            "description": "Explicit null clears the description."
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Explicit null clears the ISO YYYY-MM-DD planning date."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseReopenRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Human-readable reason retained in the release event."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseMutationReference": {
+        "type": "object",
+        "required": [
+          "id",
+          "version"
+        ],
+        "description": "Least-privilege release mutation body for a bearer without tasks:read.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseMutationResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Release"
+          },
+          {
+            "$ref": "#/components/schemas/ReleaseMutationReference"
+          }
+        ]
+      },
+      "ReleaseCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Release"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueTaskReference": {
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "version"
+        ],
+        "description": "Bounded task identity/version needed to inspect or claim one queue item.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueBlocker": {
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "title",
+          "completed_at",
+          "satisfied"
+        ],
+        "description": "Compact prerequisite reference preventing a queue item from being claimable.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "completed_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "satisfied": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueItem": {
+        "type": "object",
+        "required": [
+          "task",
+          "relationship",
+          "disposition",
+          "blocked_by"
+        ],
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/ReleaseQueueTaskReference"
+          },
+          "relationship": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "prerequisite"
+            ]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "owned",
+              "claimable",
+              "dependency_blocked",
+              "manually_blocked",
+              "claimed_elsewhere",
+              "cross_release_conflict"
+            ]
+          },
+          "blocked_by": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/ReleaseQueueBlocker"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueSnapshot": {
+        "type": "object",
+        "required": [
+          "project_revision",
+          "read_at"
+        ],
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Project event revision captured by the queue snapshot."
+          },
+          "task_collection_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Task collection revision captured when available."
+          },
+          "read_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueSummary": {
+        "type": "object",
+        "required": [
+          "direct",
+          "required",
+          "completed",
+          "claimable",
+          "owned",
+          "dependency_blocked",
+          "manually_blocked",
+          "claimed_elsewhere",
+          "cross_release_conflicts"
+        ],
+        "properties": {
+          "direct": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "claimable": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "owned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dependency_blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "manually_blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "claimed_elsewhere": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cross_release_conflicts": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueRelease": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseWorkQueue": {
+        "type": "object",
+        "required": [
+          "release",
+          "snapshot",
+          "summary",
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "release": {
+            "$ref": "#/components/schemas/ReleaseQueueRelease"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ReleaseQueueSnapshot"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ReleaseQueueSummary"
+          },
+          "data": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/ReleaseQueueItem"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Opaque queue cursor; empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      },
       "Task": {
         "type": "object",
         "required": [
@@ -13153,6 +14591,28 @@
           "hierarchy_summary": {
             "$ref": "#/components/schemas/HierarchySummary",
             "description": "Server-derived direct-child rollup; arrays and counts never include deleted or cross-project rows."
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Explicit project-local target release ID; omitted when the task is unassigned."
+          },
+          "release": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReleaseReference"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Compact target-release reference; omitted when the task is unassigned."
           }
         },
         "additionalProperties": false
@@ -13949,6 +15409,17 @@
               }
             ],
             "description": "Compatibility alias for parent."
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional project-local target release ID; explicit null leaves the new task unassigned."
           }
         },
         "additionalProperties": false
@@ -14067,6 +15538,17 @@
               }
             ],
             "description": "Compatibility alias for parent."
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target release ID; omission preserves the current assignment and explicit null clears it."
           }
         },
         "additionalProperties": false
@@ -14879,6 +16361,191 @@
         },
         "additionalProperties": false
       },
+      "ReleaseEventPayload": {
+        "type": "object",
+        "required": [
+          "release_id",
+          "name",
+          "status"
+        ],
+        "description": "Safe payload for `release.created`, `release.updated`,\n`release.completed`, `release.reopened`, and `release.deleted`.\nRelease events contain planning metadata only; task text and claim\ndetails are not embedded.\n",
+        "properties": {
+          "release_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "previous_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "released"
+            ]
+          },
+          "previous_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "planned",
+              "released",
+              null
+            ]
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "previous_target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "released_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "released_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Resulting release version; omitted by the delete event when no row remains."
+          }
+        },
+        "additionalProperties": true
+      },
+      "TaskReleaseChangedEventPayload": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "description": "Safe payload for `task.release_changed`. New and old release IDs and\nnames are nullable so assignment and clearing use the same shape.\n",
+        "properties": {
+          "release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "previous_release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "new_release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "old_release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "release_name": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "previous_release_name": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "new_release_name": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "old_release_name": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": true
+      },
       "Event": {
         "type": "object",
         "required": [
@@ -14902,7 +16569,7 @@
           "type": {
             "type": "string",
             "minLength": 1,
-            "description": "Event type, for example task.claimed, task.progressed, task.moved, task.completed, task.dependency_added, task.dependency_removed, task.dependency_state_changed, bug.triaged, bug.resolved, bug.duplicated, or bug.reopened.",
+            "description": "Event type, for example task.claimed, task.progressed, task.moved, task.completed, task.release_changed, task.dependency_added, task.dependency_removed, task.dependency_state_changed, release.created, release.updated, release.completed, release.reopened, release.deleted, bug.triaged, bug.resolved, bug.duplicated, or bug.reopened.",
             "example": "task.claimed"
           },
           "actor_id": {
@@ -14919,7 +16586,7 @@
           },
           "payload": {
             "type": "object",
-            "description": "For task.dependency_added and task.dependency_removed, payload conforms to DependencyEventPayload; for task.dependency_state_changed, it conforms to DependencyStateChangedEventPayload; other event types define their own payload fields.",
+            "description": "For task.dependency_added and task.dependency_removed, payload conforms to DependencyEventPayload; for task.dependency_state_changed, it conforms to DependencyStateChangedEventPayload; for task.release_changed, it conforms to TaskReleaseChangedEventPayload; for release.* events, it conforms to ReleaseEventPayload; other event types define their own payload fields.",
             "additionalProperties": true
           }
         },
@@ -15124,6 +16791,153 @@
         "properties": {
           "error": {
             "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseConflictErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "Stable release lifecycle conflict envelope. Tokens without `tasks:read` receive redacted details.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "release_name_exists",
+                  "release_cross_project",
+                  "release_already_completed",
+                  "release_not_completed",
+                  "release_has_tasks",
+                  "release_incomplete",
+                  "release_dependency_conflict",
+                  "release_frozen",
+                  "stale_release",
+                  "idempotency_key_reused",
+                  "conflict"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseNotFoundErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "release_not_found"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueConflictErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "release_queue_changed"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "required": [
+                  "restart"
+                ],
+                "properties": {
+                  "expected_release_version": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 1
+                  },
+                  "current_release_version": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 1
+                  },
+                  "expected_project_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "current_project_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "expected_task_collection_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "current_task_collection_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "restart": {
+                    "const": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -15730,7 +17544,7 @@
           },
           "filters": {
             "type": "object",
-            "description": "Search filter values. Supported keys are q, key, title, description, label, state, priority, assignee, claim_owner, project, project_ids, due_from, and due_to.",
+            "description": "Search filter values. Supported keys are q, key, title, description, label, state, priority, assignee, claim_owner, release_id, project, project_ids, due_from, and due_to. `release_id: unassigned` selects tasks without a target release.",
             "additionalProperties": true
           },
           "sort": {
@@ -16081,6 +17895,100 @@
           "updated_at": "2026-08-27T09:00:00Z"
         }
       },
+      "ReleaseExample": {
+        "summary": "Planned project release",
+        "value": {
+          "id": "release_14",
+          "project_id": "proj_ops",
+          "name": "1.4",
+          "description": "Search and release planning.",
+          "target_date": "2026-11-15",
+          "status": "planned",
+          "version": 3,
+          "created_at": "2026-08-27T08:00:00Z",
+          "updated_at": "2026-08-27T10:00:00Z",
+          "summary": {
+            "task_count": 12,
+            "completed_count": 7,
+            "blocked_count": 2,
+            "claimed_count": 1,
+            "checklist_warning_count": 0,
+            "required_task_count": 15,
+            "required_completed_count": 9,
+            "cross_release_conflict_count": 1,
+            "ready_to_release": false
+          }
+        }
+      },
+      "ReleaseCollectionExample": {
+        "summary": "Project release collection",
+        "value": {
+          "data": [
+            {
+              "id": "release_14",
+              "project_id": "proj_ops",
+              "name": "1.4",
+              "description": "Search and release planning.",
+              "target_date": "2026-11-15",
+              "status": "planned",
+              "version": 3,
+              "created_at": "2026-08-27T08:00:00Z",
+              "updated_at": "2026-08-27T10:00:00Z",
+              "summary": {
+                "task_count": 12,
+                "completed_count": 7,
+                "blocked_count": 2,
+                "claimed_count": 1,
+                "checklist_warning_count": 0,
+                "required_task_count": 15,
+                "required_completed_count": 9,
+                "cross_release_conflict_count": 1,
+                "ready_to_release": false
+              }
+            }
+          ],
+          "next_cursor": ""
+        }
+      },
+      "ReleaseWorkQueueExample": {
+        "summary": "Dependency-aware release queue snapshot",
+        "value": {
+          "release": {
+            "id": "release_14",
+            "name": "1.4",
+            "version": 3
+          },
+          "snapshot": {
+            "project_revision": 812,
+            "read_at": "2026-08-27T10:00:00Z"
+          },
+          "summary": {
+            "direct": 12,
+            "required": 15,
+            "completed": 9,
+            "claimable": 1,
+            "owned": 1,
+            "dependency_blocked": 2,
+            "manually_blocked": 1,
+            "claimed_elsewhere": 1,
+            "cross_release_conflicts": 1
+          },
+          "data": [
+            {
+              "task": {
+                "id": "task_42",
+                "key": "OPS-42",
+                "version": 8,
+                "project_id": "proj_ops"
+              },
+              "relationship": "direct",
+              "disposition": "claimable",
+              "blocked_by": []
+            }
+          ],
+          "next_cursor": ""
+        }
+      },
       "ProjectExample": {
         "summary": "Operations project",
         "value": {
@@ -16134,6 +18042,13 @@
             "unmet_prerequisite_count": 0,
             "dependent_count": 2,
             "blocked": false
+          },
+          "release_id": "release_14",
+          "release": {
+            "id": "release_14",
+            "name": "1.4",
+            "status": "planned",
+            "target_date": "2026-11-15"
           }
         }
       },

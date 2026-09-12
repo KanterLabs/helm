@@ -16,13 +16,16 @@ Trello-compatible API or a full team-suite replacement.
 - Work from a board with Backlog, Ready, In progress, Blocked, and Done
   columns. Create tasks quickly, move them with drag-and-drop or keyboard
   controls, and filter by text, state, kind, priority, severity, label,
-  assignee, reporter, resolution, or agent-work state. Claimed agent tasks
-  expose a compact live pulse on the board and a fuller progress panel in the
-  task drawer.
+  assignee, reporter, resolution, release (including **No release**), or
+  agent-work state. Claimed agent tasks expose a compact live pulse on the
+  board and a fuller progress panel in the task drawer.
 - Keep task context in Markdown descriptions, priorities, due dates, labels,
   assignees, comments, and chronological human/agent activity. Record bugs
   with actual versus expected behavior, reproduction steps, environment, and
   affected version.
+- Plan product delivery with project-local releases: assign each task or bug
+  to at most one planned release, review dependency-aware work queues, and
+  explicitly complete or reopen a release when its required work is ready.
 - Follow assigned work in **My work** and all published agent pulses across
   permitted projects in cross-project **Live Work**, or inspect completion,
   overdue work, upcoming deadlines, and recent activity in **Roadmap**.
@@ -167,6 +170,41 @@ The API contract is documented in [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md)
 The human-edited OpenAPI source is [`openapi.yaml`](openapi.yaml); the checked-in
 JSON document is [`internal/httpapi/openapi.json`](internal/httpapi/openapi.json)
 and is served at `/openapi.json`.
+
+### Product releases
+
+Product releases are project-local planning boundaries, separate from the
+deployment `X-Roadmap-Revision`, the task claim action
+`POST /api/v1/tasks/{task}/release` (which releases an agent claim), and a
+bug's `affected_version`. The release API is:
+
+- `GET|POST /api/v1/projects/{project}/releases`
+- `GET|PATCH|DELETE /api/v1/releases/{release}`
+- `POST /api/v1/releases/{release}/complete`
+- `POST /api/v1/releases/{release}/reopen`
+- `GET /api/v1/releases/{release}/work-queue`
+
+Release reads and the read-only work queue use `tasks:read`; release
+creation, edits, deletion, completion, and reopening use `tasks:write`. The
+existing project ceiling applies, and no new bearer scope is required.
+Release metadata mutations use the strong release `ETag` in `If-Match` and an
+`Idempotency-Key`; released releases are frozen until reopened with a reason.
+
+Task creation and PATCH accept nullable `release_id`; omission preserves an
+existing assignment and explicit `null` clears it. A release must be planned
+and belong to the task's project. Project task collections accept
+`release={id|name|unassigned}`; global Issues, My work, Search, and saved
+views use stable `release_id={id|unassigned}`. Filters are applied before
+pagination and names are resolved only within a selected project.
+
+The work queue is read-only: it includes direct members and transitive
+same-project prerequisites, reports dependency and cross-release conflicts,
+and orders owned work before claimable tasks. Agents still claim and finish
+one task at a time through the existing task lifecycle. Queue cursors are
+invalidated by relevant changes and return `release_queue_changed` with
+`restart: true`. Portable exports are `helm.portable` v2 with releases and
+task release references; v1 archives remain import-compatible with tasks
+unassigned on import.
 
 Tasks declare `kind: task` or `kind: bug`. Bug creation requires nested
 `bug.actual_behavior`; triage sets `severity` (`s1`–`s4`), resolve records a

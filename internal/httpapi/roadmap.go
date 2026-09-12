@@ -172,10 +172,34 @@ func (s *Server) myWork(w http.ResponseWriter, r *http.Request, identity auth.Id
 		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
-	filter := store.TaskFilter{State: state, Priority: priority, Label: label, Dependency: dependency, AgentState: agentState, ActionNeeded: actionNeeded, LiveWork: view == "live", Query: query, Cursor: offset, Limit: limit, UpdatedAfter: updatedAfter}
+	releaseID, err := parseOptionalIdentifier(r, "release_id")
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
+	if releaseID != "" {
+		releaseID, err = s.resolveGlobalReleaseFilter(r, identity, releaseID)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+	}
+	if releaseID == "" {
+		// Project-scoped UIs historically used the shorter `release` query
+		// vocabulary. Resolve it when this request selected exactly one project;
+		// global My Work remains on the stable release_id form.
+		if len(projectIDs) == 1 {
+			releaseID, err = s.parseProjectReleaseFilter(r, projectIDs[0])
+			if err != nil {
+				s.writeStoreError(w, err)
+				return
+			}
+		}
+	}
+	filter := store.TaskFilter{State: state, Priority: priority, Label: label, ReleaseID: releaseID, Dependency: dependency, AgentState: agentState, ActionNeeded: actionNeeded, LiveWork: view == "live", Query: query, Cursor: offset, Limit: limit, UpdatedAfter: updatedAfter}
 	tasks, more, err := s.Store.ListMyWorkFilteredWithExtra(r.Context(), identity.Actor.ID, projectIDs, filter)
 	if err != nil {
-		s.writeInternal(w, err)
+		s.writeStoreError(w, err)
 		return
 	}
 	next := ""

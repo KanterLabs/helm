@@ -129,6 +129,7 @@ func (s *Server) parseSearchFilter(r *http.Request, identity auth.Identity, view
 	}{
 		{"key", &filter.Key}, {"title", &filter.Title}, {"description", &filter.Description},
 		{"label", &filter.Label}, {"assignee", &filter.Assignee}, {"claim_owner", &filter.ClaimOwner}, {"claimed_by", &filter.ClaimOwner},
+		{"release_id", &filter.ReleaseID},
 	} {
 		value, present, parseErr := searchTermValue(r, field.name)
 		if parseErr != nil {
@@ -136,6 +137,12 @@ func (s *Server) parseSearchFilter(r *http.Request, identity auth.Identity, view
 		}
 		if present {
 			*field.dest = value
+		}
+	}
+	if filter.ReleaseID != "" {
+		filter.ReleaseID, err = s.resolveGlobalReleaseFilter(r, identity, filter.ReleaseID)
+		if err != nil {
+			return store.SearchFilter{}, err
 		}
 	}
 	if filter.State, err = overrideOptionalEnum(r, "state", semanticStates, filter.State); err != nil {
@@ -335,6 +342,12 @@ func (s *Server) searchFilterFromView(r *http.Request, identity auth.Identity, v
 			filter.Assignee = value
 		case "claim_owner", "claimed_by":
 			filter.ClaimOwner = value
+		case "release_id":
+			resolved, err := s.resolveGlobalReleaseFilter(r, identity, value)
+			if err != nil {
+				return store.SearchFilter{}, err
+			}
+			filter.ReleaseID = resolved
 		case "project", "project_id":
 			project, err := s.Store.GetProject(r.Context(), value)
 			if err != nil {
@@ -390,7 +403,7 @@ var savedViewFilterKeys = map[string]bool{
 	"label": true, "state": true, "priority": true, "assignee": true,
 	"claim_owner": true, "claimed_by": true, "project": true, "project_id": true,
 	"project_ids": true, "projects": true, "due_from": true, "due_after": true,
-	"due_to": true, "due_before": true,
+	"due_to": true, "due_before": true, "release_id": true,
 }
 
 func savedViewFilterValue(key, value string) (string, error) {
@@ -559,6 +572,18 @@ func (s *Server) savedViewVisible(ctx context.Context, identity auth.Identity, v
 			}
 			project, err := s.Store.GetProject(ctx, value)
 			if err != nil || !identity.CanProject(project.ID) {
+				return false
+			}
+		case "release_id":
+			value, ok := raw.(string)
+			if !ok || strings.TrimSpace(value) == "" {
+				return false
+			}
+			if strings.EqualFold(strings.TrimSpace(value), "unassigned") || strings.EqualFold(strings.TrimSpace(value), "none") {
+				continue
+			}
+			release, err := s.Store.GetRelease(ctx, value)
+			if err != nil || !identity.CanProject(release.ProjectID) {
 				return false
 			}
 		case "project_ids", "projects":
@@ -843,6 +868,21 @@ func (s *Server) validateSavedViewProjectCeiling(r *http.Request, identity auth.
 				if !identity.CanProject(project.ID) {
 					return &store.Error{Kind: store.ErrForbidden, Message: "token is not scoped to this project"}
 				}
+			}
+		case "release_id":
+			value, ok := raw.(string)
+			if !ok || strings.TrimSpace(value) == "" {
+				return &store.Error{Kind: store.ErrInvalid, Message: canonicalKey + " must be a release identifier"}
+			}
+			if strings.EqualFold(strings.TrimSpace(value), "unassigned") || strings.EqualFold(strings.TrimSpace(value), "none") {
+				continue
+			}
+			release, err := s.Store.GetRelease(r.Context(), value)
+			if err != nil {
+				return err
+			}
+			if !identity.CanProject(release.ProjectID) {
+				return &store.Error{Kind: store.ErrForbidden, Message: "token is not scoped to this project"}
 			}
 		}
 	}
