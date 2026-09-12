@@ -18,6 +18,7 @@ INSTALL="$DEPLOY_DIR/install-inside-lxc.sh"
 PRIVATE_VALIDATE="$DEPLOY_DIR/validate-beta-private.sh"
 PRIVATE_OWNER_TEMPLATE="$DEPLOY_DIR/tailnet-owner.env.example"
 SERVICE="$DEPLOY_DIR/helm.service"
+BACKUP_SERVICE="$DEPLOY_DIR/helm-backup.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
@@ -42,7 +43,7 @@ count_contains() {
 }
 
 for file in "$GATEWAY" "$BOOTSTRAP" "$DEPLOY_CI" "$VERIFY" "$BUILD_BUNDLE" \
-	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
+	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$BACKUP_SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
 	[[ -f "$file" && ! -L "$file" ]] || fail "deployment file is missing: $file"
 done
 
@@ -81,7 +82,9 @@ contains 'CTID=106' "$GATEWAY"
 contains 'CT_NAME=helm-beta' "$GATEWAY"
 contains 'CT_IP=10.0.0.39' "$GATEWAY"
 contains 'SIGNING_PUBLIC_KEY=/etc/helm-beta-deploy/release-signing-public.pem' "$GATEWAY"
+contains "CT_TAGS='homelab;lan;roadmap;service'" "$GATEWAY"
 contains "CT_TAGS='beta;service;lan'" "$GATEWAY"
+contains '--tags "$CT_TAGS"' "$GATEWAY"
 
 # The verifier must run before any deploy-branch pct state change. Status and
 # rollback are intentionally payload-free actions and do not need a release
@@ -391,6 +394,8 @@ install_helm_start_line=$(grep -n '^systemctl start helm\.service$' "$INSTALL" |
 contains 'WorkingDirectory=/var/lib/roadmap/data' "$SERVICE"
 contains 'ReadWritePaths=/var/lib/roadmap/data' "$SERVICE"
 not_contains 'ReadWritePaths=/var/lib/roadmap ' "$SERVICE"
+contains 'ReadWritePaths=/var/lib/roadmap/data /var/lib/roadmap/backups /var/lib/roadmap/deploy.lock' "$BACKUP_SERVICE"
+not_contains 'ReadWritePaths=/var/lib/roadmap ' "$BACKUP_SERVICE"
 contains 'RandomizedDelaySec=1h' "$DEPLOY_DIR/helm-backup.timer"
 contains 'Persistent=true' "$DEPLOY_DIR/helm-backup.timer"
 contains 'helm-backup.timer' "$INSTALL"
@@ -490,7 +495,8 @@ qm() {
 	printf "Configuration file 'nodes/pve/qemu-server/%s.conf' does not exist\n" "$CTID" >&2
 	return 1
 }
-gateway_canonical_config=$'hostname: roadmap\nunprivileged: 1\nnet0: name=eth0,bridge=vmbr0,gw=10.0.0.1,hwaddr=BC:24:11:12:34:56,ip=10.0.0.38/24,type=veth\narch: amd64\nonboot: 1\nostype: debian\ncores: 1\nmemory: 2048\nswap: 512\nrootfs: local-lvm:vm-103-disk-0,size=16G\nnameserver: 10.0.0.1 1.1.1.1\nsearchdomain: lan\nstartup: order=5,up=10,down=30\ntags: lan;roadmap;service'
+PROFILE=production
+gateway_canonical_config=$'hostname: roadmap\nunprivileged: 1\nnet0: name=eth0,bridge=vmbr0,gw=10.0.0.1,hwaddr=BC:24:11:12:34:56,ip=10.0.0.38/24,type=veth\narch: amd64\nonboot: 1\nostype: debian\ncores: 1\nmemory: 2048\nswap: 512\nrootfs: local-lvm:vm-103-disk-0,size=16G\nnameserver: 10.0.0.1 1.1.1.1\nsearchdomain: lan\nstartup: order=5,up=10,down=30\ntags: homelab;lan;roadmap;service'
 gateway_secret_marker='ct-config-secret-marker-must-not-appear'
 
 # A QEMU guest occupying the reviewed VMID must fail status before pct is
@@ -596,11 +602,25 @@ contains 'if [[ "$PROFILE" = production ]]; then' "$GATEWAY"
 contains 'pct exec "$CTID" -- systemctl is-active --quiet cloudflared.service' "$GATEWAY"
 printf 'gateway_beta_profile_test=ok\n'
 
+# Beta keeps its own exact identity tags. In particular, production's homelab
+# marker must not make a beta CT appear owned by the beta gateway.
+PROFILE=beta
+ct_tags_are_exact 'beta;lan;service' \
+	|| fail 'beta CT tag identity was rejected'
+if ct_tags_are_exact 'homelab;beta;lan;service'; then
+	fail 'beta CT tag identity accepted the production homelab marker'
+fi
+PROFILE=production
+printf 'gateway_beta_tag_identity_test=ok\n'
+
 gateway_drift_config=${gateway_canonical_config/hostname: roadmap/hostname: unrelated}
 gateway_extra_option_config="$gateway_canonical_config"$'\nfeatures: nesting=1'
 gateway_extra_net_config=${gateway_canonical_config/type=veth/type=veth,rate=100}
+gateway_permuted_tags_config=${gateway_canonical_config/tags: homelab;lan;roadmap;service/tags: roadmap;service;homelab;lan}
 ct_config_matches_helm_identity "$gateway_canonical_config" \
 	|| fail 'canonical Helm CT configuration was rejected'
+ct_config_matches_helm_identity "$gateway_permuted_tags_config" \
+	|| fail 'canonical Helm CT configuration with reordered tags was rejected'
 if ct_config_matches_helm_identity "$gateway_extra_option_config"; then
 	fail 'Helm CT configuration accepted an unreviewed top-level option'
 fi
@@ -675,19 +695,19 @@ gateway_expect_config_error \
 gateway_expect_config_error \
 	tags_invalid \
 	'Roadmap CT has an invalid tags setting' \
-	"${gateway_canonical_config/lan;roadmap;service/lan;other;service}"
+	"${gateway_canonical_config/homelab;lan;roadmap;service/homelab;lan;roadmap;service;other}"
 gateway_expect_config_error \
 	tags_missing \
 	'Roadmap CT is missing a required deployment tag' \
-	"${gateway_canonical_config/lan;roadmap;service/lan;service}"
+	"${gateway_canonical_config/homelab;lan;roadmap;service/lan;roadmap;service}"
 gateway_expect_config_error \
 	tags_duplicate \
 	'Roadmap CT has duplicate deployment tags' \
-	"${gateway_canonical_config/lan;roadmap;service/lan;roadmap;service;service}"
+	"${gateway_canonical_config/homelab;lan;roadmap;service/homelab;lan;roadmap;service;service}"
 gateway_expect_config_error \
 	tags_malformed \
 	'Roadmap CT has an invalid tags setting' \
-	"${gateway_canonical_config/lan;roadmap;service/lan;roadmap;}"
+	"${gateway_canonical_config/homelab;lan;roadmap;service/homelab;lan;roadmap;}"
 printf 'gateway_config_diagnostics_test=ok\n'
 
 gateway_pct_mode=
