@@ -38,6 +38,11 @@ type TaskInput struct {
 	// null that unlinks the task from its parent.
 	ParentTaskID *string
 	ParentSet    bool
+	// ReleaseID accepts an opaque release ID. ReleaseSet distinguishes an
+	// omitted patch field from an explicit null that clears membership.
+	ReleaseID    *string
+	ReleaseSet   bool
+	ReleaseIDSet bool // compatibility alias; ReleaseSet takes the same meaning.
 }
 
 const (
@@ -116,6 +121,13 @@ func validateTaskInput(input TaskInput, creating bool) (TaskInput, error) {
 			return TaskInput{}, invalid("parent_task_id must not be empty", nil)
 		}
 		input.ParentTaskID = &value
+	}
+	if input.ReleaseID != nil {
+		value := strings.TrimSpace(*input.ReleaseID)
+		if value == "" {
+			return TaskInput{}, invalid("release_id must not be empty", nil)
+		}
+		input.ReleaseID = &value
 	}
 	return input, nil
 }
@@ -259,6 +271,10 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, input TaskInpu
 	if err != nil {
 		return Task{}, err
 	}
+	releaseID := ""
+	if validated.ReleaseID != nil {
+		releaseID = *validated.ReleaseID
+	}
 	if column.ArchivedAt != nil {
 		return Task{}, invalid("column is archived", nil)
 	}
@@ -320,7 +336,12 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, input TaskInpu
 		if parent != nil {
 			parentID = parent.ID
 		}
-		if insertErr := txExecTaskCreate(ctx, tx, id, project.ID, number, column.ID, kind, *validated.Title, description, priority, position, assignee, dueAt, completedAt, created, parentID); insertErr != nil {
+		if releaseID != "" {
+			if err := validateTaskReleaseTx(ctx, tx, project.ID, releaseID, false); err != nil {
+				return err
+			}
+		}
+		if insertErr := txExecTaskCreate(ctx, tx, id, project.ID, number, column.ID, kind, *validated.Title, description, priority, position, assignee, dueAt, completedAt, created, parentID, releaseID); insertErr != nil {
 			child := hierarchyTask{ID: id, ProjectID: project.ID, Number: number, Key: fmt.Sprintf("%s-%d", project.Key, number)}
 			if parent != nil {
 				return mapHierarchyMutationError(insertErr, child, *parent)
@@ -342,6 +363,12 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, input TaskInpu
 			eventType = "bug.created"
 		}
 		payload := map[string]any{"number": number}
+		if releaseID != "" {
+			payload["release_id"] = releaseID
+			if releaseName, releaseErr := releaseNameTx(ctx, tx, releaseID); releaseErr == nil {
+				payload["release_name"] = releaseName
+			}
+		}
 		if parent != nil {
 			payload["parent_id"] = parent.ID
 			payload["parent_key"] = parent.Key
@@ -381,6 +408,9 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 	if err := s.populateDependencySummary(ctx, &task); err != nil {
 		return Task{}, err
 	}
+	if err := s.populateTaskReleaseReference(ctx, &task); err != nil {
+		return Task{}, err
+	}
 	return task, nil
 }
 
@@ -396,14 +426,14 @@ func (s *Store) GetTaskForRestore(ctx context.Context, reference string) (Task, 
 		LIMIT 1`, reference, reference)
 	var task Task
 	var deletedAt sql.NullString
-	var assignee, claimed, claimExpiry, due, completed, parent sql.NullString
-	if err := row.Scan(&task.ID, &task.Number, &task.ProjectID, &task.Kind, &task.ColumnID, &task.Title, &task.Description, &task.Priority, &task.Position, &assignee, &claimed, &claimExpiry, &due, &task.Version, &completed, &task.CreatedAt, &task.UpdatedAt, &parent, &deletedAt); err != nil {
+	var assignee, claimed, claimExpiry, due, completed, parent, release sql.NullString
+	if err := row.Scan(&task.ID, &task.Number, &task.ProjectID, &task.Kind, &task.ColumnID, &task.Title, &task.Description, &task.Priority, &task.Position, &assignee, &claimed, &claimExpiry, &due, &task.Version, &completed, &task.CreatedAt, &task.UpdatedAt, &parent, &release, &deletedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, false, notFound("task not found")
 		}
 		return Task{}, false, err
 	}
-	task.Assignee, task.ClaimedBy, task.ClaimExpiresAt, task.DueAt, task.CompletedAt, task.ParentTaskID = nullableString(assignee), nullableString(claimed), nullableString(claimExpiry), nullableString(due), nullableString(completed), nullableString(parent)
+	task.Assignee, task.ClaimedBy, task.ClaimExpiresAt, task.DueAt, task.CompletedAt, task.ParentTaskID, task.ReleaseID = nullableString(assignee), nullableString(claimed), nullableString(claimExpiry), nullableString(due), nullableString(completed), nullableString(parent), nullableString(release)
 	task.ParentID = task.ParentTaskID
 	if err := s.enrichTask(ctx, &task); err != nil {
 		return Task{}, false, err
@@ -411,11 +441,14 @@ func (s *Store) GetTaskForRestore(ctx context.Context, reference string) (Task, 
 	if err := s.populateDependencySummary(ctx, &task); err != nil {
 		return Task{}, false, err
 	}
+	if err := s.populateTaskReleaseReference(ctx, &task); err != nil {
+		return Task{}, false, err
+	}
 	return task, deletedAt.Valid, nil
 }
 
-func txExecTaskCreate(ctx context.Context, tx *sql.Tx, id, projectID string, number int, columnID, kind, title, description, priority string, position float64, assignee, dueAt string, completedAt any, created, parentID string) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO tasks(id, project_id, number, column_id, kind, title, description, priority, position, assignee_id, due_at, version, completed_at, created_at, updated_at, parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), 1, ?, ?, ?, NULLIF(?, ''))`, id, projectID, number, columnID, kind, title, description, priority, position, assignee, dueAt, completedAt, created, created, parentID)
+func txExecTaskCreate(ctx context.Context, tx *sql.Tx, id, projectID string, number int, columnID, kind, title, description, priority string, position float64, assignee, dueAt string, completedAt any, created, parentID, releaseID string) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO tasks(id, project_id, number, column_id, kind, title, description, priority, position, assignee_id, due_at, version, completed_at, created_at, updated_at, parent_task_id, release_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), 1, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`, id, projectID, number, columnID, kind, title, description, priority, position, assignee, dueAt, completedAt, created, created, parentID, releaseID)
 	return err
 }
 
@@ -437,6 +470,9 @@ func (s *Store) ResolveTaskReference(ctx context.Context, reference string) (Tas
 		return Task{}, err
 	}
 	if err := s.populateDependencySummary(ctx, &task); err != nil {
+		return Task{}, err
+	}
+	if err := s.populateTaskReleaseReference(ctx, &task); err != nil {
 		return Task{}, err
 	}
 	return task, nil
@@ -645,6 +681,18 @@ func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter Ta
 			args = append(args, filter.Resolution)
 		}
 	}
+	releaseFilter := filter.ReleaseID
+	if releaseFilter == "" {
+		releaseFilter = filter.Release
+	}
+	if releaseFilter != "" {
+		if strings.EqualFold(strings.TrimSpace(releaseFilter), "unassigned") || strings.EqualFold(strings.TrimSpace(releaseFilter), "none") {
+			query += ` AND t.release_id IS NULL`
+		} else {
+			query += ` AND t.release_id = ?`
+			args = append(args, strings.TrimSpace(releaseFilter))
+		}
+	}
 	if filter.Dependency != "" {
 		switch strings.ToLower(strings.TrimSpace(filter.Dependency)) {
 		case "blocked":
@@ -762,6 +810,9 @@ func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter Ta
 	if err := s.populateTaskDependencySummaries(ctx, result); err != nil {
 		return nil, false, "", err
 	}
+	if err := s.populateTaskReleaseReferences(ctx, result); err != nil {
+		return nil, false, "", err
+	}
 	currentSnapshot, err := s.taskCollectionSnapshot(ctx, projectID)
 	if err != nil {
 		return nil, false, "", err
@@ -837,6 +888,15 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		}
 	}
 	parentChanged := parentSet && parentID != nullableStringValue(current.ParentTaskID)
+	releaseSet := validated.ReleaseSet || validated.ReleaseIDSet || validated.ReleaseID != nil
+	releaseID := nullableStringValue(current.ReleaseID)
+	if releaseSet {
+		releaseID = ""
+		if validated.ReleaseID != nil {
+			releaseID = *validated.ReleaseID
+		}
+	}
+	releaseChanged := releaseSet && releaseID != nullableStringValue(current.ReleaseID)
 	if current.Kind == "" {
 		// Databases opened before migration 008 are upgraded before serving
 		// requests, but retain the safe default for direct store test fixtures.
@@ -956,15 +1016,21 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		// Keeping this in the UPDATE avoids retaining a stale read snapshot while
 		// waiting for another SQLite writer.
 		appendToDestination := current.ColumnID != columnID && validated.Position == nil
-		query := `UPDATE tasks SET kind=?, title=?, description=?, priority=?, column_id=?, position=CASE WHEN ? THEN (SELECT COALESCE(MAX(candidate.position)+1, 0) FROM tasks candidate WHERE candidate.column_id=? AND candidate.deleted_at IS NULL AND candidate.id<>?) ELSE ? END, assignee_id=NULLIF(?, ''), due_at=NULLIF(?, ''), parent_task_id=NULLIF(?, ''), version=version+1, completed_at=CASE WHEN (SELECT semantic_state FROM columns WHERE id=?) = 'completed' THEN CASE WHEN (SELECT semantic_state FROM columns WHERE id=tasks.column_id) = 'completed' THEN tasks.completed_at ELSE ? END ELSE NULL END, updated_at=? WHERE id=? AND version=? AND deleted_at IS NULL`
-		args := []any{kind, title, description, priority, columnID, appendToDestination, columnID, id, position, assignee, dueAt, parentID, columnID, updated, updated, id, expected}
+		if releaseChanged {
+			if err := validateTaskReleaseTx(ctx, tx, current.ProjectID, releaseID, false); err != nil {
+				return err
+			}
+		}
+		query := `UPDATE tasks SET kind=?, title=?, description=?, priority=?, column_id=?, position=CASE WHEN ? THEN (SELECT COALESCE(MAX(candidate.position)+1, 0) FROM tasks candidate WHERE candidate.column_id=? AND candidate.deleted_at IS NULL AND candidate.id<>?) ELSE ? END, assignee_id=NULLIF(?, ''), due_at=NULLIF(?, ''), parent_task_id=NULLIF(?, ''), release_id=NULLIF(?, ''), version=version+1, completed_at=CASE WHEN (SELECT semantic_state FROM columns WHERE id=?) = 'completed' THEN CASE WHEN (SELECT semantic_state FROM columns WHERE id=tasks.column_id) = 'completed' THEN tasks.completed_at ELSE ? END ELSE NULL END, updated_at=? WHERE id=? AND version=? AND deleted_at IS NULL`
+		args := []any{kind, title, description, priority, columnID, appendToDestination, columnID, id, position, assignee, dueAt, parentID, releaseID, columnID, updated, updated, id, expected}
 		if !allowClaimOverride {
 			query += ` AND (claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at) <= julianday(?) OR claimed_by=?)`
 			args = append(args, updated, actorID)
 		}
 		result, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			mapped := mapDependencyLifecycleError(ctx, tx, err, dependencyLifecycleTarget{TaskID: id})
+			mapped := mapReleaseMutationError(ctx, tx, err, current.ProjectID, id)
+			mapped = mapDependencyLifecycleError(ctx, tx, mapped, dependencyLifecycleTarget{TaskID: id})
 			child := hierarchyTask{ID: current.ID, ProjectID: current.ProjectID, Number: current.Number, Key: current.Key}
 			parentTask := hierarchyTask{}
 			if parent != nil {
@@ -1072,12 +1138,47 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 				return err
 			}
 		}
+		if releaseChanged {
+			previousReleaseID := nullableStringValue(current.ReleaseID)
+			var newReleaseValue, previousReleaseValue any
+			if releaseID != "" {
+				newReleaseValue = releaseID
+			}
+			if previousReleaseID != "" {
+				previousReleaseValue = previousReleaseID
+			}
+			payload := map[string]any{
+				"release_id":          newReleaseValue,
+				"previous_release_id": previousReleaseValue,
+				"new_release_id":      newReleaseValue,
+				"old_release_id":      previousReleaseValue,
+				"version":             expected + 1,
+			}
+			var releaseName, previousReleaseName any
+			if releaseID != "" {
+				if name, nameErr := releaseNameTx(ctx, tx, releaseID); nameErr == nil {
+					releaseName = name
+				}
+			}
+			if previousReleaseID != "" {
+				if name, nameErr := releaseNameTx(ctx, tx, previousReleaseID); nameErr == nil {
+					previousReleaseName = name
+				}
+			}
+			payload["release_name"] = releaseName
+			payload["previous_release_name"] = previousReleaseName
+			payload["new_release_name"] = releaseName
+			payload["old_release_name"] = previousReleaseName
+			if _, err = insertEvent(ctx, tx, "task.release_changed", actorID, current.ProjectID, id, payload); err != nil {
+				return err
+			}
+		}
 		// An empty patch or same-value kind/parent-only patch still advances the
 		// task version and updated_at in the guarded UPDATE above. Preserve the
 		// existing event cardinality for semantic task, bug, and parent updates,
 		// but record one fallback task event when none of those paths emitted an
 		// event so collection cursors observe the visible write.
-		if !taskMutation && !bugMutation && !parentChanged {
+		if !taskMutation && !bugMutation && !parentChanged && !releaseChanged {
 			if _, err = insertEvent(ctx, tx, "task.updated", actorID, current.ProjectID, id, map[string]any{"version": expected + 1}); err != nil {
 				return err
 			}
@@ -1121,7 +1222,8 @@ func (s *Store) DeleteTaskWithClaimOverride(ctx context.Context, id string, expe
 		}
 		result, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			mapped := mapDependencyLifecycleError(ctx, tx, err, dependencyLifecycleTarget{TaskID: id, AllDependents: true})
+			mapped := mapReleaseMutationError(ctx, tx, err, current.ProjectID, id)
+			mapped = mapDependencyLifecycleError(ctx, tx, mapped, dependencyLifecycleTarget{TaskID: id, AllDependents: true})
 			child := hierarchyTask{ID: current.ID, ProjectID: current.ProjectID, Number: current.Number, Key: current.Key}
 			return mapHierarchyMutationError(mapped, child, hierarchyTask{})
 		}
@@ -1496,7 +1598,8 @@ func (s *Store) transitionTask(ctx context.Context, id, actorID string, expected
 		}
 		result, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			return mapDependencyLifecycleError(ctx, tx, err, dependencyLifecycleTarget{TaskID: id})
+			mapped := mapReleaseMutationError(ctx, tx, err, current.ProjectID, id)
+			return mapDependencyLifecycleError(ctx, tx, mapped, dependencyLifecycleTarget{TaskID: id})
 		}
 		count, _ := result.RowsAffected()
 		if count == 0 {

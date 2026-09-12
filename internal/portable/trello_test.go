@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/KanterLabs/helm/internal/store"
 )
 
 func TestConvertTrelloProducesStablePortableArchiveAndWarnings(t *testing.T) {
@@ -19,7 +21,7 @@ func TestConvertTrelloProducesStablePortableArchiveAndWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archive.Format != "helm.portable" || archive.Version != 1 || len(archive.Projects) != 1 || len(archive.Columns) != 2 || len(archive.Tasks) != 1 || len(archive.Labels) != 1 || len(archive.Comments) != 1 || len(archive.Actors) != 1 {
+	if archive.Format != "helm.portable" || archive.Version != store.PortableVersion || len(archive.Projects) != 1 || len(archive.Columns) != 2 || len(archive.Tasks) != 1 || len(archive.Labels) != 1 || len(archive.Comments) != 1 || len(archive.Actors) != 1 {
 		t.Fatalf("archive counts/projects = %+v cols=%d tasks=%d labels=%d comments=%d actors=%d", archive.Projects, len(archive.Columns), len(archive.Tasks), len(archive.Labels), len(archive.Comments), len(archive.Actors))
 	}
 	if archive.Tasks[0].DueAt == nil || *archive.Tasks[0].DueAt != "2026-09-10T12:00:00Z" || len(archive.Relationships.TaskLabels) != 1 {

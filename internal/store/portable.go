@@ -23,10 +23,11 @@ import (
 
 const (
 	PortableFormat        = "helm.portable"
-	PortableVersion       = 1
+	PortableVersion       = 2
 	portableMaxProjects   = 100
 	portableMaxColumns    = 1000
 	portableMaxTasks      = 10000
+	portableMaxReleases   = 1000
 	portableMaxLabels     = 5000
 	portableMaxComments   = 50000
 	portableMaxRelations  = 50000
@@ -65,6 +66,24 @@ type PortableColumn struct {
 	Position      int    `json:"position"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+}
+
+// PortableRelease is the persistence shape for a planned or released
+// project release. Status is derived from ReleasedAt by the store; it is
+// included as a convenience for consumers and accepted as an optional import
+// hint for v2 archives. A v1 archive has no release records.
+type PortableRelease struct {
+	ID          string  `json:"id"`
+	ProjectID   string  `json:"project_id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	TargetDate  *string `json:"target_date,omitempty"`
+	Status      string  `json:"status,omitempty"`
+	ReleasedAt  *string `json:"released_at,omitempty"`
+	ReleasedBy  *string `json:"released_by,omitempty"`
+	Version     int64   `json:"version"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 type PortableLabel struct {
@@ -106,6 +125,7 @@ type PortableTask struct {
 	DueAt          *string      `json:"due_at,omitempty"`
 	Version        int64        `json:"version"`
 	CompletedAt    *string      `json:"completed_at,omitempty"`
+	ReleaseID      *string      `json:"release_id,omitempty"`
 	CreatedAt      string       `json:"created_at"`
 	UpdatedAt      string       `json:"updated_at"`
 	Bug            *PortableBug `json:"bug,omitempty"`
@@ -215,6 +235,7 @@ type PortableArchive struct {
 	Source        PortableSource           `json:"source"`
 	Projects      []PortableProject        `json:"projects"`
 	Columns       []PortableColumn         `json:"columns"`
+	Releases      []PortableRelease        `json:"releases"`
 	Tasks         []PortableTask           `json:"tasks"`
 	Labels        []PortableLabel          `json:"labels"`
 	Actors        []PortableActorReference `json:"actors,omitempty"`
@@ -261,6 +282,8 @@ type PortableImportCounts struct {
 	ProjectsSkipped     int `json:"projects_skipped"`
 	ColumnsCreated      int `json:"columns_created"`
 	ColumnsSkipped      int `json:"columns_skipped"`
+	ReleasesCreated     int `json:"releases_created"`
+	ReleasesSkipped     int `json:"releases_skipped"`
 	TasksCreated        int `json:"tasks_created"`
 	TasksSkipped        int `json:"tasks_skipped"`
 	LabelsCreated       int `json:"labels_created"`
@@ -293,6 +316,19 @@ type PortableImportReport struct {
 }
 
 func (a *PortableArchive) normalize() {
+	// Version 1 predates releases. Treat any release-shaped fields supplied by
+	// a permissive decoder as unknown v1 extensions so importing a legacy
+	// archive can never assign existing tasks to a release. Copy the task slice
+	// first because callers may retain the archive after validation/import.
+	if a.Version == 1 {
+		if len(a.Tasks) > 0 {
+			a.Tasks = append([]PortableTask(nil), a.Tasks...)
+			for index := range a.Tasks {
+				a.Tasks[index].ReleaseID = nil
+			}
+		}
+		a.Releases = nil
+	}
 	if len(a.Relationships.TaskLabels) == 0 && len(a.TaskLabels) > 0 {
 		a.Relationships.TaskLabels = a.TaskLabels
 	}
@@ -316,6 +352,9 @@ func (a *PortableArchive) normalize() {
 	}
 	if a.Columns == nil {
 		a.Columns = []PortableColumn{}
+	}
+	if a.Releases == nil {
+		a.Releases = []PortableRelease{}
 	}
 	if a.Tasks == nil {
 		a.Tasks = []PortableTask{}
@@ -397,7 +436,7 @@ func exportPortable(ctx context.Context, q portableSQL, projectIDs []string) (Po
 	archive := PortableArchive{
 		Format: PortableFormat, Version: PortableVersion, ExportedAt: now(),
 		Source:   PortableSource{Product: "helm", API: "/api/v1"},
-		Projects: []PortableProject{}, Columns: []PortableColumn{}, Tasks: []PortableTask{},
+		Projects: []PortableProject{}, Columns: []PortableColumn{}, Releases: []PortableRelease{}, Tasks: []PortableTask{},
 		Labels: []PortableLabel{}, Actors: []PortableActorReference{}, Comments: []PortableComment{},
 		Relationships: PortableRelationships{TaskLabels: []PortableTaskLabel{}, Dependencies: []PortableDependency{}, TaskLinks: []PortableTaskLink{}},
 		Activity:      PortableActivity{Events: []PortableEvent{}, AgentWork: []PortableAgentWork{}, AgentWorkHistory: []PortableAgentWorkHistory{}},
@@ -456,21 +495,53 @@ func exportPortable(ctx context.Context, q portableSQL, projectIDs []string) (Po
 	}
 	rows.Close()
 
+	// Releases are project-scoped records. Export the complete release row
+	// before tasks so task.release_id references are always represented in the
+	// archive and actor references can include release completion attribution.
+	where, args = portableIDsClause("r.project_id", projectIDs)
+	rows, err = q.QueryContext(ctx, `SELECT r.id,r.project_id,r.name,r.description,r.target_date,r.released_at,r.released_by,r.version,r.created_at,r.updated_at FROM releases r WHERE 1=1`+where+` ORDER BY r.project_id,lower(r.name),r.id`, args...)
+	if err != nil {
+		return PortableArchive{}, err
+	}
+	actorSet := map[string]struct{}{}
+	for rows.Next() {
+		var release PortableRelease
+		var targetDate, releasedAt, releasedBy sql.NullString
+		if err := rows.Scan(&release.ID, &release.ProjectID, &release.Name, &release.Description, &targetDate, &releasedAt, &releasedBy, &release.Version, &release.CreatedAt, &release.UpdatedAt); err != nil {
+			rows.Close()
+			return PortableArchive{}, err
+		}
+		release.TargetDate, release.ReleasedAt, release.ReleasedBy = nullableString(targetDate), nullableString(releasedAt), nullableString(releasedBy)
+		if release.ReleasedAt != nil {
+			release.Status = "released"
+		} else {
+			release.Status = "planned"
+		}
+		archive.Releases = append(archive.Releases, release)
+		if release.ReleasedBy != nil {
+			actorSet[*release.ReleasedBy] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return PortableArchive{}, err
+	}
+	rows.Close()
+
 	where, args = portableIDsClause("t.project_id", projectIDs)
-	rows, err = q.QueryContext(ctx, `SELECT t.id,t.number,t.project_id,t.kind,t.column_id,t.title,t.description,t.priority,t.position,t.assignee_id,t.claimed_by,t.claim_expires_at,t.due_at,t.version,t.completed_at,t.created_at,t.updated_at FROM tasks t WHERE t.deleted_at IS NULL`+where+` ORDER BY t.project_id,t.number,t.id`, args...)
+	rows, err = q.QueryContext(ctx, `SELECT t.id,t.number,t.project_id,t.kind,t.column_id,t.title,t.description,t.priority,t.position,t.assignee_id,t.claimed_by,t.claim_expires_at,t.due_at,t.version,t.completed_at,t.release_id,t.created_at,t.updated_at FROM tasks t WHERE t.deleted_at IS NULL`+where+` ORDER BY t.project_id,t.number,t.id`, args...)
 	if err != nil {
 		return PortableArchive{}, err
 	}
 	taskSet := map[string]struct{}{}
-	actorSet := map[string]struct{}{}
 	for rows.Next() {
 		var task PortableTask
-		var assignee, claimed, expiry, due, completed sql.NullString
-		if err := rows.Scan(&task.ID, &task.Number, &task.ProjectID, &task.Kind, &task.ColumnID, &task.Title, &task.Description, &task.Priority, &task.Position, &assignee, &claimed, &expiry, &due, &task.Version, &completed, &task.CreatedAt, &task.UpdatedAt); err != nil {
+		var assignee, claimed, expiry, due, completed, releaseID sql.NullString
+		if err := rows.Scan(&task.ID, &task.Number, &task.ProjectID, &task.Kind, &task.ColumnID, &task.Title, &task.Description, &task.Priority, &task.Position, &assignee, &claimed, &expiry, &due, &task.Version, &completed, &releaseID, &task.CreatedAt, &task.UpdatedAt); err != nil {
 			rows.Close()
 			return PortableArchive{}, err
 		}
-		task.AssigneeID, task.ClaimedBy, task.ClaimExpiresAt, task.DueAt, task.CompletedAt = nullableString(assignee), nullableString(claimed), nullableString(expiry), nullableString(due), nullableString(completed)
+		task.AssigneeID, task.ClaimedBy, task.ClaimExpiresAt, task.DueAt, task.CompletedAt, task.ReleaseID = nullableString(assignee), nullableString(claimed), nullableString(expiry), nullableString(due), nullableString(completed), nullableString(releaseID)
 		archive.Tasks = append(archive.Tasks, task)
 		taskSet[task.ID] = struct{}{}
 		if task.AssigneeID != nil {
@@ -802,6 +873,11 @@ func portableTimestamp(value string, optional bool) bool {
 	return err == nil
 }
 
+func portableCalendarDate(value string) bool {
+	parsed, err := time.Parse("2006-01-02", value)
+	return err == nil && parsed.Format("2006-01-02") == value
+}
+
 func addPortableIssue(report *PortableImportReport, entity, id, field, message string) {
 	if len(report.Errors) >= 200 {
 		return
@@ -849,7 +925,7 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	if archive.Format != PortableFormat {
 		addPortableIssue(report, "archive", "", "format", "format must be helm.portable")
 	}
-	if archive.Version != PortableVersion {
+	if archive.Version != 1 && archive.Version != PortableVersion {
 		addPortableIssue(report, "archive", "", "version", fmt.Sprintf("version %d is not supported", archive.Version))
 	}
 	if archive.ExportedAt != "" && !portableTimestamp(archive.ExportedAt, false) {
@@ -863,6 +939,9 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	}
 	if len(archive.Columns) > portableMaxColumns {
 		addPortableIssue(report, "archive", "", "columns", "too many columns")
+	}
+	if len(archive.Releases) > portableMaxReleases {
+		addPortableIssue(report, "archive", "", "releases", "too many releases")
 	}
 	if len(archive.Tasks) > portableMaxTasks {
 		addPortableIssue(report, "archive", "", "tasks", "too many tasks")
@@ -882,7 +961,7 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	if len(archive.Activity.AgentWork)+len(archive.Activity.AgentWorkHistory) > portableMaxActivity {
 		addPortableIssue(report, "archive", "", "activity", "too many activity records")
 	}
-	projectSet, columnSet, taskSet, labelSet := map[string]PortableProject{}, map[string]PortableColumn{}, map[string]PortableTask{}, map[string]PortableLabel{}
+	projectSet, columnSet, taskSet, releaseSet, labelSet := map[string]PortableProject{}, map[string]PortableColumn{}, map[string]PortableTask{}, map[string]PortableRelease{}, map[string]PortableLabel{}
 	projectKeySet, projectSlugSet := map[string]string{}, map[string]string{}
 	for _, project := range archive.Projects {
 		if !portableSafeID(project.ID) {
@@ -928,6 +1007,52 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 			addPortableIssue(report, "task", task.ID, "id", "duplicate task id")
 		}
 		taskSet[task.ID] = task
+	}
+	releaseNameSet := map[string]string{}
+	for _, release := range archive.Releases {
+		if !portableSafeID(release.ID) {
+			addPortableIssue(report, "release", release.ID, "id", "id is required and must not contain whitespace")
+		}
+		if _, exists := releaseSet[release.ID]; exists {
+			addPortableIssue(report, "release", release.ID, "id", "duplicate release id")
+		}
+		releaseSet[release.ID] = release
+		if _, ok := projectSet[release.ProjectID]; !ok {
+			addPortableIssue(report, "release", release.ID, "project_id", "project does not exist in archive")
+		}
+		if strings.TrimSpace(release.Name) == "" || len(release.Name) > 200 {
+			addPortableIssue(report, "release", release.ID, "name", "name is invalid")
+		}
+		if len(release.Description) > 10000 {
+			addPortableIssue(report, "release", release.ID, "description", "description is too long")
+		}
+		if release.TargetDate != nil && !portableCalendarDate(*release.TargetDate) {
+			addPortableIssue(report, "release", release.ID, "target_date", "target_date must be YYYY-MM-DD")
+		}
+		if release.ReleasedAt != nil && !portableTimestamp(*release.ReleasedAt, false) {
+			addPortableIssue(report, "release", release.ID, "released_at", "released_at must be RFC3339")
+		}
+		if release.ReleasedBy != nil && !portableSafeID(*release.ReleasedBy) {
+			addPortableIssue(report, "release", release.ID, "released_by", "released_by id is invalid")
+		}
+		status := portableReleaseStatus(release)
+		if release.Status != "" && release.Status != status {
+			addPortableIssue(report, "release", release.ID, "status", "status must agree with released_at")
+		}
+		if release.Status != "" && release.Status != "planned" && release.Status != "released" {
+			addPortableIssue(report, "release", release.ID, "status", "status must be planned or released")
+		}
+		if release.Version <= 0 {
+			addPortableIssue(report, "release", release.ID, "version", "version must be positive")
+		}
+		if !portableTimestamp(release.CreatedAt, false) || !portableTimestamp(release.UpdatedAt, false) {
+			addPortableIssue(report, "release", release.ID, "timestamp", "timestamps must be RFC3339")
+		}
+		nameKey := release.ProjectID + "\x00" + strings.ToLower(strings.TrimSpace(release.Name))
+		if previous, exists := releaseNameSet[nameKey]; exists && previous != release.ID {
+			addPortableIssue(report, "release", release.ID, "name", "duplicate release name in project")
+		}
+		releaseNameSet[nameKey] = release.ID
 	}
 	for _, column := range archive.Columns {
 		if !portableSafeID(column.ID) {
@@ -980,6 +1105,15 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 		}
 		if task.ClaimedBy != nil && !portableSafeID(*task.ClaimedBy) {
 			addPortableIssue(report, "task", task.ID, "claimed_by", "claimed_by id is invalid")
+		}
+		if task.ReleaseID != nil {
+			if !portableSafeID(*task.ReleaseID) {
+				addPortableIssue(report, "task", task.ID, "release_id", "release id is invalid")
+			} else if release, exists := releaseSet[*task.ReleaseID]; !exists {
+				addPortableIssue(report, "task", task.ID, "release_id", "release does not exist in archive")
+			} else if release.ProjectID != task.ProjectID {
+				addPortableIssue(report, "task", task.ID, "release_id", "release belongs to another project")
+			}
 		}
 		if task.Title == "" || len(task.Title) > 500 {
 			addPortableIssue(report, "task", task.ID, "title", "title is invalid")
@@ -1414,6 +1548,14 @@ type portableColumnPlan struct {
 	create    bool
 }
 
+type portableReleasePlan struct {
+	source     PortableRelease
+	id         string
+	projectID  string
+	releasedBy *string
+	create     bool
+}
+
 type portableLabelPlan struct {
 	source    PortableLabel
 	id        string
@@ -1496,6 +1638,7 @@ type portableImportPlan struct {
 	options        PortableImportOptions
 	projects       []portableProjectPlan
 	columns        []portableColumnPlan
+	releases       []portableReleasePlan
 	labels         []portableLabelPlan
 	tasks          []portableTaskPlan
 	taskLabels     []PortableTaskLabel
@@ -1507,6 +1650,7 @@ type portableImportPlan struct {
 	history        []portableHistoryPlan
 	projectMap     map[string]string
 	columnMap      map[string]string
+	releaseMap     map[string]string
 	taskMap        map[string]string
 	labelMap       map[string]string
 	commentMap     map[string]string
@@ -1540,6 +1684,25 @@ func portableExistingColumn(q portableSQL, id string) (PortableColumn, bool, err
 	return column, true, nil
 }
 
+func portableExistingRelease(q portableSQL, id string) (PortableRelease, bool, error) {
+	var release PortableRelease
+	var targetDate, releasedAt, releasedBy sql.NullString
+	err := q.QueryRowContext(context.Background(), `SELECT id,project_id,name,description,target_date,released_at,released_by,version,created_at,updated_at FROM releases WHERE id=?`, id).Scan(&release.ID, &release.ProjectID, &release.Name, &release.Description, &targetDate, &releasedAt, &releasedBy, &release.Version, &release.CreatedAt, &release.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PortableRelease{}, false, nil
+	}
+	if err != nil {
+		return PortableRelease{}, false, err
+	}
+	release.TargetDate, release.ReleasedAt, release.ReleasedBy = nullableString(targetDate), nullableString(releasedAt), nullableString(releasedBy)
+	if release.ReleasedAt != nil {
+		release.Status = "released"
+	} else {
+		release.Status = "planned"
+	}
+	return release, true, nil
+}
+
 func portableExistingLabel(q portableSQL, id string) (PortableLabel, bool, error) {
 	var label PortableLabel
 	err := q.QueryRowContext(context.Background(), `SELECT id,project_id,name,color,created_at,updated_at FROM labels WHERE id=?`, id).Scan(&label.ID, &label.ProjectID, &label.Name, &label.Color, &label.CreatedAt, &label.UpdatedAt)
@@ -1554,15 +1717,15 @@ func portableExistingLabel(q portableSQL, id string) (PortableLabel, bool, error
 
 func portableExistingTask(q portableSQL, id string) (PortableTask, bool, error) {
 	var task PortableTask
-	var assignee, claimed, expiry, due, completed sql.NullString
-	err := q.QueryRowContext(context.Background(), `SELECT id,number,project_id,kind,column_id,title,description,priority,position,assignee_id,claimed_by,claim_expires_at,due_at,version,completed_at,created_at,updated_at FROM tasks WHERE id=?`, id).Scan(&task.ID, &task.Number, &task.ProjectID, &task.Kind, &task.ColumnID, &task.Title, &task.Description, &task.Priority, &task.Position, &assignee, &claimed, &expiry, &due, &task.Version, &completed, &task.CreatedAt, &task.UpdatedAt)
+	var assignee, claimed, expiry, due, completed, releaseID sql.NullString
+	err := q.QueryRowContext(context.Background(), `SELECT id,number,project_id,kind,column_id,title,description,priority,position,assignee_id,claimed_by,claim_expires_at,due_at,version,completed_at,release_id,created_at,updated_at FROM tasks WHERE id=?`, id).Scan(&task.ID, &task.Number, &task.ProjectID, &task.Kind, &task.ColumnID, &task.Title, &task.Description, &task.Priority, &task.Position, &assignee, &claimed, &expiry, &due, &task.Version, &completed, &releaseID, &task.CreatedAt, &task.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PortableTask{}, false, nil
 	}
 	if err != nil {
 		return PortableTask{}, false, err
 	}
-	task.AssigneeID, task.ClaimedBy, task.ClaimExpiresAt, task.DueAt, task.CompletedAt = nullableString(assignee), nullableString(claimed), nullableString(expiry), nullableString(due), nullableString(completed)
+	task.AssigneeID, task.ClaimedBy, task.ClaimExpiresAt, task.DueAt, task.CompletedAt, task.ReleaseID = nullableString(assignee), nullableString(claimed), nullableString(expiry), nullableString(due), nullableString(completed), nullableString(releaseID)
 	var bug Bug
 	bug, bugErr := bugFromRow(q.QueryRowContext(context.Background(), `SELECT reporter_id, severity, actual_behavior, expected_behavior, reproduction_steps, environment, affected_version, resolution, resolved_by, resolved_at, duplicate_of FROM bug_details WHERE task_id=?`, id))
 	if bugErr == nil {
@@ -1628,12 +1791,23 @@ func portableColumnFieldsEqualIgnoringPosition(a PortableColumn, b PortableColum
 	return portableColumnFieldsEqual(a, b)
 }
 
+func portableReleaseStatus(release PortableRelease) string {
+	if release.ReleasedAt != nil {
+		return "released"
+	}
+	return "planned"
+}
+
+func portableReleaseFieldsEqual(a, b PortableRelease) bool {
+	return a.ProjectID == b.ProjectID && a.Name == b.Name && a.Description == b.Description && stringPointerValue(a.TargetDate) == stringPointerValue(b.TargetDate) && stringPointerValue(a.ReleasedAt) == stringPointerValue(b.ReleasedAt) && stringPointerValue(a.ReleasedBy) == stringPointerValue(b.ReleasedBy) && a.Version == b.Version && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt
+}
+
 func portableLabelFieldsEqual(a PortableLabel, b PortableLabel) bool {
 	return a.ProjectID == b.ProjectID && strings.EqualFold(a.Name, b.Name) && a.Color == b.Color && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt
 }
 
 func portableTaskFieldsEqual(a, b PortableTask) bool {
-	return a.Number == b.Number && a.ProjectID == b.ProjectID && a.Kind == b.Kind && a.ColumnID == b.ColumnID && a.Title == b.Title && a.Description == b.Description && a.Priority == b.Priority && a.Position == b.Position && stringPointerValue(a.AssigneeID) == stringPointerValue(b.AssigneeID) && stringPointerValue(a.ClaimedBy) == stringPointerValue(b.ClaimedBy) && stringPointerValue(a.ClaimExpiresAt) == stringPointerValue(b.ClaimExpiresAt) && stringPointerValue(a.DueAt) == stringPointerValue(b.DueAt) && a.Version == b.Version && stringPointerValue(a.CompletedAt) == stringPointerValue(b.CompletedAt) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt && portableBugFieldsEqual(a.Bug, b.Bug)
+	return a.Number == b.Number && a.ProjectID == b.ProjectID && a.Kind == b.Kind && a.ColumnID == b.ColumnID && a.Title == b.Title && a.Description == b.Description && a.Priority == b.Priority && a.Position == b.Position && stringPointerValue(a.AssigneeID) == stringPointerValue(b.AssigneeID) && stringPointerValue(a.ClaimedBy) == stringPointerValue(b.ClaimedBy) && stringPointerValue(a.ClaimExpiresAt) == stringPointerValue(b.ClaimExpiresAt) && stringPointerValue(a.DueAt) == stringPointerValue(b.DueAt) && a.Version == b.Version && stringPointerValue(a.CompletedAt) == stringPointerValue(b.CompletedAt) && stringPointerValue(a.ReleaseID) == stringPointerValue(b.ReleaseID) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt && portableBugFieldsEqual(a.Bug, b.Bug)
 }
 
 func portableTaskFieldsEqualIgnoringNumber(a, b PortableTask) bool {
@@ -1701,6 +1875,25 @@ func portableExistingNamedLabel(q portableSQL, projectID, name string) (Portable
 		return PortableLabel{}, false, err
 	}
 	return label, true, nil
+}
+
+func portableExistingNamedRelease(q portableSQL, projectID, name string) (PortableRelease, bool, error) {
+	var release PortableRelease
+	var targetDate, releasedAt, releasedBy sql.NullString
+	err := q.QueryRowContext(context.Background(), `SELECT id,project_id,name,description,target_date,released_at,released_by,version,created_at,updated_at FROM releases WHERE project_id=? AND lower(name)=lower(?) LIMIT 1`, projectID, name).Scan(&release.ID, &release.ProjectID, &release.Name, &release.Description, &targetDate, &releasedAt, &releasedBy, &release.Version, &release.CreatedAt, &release.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PortableRelease{}, false, nil
+	}
+	if err != nil {
+		return PortableRelease{}, false, err
+	}
+	release.TargetDate, release.ReleasedAt, release.ReleasedBy = nullableString(targetDate), nullableString(releasedAt), nullableString(releasedBy)
+	if release.ReleasedAt != nil {
+		release.Status = "released"
+	} else {
+		release.Status = "planned"
+	}
+	return release, true, nil
 }
 
 func portableExistingColumnPosition(q portableSQL, projectID string, position int) (bool, error) {
@@ -2093,15 +2286,19 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 
 	plan := portableImportPlan{
 		archive: archive, report: report, options: options,
-		projects: []portableProjectPlan{}, columns: []portableColumnPlan{}, labels: []portableLabelPlan{}, tasks: []portableTaskPlan{},
+		projects: []portableProjectPlan{}, columns: []portableColumnPlan{}, releases: []portableReleasePlan{}, labels: []portableLabelPlan{}, tasks: []portableTaskPlan{},
 		taskLabels: []PortableTaskLabel{}, dependencies: []portableDependencyPlan{}, links: []portableLinkPlan{}, comments: []portableCommentPlan{}, events: []portableEventPlan{}, work: []portableWorkPlan{}, history: []portableHistoryPlan{},
-		projectMap: map[string]string{}, columnMap: map[string]string{}, taskMap: map[string]string{}, labelMap: map[string]string{}, commentMap: map[string]string{}, eventCursorMap: map[int64]int64{},
+		projectMap: map[string]string{}, columnMap: map[string]string{}, releaseMap: map[string]string{}, taskMap: map[string]string{}, labelMap: map[string]string{}, commentMap: map[string]string{}, eventCursorMap: map[int64]int64{},
 	}
 	usedProjectIDs, err := portableIDSet(q, "projects")
 	if err != nil {
 		return portableImportPlan{}, err
 	}
 	usedColumnIDs, err := portableIDSet(q, "columns")
+	if err != nil {
+		return portableImportPlan{}, err
+	}
+	usedReleaseIDs, err := portableIDSet(q, "releases")
 	if err != nil {
 		return portableImportPlan{}, err
 	}
@@ -2389,6 +2586,81 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 		plan.columnMap[source.ID] = targetID
 	}
 
+	// Releases are resolved after projects and before tasks because every task
+	// release reference must point at the destination release ID. Stable IDs
+	// are reused when the complete row matches; a same-name release in the
+	// destination project is also reused to honor the project's name unique
+	// constraint without overwriting its metadata.
+	actorMap := map[string]string{}
+	for _, source := range archive.Releases {
+		projectID := plan.projectMap[source.ProjectID]
+		mappedSource := source
+		mappedSource.ProjectID = projectID
+		mappedSource.ReleasedBy, err = portableMapOptionalActor(q, source.ReleasedBy, options.ActorID, &plan.report, actorMap)
+		if err != nil {
+			return portableImportPlan{}, err
+		}
+		targetID, create := source.ID, true
+		existing, exists, err := portableExistingRelease(q, targetID)
+		if err != nil {
+			return portableImportPlan{}, err
+		}
+		if exists && existing.ProjectID == projectID && portableReleaseFieldsEqual(existing, mappedSource) {
+			create = false
+			plan.report.Counts.ReleasesSkipped++
+		} else if named, namedExists, lookupErr := portableExistingNamedRelease(q, projectID, source.Name); lookupErr != nil {
+			return portableImportPlan{}, lookupErr
+		} else if namedExists {
+			if options.Conflict == portableConflictFail && !portableReleaseFieldsEqual(named, mappedSource) {
+				return portableImportPlan{}, portableConflictError(plan.report, "release name conflicts with a destination record")
+			}
+			targetID, create = named.ID, false
+			plan.report.Counts.ReleasesSkipped++
+			if targetID != source.ID {
+				portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "same project release name already exists")
+			}
+			if !portableReleaseFieldsEqual(named, mappedSource) {
+				plan.report.Warnings = append(plan.report.Warnings, fmt.Sprintf("release %s was retained because the destination already has the same name", source.ID))
+			}
+		} else {
+			if exists && options.Conflict == portableConflictFail {
+				return portableImportPlan{}, portableConflictError(plan.report, "release id conflict")
+			}
+			if exists {
+				candidateID, candidateMatches, lookupErr := portableFindMatchingCandidate("release", source.ID, func(id string) (bool, bool, error) {
+					candidate, candidateExists, candidateErr := portableExistingRelease(q, id)
+					if candidateErr != nil {
+						return false, false, candidateErr
+					}
+					return candidateExists, candidateExists && candidate.ProjectID == projectID && portableReleaseFieldsEqual(candidate, mappedSource), nil
+				})
+				if lookupErr != nil {
+					return portableImportPlan{}, lookupErr
+				}
+				if candidateMatches {
+					targetID, create = candidateID, false
+					plan.report.Counts.ReleasesSkipped++
+					portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "reused deterministic remap from an earlier import")
+				}
+			}
+			if create {
+				if _, taken := usedReleaseIDs[targetID]; taken {
+					targetID = portableCandidateID("release", source.ID, usedReleaseIDs)
+				}
+				usedReleaseIDs[targetID] = struct{}{}
+				if targetID != source.ID {
+					portableAddRemap(&plan.report, "release", source.ID, targetID, "id", "source id conflicted with a destination record")
+				}
+				plan.report.Counts.ReleasesCreated++
+			}
+		}
+		plan.releases = append(plan.releases, portableReleasePlan{source: mappedSource, id: targetID, projectID: projectID, releasedBy: mappedSource.ReleasedBy, create: create})
+		plan.releaseMap[source.ID] = targetID
+	}
+	if len(plan.report.Errors) > 0 {
+		return plan, portableImportError(plan.report, "portable destination validation failed")
+	}
+
 	// Labels are reused by stable IDs or (for a separately created label with
 	// the same name) by project/name.  Both mappings are explicitly reported.
 	for _, source := range archive.Labels {
@@ -2456,7 +2728,6 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 		plan.labelMap[source.ID] = targetID
 	}
 
-	actorMap := map[string]string{}
 	usedNumbers := map[string]map[int]struct{}{}
 	for _, source := range archive.Tasks {
 		projectID := plan.projectMap[source.ProjectID]
@@ -2483,6 +2754,14 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 		targetID, create := source.ID, true
 		mappedSource := source
 		mappedSource.ProjectID, mappedSource.ColumnID = projectID, plan.columnMap[source.ColumnID]
+		if source.ReleaseID != nil {
+			mappedReleaseID, mapped := plan.releaseMap[*source.ReleaseID]
+			if !mapped {
+				addPortableIssue(&plan.report, "task", source.ID, "release_id", "destination release is not available")
+			} else {
+				mappedSource.ReleaseID = &mappedReleaseID
+			}
+		}
 		mappedSource.AssigneeID, err = portableMapOptionalActor(q, source.AssigneeID, options.ActorID, &plan.report, actorMap)
 		if err != nil {
 			return portableImportPlan{}, err
@@ -2587,6 +2866,27 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 		}
 		plan.tasks = append(plan.tasks, portableTaskPlan{source: mappedSource, id: targetID, projectID: projectID, columnID: mappedSource.ColumnID, number: source.Number, assigneeID: mappedSource.AssigneeID, claimedBy: mappedSource.ClaimedBy, claimExpiresAt: mappedSource.ClaimExpiresAt, create: create})
 		plan.taskMap[source.ID] = targetID
+	}
+	// Recheck the mapped release/project boundary after destination remapping.
+	// Source validation catches malformed cross-project references; this second
+	// check protects imports where an existing destination release is reused.
+	releaseProjects := make(map[string]string, len(plan.releases))
+	for _, release := range plan.releases {
+		releaseProjects[release.id] = release.projectID
+	}
+	for _, task := range plan.tasks {
+		if task.source.ReleaseID == nil {
+			continue
+		}
+		releaseProject, ok := releaseProjects[*task.source.ReleaseID]
+		if !ok {
+			addPortableIssue(&plan.report, "task", task.source.ID, "release_id", "destination release is not available")
+		} else if releaseProject != task.projectID {
+			addPortableIssue(&plan.report, "task", task.source.ID, "release_id", "destination release belongs to another project")
+		}
+	}
+	if len(plan.report.Errors) > 0 {
+		return plan, portableImportError(plan.report, "portable destination validation failed")
 	}
 
 	// A bug can refer forward to another task, so remap duplicate_of after the
@@ -3295,6 +3595,18 @@ func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableIm
 			return err
 		}
 	}
+	for _, release := range plan.releases {
+		if !release.create {
+			continue
+		}
+		// A released release cannot accept task members through the migration's
+		// direct SQL guard. Stage it as planned while its tasks/relationships are
+		// inserted, then restore released_at after the complete subtree exists.
+		_, err := tx.ExecContext(ctx, `INSERT INTO releases(id,project_id,name,description,target_date,released_at,released_by,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, release.id, release.projectID, release.source.Name, release.source.Description, portableStringArg(release.source.TargetDate), nil, portableStringArg(release.releasedBy), release.source.Version, release.source.CreatedAt, release.source.UpdatedAt)
+		if err != nil {
+			return err
+		}
+	}
 	for _, label := range plan.labels {
 		if !label.create {
 			continue
@@ -3308,7 +3620,7 @@ func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableIm
 		if !task.create {
 			continue
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO tasks(id,project_id,number,column_id,kind,title,description,priority,position,assignee_id,claimed_by,claim_expires_at,due_at,version,completed_at,deleted_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`, task.id, task.projectID, task.number, task.columnID, task.source.Kind, task.source.Title, task.source.Description, task.source.Priority, task.source.Position, portableStringArg(task.assigneeID), portableStringArg(task.claimedBy), portableStringArg(task.claimExpiresAt), portableStringArg(task.source.DueAt), task.source.Version, portableStringArg(task.source.CompletedAt), task.source.CreatedAt, task.source.UpdatedAt)
+		_, err := tx.ExecContext(ctx, `INSERT INTO tasks(id,project_id,number,column_id,kind,title,description,priority,position,assignee_id,claimed_by,claim_expires_at,due_at,version,completed_at,release_id,deleted_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`, task.id, task.projectID, task.number, task.columnID, task.source.Kind, task.source.Title, task.source.Description, task.source.Priority, task.source.Position, portableStringArg(task.assigneeID), portableStringArg(task.claimedBy), portableStringArg(task.claimExpiresAt), portableStringArg(task.source.DueAt), task.source.Version, portableStringArg(task.source.CompletedAt), portableStringArg(task.source.ReleaseID), task.source.CreatedAt, task.source.UpdatedAt)
 		if err != nil {
 			return err
 		}
@@ -3414,6 +3726,14 @@ func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableIm
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO task_agent_work_history(id,task_id,operation_id,actor_id,state,phase,summary,next_action,checkpoint_refs,checkpoint_completed,checkpoint_total,started_at,created_at,generated_comment_id,progress_event_cursor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, history.id, history.taskID, history.source.OperationID, history.actorID, history.source.State, history.source.Phase, history.source.Summary, history.source.NextAction, refs, nullableIntArg(history.source.CheckpointCompleted), nullableIntArg(history.source.CheckpointTotal), history.source.StartedAt, history.source.CreatedAt, portableStringArg(history.generatedCommentID), progress)
 		if err != nil {
+			return err
+		}
+	}
+	for _, release := range plan.releases {
+		if !release.create || release.source.ReleasedAt == nil {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE releases SET released_at=? WHERE id=? AND released_at IS NULL`, *release.source.ReleasedAt, release.id); err != nil {
 			return err
 		}
 	}
