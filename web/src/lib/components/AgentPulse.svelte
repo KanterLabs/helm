@@ -115,7 +115,7 @@
   class="agent-pulse"
   role="group"
   aria-labelledby={`agent-pulse-${task.id}-state`}
-  aria-describedby={`agent-pulse-${task.id}-details`}
+  aria-describedby={compact ? undefined : `agent-pulse-${task.id}-details`}
   data-agent-pulse
 >
   <span class="agent-pulse-icon" aria-hidden="true">{missing ? '?' : stateIcons[state] || '•'}</span>
