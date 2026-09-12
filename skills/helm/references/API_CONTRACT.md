@@ -119,6 +119,110 @@ feed uses a monotonic integer `--after` cursor. `--all` follows pages and
 returns an empty terminal cursor. Timeline `--kind` accepts `agent_progress`,
 `comment`, or `task_change`.
 
+## Releases and release-bound work
+
+A product release is a project-local planning boundary. It is separate from
+the task claim action `POST /tasks/{task}/release`, which releases an agent
+lease. A task or bug belongs to zero or one release; existing tasks remain
+unassigned until explicitly changed.
+
+The read routes used by the Helm client are:
+
+```text
+GET /api/v1/projects/{project}/releases
+GET /api/v1/releases/{release}
+GET /api/v1/releases/{release}/work-queue
+```
+
+`{project}` accepts an ID, key, slug, or name. The client first resolves it
+through `GET /projects?limit=200`, then uses the opaque project ID. Release
+names are resolved case-insensitively only within that project through the
+cursor-paginated project release collection; an ambiguous project or release
+reference fails closed. The direct release read then uses the resolved opaque
+ID, so `releases get --project TC --release 1.4` cannot read another project's
+same-named release.
+
+Release list accepts `status=planned|released`, `target_from`, `target_to`,
+`cursor`, and `limit` (1–200). The command surface is:
+
+```sh
+python3 scripts/helm.py releases list --project TC [--status planned]
+python3 scripts/helm.py releases get --project TC --release 1.4
+python3 scripts/helm.py release-work --project TC --release 1.4
+```
+
+The list result is `{ "project": "TC", "releases": [...],
+"next_cursor": "..." }`; `--all` follows every release page and returns an
+empty terminal cursor. Each release object includes `id`, `project_id`,
+`name`, `description`, optional ISO `target_date`, `status` (`planned` or
+`released`), nullable `released_at` and `released_by`, `version`,
+`created_at`, `updated_at`, and `summary`. The summary contains
+`task_count`, `completed_count`, `blocked_count`, `claimed_count`,
+`checklist_warning_count`, `required_task_count`, `required_completed_count`,
+`cross_release_conflict_count`, and `ready_to_release`. The get result is
+that release object directly.
+
+The work queue response has this shape (the client preserves all API fields):
+
+```json
+{
+  "release": {"id": "release_14", "name": "1.4", "version": 3},
+  "snapshot": {"project_revision": 812, "read_at": "2026-08-27T10:00:00Z"},
+  "summary": {
+    "direct": 12, "required": 15, "completed": 9, "claimable": 1,
+    "owned": 1, "dependency_blocked": 2, "manually_blocked": 1,
+    "claimed_elsewhere": 1, "cross_release_conflicts": 1
+  },
+  "data": [{
+    "task": {"id": "task_42", "key": "TC-42", "version": 8},
+    "relationship": "direct",
+    "disposition": "claimable",
+    "blocked_by": []
+  }],
+  "next_cursor": ""
+}
+```
+
+Queue data contains direct release members plus transitive same-project
+prerequisites, including dependency-free tasks. Dispositions are
+`completed`, `owned`, `claimable`, `dependency_blocked`, `manually_blocked`,
+`claimed_elsewhere`, and `cross_release_conflict`. The queue never mutates a
+task. Owned work sorts first, followed by claimable work in dependency order.
+The client can follow pages with `--all`; every page remains bounded by
+`--limit` (1–200).
+
+A queue cursor captures release and project/task-collection revisions. A task,
+dependency, claim, or release mutation invalidates a continuation with HTTP
+409, `error.code: release_queue_changed`, and `details.restart: true`. The
+client discards all partial rows, restarts from page one (bounded to two
+automatic restarts), and stops with the same safe 409 error if the queue keeps
+changing. All release discovery and queue requests are GET-only.
+
+`release-work` adds a deterministic read-only `workflow` projection (also
+available as top-level `state` and `guidance`) with state `ready`, `waiting`,
+or `handoff`. `ready` means every required task is complete; `handoff` means
+owned or claimable work remains and tells the agent to resume owned work first
+or claim exactly one task; `waiting` means no safe next task exists or the
+release has no direct scope. Guidance names dependency/manual/foreign/cross-
+release blockers and checklist warnings when present. It never completes the
+product release automatically.
+
+For a valid queue snapshot, including `ready`, `waiting`, or `handoff`, the
+CLI prints compact JSON to stdout and exits `0`. Invalid arguments, an
+ambiguous or missing project/release, transport/API errors, malformed API
+shapes, repeated cursors, or an exhausted queue-restart budget print a
+structured error to stderr and exit non-zero; no mutation is attempted.
+
+Task lease release remains the singular compatibility command:
+
+```sh
+python3 scripts/helm.py release --task TC-42
+python3 scripts/helm.py unclaim --task TC-42
+```
+
+`unclaim` is only an alias for `release`; it does not address the product
+release resource.
+
 ## Notifications and watches
 
 ```sh
