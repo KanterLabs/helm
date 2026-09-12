@@ -234,7 +234,7 @@
   } from './lib/boardOrdering';
   import { buildTaskShareUrl } from './lib/taskShare';
 
-  type View = CommandView;
+  type View = CommandView | 'releases';
   type AuthView = 'login' | 'setup' | 'tailnet';
   type ToastKind = 'success' | 'error' | 'info';
   type ToastAction = {
@@ -258,6 +258,59 @@
   type TaskModalSuggestionField = 'title' | 'description' | 'priority';
   type TaskModalAppliedFields = Record<TaskModalSuggestionField, boolean>;
   type DialogReturnFocus = { element: HTMLElement | null; fallbackSelector: string };
+  /**
+   * Release shapes stay local to the shell so the page can render while a
+   * retained API/types bundle is being upgraded. The release client supplies
+   * the same wire fields once available.
+   */
+  type ReleaseSummaryModel = {
+    task_count?: number;
+    completed_count?: number;
+    blocked_count?: number;
+    claimed_count?: number;
+    checklist_warning_count?: number;
+    required_task_count?: number;
+    required_completed_count?: number;
+    cross_release_conflict_count?: number;
+    ready_to_release?: boolean;
+  };
+  type ReleaseModel = {
+    id: string;
+    project_id: string;
+    name: string;
+    description?: string;
+    target_date?: string | null;
+    status: 'planned' | 'released' | string;
+    released_at?: string | null;
+    released_by?: string | null;
+    version: number;
+    created_at?: string;
+    updated_at?: string;
+    summary?: ReleaseSummaryModel;
+  };
+  type ReleaseQueueItem = {
+    task?: { id?: string; key?: string; version?: number };
+    relationship?: string;
+    disposition?: string;
+    blocked_by?: Array<{ id?: string; key?: string; title?: string }>;
+  };
+  type ReleaseQueueModel = {
+    release?: { id?: string; name?: string; version?: number };
+    snapshot?: { project_revision?: number; read_at?: string };
+    summary?: {
+      direct?: number;
+      required?: number;
+      completed?: number;
+      claimable?: number;
+      owned?: number;
+      dependency_blocked?: number;
+      manually_blocked?: number;
+      claimed_elsewhere?: number;
+      cross_release_conflicts?: number;
+    };
+    data?: ReleaseQueueItem[];
+    next_cursor?: string;
+  };
   type OpenTaskOptions = {
     skipDiscardGuard?: boolean;
     returnFocus?: DialogReturnFocus | null;
@@ -376,6 +429,9 @@
   let boardFilterTimer: number | undefined;
   let boardSort: BoardSort = 'position';
   let boardOrder: 'asc' | 'desc' = 'asc';
+  // Release filters are kept outside BoardFilters so older cached board
+  // snapshots remain readable while the release-aware API rolls out.
+  let boardReleaseFilter = 'all';
   const boardPageSize = 50;
   const boardRenderLimit = 100;
   const columnScroll = createColumnScroll();
@@ -417,6 +473,7 @@
     resolution: 'all'
   };
   let issueProjectFilter = 'all';
+  let issueReleaseFilter = 'all';
   let projectSwitcherOpen = false;
   let projectSwitcherQuery = '';
   let projectPickerTrigger: HTMLButtonElement | null = null;
@@ -492,6 +549,7 @@
   let draftPriority: Priority = 'normal';
   let draftDueDate = '';
   let draftAssignee = '';
+  let draftReleaseId = '';
   let draftLabels = '';
   let draftBugActual = '';
   let draftBugExpected = '';
@@ -532,16 +590,19 @@
   let labelDeleting = '';
 
   let myWorkTasks: Task[] = [];
+  let visibleMyWorkTasks: Task[] = [];
   let myWorkLoading = false;
   let myWorkError = '';
   let myWorkFilter: WorkFilter = 'all';
   let myWorkView: MyWorkView = 'live';
+  let myWorkReleaseFilter = 'all';
   let sidebarCounts: SidebarCounts | null = null;
   let sidebarCountsStatus: CountStatus = 'unknown';
   let sidebarCountsRequest = 0;
   let myWorkColumnsByProject: Record<string, Column[]> = {};
   let myWorkColumnsLoading = false;
   let searchTasks: Task[] = [];
+  let visibleSearchTasks: Task[] = [];
   let searchColumnsByProject: Record<string, Column[]> = {};
   let searchSavedViews: SavedView[] = [];
   let searchViewId = '';
@@ -550,6 +611,7 @@
   let searchState = 'all';
   let searchSortField = 'updated_at';
   let searchSortDirection: 'asc' | 'desc' = 'desc';
+  let searchReleaseFilter = 'all';
   let searchNextCursor = '';
   let searchLoading = false;
   let searchError = '';
@@ -575,6 +637,32 @@
   let roadmapActorsLoading = false;
   let roadmapActors: Record<string, Pick<Actor, 'id' | 'kind' | 'name'>> = {};
   let auditRefreshToken = 0;
+
+  let releases: ReleaseModel[] = [];
+  let releasesByProject: Record<string, ReleaseModel[]> = {};
+  let releasesLoading = false;
+  let releasesError = '';
+  let releaseRequest = 0;
+  let releaseRequestsByProject: Record<string, number> = {};
+  let releaseSelectedId = '';
+  let releaseQueue: ReleaseQueueModel | null = null;
+  let releaseQueueLoading = false;
+  let releaseQueueError = '';
+  let releaseQueueRequest = 0;
+  let showReleaseModal = false;
+  let releaseEditingId = '';
+  let releaseModalName = '';
+  let releaseModalDescription = '';
+  let releaseModalTargetDate = '';
+  let releaseModalSaving = false;
+  let releaseModalError = '';
+  let releaseReopenTarget: ReleaseModel | null = null;
+  let releaseReopenReason = '';
+  let releaseReopening = false;
+  let activeProjectReleases: ReleaseModel[] = [];
+  let allReleaseOptions: ReleaseModel[] = [];
+  let selectedRelease: ReleaseModel | undefined;
+  let sortedReleases: ReleaseModel[] = [];
 
   let agents: Agent[] = [];
   let agentsLoading = false;
@@ -642,6 +730,7 @@
   let taskModalPriority: Priority = 'normal';
   let taskModalDueDate = '';
   let taskModalAssignee = '';
+  let taskModalReleaseId = '';
   let taskModalParentId: string | null = null;
   let taskModalIdea = '';
   let taskModalSuggestion: TaskDraftSuggestion | null = null;
@@ -675,6 +764,7 @@
   let bugModalLabels = '';
   let bugModalSeverity: BugSeverity | '' = '';
   let bugModalPriority: Priority = 'normal';
+  let bugModalReleaseId = '';
 
   let events: ActivityEvent[] = [];
   let eventsCursor: number | undefined;
@@ -697,10 +787,19 @@
   let toasts: ToastItem[] = [];
 
   $: activeProject = projects.find((project) => project.slug === activeProjectSlug);
+  $: activeProjectReleases = activeProject ? (releasesByProject[activeProject.id] || (activeProject.id === (releases[0]?.project_id || '') ? releases : [])) : [];
+  $: allReleaseOptions = Object.values(releasesByProject).flat().reduce<ReleaseModel[]>((result, release) => {
+    if (!result.some((item) => item.id === release.id)) result.push(release);
+    return result;
+  }, []);
+  $: selectedRelease = releases.find((release) => release.id === releaseSelectedId) || activeProjectReleases.find((release) => release.id === releaseSelectedId);
+  $: sortedReleases = sortReleaseList(activeProjectReleases);
   $: adminProject = adminProjects.find((project) => project.id === adminProjectId);
   $: adminLiveColumns = adminColumns.filter((column) => !column.archived_at).sort((a, b) => a.position - b.position);
   $: adminLiveColumnIndexes = new Map(adminLiveColumns.map((column, index) => [column.id, index]));
-  $: visibleTasks = filterTasks(tasks, columns, filters).filter((task) => matchesWorkFilter(task, boardWorkFilter, pulseClock));
+  $: visibleTasks = filterTasks(tasks, columns, filters)
+    .filter((task) => taskMatchesReleaseFilter(task, boardReleaseFilter))
+    .filter((task) => matchesWorkFilter(task, boardWorkFilter, pulseClock));
   $: selectedTasks = tasks.filter((task) => selectedTaskIds.has(task.id));
   $: allVisibleTasksSelected = visibleTasks.length > 0 && visibleTasks.every((task) => selectedTaskIds.has(task.id));
   $: boardWorkCounts = agentWorkStatusCounts(tasks, pulseClock, (task) => semanticStateForTask(task));
@@ -708,7 +807,7 @@
     issueTasks.filter((task) => issueProjectFilter === 'all' || task.project_id === issueProjectFilter),
     issueColumns,
     issueFilters
-  );
+  ).filter((task) => taskMatchesReleaseFilter(task, issueReleaseFilter));
   $: issueReporterOptions = Array.from(new Set(issueTasks.map((task) => bugReporterId(task)).filter(Boolean))).sort();
   $: issueHealthMetrics = {
     open: issueTasks.filter((task) => !task.bug?.resolution).length,
@@ -745,7 +844,9 @@
   }), commandQuery);
   $: if (commandIndex >= commandChoices.length) commandIndex = Math.max(0, commandChoices.length - 1);
   $: activeCommandOptionId = commandChoices[commandIndex] ? commandChoiceId(commandChoices[commandIndex]) : '';
-  $: myWorkRows = myWorkTasks.map((task) => ({
+  $: visibleMyWorkTasks = myWorkTasks.filter((task) => taskMatchesReleaseFilter(task, myWorkReleaseFilter));
+  $: visibleSearchTasks = searchTasks.filter((task) => taskMatchesReleaseFilter(task, searchReleaseFilter));
+  $: myWorkRows = visibleMyWorkTasks.map((task) => ({
     task,
     project: projectForTask(task),
     column: myWorkColumnsByProject[task.project_id]?.find((item) => item.id === task.column_id)
@@ -785,6 +886,7 @@
     draftPriority,
     draftDueDate,
     draftAssignee,
+    draftReleaseId,
     draftLabels,
     draftBugActual,
     draftBugExpected,
@@ -877,6 +979,44 @@
     return agentWorkActionNeeded(task, now, semanticStateForTask(task));
   }
 
+  type TaskWithRelease = Task & {
+    release_id?: string | null;
+    release?: { id?: string; name?: string; status?: string; target_date?: string | null } | null;
+  };
+
+  function taskWithRelease(task: Task | null | undefined): TaskWithRelease | null {
+    return task ? task as TaskWithRelease : null;
+  }
+
+  function taskReleaseId(task: Task | null | undefined): string {
+    const value = taskWithRelease(task);
+    return value?.release_id || value?.release?.id || '';
+  }
+
+  function taskReleaseName(task: Task | null | undefined): string {
+    const value = taskWithRelease(task);
+    return value?.release?.name
+      || allReleaseOptions.find((release) => release.id === taskReleaseId(task))?.name
+      || releases.find((release) => release.id === taskReleaseId(task))?.name
+      || '';
+  }
+
+  function releaseQueryValue(value: string): string | undefined {
+    return value !== 'all' ? value : undefined;
+  }
+
+  function taskMatchesReleaseFilter(task: Task | null | undefined, value: string): boolean {
+    if (value === 'all') return true;
+    const releaseId = taskReleaseId(task);
+    if (value === 'unassigned') return !releaseId;
+    return releaseId === value;
+  }
+
+  function releaseOptionLabel(release: ReleaseModel): string {
+    const project = projects.find((item) => item.id === release.project_id);
+    return project ? `${project.key} · ${release.name}` : release.name;
+  }
+
   function matchesWorkFilter(task: Task, filter: WorkFilter, now = pulseClock): boolean {
     return matchesAgentWorkFilter(task, filter, now, semanticStateForTask(task));
   }
@@ -948,13 +1088,14 @@
       || filters.assignee !== 'all'
       || filters.state !== 'all'
       || filters.dependency !== 'all'
+      || boardReleaseFilter !== 'all'
       || boardWorkFilter !== 'all'
     );
   }
 
   /** Build one bounded, server-filtered request for one board column. */
   function boardTaskParams(columnId: string, cursor = ''): TaskListParams {
-    const params: TaskListParams = {
+    const params: TaskListParams & { release?: string } = {
       column: columnId,
       sort: boardSort,
       order: boardOrder,
@@ -972,6 +1113,8 @@
     } else if (boardWorkFilter !== 'all') {
       params.agent_state = boardWorkFilter;
     }
+    const releaseQuery = releaseQueryValue(boardReleaseFilter);
+    if (releaseQuery) params.release = releaseQuery;
     return params;
   }
 
@@ -1005,6 +1148,7 @@
       && task.project_id === activeProject.id
       && task.column_id === columnId
       && filterTasks([task], columns, filters).length
+      && taskMatchesReleaseFilter(task, boardReleaseFilter)
       && matchesWorkFilter(task, boardWorkFilter)
     );
   }
@@ -1066,6 +1210,15 @@
         boardCriteriaTransition = false;
       }
     }, 160);
+  }
+
+  function syncBoardReleaseURL() {
+    if (typeof window === 'undefined' || !activeProject || view !== 'board') return;
+    const params = new URLSearchParams(window.location.search);
+    if (boardReleaseFilter === 'all') params.delete('release');
+    else params.set('release', boardReleaseFilter);
+    const target = `/p/${encodeURIComponent(activeProject.slug)}${params.toString() ? `?${params.toString()}` : ''}`;
+    if (`${window.location.pathname}${window.location.search}` !== target) window.history.replaceState({}, '', target);
   }
 
   function mergeBoardPageTasks(
@@ -1488,7 +1641,7 @@
 
   function saveBoardSnapshot() {
     if ($offlineReadOnly || !user || !activeProject || boardLoading || Object.values(boardPages).some(page => !page.loaded || page.loading || page.error)) return;
-    const filtered = boardWorkFilter !== 'all' || Object.entries(filters).some(([key, value]) => key === 'query' ? Boolean(value) : value !== 'all');
+    const filtered = boardReleaseFilter !== 'all' || boardWorkFilter !== 'all' || Object.entries(filters).some(([key, value]) => key === 'query' ? Boolean(value) : value !== 'all');
     void saveOfflineBoard(user.id, activeProject, columns, tasks, boardPartial || filtered);
   }
 
@@ -1684,6 +1837,11 @@
     showBulkModal = false;
     bulkResult = null;
     labels = [];
+    releases = [];
+    releasesByProject = {};
+    releaseSelectedId = '';
+    releaseQueue = null;
+    releaseQueueError = '';
     issueTasks = [];
     issueColumns = [];
     issueMetricsData = null;
@@ -1754,6 +1912,325 @@
     }
   }
 
+  function releaseApiFunction(name: string): ((...args: unknown[]) => Promise<unknown>) | null {
+    const candidate = (api as unknown as Record<string, unknown>)[name];
+    return typeof candidate === 'function' ? candidate as (...args: unknown[]) => Promise<unknown> : null;
+  }
+
+  async function callReleaseApi<T>(name: string, ...args: unknown[]): Promise<T> {
+    const method = releaseApiFunction(name);
+    if (!method) throw new Error('Release planning is unavailable until the API client is updated.');
+    return await method(...args) as T;
+  }
+
+  function releaseCollectionData(payload: unknown): ReleaseModel[] {
+    if (Array.isArray(payload)) return payload as ReleaseModel[];
+    if (payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)) {
+      return (payload as { data: ReleaseModel[] }).data;
+    }
+    return [];
+  }
+
+  function releaseSummary(release: ReleaseModel | null | undefined): ReleaseSummaryModel {
+    return release?.summary || {};
+  }
+
+  function releaseProgress(release: ReleaseModel | null | undefined, required = false): number {
+    const summary = releaseSummary(release);
+    const complete = required ? summary.required_completed_count : summary.completed_count;
+    const total = required ? summary.required_task_count : summary.task_count;
+    if (!total) return 0;
+    return Math.round(Math.max(0, Math.min(100, ((complete || 0) / total) * 100)));
+  }
+
+  function releaseStatusLabel(release: ReleaseModel | null | undefined): string {
+    return release?.status === 'released' ? 'Released' : 'Planned';
+  }
+
+  function releaseFilterLabel(value: string): string {
+    if (value === 'all') return 'All releases';
+    if (value === 'unassigned') return 'No release';
+    return allReleaseOptions.find((release) => release.id === value)?.name
+      || activeProjectReleases.find((release) => release.id === value)?.name
+      || 'Release';
+  }
+
+  function sortReleaseList(items: ReleaseModel[]): ReleaseModel[] {
+    return [...items].sort((left, right) => {
+      const leftReleased = left.status === 'released' ? 1 : 0;
+      const rightReleased = right.status === 'released' ? 1 : 0;
+      if (leftReleased !== rightReleased) return leftReleased - rightReleased;
+      const leftDate = left.target_date ? Date.parse(left.target_date) : Number.POSITIVE_INFINITY;
+      const rightDate = right.target_date ? Date.parse(right.target_date) : Number.POSITIVE_INFINITY;
+      if (leftDate !== rightDate) return leftDate - rightDate;
+      const leftUpdated = left.updated_at ? Date.parse(left.updated_at) : 0;
+      const rightUpdated = right.updated_at ? Date.parse(right.updated_at) : 0;
+      return rightUpdated - leftUpdated || left.name.localeCompare(right.name);
+    });
+  }
+
+  function releaseWritesDisabled(): boolean {
+    return $offlineReadOnly || (typeof navigator !== 'undefined' && !navigator.onLine);
+  }
+
+  async function loadAccessibleReleases(projectSnapshot = projects): Promise<void> {
+    if (!releaseApiFunction('listReleases')) return;
+    await Promise.all(projectSnapshot.map((project) => loadProjectReleases(project.id).catch(() => [])));
+  }
+
+  async function loadProjectReleases(projectId = activeProject?.id, page = false): Promise<ReleaseModel[]> {
+    if (!projectId) return [];
+    if (page) {
+      releasesLoading = true;
+      releasesError = '';
+    }
+    const requestedProjectId = projectId;
+    const requestedSession = sessionGeneration;
+    const requestId = (releaseRequestsByProject[requestedProjectId] || 0) + 1;
+    releaseRequestsByProject = { ...releaseRequestsByProject, [requestedProjectId]: requestId };
+    try {
+      const listMethod = releaseApiFunction('listAllReleases') || releaseApiFunction('listReleases');
+      if (!listMethod) throw new Error('Release planning is unavailable until the API client is updated.');
+      const payload = await listMethod(projectId, { limit: 200 });
+      const items = releaseCollectionData(payload);
+      if (
+        releaseRequestsByProject[requestedProjectId] !== requestId
+        || sessionGeneration !== requestedSession
+        || !user
+        || (page && activeProject?.id !== requestedProjectId)
+      ) return items;
+      releasesByProject = { ...releasesByProject, [requestedProjectId]: items };
+      if (activeProject?.id === requestedProjectId) releases = items;
+      if (page && boardReleaseFilter !== 'all' && boardReleaseFilter !== 'unassigned' && !items.some((item) => item.id === boardReleaseFilter)) {
+        boardReleaseFilter = 'all';
+        announce('The release filter was cleared because it is not part of this project.');
+      }
+      if (taskModalProjectId === requestedProjectId && !taskModalReleaseId && boardReleaseFilter !== 'unassigned' && releaseQueryValue(boardReleaseFilter)) taskModalReleaseId = boardReleaseFilter;
+      if (bugModalProjectId === requestedProjectId && !bugModalReleaseId && boardReleaseFilter !== 'unassigned' && releaseQueryValue(boardReleaseFilter)) bugModalReleaseId = boardReleaseFilter;
+      return items;
+    } catch (error) {
+      if (page && releaseRequestsByProject[requestedProjectId] === requestId && sessionGeneration === requestedSession && user) releasesError = friendlyError(error, 'Releases could not be loaded.');
+      return [];
+    } finally {
+      if (page && releaseRequestsByProject[requestedProjectId] === requestId && sessionGeneration === requestedSession) releasesLoading = false;
+    }
+  }
+
+  async function loadReleaseQueue(releaseId = releaseSelectedId): Promise<boolean> {
+    if (!releaseId) {
+      releaseQueue = null;
+      return true;
+    }
+    const requestId = ++releaseQueueRequest;
+    const requestedSession = sessionGeneration;
+    const requestedReleaseId = releaseId;
+    releaseQueueLoading = true;
+    releaseQueueError = '';
+    try {
+      const method = releaseApiFunction('getAllReleaseWorkQueue') || releaseApiFunction('getReleaseWorkQueue') || releaseApiFunction('releaseWorkQueue') || releaseApiFunction('listReleaseWorkQueue');
+      if (!method) throw new Error('The release work queue is not available yet.');
+      const result = await method(requestedReleaseId, { limit: 200 });
+      if (requestId !== releaseQueueRequest || sessionGeneration !== requestedSession || releaseSelectedId !== requestedReleaseId || !user) return false;
+      releaseQueue = result as ReleaseQueueModel;
+      return true;
+    } catch (error) {
+      if (requestId === releaseQueueRequest && sessionGeneration === requestedSession && releaseSelectedId === requestedReleaseId && user) releaseQueueError = friendlyError(error, 'The release work queue could not be loaded.');
+      return false;
+    } finally {
+      if (requestId === releaseQueueRequest && sessionGeneration === requestedSession) releaseQueueLoading = false;
+    }
+  }
+
+  async function loadReleasesPage(): Promise<boolean> {
+    if (!activeProject) return false;
+    const loaded = await loadProjectReleases(activeProject.id, true);
+    if (activeProject?.id !== loaded[0]?.project_id && !loaded.length && releasesByProject[activeProject.id] === undefined) return false;
+    if (releaseSelectedId && !loaded.some((release) => release.id === releaseSelectedId)) {
+      releaseSelectedId = '';
+      const params = new URLSearchParams(window.location.search);
+      params.delete('release');
+      navigate(`/p/${encodeURIComponent(activeProject.slug)}/releases${params.toString() ? `?${params.toString()}` : ''}`, true);
+      announce('The selected release was cleared because it is not part of this project.');
+    }
+    const next = loaded.find((release) => release.id === releaseSelectedId)
+      || loaded.find((release) => release.status === 'planned')
+      || loaded[0];
+    releaseSelectedId = next?.id || '';
+    return await loadReleaseQueue(releaseSelectedId);
+  }
+
+  async function openProjectReleases() {
+    if (!activeProject) return;
+    releaseSelectedId = '';
+    releaseQueue = null;
+    view = 'releases';
+    navigate(`/p/${encodeURIComponent(activeProject.slug)}/releases`);
+    await loadReleasesPage();
+  }
+
+  function selectRelease(release: ReleaseModel) {
+    releaseSelectedId = release.id;
+    releaseQueue = null;
+    if (activeProject && view === 'releases') navigate(`/p/${encodeURIComponent(activeProject.slug)}/releases?release=${encodeURIComponent(release.id)}`, true);
+    void loadReleaseQueue(release.id);
+  }
+
+  async function openReleaseFilteredBoard(release: ReleaseModel) {
+    const project = projects.find((item) => item.id === release.project_id);
+    if (!project) {
+      toast('error', 'This release belongs to a project that is no longer available.');
+      return;
+    }
+    activeProjectSlug = project.slug;
+    boardReleaseFilter = release.id;
+    view = 'board';
+    navigate(`/p/${encodeURIComponent(project.slug)}?release=${encodeURIComponent(release.id)}`);
+    await loadBoard();
+  }
+
+  async function openWorkTaskById(taskId: string): Promise<void> {
+    const known = [...tasks, ...myWorkTasks, ...issueTasks, ...searchTasks].find((task) => task.id === taskId);
+    try {
+      await openWorkTask(known || await api.getTask(taskId));
+    } catch (error) {
+      toast('error', friendlyError(error, 'The queue task could not be opened.'));
+    }
+  }
+
+  function openReleaseModal(release?: ReleaseModel) {
+    releaseEditingId = release?.id || '';
+    releaseModalName = release?.name || '';
+    releaseModalDescription = release?.description || '';
+    releaseModalTargetDate = release?.target_date || '';
+    releaseModalError = '';
+    rememberDialogFocus('[data-release-modal-trigger]');
+    showReleaseModal = true;
+  }
+
+  function closeReleaseModal() {
+    showReleaseModal = false;
+    releaseModalSaving = false;
+    restoreDialogFocus();
+  }
+
+  function upsertRelease(updated: ReleaseModel) {
+    const current = releasesByProject[updated.project_id] || [];
+    const next = [...current.filter((release) => release.id !== updated.id), updated];
+    releasesByProject = { ...releasesByProject, [updated.project_id]: next };
+    if (activeProject?.id === updated.project_id) releases = next;
+    releaseSelectedId = updated.id;
+  }
+
+  async function saveRelease() {
+    if (!activeProject || !releaseModalName.trim()) {
+      releaseModalError = 'A release needs a name.';
+      return;
+    }
+    releaseModalSaving = true;
+    releaseModalError = '';
+    try {
+      const input = {
+        name: releaseModalName.trim(),
+        description: releaseModalDescription.trim(),
+        target_date: releaseModalTargetDate || null
+      };
+      const updated = releaseEditingId
+        ? await callReleaseApi<ReleaseModel>('patchRelease', releaseEditingId, input, releases.find((release) => release.id === releaseEditingId)?.version)
+        : await callReleaseApi<ReleaseModel>('createRelease', activeProject.id, input);
+      upsertRelease(updated);
+      closeReleaseModal();
+      toast('success', `${updated.name} ${releaseEditingId ? 'updated' : 'created'}.`);
+      await loadReleaseQueue(updated.id);
+    } catch (error) {
+      releaseModalError = friendlyError(error, 'The release could not be saved.');
+      const current = error instanceof ApiError && error.details?.current;
+      if (current && typeof current === 'object' && 'id' in current) upsertRelease(current as ReleaseModel);
+    } finally {
+      releaseModalSaving = false;
+    }
+  }
+
+  async function deleteRelease(release: ReleaseModel) {
+    const confirmed = await requestConfirm({
+      title: `Delete ${release.name}?`,
+      message: 'Only an empty planned release can be deleted. Task assignments are never cleared implicitly.',
+      confirmLabel: 'Delete release',
+      fallbackSelector: '[data-release-modal-trigger]'
+    });
+    if (!confirmed) return;
+    try {
+      await callReleaseApi<unknown>('deleteRelease', release.id, release.version);
+      const next = releases.filter((item) => item.id !== release.id);
+      releases = next;
+      releasesByProject = { ...releasesByProject, [release.project_id]: next };
+      if (releaseSelectedId === release.id) {
+        releaseSelectedId = next[0]?.id || '';
+        releaseQueue = null;
+        if (releaseSelectedId) void loadReleaseQueue(releaseSelectedId);
+      }
+      toast('success', `${release.name} deleted.`);
+    } catch (error) {
+      toast('error', friendlyError(error, 'The release could not be deleted.'));
+    } finally {
+      restoreDialogFocus();
+    }
+  }
+
+  async function completeRelease(release: ReleaseModel) {
+    const confirmed = await requestConfirm({
+      title: `Release ${release.name}?`,
+      message: release.summary?.ready_to_release
+        ? 'This explicitly marks the release as shipped. Helm will recheck every direct member and prerequisite.'
+        : 'This release is not ready yet. Helm will reject the action while any required work remains incomplete.',
+      confirmLabel: 'Complete release',
+      fallbackSelector: `[data-release-id="${release.id}"]`
+    });
+    if (!confirmed) return;
+    try {
+      const updated = await callReleaseApi<ReleaseModel>('completeRelease', release.id, release.version);
+      upsertRelease(updated);
+      releaseQueue = null;
+      await loadReleaseQueue(updated.id);
+      toast('success', `${updated.name} is now released.`);
+    } catch (error) {
+      toast('error', friendlyError(error, 'The release could not be completed. Refresh its progress and try again.'));
+      if (error instanceof ApiError && error.details?.current && typeof error.details.current === 'object') upsertRelease(error.details.current as ReleaseModel);
+    } finally {
+      restoreDialogFocus();
+    }
+  }
+
+  function openReleaseReopen(release: ReleaseModel) {
+    releaseReopenTarget = release;
+    releaseReopenReason = '';
+    rememberDialogFocus(`[data-release-id="${release.id}"]`);
+  }
+
+  function closeReleaseReopen() {
+    releaseReopenTarget = null;
+    releaseReopenReason = '';
+    releaseReopening = false;
+    restoreDialogFocus();
+  }
+
+  async function reopenRelease() {
+    const release = releaseReopenTarget;
+    if (!release || !releaseReopenReason.trim()) return;
+    releaseReopening = true;
+    try {
+      const updated = await callReleaseApi<ReleaseModel>('reopenRelease', release.id, release.version, { reason: releaseReopenReason.trim() });
+      upsertRelease(updated);
+      closeReleaseReopen();
+      await loadReleaseQueue(updated.id);
+      toast('success', `${updated.name} reopened.`);
+    } catch (error) {
+      toast('error', friendlyError(error, 'The release could not be reopened.'));
+      if (error instanceof ApiError && error.details?.current && typeof error.details.current === 'object') upsertRelease(error.details.current as ReleaseModel);
+    } finally {
+      releaseReopening = false;
+    }
+  }
+
   async function loadProjects() {
     const requestId = ++projectListRequest;
     const selectionVersion = projectSwitchVersion;
@@ -1782,7 +2259,12 @@
       const target = nextProjects.find((project) => project.slug === routeSlug) || nextProjects.find((project) => project.slug === remembered) || nextProjects[0];
       if (target) {
         activeProjectSlug = target.slug;
-        if (view === 'board' || routeSlug) await loadBoard();
+        const targetPath = window.location.pathname;
+        const targetParams = new URL(window.location.href).searchParams;
+        if (!/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) {
+          boardReleaseFilter = targetParams.get('release') || 'all';
+        }
+        if ((view === 'board' && !/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) || routeSlug && !/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) await loadBoard();
       } else {
         activeProjectSlug = '';
         columns = [];
@@ -1845,6 +2327,11 @@
         roadmapProjectId = target?.id;
         view = 'roadmap';
         await loadRoadmap(roadmapProjectId);
+      } else if (routeSlug && isProjectReleasesLocation()) {
+        roadmapProjectId = undefined;
+        view = 'releases';
+        releaseSelectedId = new URL(window.location.href).searchParams.get('release') || '';
+        await loadReleasesPage();
       }
     } catch (error) {
       if (requestId === projectListRequest && sessionGeneration === requestedSession && user) {
@@ -1879,6 +2366,10 @@
       if (requestedCriteriaRevision === boardCriteriaRevision) boardCriteriaTransition = false;
       return true;
     }
+    // Release metadata is intentionally independent from board columns so a
+    // retained API can still render cached board work while release support
+    // rolls out. The release-aware task request below remains authoritative.
+    void loadProjectReleases(project.id);
     boardLoading = true;
     boardMetadataErrors = boardMetadataErrorAfterRefresh(boardMetadataErrors, 'full', [], '');
     boardError = '';
@@ -2202,7 +2693,7 @@
     issuesError = '';
     try {
       const [taskResult, columnResults] = await Promise.all([
-        listAllIssues({ limit: 200 }),
+        listAllIssues({ limit: 200, release_id: releaseQueryValue(issueReleaseFilter) || (issueReleaseFilter === 'unassigned' ? issueReleaseFilter : undefined) }),
         Promise.all(projects.map(async (project) => api.listAllColumns(project.id)))
       ]);
       if (
@@ -2217,6 +2708,7 @@
         mutationsForRequest('issues', mutationSnapshot)
       );
       issueColumns = columnResults.flatMap((result) => result.data);
+      void loadAccessibleReleases();
       return true;
     } catch (error) {
       if (requestId === issueRequest && view === 'issues' && sessionGeneration === requestedSession && user) {
@@ -2281,7 +2773,7 @@
     const projectSnapshot = [...projects];
     try {
       const [workResult, columnResults] = await Promise.all([
-        api.allMyWork({ view: requestedView }),
+        api.allMyWork({ view: requestedView, release_id: releaseQueryValue(myWorkReleaseFilter) || (myWorkReleaseFilter === 'unassigned' ? myWorkReleaseFilter : undefined) }),
         Promise.all(projectSnapshot.map(async (project) => ({
           projectId: project.id,
           columns: (await api.listAllColumns(project.id)).data
@@ -2299,6 +2791,7 @@
         mutationsForRequest(myWorkMutationScope(requestedView), mutationSnapshot)
       );
       myWorkColumnsByProject = Object.fromEntries(columnResults.map((result) => [result.projectId, result.columns]));
+      void loadAccessibleReleases(projectSnapshot);
       observeWorkTransitions(myWorkTasks);
       return true;
     } catch (error) {
@@ -2332,6 +2825,7 @@
     if (searchQuery.trim()) params.set('q', searchQuery.trim());
     if (searchPriority !== 'all') params.set('priority', searchPriority);
     if (searchState !== 'all') params.set('state', searchState);
+    if (searchReleaseFilter !== 'all') params.set('release_id', searchReleaseFilter);
     params.set('sort', searchSortValue());
     navigate(`/search${params.toString() ? `?${params.toString()}` : ''}`);
     void loadSearch();
@@ -2347,11 +2841,12 @@
     searchError = '';
     try {
       const params = searchViewId
-        ? { view: searchViewId, cursor, limit: 200 }
+        ? { view: searchViewId, cursor, limit: 200, release_id: releaseQueryValue(searchReleaseFilter) || (searchReleaseFilter === 'unassigned' ? searchReleaseFilter : undefined) }
         : {
             q: searchQuery.trim() || undefined,
             priority: searchPriority === 'all' ? undefined : searchPriority,
             state: searchState === 'all' ? undefined : searchState,
+            release_id: releaseQueryValue(searchReleaseFilter) || (searchReleaseFilter === 'unassigned' ? searchReleaseFilter : undefined),
             sort: searchSortValue(),
             cursor,
             limit: 200
@@ -2367,6 +2862,7 @@
       })));
       if (requestId !== searchRequest || sessionGeneration !== requestedSession || !user || view !== 'search') return false;
       searchColumnsByProject = Object.fromEntries(columnResults.map((result) => [result.projectId, result.columns]));
+      void loadAccessibleReleases();
       if (!searchViewId || !searchSavedViews.some((item) => item.id === searchViewId)) {
         const savedViews = (await api.listAllSavedViews()).data;
         if (requestId !== searchRequest || sessionGeneration !== requestedSession || !user || view !== 'search') return false;
@@ -2376,6 +2872,7 @@
           searchQuery = typeof selected.filters?.q === 'string' ? selected.filters.q : '';
           searchPriority = typeof selected.filters?.priority === 'string' ? selected.filters.priority : 'all';
           searchState = typeof selected.filters?.state === 'string' ? selected.filters.state : 'all';
+          searchReleaseFilter = typeof selected.filters?.release_id === 'string' ? selected.filters.release_id : 'all';
           const firstSort = selected.sort?.[0];
           searchSortField = firstSort?.field || 'updated_at';
           searchSortDirection = firstSort?.direction || 'desc';
@@ -2405,6 +2902,7 @@
     if (searchQuery.trim()) filters.q = searchQuery.trim();
     if (searchPriority !== 'all') filters.priority = searchPriority;
     if (searchState !== 'all') filters.state = searchState;
+    if (searchReleaseFilter !== 'all') filters.release_id = searchReleaseFilter;
     try {
       const created = await api.createSavedView({
         name,
@@ -2435,7 +2933,8 @@
         filters: {
           ...(searchQuery.trim() ? { q: searchQuery.trim() } : {}),
           ...(searchPriority !== 'all' ? { priority: searchPriority } : {}),
-          ...(searchState !== 'all' ? { state: searchState } : {})
+          ...(searchState !== 'all' ? { state: searchState } : {}),
+          ...(searchReleaseFilter !== 'all' ? { release_id: searchReleaseFilter } : {})
         },
         sort: [{ field: searchSortField, direction: searchSortDirection }],
         shared: savedViewShared
@@ -3086,7 +3585,7 @@
     const normalRequestId = myWorkRequest;
     const refresh = (async () => {
       try {
-        const result = await api.allMyWork({ view: requestedView });
+        const result = await api.allMyWork({ view: requestedView, release_id: releaseQueryValue(myWorkReleaseFilter) || (myWorkReleaseFilter === 'unassigned' ? myWorkReleaseFilter : undefined) });
         if (
           !user
           || sessionGeneration !== requestedSession
@@ -3284,6 +3783,10 @@
     return /^\/p\/[^/]+\/roadmap\/?$/.test(window.location.pathname);
   }
 
+  function isProjectReleasesLocation(): boolean {
+    return /^\/p\/[^/]+\/releases\/?$/.test(window.location.pathname);
+  }
+
   function isProjectTimelineLocation(): boolean {
     return /^\/p\/[^/]+\/timeline\/?$/.test(window.location.pathname);
   }
@@ -3329,7 +3832,7 @@
     }
   }
 
-  async function selectProject(project: Project, push = true) {
+  async function selectProject(project: Project, push = true, routeReleaseFilter?: string) {
     projectSwitchVersion += 1;
     boardTimelineRequest += 1;
     if (drawerTask && !closeDrawer()) return;
@@ -3339,6 +3842,9 @@
     activeProjectSlug = project.slug;
     auditIdFromRoute = '';
     roadmapProjectId = undefined;
+    boardReleaseFilter = routeReleaseFilter || 'all';
+    releaseSelectedId = '';
+    releaseQueue = null;
     columns = [];
     tasks = [];
     selectedTaskIds = new Set();
@@ -3396,6 +3902,12 @@
       // already warm in the common path; this guarded read fills it for a
       // direct project-audit navigation as well.
       if (!columns.length || !tasks.length) await loadBoard();
+    } else if (next === 'releases' && activeProject) {
+      roadmapProjectId = undefined;
+      releaseSelectedId = '';
+      releaseQueue = null;
+      if (push) navigate(`/p/${encodeURIComponent(activeProject.slug)}/releases`);
+      await loadReleasesPage();
     } else if (next === 'settings') {
       if (push) navigate('/settings');
       await Promise.all([loadAgents(), loadCodexAccount(), loadProjectAdmin()]);
@@ -3457,7 +3969,14 @@
         roadmapProjectId = project.id;
         view = 'roadmap';
         void loadRoadmap(project.id);
-      } else if (project) void selectProject(project, false);
+      } else if (project && isProjectReleasesLocation()) {
+        projectSwitchVersion += 1;
+        activeProjectSlug = project.slug;
+        roadmapProjectId = undefined;
+        view = 'releases';
+        releaseSelectedId = new URL(window.location.href).searchParams.get('release') || '';
+        void loadReleasesPage();
+      } else if (project) void selectProject(project, false, new URL(window.location.href).searchParams.get('release') || 'all');
       return;
     }
     if (/^\/my-work\/?$/.test(window.location.pathname)) void setView('my-work', false);
@@ -3667,6 +4186,8 @@
       && !showProjectModal
       && !showTaskModal
       && !showBugModal
+      && !showReleaseModal
+      && !releaseReopenTarget
       && !revealedToken
       && !drawerTask
     ) {
@@ -3683,6 +4204,8 @@
       else if (showProjectModal) closeProjectModal();
       else if (showTaskModal) closeTaskModal();
       else if (showBugModal) closeBugModal();
+      else if (showReleaseModal) closeReleaseModal();
+      else if (releaseReopenTarget) closeReleaseReopen();
       else if (showBulkModal) closeBulkModal();
       else if (revealedToken) closeTokenReveal();
       else if (drawerTask) closeDrawer();
@@ -3782,6 +4305,7 @@
     searchQuery = params.get('q') || '';
     searchPriority = params.get('priority') || 'all';
     searchState = params.get('state') || 'all';
+    searchReleaseFilter = params.get('release_id') || 'all';
     const sort = params.get('sort') || '';
     const [field, direction] = sort.split(':', 2);
     const validFields = ['updated_at', 'created_at', 'due_at', 'title', 'key', 'priority', 'state', 'position'];
@@ -3800,6 +4324,7 @@
     searchQuery = typeof savedView.filters?.q === 'string' ? savedView.filters.q : '';
     searchPriority = typeof savedView.filters?.priority === 'string' ? savedView.filters.priority : 'all';
     searchState = typeof savedView.filters?.state === 'string' ? savedView.filters.state : 'all';
+    searchReleaseFilter = typeof savedView.filters?.release_id === 'string' ? savedView.filters.release_id : 'all';
     const firstSort = savedView.sort?.[0];
     searchSortField = firstSort?.field || 'updated_at';
     searchSortDirection = firstSort?.direction || 'desc';
@@ -3890,6 +4415,9 @@
     taskModalPriority = 'normal';
     taskModalDueDate = '';
     taskModalAssignee = '';
+    taskModalReleaseId = parentTaskId && drawerTask?.id === parentTaskId
+      ? taskReleaseId(drawerTask)
+      : boardReleaseFilter !== 'unassigned' ? releaseQueryValue(boardReleaseFilter) || '' : '';
     taskModalParentId = parentTaskId;
     taskModalIdea = '';
     taskModalSuggestion = null;
@@ -3902,6 +4430,7 @@
     showTaskModal = true;
     projectSwitcherOpen = false;
     void loadCodexAccount();
+    await loadProjectReleases(taskModalProjectId).catch(() => []);
     if (!taskModalColumns.length) await loadTaskModalColumns(taskModalProjectId);
     else taskModalColumnId = taskModalColumns.find((column) => column.semantic_state === 'ready')?.id || taskModalColumns[0]?.id || '';
   }
@@ -3933,6 +4462,8 @@
 		// clear the inherited relationship instead of submitting a guaranteed
 		// cross-project mutation.
 		taskModalParentId = null;
+		taskModalReleaseId = '';
+		void loadProjectReleases(taskModalProjectId).catch(() => []);
 		void loadTaskModalColumns(taskModalProjectId);
 	}
 
@@ -4038,6 +4569,7 @@
         column_id: taskModalColumnId || undefined,
         due_at: dateToIso(taskModalDueDate),
         assignee: taskModalAssignee.trim() || null,
+        release_id: taskModalReleaseId || null,
         parent_task_id: taskModalParentId
       });
       recordTaskMutation(created.id, 'upsert', ['board']);
@@ -4072,10 +4604,12 @@
     bugModalLabels = '';
     bugModalSeverity = '';
     bugModalPriority = 'normal';
+    bugModalReleaseId = boardReleaseFilter !== 'unassigned' ? releaseQueryValue(boardReleaseFilter) || '' : '';
     bugModalError = '';
     rememberDialogFocus('[data-report-bug-trigger]');
     showBugModal = true;
     projectSwitcherOpen = false;
+    await loadProjectReleases(bugModalProjectId).catch(() => []);
     if (!bugModalColumns.length) {
       bugModalLoading = true;
       try {
@@ -4109,8 +4643,9 @@
         kind: 'bug',
         priority: bugModalPriority,
         column_id: bugModalColumnId || undefined,
-        labels: labelIds,
-        bug: {
+          labels: labelIds,
+          release_id: bugModalReleaseId || null,
+          bug: {
           actual_behavior: bugModalActual.trim(),
           expected_behavior: bugModalExpected.trim(),
           reproduction_steps: bugModalReproduction.trim(),
@@ -4139,8 +4674,10 @@
   async function changeBugModalProject() {
     bugModalColumns = [];
     bugModalColumnId = '';
+    bugModalReleaseId = '';
     bugModalError = '';
     if (!bugModalProjectId) return;
+    void loadProjectReleases(bugModalProjectId).catch(() => []);
     bugModalLoading = true;
     try {
       bugModalColumns = bugModalProjectId === activeProject?.id
@@ -4171,6 +4708,8 @@
   function clearFilters() {
     filters = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all', dependency: 'all' };
     boardWorkFilter = 'all';
+    boardReleaseFilter = 'all';
+    syncBoardReleaseURL();
     scheduleBoardReload();
   }
 
@@ -4355,6 +4894,7 @@
       resolution: 'all'
     };
     issueProjectFilter = 'all';
+    issueReleaseFilter = 'all';
   }
 
   function applyIssueRouteFilters(params: URLSearchParams) {
@@ -4374,9 +4914,10 @@
       resolution: ['fixed', 'duplicate', 'not_planned', 'cannot_reproduce', 'works_as_designed', 'open'].includes(resolution) ? resolution : 'all'
     };
     issueProjectFilter = value('project') || 'all';
+    issueReleaseFilter = value('release_id') || 'all';
   }
 
-  function syncIssueViewURL(current: BoardFilters, project: string) {
+  function syncIssueViewURL(current: BoardFilters, project: string, release = issueReleaseFilter) {
     if (typeof window === 'undefined' || window.location.pathname !== '/issues') return;
     const params = new URLSearchParams();
     if (current.query) params.set('q', current.query);
@@ -4387,6 +4928,7 @@
     if (current.reporter && current.reporter !== 'all') params.set('reporter', current.reporter);
     if (current.resolution && current.resolution !== 'all') params.set('resolution', current.resolution);
     if (project !== 'all') params.set('project', project);
+    if (release !== 'all') params.set('release_id', release);
     const query = params.toString();
     const target = `/issues${query ? `?${query}` : ''}`;
     if (`${window.location.pathname}${window.location.search}` !== target) window.history.replaceState({}, '', target);
@@ -4916,7 +5458,8 @@
       const created = await api.createTask(activeProject.id, {
         title,
         column_id: columnId,
-        priority: 'normal'
+        priority: 'normal',
+        release_id: boardReleaseFilter !== 'unassigned' ? releaseQueryValue(boardReleaseFilter) || null : null
       });
       recordTaskMutation(created.id, 'upsert', ['board']);
       tasks = [...tasks, created];
@@ -5080,6 +5623,7 @@
     drawerSavedActionDraftFingerprint = drawerActionDraftFingerprint();
     const openingDraft = drawerDraftFingerprint();
     drawerLoading = true;
+    void loadProjectReleases(task.project_id).catch(() => []);
     void loadDrawerTimeline(task.id);
     try {
       const detail = await api.getTask(task.id);
@@ -5221,6 +5765,7 @@
     draftPriority = task.priority;
     draftDueDate = toInputDate(task.due_at);
     draftAssignee = actorId(task.assignee);
+    draftReleaseId = taskReleaseId(task);
     draftLabels = (task.labels || []).map((label) => label.name).join(', ');
     draftBugActual = task.bug?.actual_behavior || '';
     draftBugExpected = task.bug?.expected_behavior || '';
@@ -5267,6 +5812,7 @@
       draftPriority,
       draftDueDate,
       draftAssignee,
+      draftReleaseId,
       draftLabels,
       draftBugActual,
       draftBugExpected,
@@ -5312,6 +5858,18 @@
     } else if (/^\/roadmap\/?$/.test(path)) {
       view = 'roadmap';
       void loadRoadmap();
+    } else if (/^\/p\/[^/]+\/releases\/?$/.test(path)) {
+      const releaseSlug = path.match(/^\/p\/([^/]+)\/releases\/?$/)?.[1];
+      const releaseProject = projects.find((project) => project.slug === decodeURIComponent(releaseSlug || ''));
+      if (releaseProject) {
+        activeProjectSlug = releaseProject.slug;
+        roadmapProjectId = undefined;
+        view = 'releases';
+        releaseSelectedId = new URL(origin, window.location.origin).searchParams.get('release') || releaseSelectedId;
+        void loadReleasesPage();
+      } else {
+        view = 'releases';
+      }
     } else if (/^\/settings\/?$/.test(path)) {
       view = 'settings';
     } else if (/^\/p\/[^/]+\/timeline\/?$/.test(path)) {
@@ -5496,6 +6054,7 @@
           priority: draftPriority,
           due_at: dateToIso(draftDueDate),
           assignee: draftAssignee.trim() || null,
+          release_id: draftReleaseId || null,
           labels: labelIds,
           label_ids: labelIds,
           ...(drawerTask.kind === 'bug'
@@ -6306,7 +6865,7 @@
           {:else if activeProject}
             <section class="page-heading board-heading">
               <div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>{activeProject.key}</span></div><div class="heading-title-row"><span class="heading-project-dot" style={`--project-color: ${activeProject.color || '#6d5efc'}`}></span><h1>{activeProject.name}</h1><button class="icon-button favorite-heading" class:starred={activeProject.favorite} type="button" aria-label={activeProject.favorite ? 'Remove from favorites' : 'Add to favorites'} on:click={(event) => toggleFavorite(event, activeProject)}>{activeProject.favorite ? '★' : '☆'}</button></div><p>{view === 'timeline' ? 'Everything recently worked on in this board, in one chronological view.' : activeProject.description || 'A focused space for turning ideas into shipped work.'}</p></div>
-              <div class="heading-actions"><button class="button quiet-button" type="button" disabled={portableBusy} on:click={() => void exportActiveProject()}><span aria-hidden="true">⇩</span> Export</button><button class="button quiet-button" type="button" disabled={portableBusy} on:click={() => portableFileInput?.click()}><span aria-hidden="true">⇧</span> Import</button><button class="button quiet-button" type="button" on:click={openProjectRoadmap}><span aria-hidden="true">◒</span> Progress</button><button class="button quiet-button" type="button" on:click={openProjectAudits}><span aria-hidden="true">◎</span> Audits</button><button class="button quiet-button" type="button" data-report-bug-trigger on:click={openBugModal}><span aria-hidden="true">⚠</span> Report bug</button><button class="button primary" type="button" data-task-modal-trigger on:click={() => openTaskModal()}><span aria-hidden="true">＋</span> New task</button><input class="sr-only" bind:this={portableFileInput} type="file" accept=".json,application/json" aria-label="Import a Helm portable archive" on:change={handlePortableFile} /></div>
+              <div class="heading-actions"><button class="button quiet-button" type="button" disabled={portableBusy} on:click={() => void exportActiveProject()}><span aria-hidden="true">⇩</span> Export</button><button class="button quiet-button" type="button" disabled={portableBusy} on:click={() => portableFileInput?.click()}><span aria-hidden="true">⇧</span> Import</button><button class="button quiet-button" type="button" on:click={openProjectRoadmap}><span aria-hidden="true">◒</span> Progress</button><button class="button quiet-button" type="button" on:click={openProjectReleases}><span aria-hidden="true">◈</span> Releases</button><button class="button quiet-button" type="button" on:click={openProjectAudits}><span aria-hidden="true">◎</span> Audits</button><button class="button quiet-button" type="button" data-report-bug-trigger on:click={openBugModal}><span aria-hidden="true">⚠</span> Report bug</button><button class="button primary" type="button" data-task-modal-trigger on:click={() => openTaskModal()}><span aria-hidden="true">＋</span> New task</button><input class="sr-only" bind:this={portableFileInput} type="file" accept=".json,application/json" aria-label="Import a Helm portable archive" on:change={handlePortableFile} /></div>
             </section>
 
             <div class="board-view-switch" role="tablist" aria-label="Board view">
@@ -6317,7 +6876,7 @@
             {#if view === 'board'}
             <section class="board-toolbar" aria-label="Board filters">
               <div class="filter-search"><span aria-hidden="true">⌕</span><input bind:this={boardSearchInput} aria-label="Search tasks" bind:value={filters.query} on:input={scheduleBoardReload} placeholder="Search tasks…" /><kbd>/</kbd></div>
-              <div class="filter-group"><select aria-label="Filter by state" bind:value={filters.state} on:change={scheduleBoardReload}><option value="all">All states</option>{#each sortedColumns as column}<option value={column.semantic_state}>{stateLabels[column.semantic_state] || column.name}</option>{/each}</select><select aria-label="Filter by priority" bind:value={filters.priority} on:change={scheduleBoardReload}><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select><select aria-label="Filter by agent work" bind:value={boardWorkFilter} on:change={scheduleBoardReload}><option value="all">All agent work</option><option value="action-needed">Action needed{boardWorkCounts.actionNeeded ? ` · ${boardWorkCounts.actionNeeded}` : ''}</option><option value="missing">Missing{boardWorkCounts.missing ? ` · ${boardWorkCounts.missing}` : ''}</option><option value="stale">Stale{boardWorkCounts.stale ? ` · ${boardWorkCounts.stale}` : ''}</option><option value="waiting">Waiting{boardWorkCounts.waiting ? ` · ${boardWorkCounts.waiting}` : ''}</option><option value="handoff">Handoff{boardWorkCounts.handoff ? ` · ${boardWorkCounts.handoff}` : ''}</option><option value="working">Working{boardWorkCounts.working ? ` · ${boardWorkCounts.working}` : ''}</option><option value="verifying">Verifying{boardWorkCounts.verifying ? ` · ${boardWorkCounts.verifying}` : ''}</option></select><select aria-label="Filter by dependency readiness" bind:value={filters.dependency} on:change={scheduleBoardReload}><option value="all">All dependencies</option><option value="blocked">Waiting on prerequisites</option><option value="ready">Prerequisites finished</option></select><select aria-label="Filter by label" bind:value={filters.label} on:change={scheduleBoardReload}><option value="all">All labels</option>{#each labels as label}<option value={label.id}>{label.name}</option>{/each}</select><select aria-label="Filter by assignee" bind:value={filters.assignee} on:change={scheduleBoardReload}><option value="all">All assignees</option>{#each Array.from(new Map(tasks.map((task) => [actorId(task.assignee), task.assignee])).entries()).filter(([id]) => id) as pair}<option value={pair[0]}>{actorName(pair[1]) || pair[0]}</option>{/each}</select><select aria-label="Sort tasks" bind:value={boardSort} on:change={scheduleBoardReload}><option value="position">Board order</option><option value="number">Task number</option><option value="priority">Priority</option><option value="title">Title</option><option value="created_at">Created</option><option value="updated_at">Updated</option></select><select aria-label="Sort direction" bind:value={boardOrder} on:change={scheduleBoardReload}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div>
+              <div class="filter-group"><select aria-label="Filter by state" bind:value={filters.state} on:change={scheduleBoardReload}><option value="all">All states</option>{#each sortedColumns as column}<option value={column.semantic_state}>{stateLabels[column.semantic_state] || column.name}</option>{/each}</select><select aria-label="Filter by priority" bind:value={filters.priority} on:change={scheduleBoardReload}><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select><select aria-label="Filter by release" bind:value={boardReleaseFilter} on:change={() => { syncBoardReleaseURL(); scheduleBoardReload(); }}><option value="all">All releases</option>{#each activeProjectReleases as release}<option value={release.id}>{release.name}{release.status === 'released' ? ' · Released' : ''}</option>{/each}<option value="unassigned">No release</option></select><select aria-label="Filter by agent work" bind:value={boardWorkFilter} on:change={scheduleBoardReload}><option value="all">All agent work</option><option value="action-needed">Action needed{boardWorkCounts.actionNeeded ? ` · ${boardWorkCounts.actionNeeded}` : ''}</option><option value="missing">Missing{boardWorkCounts.missing ? ` · ${boardWorkCounts.missing}` : ''}</option><option value="stale">Stale{boardWorkCounts.stale ? ` · ${boardWorkCounts.stale}` : ''}</option><option value="waiting">Waiting{boardWorkCounts.waiting ? ` · ${boardWorkCounts.waiting}` : ''}</option><option value="handoff">Handoff{boardWorkCounts.handoff ? ` · ${boardWorkCounts.handoff}` : ''}</option><option value="working">Working{boardWorkCounts.working ? ` · ${boardWorkCounts.working}` : ''}</option><option value="verifying">Verifying{boardWorkCounts.verifying ? ` · ${boardWorkCounts.verifying}` : ''}</option></select><select aria-label="Filter by dependency readiness" bind:value={filters.dependency} on:change={scheduleBoardReload}><option value="all">All dependencies</option><option value="blocked">Waiting on prerequisites</option><option value="ready">Prerequisites finished</option></select><select aria-label="Filter by label" bind:value={filters.label} on:change={scheduleBoardReload}><option value="all">All labels</option>{#each labels as label}<option value={label.id}>{label.name}</option>{/each}</select><select aria-label="Filter by assignee" bind:value={filters.assignee} on:change={scheduleBoardReload}><option value="all">All assignees</option>{#each Array.from(new Map(tasks.map((task) => [actorId(task.assignee), task.assignee])).entries()).filter(([id]) => id) as pair}<option value={pair[0]}>{actorName(pair[1]) || pair[0]}</option>{/each}</select><select aria-label="Sort tasks" bind:value={boardSort} on:change={scheduleBoardReload}><option value="position">Board order</option><option value="number">Task number</option><option value="priority">Priority</option><option value="title">Title</option><option value="created_at">Created</option><option value="updated_at">Updated</option></select><select aria-label="Sort direction" bind:value={boardOrder} on:change={scheduleBoardReload}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div>
               {#if boardFiltersActive()}<button class="clear-filters" type="button" on:click={clearFilters}>Clear filters</button>{/if}
               <div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={!visibleTasks.length || allVisibleTasksSelected}>Select loaded tasks</button>{#if selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div>
               <span class="toolbar-spacer"></span><span class="task-total">{visibleTasks.length}{boardPartial ? '+' : ''} {visibleTasks.length === 1 ? 'task' : 'tasks'}</span><button class="icon-button" type="button" aria-label="Refresh board" on:click={() => loadBoard()}>↻</button>
@@ -6377,7 +6936,7 @@
                             </label>
                             <button class="task-drag-handle" type="button" draggable="true" aria-label={`Drag ${task.key}, ${task.title}`} title="Drag task" on:click|stopPropagation={() => undefined} on:dragstart|stopPropagation={(event) => dragStart(event, task)}>⠿</button>
                             <button class="task-main" type="button" data-task-trigger aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
-                              <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{/if}{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
+                              <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{/if}{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if taskReleaseName(task)}<span class="release-chip" title={`Target release: ${taskReleaseName(task)}`}>◈ {taskReleaseName(task)}</span>{/if}{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
                               <strong class="task-title">{task.title}</strong>
                               {#if task.description}<span class="task-excerpt">{task.description.replace(/[#*_`]/g, '').slice(0, 92)}{task.description.length > 92 ? '…' : ''}</span>{/if}
 	                              {#if task.labels?.length}<span class="task-labels">{#each task.labels.slice(0, 3) as label}<span class="label-chip" style={`--label-color: ${label.color || '#8b7cf6'}`}>{label.name}</span>{/each}{#if task.labels.length > 3}<span class="label-more">+{task.labels.length - 3}</span>{/if}</span>{/if}
@@ -6425,6 +6984,60 @@
           {:else}
             <div class="empty-state welcome-state"><div class="welcome-orbit"><span>R</span></div><span class="eyebrow">Your workspace is ready</span><h1>Start with a project.</h1><p>Projects give your ideas a home. Create one, invite your agents, and keep the next step clear.</p><button class="button primary button-large" type="button" on:click={openProjectModal}>＋ Create your first project</button></div>
           {/if}
+        {:else if view === 'releases'}
+          {#if activeProject}
+            <section class="page-heading release-page-heading">
+              <div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>{activeProject.key}</span><span>/</span><span>Releases</span></div><h1>{activeProject.name} releases</h1><p>Plan the work that must ship together, see readiness, and keep release claims visible.</p></div>
+              <div class="heading-actions"><button class="button quiet-button" type="button" on:click={() => void loadReleasesPage()} disabled={releasesLoading}>↻ Refresh</button><button class="button primary" type="button" data-release-modal-trigger on:click={() => openReleaseModal()} disabled={releaseWritesDisabled()}>＋ New release</button></div>
+            </section>
+            {#if releaseWritesDisabled()}<div class="inline-alert warning content-alert" role="status"><span aria-hidden="true">⌁</span><span>Release planning is read-only while offline. Existing release references remain visible.</span></div>{/if}
+            {#if releasesError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{releasesError}</span><button class="text-button" type="button" on:click={() => void loadReleasesPage()}>Retry</button></div>{/if}
+            {#if releasesLoading && !activeProjectReleases.length}
+              <div class="release-skeleton" role="status" aria-label="Loading releases"><div></div><div></div><div></div></div>
+            {:else}
+              <section class="release-layout" aria-label={`${activeProject.name} release planning`}>
+                <section class="release-list-panel" aria-labelledby="release-list-heading">
+                  <div class="release-panel-heading"><div><span class="eyebrow">Delivery boundaries</span><h2 id="release-list-heading">Planned and released</h2><p>Planned releases appear first by target date; shipped history stays available below.</p></div><span class="release-count">{sortedReleases.length}</span></div>
+                  {#if sortedReleases.length}
+                    <div class="release-list" role="list">
+                      {#each sortedReleases as release (release.id)}
+                        {@const summary = releaseSummary(release)}
+                        {@const progress = releaseProgress(release)}
+                        <article class="release-row" class:selected={releaseSelectedId === release.id} data-release-id={release.id} role="listitem">
+                          <button class="release-row-select" type="button" aria-pressed={releaseSelectedId === release.id} on:click={() => selectRelease(release)}>
+                            <span class="release-row-heading"><strong>{release.name}</strong><span class:released={release.status === 'released'} class="release-status">{releaseStatusLabel(release)}</span></span>
+                            <span class="release-row-meta">{release.target_date ? `Target ${formatDate(release.target_date)}` : 'No target date'}{#if release.status === 'released' && release.released_at} · Released {formatDate(release.released_at)}{/if}</span>
+                            <span class="release-progress-label"><span>{summary.completed_count ?? 0} of {summary.task_count ?? 0} direct tasks complete</span><strong>{progress}%</strong></span>
+                            <span class="release-progress-track" aria-label={`${progress}% complete`}><span style={`width: ${progress}%`}></span></span>
+                            <span class="release-row-signals"><span>{summary.required_completed_count ?? 0}/{summary.required_task_count ?? 0} required</span>{#if summary.blocked_count}<span class="signal-blocked">{summary.blocked_count} blocked</span>{/if}{#if summary.claimed_count}<span>{summary.claimed_count} claimed</span>{/if}{#if summary.cross_release_conflict_count}<span class="signal-conflict">{summary.cross_release_conflict_count} conflicts</span>{/if}</span>
+                          </button>
+                          <div class="release-row-actions">{#if release.status === 'planned'}<button class="button quiet-button compact-button" type="button" disabled={releaseWritesDisabled()} on:click={() => openReleaseModal(release)}>Edit</button><button class="button quiet-button compact-button" type="button" disabled={releaseWritesDisabled()} on:click={() => void completeRelease(release)}>Complete</button><button class="icon-button tiny danger-button" type="button" aria-label={`Delete release ${release.name}`} disabled={releaseWritesDisabled()} on:click={() => void deleteRelease(release)}>×</button>{:else}<button class="button quiet-button compact-button" type="button" disabled={releaseWritesDisabled()} on:click={() => openReleaseReopen(release)}>Reopen</button>{/if}</div>
+                        </article>
+                      {/each}
+                    </div>
+                  {:else}
+                    <div class="empty-state compact-empty release-empty"><div class="empty-icon">◈</div><h3>No releases yet</h3><p>Create a release boundary to make target work and readiness visible.</p><button class="button primary" type="button" data-release-modal-trigger on:click={() => openReleaseModal()} disabled={releaseWritesDisabled()}>＋ Create a release</button></div>
+                  {/if}
+                </section>
+                <aside class="release-detail-panel" aria-labelledby="release-detail-heading">
+                  {#if selectedRelease}
+                    {@const detailSummary = releaseSummary(selectedRelease)}
+                    {@const detailProgress = releaseProgress(selectedRelease)}
+                    <div class="release-detail-heading"><div><span class="eyebrow">Release plan</span><h2 id="release-detail-heading">{selectedRelease.name}</h2><span class:released={selectedRelease.status === 'released'} class="release-status">{releaseStatusLabel(selectedRelease)}</span></div><button class="button quiet-button compact-button" type="button" on:click={() => openReleaseFilteredBoard(selectedRelease)}>Open filtered board</button></div>
+                    {#if selectedRelease.description}<p class="release-description">{selectedRelease.description}</p>{/if}
+                    <div class="release-detail-target">{selectedRelease.target_date ? `Target date · ${formatDate(selectedRelease.target_date)}` : 'No target date set'}{#if selectedRelease.status === 'released' && selectedRelease.released_at}<span>Released {formatDate(selectedRelease.released_at)}</span>{/if}</div>
+                    <div class="release-summary-grid"><article><span>Direct progress</span><strong>{detailProgress}%</strong><small>{detailSummary.completed_count ?? 0}/{detailSummary.task_count ?? 0} complete</small></article><article><span>Required work</span><strong>{releaseProgress(selectedRelease, true)}%</strong><small>{detailSummary.required_completed_count ?? 0}/{detailSummary.required_task_count ?? 0} complete</small></article><article><span>Readiness</span><strong class:ready={detailSummary.ready_to_release} class="release-readiness">{selectedRelease.status === 'released' ? 'Shipped' : detailSummary.ready_to_release ? 'Ready' : 'Not ready'}</strong><small>{detailSummary.blocked_count ?? 0} blocked · {detailSummary.claimed_count ?? 0} claimed</small></article></div>
+                    {#if detailSummary.cross_release_conflict_count || detailSummary.checklist_warning_count}<div class="inline-alert warning release-warning" role="status"><span>!</span><span>{detailSummary.cross_release_conflict_count ?? 0} cross-release conflicts · {detailSummary.checklist_warning_count ?? 0} checklist warnings need review.</span></div>{/if}
+                    <section class="release-queue-section" aria-labelledby="release-queue-heading"><div class="release-section-heading"><div><h3 id="release-queue-heading">Work queue</h3><p>Direct members and prerequisites that affect readiness.</p></div><button class="icon-button" type="button" aria-label="Refresh release work queue" on:click={() => void loadReleaseQueue(selectedRelease.id)}>↻</button></div>{#if releaseQueueError}<div class="inline-alert error" role="alert"><span>!</span>{releaseQueueError}</div>{/if}{#if releaseQueueLoading}<div class="release-queue-loading" role="status"><span class="spinner"></span>Loading queue…</div>{:else if releaseQueue?.data?.length}<ul class="release-queue-list">{#each releaseQueue.data as item (item.task?.id)}<li><button type="button" class="release-queue-task" on:click={() => item.task?.id && void openWorkTaskById(item.task.id)}><span class="task-key">{item.task?.key || 'Task'}</span><span>{item.relationship === 'prerequisite' ? 'Prerequisite' : 'Direct member'}</span></button><span class={`queue-disposition ${item.disposition}`}>{item.disposition?.split('_').join(' ')}</span>{#if item.blocked_by?.length}<small>Blocked by {item.blocked_by.map((blocker) => blocker.key).join(', ')}</small>{/if}</li>{/each}</ul>{:else}<p class="release-queue-empty">No open work is blocking this release. The queue will refresh when assignments or dependencies change.</p>{/if}</section>
+                  {:else}
+                    <div class="empty-state compact-empty release-detail-empty"><div class="empty-icon">◈</div><h3>Select a release</h3><p>Choose a planned release to inspect progress, blockers, and claimable work.</p></div>
+                  {/if}
+                </aside>
+              </section>
+            {/if}
+          {:else}
+            <div class="empty-state welcome-state"><div class="welcome-orbit"><span>R</span></div><span class="eyebrow">Choose a project</span><h1>Releases live with a project.</h1><p>Select a project first, then plan the work that must ship together.</p><button class="button primary button-large" type="button" on:click={() => setView('board')}>Browse projects</button></div>
+          {/if}
         {:else if view === 'audits'}
           {#if activeProject}
             <AuditReview
@@ -6451,7 +7064,7 @@
                 <div class="filter-search"><span aria-hidden="true">⌕</span><input aria-label="Search all tasks" bind:value={searchQuery} placeholder="Search tasks, keys, labels, projects…" /></div>
               <select aria-label="Filter search by state" bind:value={searchState} on:change={runSearch}><option value="all">All states</option>{#each Object.entries(stateLabels) as pair}<option value={pair[0]}>{pair[1]}</option>{/each}</select>
               <select aria-label="Filter search by priority" bind:value={searchPriority} on:change={runSearch}><option value="all">All priorities</option>{#each Object.entries(priorityLabels) as pair}<option value={pair[0]}>{pair[1]}</option>{/each}</select>
-              <select aria-label="Sort search results" bind:value={searchSortField} on:change={runSearch}><option value="updated_at">Recently updated</option><option value="due_at">Due date</option><option value="priority">Priority</option><option value="title">Title</option><option value="key">Task key</option></select>
+              <select aria-label="Filter search by release" bind:value={searchReleaseFilter} on:change={runSearch}><option value="all">All releases</option>{#each allReleaseOptions as release}<option value={release.id}>{releaseOptionLabel(release)}</option>{/each}<option value="unassigned">No release</option></select><select aria-label="Sort search results" bind:value={searchSortField} on:change={runSearch}><option value="updated_at">Recently updated</option><option value="due_at">Due date</option><option value="priority">Priority</option><option value="title">Title</option><option value="key">Task key</option></select>
               <select aria-label="Sort search direction" bind:value={searchSortDirection} on:change={runSearch}><option value="desc">Descending</option><option value="asc">Ascending</option></select>
               <button class="button primary" type="submit">Search</button>
             </form>
@@ -6460,7 +7073,7 @@
               {#if searchSavedViews.length}<div class="saved-view-list">{#each searchSavedViews as saved (saved.id)}<div class="saved-view-item"><button class:active={searchViewId === saved.id} class="saved-view-chip" type="button" on:click={() => openSavedView(saved)}><span>☆</span><span><strong>{saved.name}</strong><small>{saved.shared ? 'Shared' : 'Private'}</small></span></button>{#if saved.owner_id === user?.id}<button class="saved-view-delete" type="button" aria-label={`Delete saved view ${saved.name}`} on:click={() => removeCurrentSearchView(saved)}>×</button>{/if}</div>{/each}</div>{/if}
             </section>
             {#if searchError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{searchError}</span><button class="text-button" type="button" on:click={() => loadSearch()}>Retry</button></div>{/if}
-            {#if searchLoading}<div class="list-skeleton" aria-label="Loading search results"><div></div><div></div><div></div></div>{:else if !searchTasks.length}<div class="empty-state search-empty"><div class="empty-icon">⌕</div><h2>No matching tasks</h2><p>Try a task key, project name, label, or a shorter phrase.</p></div>{:else}<section class="search-results" aria-label="Search results">{#each searchTasks as task (task.id)}<button class="search-result-row" type="button" on:click={() => openWorkTask(task)}><span class="work-project-dot" style={`--project-color: ${projectForTask(task)?.color || '#6d5efc'}`}></span><span class="search-result-main"><span class="work-row-top"><span class="task-key">{task.key}</span><span class={`priority-pill priority-${task.priority}`}>{priorityLabels[task.priority]}</span></span><strong>{task.title}</strong><span class="work-project-name">{projectForTask(task)?.name || 'Project'}</span></span><span class="search-result-column">{searchColumnsByProject[task.project_id]?.find((column) => column.id === task.column_id)?.name || '—'}</span><span class="row-arrow">→</span></button>{/each}</section>{#if searchNextCursor}<div class="search-pagination"><button class="button quiet-button" type="button" on:click={() => loadSearch(true)}>Load more results</button></div>{/if}{/if}
+            {#if searchLoading}<div class="list-skeleton" aria-label="Loading search results"><div></div><div></div><div></div></div>{:else if !visibleSearchTasks.length}<div class="empty-state search-empty"><div class="empty-icon">⌕</div><h2>No matching tasks</h2><p>Try a task key, project name, label, or a shorter phrase.</p></div>{:else}<section class="search-results" aria-label="Search results">{#each visibleSearchTasks as task (task.id)}<button class="search-result-row" type="button" on:click={() => openWorkTask(task)}><span class="work-project-dot" style={`--project-color: ${projectForTask(task)?.color || '#6d5efc'}`}></span><span class="search-result-main"><span class="work-row-top"><span class="task-key">{task.key}</span><span class={`priority-pill priority-${task.priority}`}>{priorityLabels[task.priority]}</span>{#if taskReleaseName(task)}<span class="release-chip">{taskReleaseName(task)}</span>{/if}</span><strong>{task.title}</strong><span class="work-project-name">{projectForTask(task)?.name || 'Project'}</span></span><span class="search-result-column">{searchColumnsByProject[task.project_id]?.find((column) => column.id === task.column_id)?.name || '—'}</span><span class="row-arrow">→</span></button>{/each}</section>{#if searchNextCursor}<div class="search-pagination"><button class="button quiet-button" type="button" on:click={() => loadSearch(true)}>Load more results</button></div>{/if}{/if}
           </section>
         {:else if view === 'issues'}
           <section class="page-heading issues-heading">
@@ -6481,9 +7094,9 @@
               <select aria-label="Filter by severity" bind:value={issueFilters.severity}><option value="all">All severities</option><option value="untriaged">Untriaged</option>{#each Object.entries(severityLabels) as pair}<option value={pair[0]}>{pair[1]}</option>{/each}</select>
               <select aria-label="Filter by resolution" bind:value={issueFilters.resolution}><option value="all">All resolutions</option><option value="open">Open</option>{#each resolutionOptions as resolution}<option value={resolution}>{resolutionLabels[resolution]}</option>{/each}</select>
               <select aria-label="Filter issues by project" bind:value={issueProjectFilter}><option value="all">All projects</option>{#each projects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select>
-              <select aria-label="Filter by reporter" bind:value={issueFilters.reporter}><option value="all">All reporters</option>{#each issueReporterOptions as reporter}<option value={reporter}>{reporter}</option>{/each}</select>
+              <select aria-label="Filter issues by release" bind:value={issueReleaseFilter} on:change={() => { syncIssueViewURL(issueFilters, issueProjectFilter); void loadIssues(); }}><option value="all">All releases</option>{#each allReleaseOptions as release}<option value={release.id}>{releaseOptionLabel(release)}</option>{/each}<option value="unassigned">No release</option></select><select aria-label="Filter by reporter" bind:value={issueFilters.reporter}><option value="all">All reporters</option>{#each issueReporterOptions as reporter}<option value={reporter}>{reporter}</option>{/each}</select>
             </div>
-            {#if issueFilters.query || issueFilters.kind !== 'bug' || issueFilters.severity !== 'all' || issueFilters.resolution !== 'all' || issueFilters.reporter !== 'all' || issueProjectFilter !== 'all'}<button class="clear-filters" type="button" on:click={clearIssueFilters}>Clear filters</button>{/if}
+            {#if issueFilters.query || issueFilters.kind !== 'bug' || issueFilters.severity !== 'all' || issueFilters.resolution !== 'all' || issueFilters.reporter !== 'all' || issueProjectFilter !== 'all' || issueReleaseFilter !== 'all'}<button class="clear-filters" type="button" on:click={clearIssueFilters}>Clear filters</button>{/if}
             <span class="toolbar-spacer"></span><span class="task-total">{visibleIssues.length} {visibleIssues.length === 1 ? 'issue' : 'issues'}</span>
           </section>
           <section class="issue-metrics" aria-label="Issue health">
@@ -6502,7 +7115,7 @@
               {#each visibleIssues as issue (issue.id)}
                 <button class="issue-row" type="button" on:click={() => openWorkTask(issue)}>
                   <span class="issue-kind-badge" class:task-kind={issue.kind !== 'bug'}>{issue.kind === 'bug' ? 'Bug' : 'Task'}</span>
-                  <span class="issue-main"><span class="issue-row-top"><span class="task-key">{issue.key}</span><span class={`priority-pill priority-${issue.priority}`}>{priorityLabels[issue.priority]}</span></span><strong>{issue.title}</strong><span class="issue-project-name">{projectForTask(issue)?.name || 'Project'}{#if issue.bug?.reporter_id}<span> · Reported by {issue.bug.reporter_id}</span>{/if}</span></span>
+                  <span class="issue-main"><span class="issue-row-top"><span class="task-key">{issue.key}</span><span class={`priority-pill priority-${issue.priority}`}>{priorityLabels[issue.priority]}</span>{#if taskReleaseName(issue)}<span class="release-chip">{taskReleaseName(issue)}</span>{/if}</span><strong>{issue.title}</strong><span class="issue-project-name">{projectForTask(issue)?.name || 'Project'}{#if issue.bug?.reporter_id}<span> · Reported by {issue.bug.reporter_id}</span>{/if}</span></span>
                   <span class="issue-status"><span class:untriaged={!issue.bug?.severity} class="severity-badge">{issue.bug?.severity ? severityLabels[issue.bug.severity] : 'Untriaged'}</span>{#if issue.bug?.resolution}<span class="resolution-badge">{resolutionLabels[issue.bug.resolution] || issue.bug.resolution}</span>{:else}<span class="resolution-badge open">Open</span>{/if}</span>
                   <span class="issue-column">{issueColumns.find((column) => column.project_id === issue.project_id && column.id === issue.column_id)?.name || '—'}</span><span class="row-arrow">→</span>
                 </button>
@@ -6510,9 +7123,9 @@
             </section>
           {/if}
         {:else if view === 'my-work'}
-          <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Personal</span></div><h1>My work</h1><p>{myWorkView === 'live' ? 'Live agent work across every project, grouped by the attention it needs.' : 'Everything assigned or claimed by you, across projects.'}</p></div><div class="heading-actions"><div class="work-view-toggle" role="group" aria-label="My work source"><button class:active={myWorkView === 'live'} class="button quiet-button" type="button" aria-pressed={myWorkView === 'live'} on:click={() => selectMyWorkView('live')}>Live</button><button class:active={myWorkView === 'assigned'} class="button quiet-button" type="button" aria-pressed={myWorkView === 'assigned'} on:click={() => selectMyWorkView('assigned')}>Assigned</button></div><button class="button quiet-button" type="button" on:click={loadMyWork}>↻ Refresh</button></div></section>
+          <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Personal</span></div><h1>My work</h1><p>{myWorkView === 'live' ? 'Live agent work across every project, grouped by the attention it needs.' : 'Everything assigned or claimed by you, across projects.'}</p></div><div class="heading-actions"><div class="work-view-toggle" role="group" aria-label="My work source"><button class:active={myWorkView === 'live'} class="button quiet-button" type="button" aria-pressed={myWorkView === 'live'} on:click={() => selectMyWorkView('live')}>Live</button><button class:active={myWorkView === 'assigned'} class="button quiet-button" type="button" aria-pressed={myWorkView === 'assigned'} on:click={() => selectMyWorkView('assigned')}>Assigned</button></div><button class="button quiet-button" type="button" on:click={loadMyWork}>↻ Refresh</button><select class="release-filter-select" aria-label="Filter my work by release" bind:value={myWorkReleaseFilter} on:change={loadMyWork}><option value="all">All releases</option>{#each allReleaseOptions as release}<option value={release.id}>{releaseOptionLabel(release)}</option>{/each}<option value="unassigned">No release</option></select></div></section>
           {#if myWorkError}<div class="inline-alert error content-alert" role="alert"><span>!</span>{myWorkError}<button class="text-button" type="button" on:click={loadMyWork}>Retry</button></div>{/if}
-          {#if myWorkLoading}<div class="list-skeleton">{#each [1, 2, 3] as item}<div></div>{/each}</div>{:else if !myWorkTasks.length}<div class="empty-state"><div class="empty-icon">◌</div><h2>{myWorkView === 'live' ? 'No live work yet' : 'No work assigned yet'}</h2><p>{myWorkView === 'live' ? 'Agent updates and attention items will appear here as work moves across projects.' : 'Tasks claimed or assigned to you will show up here.'}</p><button class="button primary" type="button" on:click={() => activeProject && setView('board')}>Browse the board</button></div>{:else if myWorkView === 'assigned'}<section class="work-list">{#each myWorkTasks as task (task.id)}<button class="work-row" type="button" on:click={() => openWorkTask(task)}><span class="work-project-dot" style={`--project-color: ${projectForTask(task)?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{task.key}</span><span class={`priority-pill priority-${task.priority}`}>{priorityLabels[task.priority]}</span></span><strong>{task.title}</strong><span class="work-project-name">{projectForTask(task)?.name || 'Project'}</span></span><span class="work-column">{myWorkColumnsByProject[task.project_id]?.find((column) => column.id === task.column_id)?.name || 'In progress'}</span><span class={`work-due ${taskDueClass(task)}`}>{task.due_at ? `${isOverdue(task.due_at) ? 'Overdue · ' : ''}${formatDate(task.due_at)}` : 'No due date'}</span><span class="row-arrow">→</span></button>{/each}</section>{:else}
+          {#if myWorkLoading}<div class="list-skeleton">{#each [1, 2, 3] as item}<div></div>{/each}</div>{:else if !visibleMyWorkTasks.length}<div class="empty-state"><div class="empty-icon">◌</div><h2>{myWorkView === 'live' ? 'No live work yet' : 'No work assigned yet'}</h2><p>{myWorkView === 'live' ? 'Agent updates and attention items will appear here as work moves across projects.' : 'Tasks claimed or assigned to you will show up here.'}</p><button class="button primary" type="button" on:click={() => activeProject && setView('board')}>Browse the board</button></div>{:else if myWorkView === 'assigned'}<section class="work-list">{#each visibleMyWorkTasks as task (task.id)}<button class="work-row" type="button" on:click={() => openWorkTask(task)}><span class="work-project-dot" style={`--project-color: ${projectForTask(task)?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{task.key}</span><span class={`priority-pill priority-${task.priority}`}>{priorityLabels[task.priority]}</span>{#if taskReleaseName(task)}<span class="release-chip">{taskReleaseName(task)}</span>{/if}</span><strong>{task.title}</strong><span class="work-project-name">{projectForTask(task)?.name || 'Project'}</span></span><span class="work-column">{myWorkColumnsByProject[task.project_id]?.find((column) => column.id === task.column_id)?.name || 'In progress'}</span><span class={`work-due ${taskDueClass(task)}`}>{task.due_at ? `${isOverdue(task.due_at) ? 'Overdue · ' : ''}${formatDate(task.due_at)}` : 'No due date'}</span><span class="row-arrow">→</span></button>{/each}</section>{:else}
             <section class="live-work" class:action-filter={myWorkFilter === 'action-needed'} aria-labelledby="live-work-heading">
               <div class="live-work-toolbar">
                 <div><span class="eyebrow">Cross-project coordination</span><h2 id="live-work-heading">{myWorkView === 'live' ? 'Live work' : 'Assigned work'}</h2><p>{myWorkView === 'live' ? `${myWorkTasks.length} live assignment${myWorkTasks.length === 1 ? '' : 's'} across projects.` : `${myWorkTasks.length} assignment${myWorkTasks.length === 1 ? '' : 's'} currently assigned or claimed by you.`}</p></div>
@@ -6524,7 +7137,7 @@
               </div>
               {#if myWorkColumnsLoading}<div class="live-work-note"><span class="spinner"></span> Loading project columns…</div>{/if}
               {#if myWorkFilter === 'all' || myWorkFilter === 'action-needed'}
-                <section class="live-work-group action-needed-group" aria-labelledby="action-needed-heading"><div class="live-work-group-heading"><div><h3 id="action-needed-heading">Action needed</h3><p>Waiting, handoff, stale, or explicitly blocked by an agent.</p></div><strong>{myWorkActionRows.length}</strong></div>{#if myWorkActionRows.length}{#each myWorkActionRows as row (row.task.id)}<button class="work-row live-work-row" type="button" on:click={() => openWorkTask(row.task)}><span class="work-project-dot" style={`--project-color: ${row.project?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{row.task.key}</span><span class={`priority-pill priority-${row.task.priority}`}>{priorityLabels[row.task.priority]}</span></span><strong>{row.task.title}</strong><span class="work-project-name">{row.project?.name || 'Project'} · {row.column?.name || stateLabels[semanticStateForTask(row.task, myWorkColumnsByProject[row.task.project_id] || [])] || 'In progress'}</span></span><span class="live-work-state"><AgentPulse task={row.task} now={pulseClock} actorLabel={agentLabelForTask(row.task)} /></span><span class="row-arrow">→</span></button>{/each}{:else}<p class="live-work-empty">Nothing needs your attention right now.</p>{/if}</section>
+                <section class="live-work-group action-needed-group" aria-labelledby="action-needed-heading"><div class="live-work-group-heading"><div><h3 id="action-needed-heading">Action needed</h3><p>Waiting, handoff, stale, or explicitly blocked by an agent.</p></div><strong>{myWorkActionRows.length}</strong></div>{#if myWorkActionRows.length}{#each myWorkActionRows as row (row.task.id)}<button class="work-row live-work-row" type="button" on:click={() => openWorkTask(row.task)}><span class="work-project-dot" style={`--project-color: ${row.project?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{row.task.key}</span><span class={`priority-pill priority-${row.task.priority}`}>{priorityLabels[row.task.priority]}</span>{#if taskReleaseName(row.task)}<span class="release-chip">{taskReleaseName(row.task)}</span>{/if}</span><strong>{row.task.title}</strong><span class="work-project-name">{row.project?.name || 'Project'} · {row.column?.name || stateLabels[semanticStateForTask(row.task, myWorkColumnsByProject[row.task.project_id] || [])] || 'In progress'}</span></span><span class="live-work-state"><AgentPulse task={row.task} now={pulseClock} actorLabel={agentLabelForTask(row.task)} /></span><span class="row-arrow">→</span></button>{/each}{:else}<p class="live-work-empty">Nothing needs your attention right now.</p>{/if}</section>
               {/if}
                   {#if myWorkFilter === 'all' || myWorkFilter === 'stale'}
                 <section class="live-work-group stale-group" aria-labelledby="stale-heading"><div class="live-work-group-heading"><div><h3 id="stale-heading">Stale</h3><p>No update has arrived for at least 15 minutes.</p></div><strong>{myWorkStaleRows.length}</strong></div>{#if myWorkStaleRows.length}{#each myWorkStaleRows as row (row.task.id)}<LiveWorkRow task={row.task} project={row.project} column={row.column} now={pulseClock} actorLabel={agentLabelForTask(row.task)} onOpen={openWorkTask} />{/each}{:else}<p class="live-work-empty">No stale agent updates.</p>{/if}</section>
@@ -6536,10 +7149,10 @@
                 <section class="live-work-group handoff-group" aria-labelledby="handoff-heading"><div class="live-work-group-heading"><div><h3 id="handoff-heading">Handoff</h3><p>Agent context is ready for a human or another agent.</p></div><strong>{myWorkHandoffRows.length}</strong></div>{#if myWorkHandoffRows.length}{#each myWorkHandoffRows as row (row.task.id)}<LiveWorkRow task={row.task} project={row.project} column={row.column} now={pulseClock} actorLabel={agentLabelForTask(row.task)} onOpen={openWorkTask} />{/each}{:else}<p class="live-work-empty">No handoffs are waiting.</p>{/if}</section>
               {/if}
               {#if myWorkFilter === 'all' || myWorkFilter === 'verifying'}
-                <section class="live-work-group" aria-labelledby="verifying-heading"><div class="live-work-group-heading"><div><h3 id="verifying-heading">Verifying</h3><p>Agent work waiting for a final check.</p></div><strong>{myWorkVerifyingRows.length}</strong></div>{#if myWorkVerifyingRows.length}{#each myWorkVerifyingRows as row (row.task.id)}<button class="work-row live-work-row" type="button" on:click={() => openWorkTask(row.task)}><span class="work-project-dot" style={`--project-color: ${row.project?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{row.task.key}</span><span class={`priority-pill priority-${row.task.priority}`}>{priorityLabels[row.task.priority]}</span></span><strong>{row.task.title}</strong><span class="work-project-name">{row.project?.name || 'Project'} · {row.column?.name || 'In progress'}</span></span><span class="live-work-state"><AgentPulse task={row.task} now={pulseClock} actorLabel={agentLabelForTask(row.task)} /></span><span class="row-arrow">→</span></button>{/each}{:else}<p class="live-work-empty">No work is waiting for verification.</p>{/if}</section>
+                <section class="live-work-group" aria-labelledby="verifying-heading"><div class="live-work-group-heading"><div><h3 id="verifying-heading">Verifying</h3><p>Agent work waiting for a final check.</p></div><strong>{myWorkVerifyingRows.length}</strong></div>{#if myWorkVerifyingRows.length}{#each myWorkVerifyingRows as row (row.task.id)}<button class="work-row live-work-row" type="button" on:click={() => openWorkTask(row.task)}><span class="work-project-dot" style={`--project-color: ${row.project?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{row.task.key}</span><span class={`priority-pill priority-${row.task.priority}`}>{priorityLabels[row.task.priority]}</span>{#if taskReleaseName(row.task)}<span class="release-chip">{taskReleaseName(row.task)}</span>{/if}</span><strong>{row.task.title}</strong><span class="work-project-name">{row.project?.name || 'Project'} · {row.column?.name || 'In progress'}</span></span><span class="live-work-state"><AgentPulse task={row.task} now={pulseClock} actorLabel={agentLabelForTask(row.task)} /></span><span class="row-arrow">→</span></button>{/each}{:else}<p class="live-work-empty">No work is waiting for verification.</p>{/if}</section>
               {/if}
               {#if myWorkFilter === 'all' || myWorkFilter === 'working'}
-                <section class="live-work-group" aria-labelledby="working-heading"><div class="live-work-group-heading"><div><h3 id="working-heading">Working</h3><p>Agents actively moving tasks forward.</p></div><strong>{myWorkWorkingRows.length}</strong></div>{#if myWorkWorkingRows.length}{#each myWorkWorkingRows as row (row.task.id)}<button class="work-row live-work-row" type="button" on:click={() => openWorkTask(row.task)}><span class="work-project-dot" style={`--project-color: ${row.project?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{row.task.key}</span><span class={`priority-pill priority-${row.task.priority}`}>{priorityLabels[row.task.priority]}</span></span><strong>{row.task.title}</strong><span class="work-project-name">{row.project?.name || 'Project'} · {row.column?.name || 'In progress'}</span></span><span class="live-work-state"><AgentPulse task={row.task} now={pulseClock} actorLabel={agentLabelForTask(row.task)} /></span><span class="row-arrow">→</span></button>{/each}{:else}<p class="live-work-empty">No agents are actively working right now.</p>{/if}</section>
+                <section class="live-work-group" aria-labelledby="working-heading"><div class="live-work-group-heading"><div><h3 id="working-heading">Working</h3><p>Agents actively moving tasks forward.</p></div><strong>{myWorkWorkingRows.length}</strong></div>{#if myWorkWorkingRows.length}{#each myWorkWorkingRows as row (row.task.id)}<button class="work-row live-work-row" type="button" on:click={() => openWorkTask(row.task)}><span class="work-project-dot" style={`--project-color: ${row.project?.color || '#6d5efc'}`}></span><span class="work-main"><span class="work-row-top"><span class="task-key">{row.task.key}</span><span class={`priority-pill priority-${row.task.priority}`}>{priorityLabels[row.task.priority]}</span>{#if taskReleaseName(row.task)}<span class="release-chip">{taskReleaseName(row.task)}</span>{/if}</span><strong>{row.task.title}</strong><span class="work-project-name">{row.project?.name || 'Project'} · {row.column?.name || 'In progress'}</span></span><span class="live-work-state"><AgentPulse task={row.task} now={pulseClock} actorLabel={agentLabelForTask(row.task)} /></span><span class="row-arrow">→</span></button>{/each}{:else}<p class="live-work-empty">No agents are actively working right now.</p>{/if}</section>
               {/if}
             </section>
           {/if}
@@ -6592,7 +7205,7 @@
       <div class="drawer-backdrop" role="presentation" on:click={() => closeDrawer()}></div>
       <div class="task-drawer" role="dialog" aria-modal="true" aria-label={`${drawerTask.key}: ${drawerTask.title}`} use:focusTrap>
         <div class="drawer-focus-target sr-only" tabindex="-1" data-dialog-initial-focus aria-label="Task details"></div>
-        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span></div><TaskWatchToggle task={drawerTask} sessionKey={`${user.id}:${sessionGeneration}`} disabled={drawerSaving || drawerLoading} /><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
+        <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span>{#if taskReleaseName(drawerTask)}<span class="release-chip">{taskReleaseName(drawerTask)}</span>{/if}</div><TaskWatchToggle task={drawerTask} sessionKey={`${user.id}:${sessionGeneration}`} disabled={drawerSaving || drawerLoading} /><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
         {#if drawerLoading}<div class="drawer-loading"><span class="spinner"></span><span>Loading task details…</span></div>{/if}
         {#if drawerError}<div class="inline-alert error drawer-alert" role="alert"><span>!</span>{drawerError}</div>{/if}
         <div class="drawer-tabs" role="tablist" aria-label="Task views">
@@ -6625,7 +7238,7 @@
           <section class="block-reason-form" aria-labelledby="block-reason-heading"><label id="block-reason-heading">Why is this task blocked?<textarea rows="3" bind:value={blockReasonDraft} placeholder="Describe the dependency or decision needed." required></textarea></label><div class="form-actions"><button class="text-button" type="button" on:click={() => { blockReasonOpen = false; blockReasonDraft = ''; }}>Cancel</button><button class="button danger-button" type="button" disabled={!blockReasonDraft.trim() || drawerSaving || taskActionLoading === drawerTask.id} on:click={() => runTaskAction('block', blockReasonDraft)}>Block task</button></div></section>
         {/if}
         <TaskDependencyStatus task={drawerTask} mode="notice" />
-              <label class="drawer-title-label"><span class="sr-only">Task title</span><input id="drawer-title" class="drawer-title-input" bind:value={draftTitle} /></label><div class="drawer-meta"><span class="task-project-marker" style={`--project-color: ${projectForTask(drawerTask)?.color || '#6d5efc'}`}></span><span>{projectForTask(drawerTask)?.name || 'Project'}</span><span>·</span><span>Updated {formatRelative(drawerTask?.updated_at)}</span></div><div class="drawer-actions"><button class="button quiet-button" type="button" title={dependencyBlocked(drawerTask) ? dependencyActionExplanation(drawerTask, claimAction(drawerTask) === 'renew' ? 'renew this claim' : 'claim this task') : claimConflict(drawerTask, pulseClock) ? `Claim held by ${claimOwnerLabel(drawerTask)} · task version v${drawerTask.version}` : undefined} disabled={drawerSaving || taskActionLoading === drawerTask?.id || dependencyBlocked(drawerTask) || claimConflict(drawerTask, pulseClock)} on:click={() => runTaskAction(claimAction(drawerTask))}>{drawerTask.claimed_by && actorId(drawerTask.claimed_by) === user?.id && claimIsActive(drawerTask, pulseClock) ? '↻ Renew claim' : drawerTask.claimed_by && claimConflict(drawerTask, pulseClock) ? `Claimed by ${actorName(drawerTask.claimed_by) || 'agent'}` : '⚑ Claim task'}</button>{#if drawerTask.claimed_by && actorId(drawerTask.claimed_by) === user?.id && claimIsActive(drawerTask, pulseClock)}<button class="button quiet-button" type="button" disabled={drawerSaving || taskActionLoading === drawerTask?.id} on:click={() => runTaskAction('release')}>Release</button>{/if}<button class="button complete-button" type="button" title={dependencyBlocked(drawerTask) ? dependencyActionExplanation(drawerTask, 'complete this task') : undefined} disabled={drawerSaving || Boolean(drawerTask.completed_at) || dependencyBlocked(drawerTask) || taskActionLoading === drawerTask.id} on:click={() => runTaskAction('complete')}>{drawerTask.completed_at ? '✓ Completed' : '✓ Complete'}</button></div>{#if showAgentPulse(drawerTask)}<AgentWorkPanel task={drawerTask} now={pulseClock} actorLabel={agentLabelForTask(drawerTask)} />{/if}<section class="drawer-section"><div class="drawer-field-grid"><label>Priority<select bind:value={draftPriority}><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label><label>Due date<input type="date" bind:value={draftDueDate} /></label></div><label>Assignee<input bind:value={draftAssignee} placeholder="Actor ID (optional)" /></label><label>Labels <span class="optional">Comma separated</span><input bind:value={draftLabels} placeholder="frontend, design" /></label>{#if labels.filter((label) => label.project_id === drawerTask?.project_id).length}<div class="drawer-label-picker"><span class="optional">Project labels</span><div class="drawer-label-options">{#each labels.filter((label) => label.project_id === drawerTask?.project_id) as label (label.id)}<span class="drawer-label-option" style={`--label-color: ${label.color || '#8b7cf6'}`}><span>{label.name}</span><button class="icon-button tiny danger-button" type="button" aria-label={`Delete label ${label.name}`} disabled={labelDeleting === label.id} on:click|stopPropagation={() => deleteProjectLabel(label)}>×</button></span>{/each}</div></div>{/if}</section>
+              <label class="drawer-title-label"><span class="sr-only">Task title</span><input id="drawer-title" class="drawer-title-input" bind:value={draftTitle} /></label><div class="drawer-meta"><span class="task-project-marker" style={`--project-color: ${projectForTask(drawerTask)?.color || '#6d5efc'}`}></span><span>{projectForTask(drawerTask)?.name || 'Project'}</span><span>·</span><span>Updated {formatRelative(drawerTask?.updated_at)}</span></div><div class="drawer-actions"><button class="button quiet-button" type="button" title={dependencyBlocked(drawerTask) ? dependencyActionExplanation(drawerTask, claimAction(drawerTask) === 'renew' ? 'renew this claim' : 'claim this task') : claimConflict(drawerTask, pulseClock) ? `Claim held by ${claimOwnerLabel(drawerTask)} · task version v${drawerTask.version}` : undefined} disabled={drawerSaving || taskActionLoading === drawerTask?.id || dependencyBlocked(drawerTask) || claimConflict(drawerTask, pulseClock)} on:click={() => runTaskAction(claimAction(drawerTask))}>{drawerTask.claimed_by && actorId(drawerTask.claimed_by) === user?.id && claimIsActive(drawerTask, pulseClock) ? '↻ Renew claim' : drawerTask.claimed_by && claimConflict(drawerTask, pulseClock) ? `Claimed by ${actorName(drawerTask.claimed_by) || 'agent'}` : '⚑ Claim task'}</button>{#if drawerTask.claimed_by && actorId(drawerTask.claimed_by) === user?.id && claimIsActive(drawerTask, pulseClock)}<button class="button quiet-button" type="button" disabled={drawerSaving || taskActionLoading === drawerTask?.id} on:click={() => runTaskAction('release')}>Release claim</button>{/if}<button class="button complete-button" type="button" title={dependencyBlocked(drawerTask) ? dependencyActionExplanation(drawerTask, 'complete this task') : undefined} disabled={drawerSaving || Boolean(drawerTask.completed_at) || dependencyBlocked(drawerTask) || taskActionLoading === drawerTask.id} on:click={() => runTaskAction('complete')}>{drawerTask.completed_at ? '✓ Completed' : '✓ Complete'}</button></div>{#if showAgentPulse(drawerTask)}<AgentWorkPanel task={drawerTask} now={pulseClock} actorLabel={agentLabelForTask(drawerTask)} />{/if}<section class="drawer-section"><div class="drawer-field-grid"><label>Priority<select bind:value={draftPriority}><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label><label>Due date<input type="date" bind:value={draftDueDate} /></label></div><label>Assignee<input bind:value={draftAssignee} placeholder="Actor ID (optional)" /></label><label>Target release <span class="optional">Optional</span><select aria-label="Task target release" bind:value={draftReleaseId}><option value="">No release</option>{#each releasesByProject[drawerTask.project_id] || [] as release}<option value={release.id} disabled={release.status === 'released' && release.id !== draftReleaseId}>{release.name}{release.status === 'released' ? ' · Released' : ''}</option>{/each}</select></label><label>Labels <span class="optional">Comma separated</span><input bind:value={draftLabels} placeholder="frontend, design" /></label>{#if labels.filter((label) => label.project_id === drawerTask?.project_id).length}<div class="drawer-label-picker"><span class="optional">Project labels</span><div class="drawer-label-options">{#each labels.filter((label) => label.project_id === drawerTask?.project_id) as label (label.id)}<span class="drawer-label-option" style={`--label-color: ${label.color || '#8b7cf6'}`}><span>{label.name}</span><button class="icon-button tiny danger-button" type="button" aria-label={`Delete label ${label.name}`} disabled={labelDeleting === label.id} on:click|stopPropagation={() => deleteProjectLabel(label)}>×</button></span>{/each}</div></div>{/if}</section>
                 <TaskDependencies
                   bind:this={drawerDependencyPanel}
                   task={drawerTask}
@@ -6740,6 +7353,7 @@
             <label>Description <span class="optional">Optional · Markdown supported</span><textarea rows="3" bind:value={taskModalDescription} placeholder="Add the context your future self will need."></textarea></label>
             <div class="form-row"><label>Priority<select bind:value={taskModalPriority}><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label><label>Due date <span class="optional">Optional</span><input type="date" bind:value={taskModalDueDate} /></label></div>
             <label>Assignee <span class="optional">Optional</span><input bind:value={taskModalAssignee} placeholder="Actor ID" /></label>
+            <label>Target release <span class="optional">Optional · distinct from affected version</span><select aria-label="Target release" bind:value={taskModalReleaseId}><option value="">No release</option>{#each (releasesByProject[taskModalProjectId] || []).filter((release) => release.status === 'planned') as release}<option value={release.id}>{release.name}</option>{/each}</select></label>
           </section>
           <div class="modal-actions"><button class="text-button" type="button" on:click={closeTaskModal}>Cancel</button><button class="button primary" type="submit" disabled={taskModalCreating || taskModalLoading || !taskModalTitle.trim()}>{#if taskModalCreating}<span class="button-spinner"></span>{/if}Create task</button></div>
         </form>
@@ -6757,12 +7371,38 @@
           <label>Actual behavior<textarea rows="3" bind:value={bugModalActual} placeholder="What happened?" required></textarea></label>
           <label>Expected behavior<textarea rows="2" bind:value={bugModalExpected} placeholder="What should have happened?"></textarea></label>
           <label>Reproduction steps <span class="optional">Optional</span><textarea rows="2" bind:value={bugModalReproduction} placeholder="1. Open…&#10;2. Click…"></textarea></label>
-          <div class="form-row"><label>Environment <span class="optional">Optional</span><input bind:value={bugModalEnvironment} placeholder="Browser, OS, device" /></label><label>Affected version <span class="optional">Optional</span><input bind:value={bugModalVersion} placeholder="e.g. 1.4.0" /></label></div>
+          <div class="form-row"><label>Environment <span class="optional">Optional</span><input bind:value={bugModalEnvironment} placeholder="Browser, OS, device" /></label><label>Affected version <span class="optional">Optional · customer version</span><input bind:value={bugModalVersion} placeholder="e.g. 1.4.0" /></label></div>
+          <label>Target release <span class="optional">Optional · planned delivery boundary</span><select aria-label="Target release" bind:value={bugModalReleaseId}><option value="">No release</option>{#each (releasesByProject[bugModalProjectId] || []).filter((release) => release.status === 'planned') as release}<option value={release.id}>{release.name}</option>{/each}</select></label>
           <div class="form-row"><label>Severity <span class="optional">Optional · triage later</span><select aria-label="Initial bug severity" bind:value={bugModalSeverity}><option value="">Untriaged</option><option value="s1">{severityLabels.s1}</option><option value="s2">{severityLabels.s2}</option><option value="s3">{severityLabels.s3}</option><option value="s4">{severityLabels.s4}</option></select></label><label>Priority<select bind:value={bugModalPriority}><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label></div>
           <label>Description <span class="optional">Optional · Markdown supported</span><textarea rows="2" bind:value={bugModalDescription} placeholder="Add context beyond the reproduction details."></textarea></label>
           <label>Labels <span class="optional">Optional · comma separated</span><input bind:value={bugModalLabels} placeholder="frontend, regression" /></label>
           <div class="modal-actions"><button class="text-button" type="button" on:click={closeBugModal}>Cancel</button><button class="button primary" type="submit" disabled={bugModalCreating || bugModalLoading || !bugModalTitle.trim() || !bugModalActual.trim()}>{#if bugModalCreating}<span class="button-spinner"></span>{/if}Report bug</button></div>
         </form>
+      </div>
+    {/if}
+
+    {#if showReleaseModal}
+      <div class="modal-backdrop" role="presentation" on:click={closeReleaseModal}></div>
+      <div class="modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-modal-title" use:focusTrap>
+        <div class="modal-header"><div><span class="eyebrow">Delivery boundary</span><h2 id="release-modal-title">{releaseEditingId ? 'Edit release' : 'Create a release'}</h2></div><button class="icon-button" type="button" aria-label="Close release dialog" on:click={closeReleaseModal}>×</button></div>
+        {#if releaseModalError}<div class="inline-alert error" role="alert"><span>!</span>{releaseModalError}</div>{/if}
+        <form on:submit|preventDefault={saveRelease}>
+          <label>Release name<input data-dialog-initial-focus bind:value={releaseModalName} maxlength="200" placeholder="v2.0 · Public launch" required /></label>
+          <label>Description <span class="optional">Optional</span><textarea rows="3" bind:value={releaseModalDescription} maxlength="20000" placeholder="What belongs in this delivery boundary?"></textarea></label>
+          <label>Target date <span class="optional">Optional</span><input type="date" bind:value={releaseModalTargetDate} /></label>
+          <p class="field-hint">Assignments use this target release. An issue’s affected version remains separate context.</p>
+          <div class="modal-actions"><button class="text-button" type="button" on:click={closeReleaseModal}>Cancel</button><button class="button primary" type="submit" disabled={releaseModalSaving || releaseWritesDisabled() || !releaseModalName.trim()}>{#if releaseModalSaving}<span class="button-spinner"></span>{/if}{releaseEditingId ? 'Save release' : 'Create release'}</button></div>
+        </form>
+      </div>
+    {/if}
+
+    {#if releaseReopenTarget}
+      <div class="modal-backdrop" role="presentation" on:click={closeReleaseReopen}></div>
+      <div class="modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-reopen-title" use:focusTrap>
+        <div class="modal-header"><div><span class="eyebrow">Release history</span><h2 id="release-reopen-title">Reopen {releaseReopenTarget.name}</h2></div><button class="icon-button" type="button" aria-label="Close reopen dialog" on:click={closeReleaseReopen}>×</button></div>
+        <p class="release-reopen-copy">Reopening restores the release to planning. Give your team a reason so the change stays auditable.</p>
+        <label>Reason<textarea data-dialog-initial-focus rows="3" bind:value={releaseReopenReason} placeholder="We found one more required task…" required></textarea></label>
+        <div class="modal-actions"><button class="text-button" type="button" on:click={closeReleaseReopen}>Cancel</button><button class="button primary" type="button" disabled={releaseReopening || releaseWritesDisabled() || !releaseReopenReason.trim()} on:click={() => void reopenRelease()}>{#if releaseReopening}<span class="button-spinner"></span>{/if}Reopen release</button></div>
       </div>
     {/if}
 

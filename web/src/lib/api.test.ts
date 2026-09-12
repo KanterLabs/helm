@@ -214,6 +214,24 @@ describe('public API client', () => {
     expect(queueURL.searchParams.get('limit')).toBe('10');
   });
 
+  it('collects every release work-queue page without reusing a cursor', async () => {
+    const queue = {
+      release: { id: 'release-1', name: '1.4', version: 2 },
+      snapshot: { project_revision: 7, read_at: '2026-09-12T12:00:00Z' },
+      summary: { direct: 2, required: 2, completed: 0, claimable: 2, owned: 0, dependency_blocked: 0, manually_blocked: 0, claimed_elsewhere: 0, cross_release_conflicts: 0 }
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ ...queue, data: [{ task: { id: 'one', key: 'TC-1', version: 1 }, relationship: 'direct', disposition: 'claimable', blocked_by: [] }], next_cursor: 'page-2' }))
+      .mockResolvedValueOnce(response({ ...queue, data: [{ task: { id: 'two', key: 'TC-2', version: 1 }, relationship: 'direct', disposition: 'claimable', blocked_by: [] }], next_cursor: '' }));
+
+    await expect(api.getAllReleaseWorkQueue('release-1')).resolves.toMatchObject({
+      data: [{ task: { id: 'one' } }, { task: { id: 'two' } }],
+      next_cursor: ''
+    });
+    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('cursor')).toBeNull();
+    expect(new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost').searchParams.get('cursor')).toBe('page-2');
+  });
+
   it('forwards live-agent filters on task and issue collections', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(response({ data: [], next_cursor: null })));
 

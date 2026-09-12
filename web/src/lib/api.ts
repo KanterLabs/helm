@@ -389,6 +389,24 @@ export const api = {
         limit: params.limit
       })
     ),
+  getAllReleaseWorkQueue: async (release: string): Promise<ReleaseWorkQueue> => {
+    let cursor: string | undefined;
+    let first: ReleaseWorkQueue | undefined;
+    const data: ReleaseWorkQueue['data'] = [];
+    const seen = new Set<string>();
+    for (let page = 0; page < 10; page += 1) {
+      const result = await api.getReleaseWorkQueue(release, { cursor, limit: 200 });
+      first ??= result;
+      data.push(...result.data);
+      if (!result.next_cursor) return { ...first, data, next_cursor: '' };
+      if (seen.has(result.next_cursor) || result.next_cursor === cursor) {
+        throw new ApiError('The server repeated a release queue cursor.', 500, 'invalid_pagination_cursor');
+      }
+      seen.add(result.next_cursor);
+      cursor = result.next_cursor;
+    }
+    throw new ApiError('The release work queue exceeded its browser pagination safety limit.', 500, 'pagination_limit');
+  },
   /** Short alias for the read-only dependency-aware release queue. */
   releaseWorkQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
     api.getReleaseWorkQueue(release, params),
