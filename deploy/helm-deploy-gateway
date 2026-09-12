@@ -24,7 +24,7 @@ ARCHIVE_MAX_BYTES=536870912
 ARCHIVE_INGEST_TIMEOUT=120
 SIGNING_PUBLIC_KEY=/etc/roadmap-deploy/release-signing-public.pem
 VERIFY_SCRIPT=/usr/local/sbin/helm-verify-release
-CT_TAGS='roadmap;service;lan'
+CT_TAGS='homelab;lan;roadmap;service'
 
 # The bootstrap installs this same root-owned script at two different paths.
 # The installed basename is the trust boundary: the production key can only
@@ -186,14 +186,18 @@ ct_rootfs_is_exact() {
 }
 
 ct_tags_are_exact() {
-	local tags=$1 marker=roadmap
-	[[ "${PROFILE:-production}" = beta ]] && marker=beta
-	CT_TAGS_REASON=$(awk -F';' -v marker="$marker" '
-		BEGIN { invalid = 0 }
+	local tags=$1 expected_tags='homelab;lan;roadmap;service'
+	[[ "${PROFILE:-production}" = beta ]] && expected_tags='beta;service;lan'
+	CT_TAGS_REASON=$(awk -F';' -v expected_tags="$expected_tags" '
+		BEGIN {
+			required_count = split(expected_tags, required, ";")
+			for (i = 1; i <= required_count; i++) required_tag[required[i]] = 1
+			invalid = 0
+		}
 		{
 			for (i = 1; i <= NF; i++) {
 				tag = $i
-				if (tag == "" || (tag != "lan" && tag != marker && tag != "service")) {
+				if (tag == "" || !(tag in required_tag)) {
 					invalid = 1
 				}
 				seen[tag]++
@@ -202,12 +206,20 @@ ct_tags_are_exact() {
 		END {
 			if (invalid) {
 				print "invalid"
-			} else if (seen["lan"] > 1 || seen[marker] > 1 || seen["service"] > 1) {
-				print "duplicate"
-			} else if (NF != 3 || seen["lan"] != 1 || seen[marker] != 1 || seen["service"] != 1) {
-				print "missing"
 			} else {
-				print "valid"
+				duplicate = 0
+				missing = 0
+				for (i = 1; i <= required_count; i++) {
+					if (seen[required[i]] > 1) duplicate = 1
+					if (seen[required[i]] != 1) missing = 1
+				}
+				if (duplicate) {
+					print "duplicate"
+				} else if (missing || NF != required_count) {
+					print "missing"
+				} else {
+					print "valid"
+				}
 			}
 		}
 	' <<<"$tags")
