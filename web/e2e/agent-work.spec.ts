@@ -319,9 +319,22 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   const workingCard = board.locator('.task-card').filter({ hasText: workingTask.title });
   await expect(workingCard).toBeVisible();
   const compactPulse = workingCard.locator('.agent-pulse');
-  await expect(compactPulse).toContainText('Working');
-  await expect(compactPulse).toContainText('Implementing the browser workflow');
-  await expect(compactPulse).toContainText('Progress: 1 of 2 checkpoints (50%)');
+  const expandToggle = workingCard.getByRole('button', { name: `Show details for ${workingTask.key}` });
+  await expect(workingCard).toHaveCSS('height', '128px');
+  await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(compactPulse, 'board cards keep live-work details hidden until expanded').toBeHidden();
+  await expect(compactPulse.locator('.agent-pulse-copy')).toHaveCount(0);
+
+  await expandToggle.click();
+  await expect(workingCard).toHaveCSS('height', '220px');
+  await expect(workingCard.getByRole('button', { name: `Hide details for ${workingTask.key}` })).toHaveAttribute('aria-expanded', 'true');
+  await expect(compactPulse).toBeVisible();
+  await expect(compactPulse.locator('.agent-pulse-badge-label')).toHaveText('Working');
+  await expect(compactPulse.locator('.agent-pulse-copy')).toHaveCount(0);
+
+  await workingCard.getByRole('button', { name: `Hide details for ${workingTask.key}` }).click();
+  await expect(workingCard).toHaveCSS('height', '128px');
+  await expect(compactPulse).toBeHidden();
 
   const missingCard = board.locator('.task-card').filter({ hasText: missingTask.title });
   await expect(missingCard).toBeVisible();
@@ -334,8 +347,11 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   await expect(missingCard, 'a task without an agent pulse is not live working work').toBeHidden();
   await boardWorkFilter.selectOption('missing');
   await expect(missingCard).toBeVisible();
-  await expect(missingCard.locator('.agent-pulse')).toContainText('No live pulse');
-  await expect(missingCard.locator('.agent-pulse')).toHaveAccessibleName('No live pulse');
+  const missingPulse = missingCard.locator('.agent-pulse');
+  await expect(missingPulse).toBeHidden();
+  await missingCard.getByRole('button', { name: `Show details for ${missingTask.key}` }).click();
+  await expect(missingPulse).toBeVisible();
+  await expect(missingPulse).toHaveAccessibleName('No live pulse');
   await expect(workingCard).toBeHidden();
   await expect(completedCard).toBeHidden();
   await boardWorkFilter.selectOption('stale');

@@ -39,7 +39,25 @@ used only to cross the protected tunnel. Supplying Cloudflare credentials
 cannot replace a missing Helm token, and the two kinds of credential must not
 be copied into one another's fields.
 
-Create a dedicated agent identity and grant only the scopes needed for tracking: `projects:read`, `tasks:read`, `tasks:write`, `tasks:claim`, and `events:read`. Restrict the token to relevant projects when practical. Token plaintext is returned only once by Helm and must never be committed, pasted into Helm tasks, or printed in logs. The stable API origin remains `https://tc.shanekanterman.dev`, with requests under `/api/v1`.
+Create a dedicated agent identity and grant only the scopes needed for tracking:
+`projects:read`, `tasks:read`, `tasks:write`, `tasks:claim`, and `events:read`.
+Add `notifications:read` or `notifications:write` only when the agent uses the
+inbox or watch workflows; the existing task/project read and write scopes also
+provide the documented compatibility fallbacks. Restrict the token to relevant
+projects when practical. Token plaintext is returned only once by Helm and must
+never be committed, pasted into Helm tasks, or printed in logs. The default API
+origin remains `https://tc.shanekanterman.dev`, with requests under `/api/v1`;
+set `HELM_URL` explicitly for another authorized deployment.
+
+In `tailnet` mode, human sign-in belongs to the private deployment edge. The
+edge derives the real Tailnet peer from tailscaled and sends a short-lived HMAC
+assertion bound to the exact origin, HTTP method, and request URI. Do not supply
+a local password, trust raw Tailscale/proxy headers, copy the edge signing key
+into this credential file, or attempt to synthesize an assertion. The helper
+still needs its Helm application bearer token and merely uses the configured
+private HTTPS origin; Cloudflare service-token fields are unrelated to Tailnet
+identity and should remain unset unless that deployment separately requires
+Cloudflare Access.
 
 To verify endpoint reachability and the Helm application identity without
 performing a mutation, run `python3 scripts/helm.py auth-check`. The command

@@ -8,8 +8,10 @@ import '@fontsource/manrope/latin-800.css';
 import { mount } from 'svelte';
 import App from './App.svelte';
 import './app.css';
+import { applyDeploymentBrand } from './lib/deploymentBrand';
 import { registerPwa } from './lib/pwa';
 
+applyDeploymentBrand(document, window.location.hostname);
 registerPwa();
 
 const app = mount(App, {
