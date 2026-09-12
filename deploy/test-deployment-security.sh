@@ -18,6 +18,7 @@ INSTALL="$DEPLOY_DIR/install-inside-lxc.sh"
 PRIVATE_VALIDATE="$DEPLOY_DIR/validate-beta-private.sh"
 PRIVATE_OWNER_TEMPLATE="$DEPLOY_DIR/tailnet-owner.env.example"
 SERVICE="$DEPLOY_DIR/helm.service"
+BACKUP_SERVICE="$DEPLOY_DIR/helm-backup.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
@@ -42,7 +43,7 @@ count_contains() {
 }
 
 for file in "$GATEWAY" "$BOOTSTRAP" "$DEPLOY_CI" "$VERIFY" "$BUILD_BUNDLE" \
-	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
+	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$BACKUP_SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
 	[[ -f "$file" && ! -L "$file" ]] || fail "deployment file is missing: $file"
 done
 
@@ -393,6 +394,8 @@ install_helm_start_line=$(grep -n '^systemctl start helm\.service$' "$INSTALL" |
 contains 'WorkingDirectory=/var/lib/roadmap/data' "$SERVICE"
 contains 'ReadWritePaths=/var/lib/roadmap/data' "$SERVICE"
 not_contains 'ReadWritePaths=/var/lib/roadmap ' "$SERVICE"
+contains 'ReadWritePaths=/var/lib/roadmap/data /var/lib/roadmap/backups /var/lib/roadmap/deploy.lock' "$BACKUP_SERVICE"
+not_contains 'ReadWritePaths=/var/lib/roadmap ' "$BACKUP_SERVICE"
 contains 'RandomizedDelaySec=1h' "$DEPLOY_DIR/helm-backup.timer"
 contains 'Persistent=true' "$DEPLOY_DIR/helm-backup.timer"
 contains 'helm-backup.timer' "$INSTALL"
