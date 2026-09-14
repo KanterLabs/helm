@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test';
 
 type Project = { id: string; key: string; name: string; slug: string };
 type Column = { id: string; name: string; semantic_state: string };
@@ -89,6 +89,45 @@ async function createBug(
   }), `create ${title}`);
 }
 
+async function expectReleaseFormLayout(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: 'Create a release' });
+  const dialogBox = await dialog.boundingBox();
+  if (!dialogBox) throw new Error('The release dialog should have a visible bounding box.');
+
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error('The release form test requires a fixed viewport.');
+  expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(viewport.width);
+  expect(dialogBox.y).toBeGreaterThanOrEqual(0);
+  expect(dialogBox.y + dialogBox.height).toBeLessThanOrEqual(viewport.height);
+
+  const labels = dialog.locator('.release-form > label');
+  await expect(labels).toHaveCount(3);
+  for (let index = 0; index < 3; index += 1) {
+    const label = labels.nth(index);
+    const heading = label.locator('.release-field-label');
+    const control = label.locator('input, textarea');
+    const headingBox = await heading.boundingBox();
+    const controlBox = await control.boundingBox();
+    if (!headingBox || !controlBox) throw new Error(`Release field ${index + 1} should be visible.`);
+    expect(controlBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height);
+    expect(controlBox.width).toBeGreaterThan(dialogBox.width - 80);
+    expect(controlBox.x).toBeGreaterThan(dialogBox.x);
+    expect(controlBox.x + controlBox.width).toBeLessThan(dialogBox.x + dialogBox.width);
+  }
+
+  const hintBox = await dialog.locator('.release-form-hint').boundingBox();
+  const actionsBox = await dialog.locator('.modal-actions').boundingBox();
+  if (!hintBox || !actionsBox) throw new Error('Release guidance and actions should be visible.');
+  expect(actionsBox.y).toBeGreaterThanOrEqual(hintBox.y + hintBox.height);
+
+  const widths = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: window.innerWidth
+  }));
+  expect(widths.document).toBeLessThanOrEqual(widths.viewport);
+}
+
 test('plans, filters, completes, and reopens a dependency-aware release', async ({ page, request }) => {
   test.setTimeout(120_000);
   const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
@@ -120,6 +159,16 @@ test('plans, filters, completes, and reopens a dependency-aware release', async 
 
   await page.getByRole('button', { name: /New release|Create a release/ }).first().click();
   const createDialog = page.getByRole('dialog', { name: 'Create a release' });
+  await expectReleaseFormLayout(page);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await expectReleaseFormLayout(page);
+  for (const action of ['Cancel', 'Create release']) {
+    const actionBox = await createDialog.getByRole('button', { name: action, exact: true }).boundingBox();
+    if (!actionBox) throw new Error(`${action} should be visible in the mobile release dialog.`);
+    expect(actionBox.width).toBeGreaterThan(240);
+    expect(actionBox.height).toBeGreaterThanOrEqual(44);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await createDialog.getByLabel('Release name').fill(releaseName);
   await createDialog.getByLabel('Description').fill('Everything required for the autumn launch.');
   await createDialog.getByLabel('Target date').fill('2026-10-15');

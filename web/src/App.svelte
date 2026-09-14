@@ -7546,11 +7546,11 @@
       <div class="modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-modal-title" use:focusTrap>
         <div class="modal-header"><div><span class="eyebrow">Delivery boundary</span><h2 id="release-modal-title">{releaseEditingId ? 'Edit release' : 'Create a release'}</h2></div><button class="icon-button" type="button" aria-label="Close release dialog" on:click={closeReleaseModal}>×</button></div>
         {#if releaseModalError}<div class="inline-alert error" role="alert"><span>!</span>{releaseModalError}</div>{/if}
-        <form on:submit|preventDefault={saveRelease}>
-          <label>Release name<input data-dialog-initial-focus bind:value={releaseModalName} maxlength="200" placeholder="v2.0 · Public launch" required /></label>
-          <label>Description <span class="optional">Optional</span><textarea rows="3" bind:value={releaseModalDescription} maxlength="20000" placeholder="What belongs in this delivery boundary?"></textarea></label>
-          <label>Target date <span class="optional">Optional</span><input type="date" bind:value={releaseModalTargetDate} /></label>
-          <p class="field-hint">Assignments use this target release. An issue’s affected version remains separate context.</p>
+        <form class="release-form" on:submit|preventDefault={saveRelease}>
+          <label><span class="release-field-label">Release name</span><input data-dialog-initial-focus bind:value={releaseModalName} maxlength="200" placeholder="v2.0 · Public launch" required /></label>
+          <label><span class="release-field-label">Description <span class="optional">Optional</span></span><textarea rows="4" bind:value={releaseModalDescription} maxlength="20000" placeholder="What belongs in this delivery boundary?"></textarea></label>
+          <label><span class="release-field-label">Target date <span class="optional">Optional</span></span><input type="date" bind:value={releaseModalTargetDate} /></label>
+          <p class="field-hint release-form-hint">Assignments use this target release. An issue’s affected version remains separate context.</p>
           <div class="modal-actions"><button class="text-button" type="button" on:click={closeReleaseModal}>Cancel</button><button class="button primary" type="submit" disabled={releaseModalSaving || releaseWritesDisabled() || !releaseModalName.trim()}>{#if releaseModalSaving}<span class="button-spinner"></span>{/if}{releaseEditingId ? 'Save release' : 'Create release'}</button></div>
         </form>
       </div>
