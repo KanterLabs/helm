@@ -124,7 +124,8 @@ test.describe('mobile layout and semantic contrast regressions', () => {
 
     const adminSection = page.locator('.admin-section');
     const adminBox = await adminSection.boundingBox();
-    expect(adminBox?.right).toBeLessThanOrEqual(320);
+    if (!adminBox) throw new Error('The project administration section should be visible.');
+    expect(adminBox.x + adminBox.width).toBeLessThanOrEqual(320);
     const columnName = page.getByLabel('New column name');
     await columnName.fill(`Review ${suffix}`);
     await page.getByRole('button', { name: /Add column/ }).click();
@@ -148,9 +149,10 @@ test.describe('mobile layout and semantic contrast regressions', () => {
     await expect(close).toBeVisible();
     const controls = await Promise.all([watch, close].map(async (control) => control.boundingBox()));
     for (const box of controls) {
-      expect(box?.left).toBeGreaterThanOrEqual(0);
-      expect(box?.right).toBeLessThanOrEqual(320);
-      expect(box?.height).toBeGreaterThanOrEqual(44);
+      if (!box) throw new Error('The drawer header control should have a visible bounding box.');
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(320);
+      expect(box.height).toBeGreaterThanOrEqual(44);
     }
     await expectNoViewportOverflow(page);
     await expectDrawerContrast(drawer);
