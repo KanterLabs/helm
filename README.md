@@ -16,16 +16,16 @@ Trello-compatible API or a full team-suite replacement.
 - Work from a board with Backlog, Ready, In progress, Blocked, and Done
   columns. Create tasks quickly, move them with drag-and-drop or keyboard
   controls, and filter by text, state, kind, priority, severity, label,
-  assignee, reporter, resolution, release (including **No release**), or
+  assignee, reporter, resolution, focus (including **No focus**), or
   agent-work state. Claimed agent tasks expose a compact live pulse on the
   board and a fuller progress panel in the task drawer.
 - Keep task context in Markdown descriptions, priorities, due dates, labels,
   assignees, comments, and chronological human/agent activity. Record bugs
   with actual versus expected behavior, reproduction steps, environment, and
   affected version.
-- Plan product delivery with project-local releases: assign each task or bug
-  to at most one planned release, review dependency-aware work queues, and
-  explicitly complete or reopen a release when its required work is ready.
+- Plan product delivery with project-local Focus: bound the tasks that matter
+  now, optionally set a target date, assign each task or bug, track readiness,
+  and explicitly complete or reopen the Focus.
 - Follow assigned work in **My work** and all published agent pulses across
   permitted projects in cross-project **Live Work**, or inspect completion,
   overdue work, upcoming deadlines, and recent activity in **Roadmap**.
@@ -171,10 +171,14 @@ The human-edited OpenAPI source is [`openapi.yaml`](openapi.yaml); the checked-i
 JSON document is [`internal/httpapi/openapi.json`](internal/httpapi/openapi.json)
 and is served at `/openapi.json`.
 
-### Product releases
+### Focus
 
-Product releases are project-local planning boundaries, separate from the
-deployment `X-Roadmap-Revision`, the task claim action
+Focus is a bounded, project-local set of tasks that matter now. A focus can
+have an optional target date, task assignments, readiness tracking, and
+explicit completion or reopening. The project view is `/p/:slug/focus`;
+existing `/releases` links remain compatible. Internally and in the API, this
+feature retains the `release` and `release_id` compatibility names. Focus is
+separate from the deployment `X-Roadmap-Revision`, the task claim action
 `POST /api/v1/tasks/{task}/release` (which releases an agent claim), and a
 bug's `affected_version`. The release API is:
 
