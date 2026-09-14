@@ -37,6 +37,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   --red-soft: #fff0f1;
   --amber: #d49534;
   --amber-soft: #fff7e8;
+  /* Semantic foregrounds stay readable on light soft-status surfaces. */
+  --semantic-green: #176f4d;
+  --semantic-red: #a12535;
+  --semantic-amber: #855400;
   --shadow-sm: 0 2px 8px rgba(35, 42, 61, .04), 0 1px 2px rgba(35, 42, 61, .04);
   --shadow-md: 0 14px 40px rgba(29, 36, 51, .12), 0 3px 10px rgba(29, 36, 51, .04);
   /* Motion tokens: entrances use --ease-out, exits use --ease-in and stay
@@ -78,6 +82,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   --red-soft: #3d242b;
   --amber: #e4ad53;
   --amber-soft: #392f20;
+  --semantic-green: var(--green);
+  --semantic-red: var(--red);
+  --semantic-amber: var(--amber);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, .18), 0 1px 2px rgba(0, 0, 0, .16);
   --shadow-md: 0 18px 45px rgba(0, 0, 0, .38), 0 4px 15px rgba(0, 0, 0, .22);
   --lift-sm: 0 4px 12px rgba(0, 0, 0, .32);
@@ -111,7 +118,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .button.primary:hover:not(:disabled) { background: #5e50e9; }
 .button.quiet-button { border-color: var(--border); background: var(--surface); }
 .button.quiet-button:hover:not(:disabled), .quick-add-trigger:hover { border-color: var(--border-strong); background: var(--surface-hover); }
-.button.complete-button { color: var(--green); border-color: #bfe9d9; background: var(--green-soft); }
+.button.complete-button { color: var(--semantic-green); border-color: #bfe9d9; background: var(--green-soft); }
 .button-large { min-height: 44px; padding: 0 18px; border-radius: 10px; font-size: 13px; }
 .compact-button { min-height: 30px; padding: 0 10px; font-size: 11px; }
 .text-button { padding: 2px 0; border: 0; color: var(--purple); background: transparent; font-size: 12px; font-weight: 700; }
@@ -312,7 +319,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .task-card-top { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
 .task-key, .drawer-key, .upcoming-key { color: var(--muted); font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
 .priority-dot { width: 6px; height: 6px; display: inline-block; margin-left: auto; border-radius: 50%; }
-.priority-urgent { color: var(--red); }
+.priority-urgent { color: var(--semantic-red); }
 .priority-dot.priority-urgent { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
 .priority-dot.priority-high { background: #e39a3b; box-shadow: 0 0 0 3px var(--amber-soft); }
 .priority-dot.priority-normal { background: var(--purple); box-shadow: 0 0 0 3px var(--purple-soft); }
@@ -404,6 +411,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .drawer-header.just-updated { animation: header-flash 1.2s var(--ease-out); }
 @keyframes header-flash { from { background: var(--purple-soft); } to { background: transparent; } }
 .drawer-header > div { display: flex; align-items: center; gap: 10px; }
+.drawer-header > .task-watch-toggle, .drawer-header > .icon-button { flex: 0 0 auto; }
 .drawer-key { color: var(--purple); font-size: 11px; }
 .drawer-tabs { display: flex; gap: 3px; padding: 9px 22px 0; border-bottom: 1px solid var(--border); background: var(--surface); }
 .drawer-tab { min-height: 34px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; font-size: 11px; font-weight: 800; transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
@@ -413,8 +421,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .drawer-activity-scroll { display: flex; flex-direction: column; gap: 0; }
 .drawer-activity-scroll > .agent-work-panel { margin: 0 0 20px; }
 .priority-pill { display: inline-flex; align-items: center; min-height: 19px; padding: 2px 7px; border-radius: 5px; background: var(--surface-muted); font-size: 11px; font-weight: 700; }
-.priority-pill.priority-urgent { color: var(--red); background: var(--red-soft); }
-.priority-pill.priority-high { color: var(--amber); background: var(--amber-soft); }
+.priority-pill.priority-urgent { color: var(--semantic-red); background: var(--red-soft); }
+.priority-pill.priority-high { color: var(--semantic-amber); background: var(--amber-soft); }
 .priority-pill.priority-normal { color: var(--purple); background: var(--purple-soft); }
 .priority-pill.priority-low { color: var(--muted); }
 .drawer-loading { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 22px; color: var(--muted); background: var(--surface-muted); font-size: 11px; }
@@ -702,16 +710,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .issues-list { display: grid; gap: 7px; }
 .issue-row { min-height: 79px; display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow-sm); text-align: left; transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
 .issue-row:hover { border-color: color-mix(in srgb, var(--red), var(--border) 60%); box-shadow: 0 5px 13px rgba(35, 42, 61, .08); transform: translateY(-1px); }
-.issue-kind-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 21px; padding: 2px 7px; border-radius: 5px; color: var(--red); background: var(--red-soft); font-size: 11px; font-weight: 800; }
+.issue-kind-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 21px; padding: 2px 7px; border-radius: 5px; color: var(--semantic-red); background: var(--red-soft); font-size: 11px; font-weight: 800; }
 .issue-kind-badge.task-kind { color: var(--purple); background: var(--purple-soft); }
 .issue-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .issue-row-top { display: flex; align-items: center; gap: 7px; }
 .issue-main strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .issue-project-name { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .issue-status { min-width: 135px; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
-.severity-badge, .resolution-badge { display: inline-flex; align-items: center; min-height: 19px; padding: 2px 7px; border-radius: 5px; color: var(--red); background: var(--red-soft); font-size: 11px; font-weight: 800; }
-.severity-badge.untriaged { color: var(--amber); background: var(--amber-soft); }
-.resolution-badge { color: var(--green); background: var(--green-soft); font-weight: 700; }
+.severity-badge, .resolution-badge { display: inline-flex; align-items: center; min-height: 19px; padding: 2px 7px; border-radius: 5px; color: var(--semantic-red); background: var(--red-soft); font-size: 11px; font-weight: 800; }
+.severity-badge.untriaged { color: var(--semantic-amber); background: var(--amber-soft); }
+.resolution-badge { color: var(--semantic-green); background: var(--green-soft); font-weight: 700; }
 .resolution-badge.open { color: var(--muted); background: var(--surface-muted); }
 .issue-column { min-width: 95px; color: var(--ink-soft); font-size: 11px; }
 .issues-empty { min-height: 300px; }
@@ -876,6 +884,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .admin-column-row.archived { opacity: .68; background: var(--surface-muted); }
 .admin-column-grip { width: 18px; color: var(--faint); font-size: 13px; letter-spacing: -4px; }
 .admin-column-fields { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, .85fr) 35px; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.admin-column-fields label { min-width: 0; }
 .admin-column-fields input, .admin-column-fields select, .admin-column-create input, .admin-column-create select { min-width: 0; padding: 8px 9px; font-size: 11px; }
 .admin-column-position { color: var(--muted); font-size: 11px; text-align: center; }
 .admin-column-actions { display: flex; align-items: center; gap: 4px; }
@@ -1225,16 +1234,24 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .roadmap-live-row-status { width: 100%; }
   .roadmap-activity-row { padding: 10px 8px; }
   .settings-section { padding: 17px 14px; }
+  .settings-section, .settings-layout, .settings-main, .admin-section { min-width: 0; }
   .settings-section-heading { align-items: flex-start; flex-direction: column; }
   .settings-section-heading > .button { width: 100%; }
   .theme-options { grid-template-columns: 1fr; }
+  .admin-project-picker select { width: 100%; min-width: 0; }
+  .admin-project-form .form-row { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+  .admin-project-form .form-row label, .admin-project-form > label { min-width: 0; }
+  .admin-project-form input, .admin-project-form select, .admin-project-form textarea { width: 100%; min-width: 0; }
   .admin-column-create { grid-template-columns: 1fr; }
   .admin-column-row { align-items: stretch; flex-wrap: wrap; }
-  .admin-column-fields { flex-basis: calc(100% - 26px); }
-  .admin-column-actions { width: 100%; justify-content: flex-end; }
+  .admin-column-fields { flex-basis: calc(100% - 26px); grid-template-columns: minmax(0, 1fr); }
+  .admin-column-actions { width: 100%; min-width: 0; justify-content: flex-end; flex-wrap: wrap; }
   .token-date { display: none; }
   .task-drawer { width: 100vw; border-left: 0; }
-  .drawer-header { min-height: calc(58px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 16px 0; }
+  .drawer-header { min-height: calc(58px + env(safe-area-inset-top)); gap: 5px; padding: env(safe-area-inset-top) 16px 0; }
+  .drawer-header > div { min-width: 0; flex: 1 1 auto; flex-wrap: wrap; gap: 4px 6px; }
+  .drawer-header > .icon-button { width: 44px; height: 44px; }
+  .drawer-header > .task-watch-toggle .task-watch-button { min-height: 44px; }
   .drawer-tabs { padding-right: 12px; padding-left: 12px; }
   .drawer-tab { min-height: 44px; }
   .drawer-scroll { padding: 19px 16px calc(32px + env(safe-area-inset-bottom)); }
