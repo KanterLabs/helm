@@ -954,6 +954,29 @@
   );
   $: searchView = searchSavedViews.find((item) => item.id === searchViewId);
 
+  let beforeUnloadAttached = false;
+  function handleBeforeUnload(event: BeforeUnloadEvent) {
+    if (!drawerDraftDirty) return;
+    event.preventDefault();
+    // Chromium and Firefox require returnValue to be assigned for the native
+    // leave-page warning to appear. Browsers intentionally replace this text
+    // with their own localized warning.
+    event.returnValue = '';
+  }
+
+  // Keep clean pages eligible for the browser back/forward cache. The
+  // listener only exists for the short period in which a drawer draft is
+  // actually at risk of being discarded.
+  $: if (typeof window !== 'undefined') {
+    if (drawerDraftDirty && !beforeUnloadAttached) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      beforeUnloadAttached = true;
+    } else if (!drawerDraftDirty && beforeUnloadAttached) {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      beforeUnloadAttached = false;
+    }
+  }
+
   const focusableSelector = [
     'a[href]',
     'area[href]',
@@ -1636,6 +1659,10 @@
       window.removeEventListener('helm:network-unavailable', offlineHandler);
       window.removeEventListener('helm:offline-cleared', clearHandler);
       window.removeEventListener('helm:auth-invalidated', clearHandler);
+      if (beforeUnloadAttached) {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        beforeUnloadAttached = false;
+      }
       bootstrapController?.abort();
     };
     if ($offlineReadOnly || navigator.onLine === false) void enterOffline();
@@ -2296,9 +2323,21 @@
       projects = nextProjects;
       if (selectionVersion !== projectSwitchVersion) return;
       const routeSlug = getProjectSlugFromLocation();
+      const routeProject = routeSlug ? nextProjects.find((project) => project.slug === routeSlug) : undefined;
+      const unknownProjectRoute = Boolean(routeSlug && !routeProject);
       const taskRoute = getTaskRouteFromLocation();
       const remembered = readMigratedStorage(localStorage, helmStorageKeys.lastProject, legacyRoadmapStorageKeys.lastProject);
-      const target = nextProjects.find((project) => project.slug === routeSlug) || nextProjects.find((project) => project.slug === remembered) || nextProjects[0];
+      // A project URL is an explicit scope. Falling back to the first project
+      // for an unknown slug makes a mistyped/deleted URL look valid while
+      // showing unrelated work. Canonicalize that URL to the workspace root,
+      // then use the normal remembered-project fallback there.
+      if (unknownProjectRoute) {
+        navigate('/', true);
+        view = 'board';
+        roadmapProjectId = undefined;
+        auditIdFromRoute = '';
+      }
+      const target = routeProject || nextProjects.find((project) => project.slug === remembered) || nextProjects[0];
       if (target) {
         activeProjectSlug = target.slug;
         const targetPath = window.location.pathname;
@@ -2306,13 +2345,13 @@
         if (!/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) {
           boardReleaseFilter = targetParams.get('release') || 'all';
         }
-        if ((view === 'board' && !/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) || routeSlug && !/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) await loadBoard();
+        if ((view === 'board' && !/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) || routeProject && !/^\/p\/[^/]+\/releases\/?$/.test(targetPath)) await loadBoard();
       } else {
         activeProjectSlug = '';
         columns = [];
         tasks = [];
         labels = [];
-        if (!routeSlug) view = 'board';
+        if (!routeProject) view = 'board';
       }
       if (
         requestId !== projectListRequest
@@ -2331,10 +2370,10 @@
         || !user
       ) return;
       const path = window.location.pathname;
-      if (taskRoute && target) {
+      if (taskRoute && routeProject) {
         roadmapProjectId = undefined;
         view = 'board';
-        await openTaskFromRoute(taskRoute, target);
+        await openTaskFromRoute(taskRoute, routeProject);
       } else if (/^\/my-work\/?$/.test(path)) {
         roadmapProjectId = undefined;
         view = 'my-work';
@@ -2357,19 +2396,19 @@
         roadmapProjectId = undefined;
         view = 'settings';
         await Promise.all([loadAgents(), loadCodexAccount(), loadProjectAdmin()]);
-      } else if (routeSlug && isProjectAuditLocation()) {
+      } else if (routeProject && isProjectAuditLocation()) {
         roadmapProjectId = undefined;
         auditIdFromRoute = getAuditIdFromLocation();
         view = 'audits';
-      } else if (routeSlug && isProjectTimelineLocation()) {
+      } else if (routeProject && isProjectTimelineLocation()) {
         roadmapProjectId = undefined;
         view = 'timeline';
-        await loadBoardTimeline(target?.id, { reset: true });
-      } else if (routeSlug && isProjectRoadmapLocation()) {
-        roadmapProjectId = target?.id;
+        await loadBoardTimeline(routeProject.id, { reset: true });
+      } else if (routeProject && isProjectRoadmapLocation()) {
+        roadmapProjectId = routeProject.id;
         view = 'roadmap';
         await loadRoadmap(roadmapProjectId);
-      } else if (routeSlug && isProjectReleasesLocation()) {
+      } else if (routeProject && isProjectReleasesLocation()) {
         roadmapProjectId = undefined;
         view = 'releases';
         releaseSelectedId = new URL(window.location.href).searchParams.get('release') || '';
@@ -3983,11 +4022,63 @@
     }
   }
 
+  function restoreDirtyTaskRoute() {
+    if (!drawerTask) return;
+    const project = projectForTask(drawerTask);
+    if (!project) return;
+    const path = taskDeepLink(project.slug, drawerTask.key, taskRouteIntent);
+    window.history.replaceState({}, '', path);
+  }
+
+  function handleRootRoute() {
+    const remembered = readMigratedStorage(localStorage, helmStorageKeys.lastProject, legacyRoadmapStorageKeys.lastProject);
+    const target = projects.find((project) => project.slug === remembered)
+      || projects.find((project) => project.slug === activeProjectSlug)
+      || projects[0];
+    roadmapProjectId = undefined;
+    auditIdFromRoute = '';
+    if (!target) {
+      view = 'board';
+      activeProjectSlug = '';
+      columns = [];
+      tasks = [];
+      labels = [];
+      return;
+    }
+    // Keep the root URL canonical while restoring the remembered/current
+    // project board. selectProject(false) resets project-scoped state without
+    // pushing the project URL back onto the history stack.
+    if (activeProjectSlug !== target.slug) {
+      void selectProject(target, false);
+      return;
+    }
+    view = 'board';
+    boardReleaseFilter = 'all';
+    releaseSelectedId = '';
+    releaseQueue = null;
+    void loadBoard();
+  }
+
   function handlePopState() {
+    if (drawerTask && drawerDraftDirty) {
+      if (!confirmDrawerDiscard()) {
+        restoreDirtyTaskRoute();
+        return;
+      }
+      // The browser has already moved to the destination entry. Discard the
+      // drawer without navigating back to its saved origin, then reconcile the
+      // destination route below.
+      closeDrawer(true, true);
+    }
     const slug = getProjectSlugFromLocation();
     const taskRoute = getTaskRouteFromLocation();
     if (slug) {
       const project = projects.find((item) => item.slug === slug);
+      if (!project) {
+        navigate('/', true);
+        handleRootRoute();
+        return;
+      }
       if (project && taskRoute) {
         const projectChanged = activeProjectSlug !== project.slug;
         projectSwitchVersion += 1;
@@ -4056,6 +4147,7 @@
     }
     else if (/^\/roadmap\/?$/.test(window.location.pathname)) void setView('roadmap', false);
     else if (/^\/settings\/?$/.test(window.location.pathname)) void setView('settings', false);
+    else if (/^\/?$/.test(window.location.pathname)) handleRootRoute();
   }
 
   function rememberDialogFocus(fallbackSelector = '') {
@@ -6034,7 +6126,7 @@
     return confirmDrawerDiscard();
   }
 
-  function closeDrawer(force = false): boolean {
+  function closeDrawer(force = false, skipRouteNavigation = false): boolean {
     if (!force && !confirmDrawerDiscard()) return false;
     const routeOrigin = taskRouteOrigin;
     taskDetailRequest += 1;
@@ -6057,7 +6149,7 @@
     blockReasonOpen = false;
     drawerSavedTaskDraftFingerprint = '';
     drawerSavedActionDraftFingerprint = '';
-    if (isTaskLocation()) {
+    if (!skipRouteNavigation && isTaskLocation()) {
       const destination = routeOrigin || `/p/${encodeURIComponent(activeProjectSlug)}`;
       navigate(destination);
       restoreTaskRouteOrigin(destination);
