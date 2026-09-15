@@ -467,7 +467,7 @@ jobs:
       CANDIDATE_SHA: ${{ needs.admit.outputs.candidate_sha }}
       CANDIDATE_REF: ${{ needs.admit.outputs.candidate_ref }}
       TRUSTED_BETA_SHA: ${{ needs.admit.outputs.trusted_sha }}
-      HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switchd.sock
+      HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
     steps:
       - name: Check out only the trusted beta event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -645,7 +645,7 @@ jobs:
           HELM_RELEASE_SIGNING_KEY_FILE: ${{ runner.temp }}/helm-signing/private.pem
           HELM_RELEASE_REF: ${{ needs.admit.outputs.candidate_ref }}
           HELM_BETA_SWITCH_ENABLED: 'true'
-          HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switchd.sock
+          HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
           HELM_BETA_SWITCHD_BINARY: ${{ github.workspace }}/dist/helm-beta-switchd
         run: |
           set -Eeuo pipefail

@@ -255,7 +255,7 @@ jobs:
       HELM_PUBLIC_ORIGIN: https://beta-helm.home.shanekanterman.dev
       HELM_RELEASE_REF: refs/heads/beta
       HELM_BETA_SWITCH_ENABLED: 'true'
-      HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switchd.sock
+      HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
     steps:
       # github.sha is the selected beta commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
@@ -391,7 +391,7 @@ jobs:
           HELM_RELEASE_SIGNING_KEY_FILE: ${{ runner.temp }}/helm-signing/private.pem
           HELM_RELEASE_REF: refs/heads/beta
           HELM_BETA_SWITCH_ENABLED: 'true'
-          HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switchd.sock
+          HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
           HELM_BETA_SWITCHD_BINARY: ${{ github.workspace }}/dist/helm-beta-switchd
         run: ./deploy/deploy-ci.sh deploy "${GITHUB_SHA}"
       - name: Validate private beta Tailnet readiness

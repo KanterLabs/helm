@@ -696,6 +696,11 @@ remove_beta_switch_controller() {
 			|| fail 'beta switch controller socket path is invalid'
 		rm -f -- /run/helm-beta-switchd.sock
 	fi
+	if [[ -e /run/helm-beta-switcher/helm-beta-switchd.sock || -L /run/helm-beta-switcher/helm-beta-switchd.sock ]]; then
+		[[ -S /run/helm-beta-switcher/helm-beta-switchd.sock || -L /run/helm-beta-switcher/helm-beta-switchd.sock ]] \
+			|| fail 'beta switch controller runtime socket path is invalid'
+		rm -f -- /run/helm-beta-switcher/helm-beta-switchd.sock
+	fi
 }
 
 install_beta_switch_controller() {
@@ -706,6 +711,10 @@ install_beta_switch_controller() {
 	mv -T -- "$binary_tmp" /usr/local/sbin/helm-beta-switchd
 	install -m 0644 -o root -g root "$RELEASE_DIR/helm-beta-switchd.service" "$unit_tmp"
 	mv -T -- "$unit_tmp" /etc/systemd/system/helm-beta-switchd.service
+	# The daemon persists jobs here as root-owned mode 0600 files. Create the
+	# directory explicitly so its ownership does not depend on the service's
+	# supplementary group or the process umask.
+	install -d -m 0700 -o root -g root /var/lib/roadmap/beta-switch-jobs
 }
 
 restore_previous() {
@@ -1029,7 +1038,20 @@ systemctl is-active --quiet helm.service || fail 'helm.service is not active aft
 systemctl is-active --quiet roadmap.service || fail 'roadmap.service compatibility alias is not active after health check'
 if (( PRIVATE_TAILNET_BETA == 1 && BETA_SWITCH_CONTROLLER == 1 )); then
 	systemctl enable --now helm-beta-switchd.service
-	systemctl is-active --quiet helm-beta-switchd.service || fail 'beta switch controller is not active after health check'
+	beta_switch_ready=0
+	for _ in $(seq 1 10); do
+		if systemctl is-active --quiet helm-beta-switchd.service &&
+			[[ -S /run/helm-beta-switcher/helm-beta-switchd.sock ]] &&
+			runuser -u roadmap -- curl --fail --silent --show-error --max-time 3 \
+				--unix-socket /run/helm-beta-switcher/helm-beta-switchd.sock http://localhost/v1/releases >/dev/null; then
+			beta_switch_ready=1
+			break
+		fi
+		sleep 1
+	done
+	(( beta_switch_ready == 1 )) || fail 'beta switch controller did not become ready'
+	[[ "$(stat -c '%U:%G %a' -- /run/helm-beta-switcher/helm-beta-switchd.sock)" = 'root:roadmap 660' ]] \
+		|| fail 'beta switch controller socket permissions are invalid'
 fi
 
 if (( PRIVATE_TAILNET_BETA == 0 )); then

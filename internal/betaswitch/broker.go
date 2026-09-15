@@ -31,6 +31,7 @@ const (
 	maxReleaseRefBytes = 256
 	maxManifestBytes   = 128 << 10
 	maxChecksumBytes   = 256
+	maxBinaryBytes     = 256 << 20
 	maxJobBytes        = 4096
 	defaultQueueDepth  = 128
 	maxJobIDAttempts   = 64
@@ -733,14 +734,63 @@ func parseReleaseRef(value []byte) (string, error) {
 }
 
 func validateBinary(dir, name string) error {
-	data, err := readRegular(dir, name, 256<<20)
+	return validateBinaryWithLimit(dir, name, maxBinaryBytes)
+}
+
+func validateBinaryWithLimit(dir, name string, max int64) error {
+	path := filepath.Join(dir, name)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, name)
-	info, err := os.Stat(path)
-	if err != nil || info.Mode()&0111 == 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("binary is not a regular file")
+	}
+	if info.Size() < 0 || info.Size() > max {
+		return fmt.Errorf("release member exceeds size limit")
+	}
+	if info.Mode()&0111 == 0 {
 		return fmt.Errorf("binary is not executable")
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
+		return fmt.Errorf("binary changed while opening")
+	}
+	if opened.Size() < 0 || opened.Size() > max {
+		return fmt.Errorf("release member exceeds size limit")
+	}
+	if opened.Mode()&0111 == 0 {
+		return fmt.Errorf("binary is not executable")
+	}
+	hasher := sha256.New()
+	read, err := io.Copy(hasher, io.LimitReader(f, max+1))
+	if err != nil {
+		return err
+	}
+	if read > max {
+		return fmt.Errorf("release member exceeds size limit")
+	}
+	final, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !final.Mode().IsRegular() || final.Mode()&0111 == 0 || final.Size() < 0 || final.Size() > max || final.Size() != read || final.Size() != opened.Size() {
+		return fmt.Errorf("binary changed while reading")
+	}
+	latest, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if latest.Mode()&os.ModeSymlink != 0 || !latest.Mode().IsRegular() || latest.Mode()&0111 == 0 || !os.SameFile(info, latest) {
+		return fmt.Errorf("binary changed while reading")
 	}
 	checksum, err := readRegular(dir, name+".sha256", maxChecksumBytes)
 	if err != nil {
@@ -751,8 +801,8 @@ func validateBinary(dir, name string) error {
 	if len(fields) != 2 || len(fields[0]) != 64 || !isLowerHex(fields[0]) || fields[1] != name {
 		return fmt.Errorf("binary checksum record is invalid")
 	}
-	digest := sha256.Sum256(data)
-	if hex.EncodeToString(digest[:]) != fields[0] {
+	digest := hasher.Sum(nil)
+	if hex.EncodeToString(digest) != fields[0] {
 		return fmt.Errorf("binary checksum mismatch")
 	}
 	return nil

@@ -133,6 +133,20 @@ func TestListReleasesValidatesLayoutAndCurrent(t *testing.T) {
 	}
 }
 
+func TestValidateBinaryStreamsAndEnforcesSizeLimit(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("streamed executable")
+	writeFile(t, filepath.Join(dir, "helm"), data, 0755)
+	writeFile(t, filepath.Join(dir, "helm.sha256"), []byte(checksumLine(data, "helm")), 0644)
+
+	if err := validateBinaryWithLimit(dir, "helm", int64(len(data))); err != nil {
+		t.Fatalf("binary at size limit rejected: %v", err)
+	}
+	if err := validateBinaryWithLimit(dir, "helm", int64(len(data)-1)); err == nil {
+		t.Fatal("binary over size limit was accepted")
+	}
+}
+
 func TestHTTPRejectsMalformedAndOversizedRequests(t *testing.T) {
 	fixture := newFixture(t, func(context.Context, string, string) error { return nil })
 	defer fixture.broker.Close()

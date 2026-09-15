@@ -8,9 +8,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-Group=roadmap
+Group=root
 ExecStart=/usr/local/sbin/helm-beta-switchd \
-  --socket /run/helm-beta-switchd.sock \
+  --socket /run/helm-beta-switcher/helm-beta-switchd.sock \
   --releases-dir /var/lib/roadmap/releases \
   --current-link /var/lib/roadmap/current \
   --jobs-dir /var/lib/roadmap/beta-switch-jobs \
@@ -26,7 +26,7 @@ UMask=0027
 # the reviewed rollback helper and systemctl, so hardening below avoids syscall
 # and namespace restrictions that would block those operations.
 NoNewPrivileges=true
-CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_CHOWN
 AmbientCapabilities=
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
@@ -39,9 +39,11 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
-ReadWritePaths=/etc/roadmap /var/lib/roadmap /run/helm-beta-switcher /run/helm-beta-switchd.sock
+# Keep the socket in the service-owned runtime directory so ProtectSystem can
+# leave the rest of /run read-only. The socket itself is root:roadmap 0660.
+ReadWritePaths=/etc/roadmap /var/lib/roadmap /run/helm-beta-switcher
 RuntimeDirectory=helm-beta-switcher
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=0711
 
 [Install]
 WantedBy=multi-user.target
