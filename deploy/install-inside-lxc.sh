@@ -99,6 +99,25 @@ validate_release_ref_file() {
 	done
 }
 
+validate_release_subject_file() {
+	local path=$1 subject byte_count line_count
+	local LC_ALL=C.UTF-8
+	[[ -f "$path" && ! -L "$path" ]] || return 1
+	byte_count=$(stat -c '%s' -- "$path") || return 1
+	[[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -gt 1 && "$byte_count" -le 161 ]] || return 1
+	line_count=$(wc -l < "$path") || return 1
+	[[ "$line_count" =~ ^[[:space:]]*1[[:space:]]*$ ]] || return 1
+	[[ "$(tail -c 1 "$path" | od -An -t x1 | tr -d '[:space:]')" = 0a ]] || return 1
+	subject=$(<"$path")
+	[[ -n "$subject" && "$subject" != *$'\n'* && "$subject" != *$'\r'* && "$subject" != *$'\t'* ]] || return 1
+	[[ "$subject" != *$'\u2028'* && "$subject" != *$'\u2029'* ]] || return 1
+	[[ "$subject" != [[:space:]]* && "$subject" != *[[:space:]] ]] || return 1
+	[[ "$subject" =~ [[:cntrl:]] ]] && return 1
+	command -v iconv >/dev/null 2>&1 || return 1
+	printf '%s' "$subject" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || return 1
+	return 0
+}
+
 release_binary_name() {
 	local target=$1
 	if [[ -x "$target/helm" && ! -L "$target/helm" && -f "$target/helm.sha256" && ! -L "$target/helm.sha256" ]]; then
@@ -325,6 +344,10 @@ if (( PRIVATE_TAILNET_BETA == 1 )); then
 		3) BETA_SWITCH_CONTROLLER=1 ;;
 		*) fail 'beta switch controller release members are incomplete' ;;
 	esac
+	if [[ -e "$RELEASE_DIR/release.subject" || -L "$RELEASE_DIR/release.subject" ]]; then
+		(( BETA_SWITCH_CONTROLLER == 1 )) || fail 'beta release subject requires the switch controller envelope'
+		validate_release_subject_file "$RELEASE_DIR/release.subject" || fail 'beta release subject is invalid'
+	fi
 fi
 
 SHA=$(tr -d '[:space:]' < "$RELEASE_DIR/release.sha")
@@ -486,6 +509,24 @@ if [[ -e "$RELEASES_DIR/$SHA" || -L "$RELEASES_DIR/$SHA" ]]; then
 			install -m 0644 -o root -g root "$RELEASE_DIR/release.ref" "$RELEASES_DIR/$SHA/release.ref"
 		fi
 	fi
+	if [[ -e "$RELEASE_DIR/release.subject" || -L "$RELEASE_DIR/release.subject" ]]; then
+		if [[ -e "$RELEASES_DIR/$SHA/release.subject" || -L "$RELEASES_DIR/$SHA/release.subject" ]]; then
+			[[ -f "$RELEASES_DIR/$SHA/release.subject" && ! -L "$RELEASES_DIR/$SHA/release.subject" ]] \
+				|| fail 'retained beta release subject path is invalid'
+			validate_release_subject_file "$RELEASES_DIR/$SHA/release.subject" \
+				|| fail 'retained beta release subject is invalid'
+			cmp -s "$RELEASE_DIR/release.subject" "$RELEASES_DIR/$SHA/release.subject" \
+				|| fail 'same SHA was previously retained with different release subject'
+		else
+			# A retained release directory is immutable, including its signed
+			# manifest. Older same-SHA releases may legitimately predate this
+			# optional file; leave them subject-less rather than adding a member
+			# that their existing signature does not cover.
+			if grep -Eq '^release\.subject[[:space:]]' "$RELEASES_DIR/$SHA/release.manifest"; then
+				fail 'retained beta release subject is missing from a signed manifest'
+			fi
+		fi
+	fi
 	validate_release_env "$RELEASES_DIR/$SHA/roadmap.env" "$SHA"
 	release_target="$RELEASES_DIR/$SHA"
 else
@@ -500,6 +541,9 @@ else
 	install -m 0644 -o root -g root "$RELEASE_DIR/release.manifest.sig" "$new_target/release.manifest.sig"
 	if (( BETA_SWITCH_CONTROLLER == 1 )); then
 		install -m 0644 -o root -g root "$RELEASE_DIR/release.ref" "$new_target/release.ref"
+	fi
+	if [[ -e "$RELEASE_DIR/release.subject" || -L "$RELEASE_DIR/release.subject" ]]; then
+		install -m 0644 -o root -g root "$RELEASE_DIR/release.subject" "$new_target/release.subject"
 	fi
 	install -m 0640 -o root -g root "$RELEASE_DIR/roadmap.env" "$new_target/roadmap.env"
 	verify_release_binary "$new_target" || fail 'new release binary checksum failed'

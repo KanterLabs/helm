@@ -23,6 +23,7 @@ BACKUP_SERVICE="$DEPLOY_DIR/helm-backup.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
+BETA_CANDIDATE_WORKFLOW="$ROOT_DIR/.github/workflows/beta-candidate.yml"
 DOCS="$ROOT_DIR/docs/OPERATIONS.md"
 DOCKERIGNORE="$ROOT_DIR/.dockerignore"
 
@@ -148,8 +149,13 @@ contains 'ARCHIVE_INGEST_TIMEOUT=120' "$GATEWAY"
 contains 'HELM_RELEASE_SIGNING_KEY_FILE' "$BUILD_BUNDLE"
 contains 'HELM_RELEASE_REF' "$BUILD_BUNDLE"
 contains 'RELEASE_REF_MAX_BYTES=256' "$BUILD_BUNDLE"
+contains 'RELEASE_SUBJECT_MAX_BYTES=160' "$BUILD_BUNDLE"
 contains 'helm-beta-switchd' "$BUILD_BUNDLE"
 contains 'release.ref' "$BUILD_BUNDLE"
+contains 'release.subject' "$BUILD_BUNDLE"
+contains 'metadata_version=helm-beta-candidate-v2' "$BETA_CANDIDATE_WORKFLOW"
+contains 'candidate_subject=%s' "$BETA_CANDIDATE_WORKFLOW"
+contains 'HELM_RELEASE_SUBJECT="$candidate_subject"' "$BETA_CANDIDATE_WORKFLOW"
 contains 'HELM_RELEASE_SHA=%s' "$BUILD_BUNDLE"
 contains 'owner environment already contains a release SHA' "$BUILD_BUNDLE"
 contains 'CLOUDFLARED_VERSION=2026.8.2' "$BUILD_BUNDLE"
@@ -2024,6 +2030,7 @@ BETA_SWITCH_PAYLOAD_MEMBERS=(
 	roadmap.sha256
 	release.ref
 	release.sha
+	release.subject
 	validate-beta-private.sh
 )
 BETA_SWITCH_BUNDLE_MEMBERS=(
@@ -2031,7 +2038,7 @@ BETA_SWITCH_BUNDLE_MEMBERS=(
 	install-inside-lxc.sh nftables.conf roadmap roadmap-backup.service
 	roadmap-backup.sh roadmap-backup.timer roadmap.env roadmap-restore.sh
 	roadmap-rollback.sh roadmap.service roadmap.sha256 release.manifest
-	release.manifest.sig release.ref release.sha validate-beta-private.sh
+	release.manifest.sig release.ref release.sha release.subject validate-beta-private.sh
 )
 beta_switch_source_dir="$fixture/beta-switch-source"
 install -d -m 0700 "$beta_switch_source_dir"
@@ -2040,6 +2047,8 @@ for member in "${BETA_SWITCH_PAYLOAD_MEMBERS[@]}"; do
 		printf '%s\n' "$SHA" > "$beta_switch_source_dir/$member"
 	elif [[ "$member" = release.ref ]]; then
 		printf 'refs/heads/beta\n' > "$beta_switch_source_dir/$member"
+	elif [[ "$member" = release.subject ]]; then
+		printf 'Show commit subjects in beta switcher\n' > "$beta_switch_source_dir/$member"
 	else
 		printf 'private beta switch fixture payload for %s\n' "$member" > "$beta_switch_source_dir/$member"
 	fi

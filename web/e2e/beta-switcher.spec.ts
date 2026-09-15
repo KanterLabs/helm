@@ -20,8 +20,8 @@ function buildPayload(state: BetaFixture) {
     enabled: state.enabled,
     current_sha: switched ? targetSha : currentSha,
     builds: [
-      { sha: currentSha, ref: 'refs/heads/beta', current: !switched },
-      { sha: targetSha, ref: 'refs/heads/feature/compact-switcher', current: switched }
+      { sha: currentSha, ref: 'refs/heads/beta', subject: 'Harden the beta switch controller', current: !switched },
+      { sha: targetSha, ref: 'refs/heads/feature/compact-switcher', subject: 'Make beta builds easier to recognize', current: switched }
     ]
   };
 }
@@ -133,7 +133,9 @@ test.describe('owner beta build switcher', () => {
     const menu = page.getByRole('menu', { name: 'Retained beta builds' });
     await expect(menu).toBeVisible();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(menu.getByRole('menuitem', { name: /feature\/compact-switcher/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /Make beta builds easier to recognize/ })).toBeVisible();
+    await expect(menu).toContainText('Harden the beta switch controller');
+    await expect(menu).toContainText('feature/compact-switcher');
     await page.keyboard.press('Escape');
     await expect(menu).toBeHidden();
     await expect(trigger).toBeFocused();
@@ -147,12 +149,14 @@ test.describe('owner beta build switcher', () => {
     const state = await openFixture(page);
     const trigger = page.locator('[data-beta-switcher] > button');
     await trigger.click();
-    await page.getByRole('menuitem', { name: /feature\/compact-switcher/ }).click();
+    await page.getByRole('menuitem', { name: /Make beta builds easier to recognize/ }).click();
     await expect(page.getByRole('button', { name: 'Switch beta', exact: true })).toBeVisible();
+    await expect(page.locator('.beta-confirm-subject')).toHaveText('Make beta builds easier to recognize');
     await page.getByRole('button', { name: 'Switch beta', exact: true }).click();
     await expect(page.locator('.beta-switch-status')).toContainText(/Switching|Restarting beta/);
     await expect.poll(() => state.switchCalls.length).toBe(1);
     await expect(trigger).toContainText('abcdef0');
+    await expect(trigger).toContainText('Make beta builds easier to recognize');
     await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText('Beta restarted on abcdef0');
   });
 

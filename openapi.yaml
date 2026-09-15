@@ -10850,6 +10850,11 @@ components:
           minLength: 1
           maxLength: 200
           description: Signed source ref associated with the retained build.
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Optional single-line Git commit subject, bounded to 160 UTF-8 bytes.
         current:
           type: boolean
           description: Whether this build is the active beta build.
@@ -12740,9 +12745,11 @@ components:
         builds:
           - sha: 0123456789abcdef0123456789abcdef01234567
             ref: refs/heads/beta
+            subject: Fix beta switcher metadata
             current: true
           - sha: 89abcdef0123456789abcdef0123456789abcdef
             ref: refs/heads/beta
+            subject: Add visible beta build switcher
             current: false
     BetaSwitchResponseExample:
       summary: Queued beta switch job

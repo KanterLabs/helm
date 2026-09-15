@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -75,6 +76,10 @@ func newFixture(t *testing.T, execFn ExecFunc) brokerFixture {
 }
 
 func writeRelease(t *testing.T, releasesDir, sha, ref string) {
+	writeReleaseWithSubject(t, releasesDir, sha, ref, "")
+}
+
+func writeReleaseWithSubject(t *testing.T, releasesDir, sha, ref, subject string) {
 	t.Helper()
 	dir := filepath.Join(releasesDir, sha)
 	if err := os.Mkdir(dir, 0755); err != nil {
@@ -82,6 +87,9 @@ func writeRelease(t *testing.T, releasesDir, sha, ref string) {
 	}
 	writeFile(t, filepath.Join(dir, "release.sha"), []byte(sha+"\n"), 0644)
 	writeFile(t, filepath.Join(dir, "release.ref"), []byte(ref+"\n"), 0644)
+	if subject != "" {
+		writeFile(t, filepath.Join(dir, "release.subject"), []byte(subject+"\n"), 0644)
+	}
 	writeFile(t, filepath.Join(dir, "roadmap.env"), []byte("HELM_RELEASE_SHA="+sha+"\nROADMAP_RELEASE_SHA="+sha+"\n"), 0644)
 	helm := []byte("helm binary")
 	codex := []byte("codex binary")
@@ -91,6 +99,10 @@ func writeRelease(t *testing.T, releasesDir, sha, ref string) {
 	writeFile(t, filepath.Join(dir, "codex.sha256"), []byte(checksumLine(codex, "codex")), 0644)
 	refBytes := []byte(ref + "\n")
 	manifest := "roadmap-release-manifest-v1\nrelease.ref\t" + fmt.Sprint(len(refBytes)) + "\t" + digest(refBytes) + "\n"
+	if subject != "" {
+		subjectBytes := []byte(subject + "\n")
+		manifest += "release.subject\t" + fmt.Sprint(len(subjectBytes)) + "\t" + digest(subjectBytes) + "\n"
+	}
 	writeFile(t, filepath.Join(dir, "release.manifest"), []byte(manifest), 0644)
 	writeFile(t, filepath.Join(dir, "release.manifest.sig"), bytes.Repeat([]byte{1}, 64), 0644)
 }
@@ -130,6 +142,67 @@ func TestListReleasesValidatesLayoutAndCurrent(t *testing.T) {
 	}
 	if response.CurrentSHA != testSHA {
 		t.Fatalf("current SHA = %q", response.CurrentSHA)
+	}
+}
+
+func TestListReleasesIncludesOptionalCommitSubject(t *testing.T) {
+	fixture := newFixture(t, func(context.Context, string, string) error { return nil })
+	defer fixture.broker.Close()
+	writeReleaseWithSubject(t, fixture.releases, alternateSHA, "refs/heads/feature/foo", "Show commit subjects in beta switcher")
+
+	response, err := fixture.broker.ListReleases(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Releases) != 2 {
+		t.Fatalf("releases = %#v", response.Releases)
+	}
+	for _, release := range response.Releases {
+		if release.SHA == alternateSHA && release.Subject != "Show commit subjects in beta switcher" {
+			t.Fatalf("subject = %q, want retained commit subject", release.Subject)
+		}
+		if release.SHA == testSHA && release.Subject != "" {
+			t.Fatalf("legacy subject = %q, want empty", release.Subject)
+		}
+	}
+}
+
+func TestListReleasesRejectsInvalidCommitSubjectMetadata(t *testing.T) {
+	fixture := newFixture(t, func(context.Context, string, string) error { return nil })
+	defer fixture.broker.Close()
+	writeReleaseWithSubject(t, fixture.releases, alternateSHA, "refs/heads/feature/foo", "invalid\nsubject")
+
+	response, err := fixture.broker.ListReleases(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Releases) != 1 || response.Releases[0].SHA != testSHA {
+		t.Fatalf("releases = %#v, want only legacy release", response.Releases)
+	}
+}
+
+func TestValidCommitSubjectEnforcesCanonicalBoundaries(t *testing.T) {
+	for name, subject := range map[string]string{
+		"empty":          "",
+		"leading space":  " subject",
+		"trailing space": "subject ",
+		"newline":        "subject\nwith newline",
+		"control":        "subject\x00with control",
+		"line separator": "subject\u2028with separator",
+		"too long":       strings.Repeat("x", MaxCommitSubjectBytes+1),
+	} {
+		if ValidCommitSubject(subject) {
+			t.Errorf("%s subject unexpectedly accepted", name)
+		}
+	}
+	if !ValidCommitSubject("a UTF-8 subject — safely retained") {
+		t.Fatal("valid UTF-8 commit subject rejected")
+	}
+	if !ValidCommitSubject(strings.Repeat("é", MaxCommitSubjectBytes/2)) {
+		t.Fatal("UTF-8 subject at the byte limit rejected")
+	}
+	if ValidCommitSubject(strings.Repeat("é", MaxCommitSubjectBytes/2+1)) {
+		t.Fatal("UTF-8 subject over the byte limit accepted")
 	}
 }
 

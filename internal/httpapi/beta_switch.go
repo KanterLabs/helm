@@ -264,7 +264,10 @@ func sanitizeBetaReleases(result betaswitch.ReleasesResponse) ([]betaswitch.Rele
 		if !validBetaSHA(release.SHA) || !safeBetaRef(release.Ref) {
 			return nil, "", false
 		}
-		builds = append(builds, betaswitch.Release{SHA: release.SHA, Ref: release.Ref, Current: release.Current})
+		if release.Subject != "" && !betaswitch.ValidCommitSubject(release.Subject) {
+			return nil, "", false
+		}
+		builds = append(builds, betaswitch.Release{SHA: release.SHA, Ref: release.Ref, Subject: release.Subject, Current: release.Current})
 	}
 	return builds, currentSHA, true
 }

@@ -36,6 +36,7 @@ esac
 # branch label is useful for local callers; it is normalized to the same
 # canonical refs/heads form before it is written to the bundle.
 RELEASE_REF_MAX_BYTES=256
+RELEASE_SUBJECT_MAX_BYTES=160
 normalize_release_ref() {
 	local raw=$1 branch component bytes
 	local -a branch_components
@@ -76,6 +77,52 @@ normalize_release_ref() {
 		}
 	done
 	printf 'refs/heads/%s\n' "$branch"
+}
+
+# Commit subjects are owner-facing metadata, not executable release inputs.
+# Normalize all Unicode whitespace/control separators to a single space and
+# truncate only at UTF-8 rune boundaries so the signed file is one line and
+# remains within the API's byte bound.
+normalize_release_subject() {
+	local raw=$1 char normalized= result= pending_space=0 bytes=0 char_bytes
+	local LC_ALL=C.UTF-8
+	if ! raw=$(printf '%s' "$raw" | iconv -f UTF-8 -t UTF-8 2>/dev/null); then
+		printf 'HELM_RELEASE_SUBJECT is not valid UTF-8\n' >&2
+		return 1
+	fi
+	while [[ -n "$raw" ]]; do
+		char=${raw%"${raw#?}"}
+		raw=${raw#?}
+		if [[ "$char" =~ [[:space:]] || "$char" =~ [[:cntrl:]] || "$char" = $'\u2028' || "$char" = $'\u2029' ]]; then
+			pending_space=1
+			continue
+		fi
+		if (( pending_space == 1 && ${#normalized} > 0 )); then
+			normalized+=' '
+		fi
+		normalized+="$char"
+		pending_space=0
+	done
+	[[ -n "$normalized" ]] || {
+		printf 'HELM_RELEASE_SUBJECT is empty after sanitization\n' >&2
+		return 1
+	}
+	raw=$normalized
+	while [[ -n "$raw" ]]; do
+		char=${raw%"${raw#?}"}
+		raw=${raw#?}
+		char_bytes=$(LC_ALL=C printf '%s' "$char" | wc -c)
+		if (( bytes + char_bytes > RELEASE_SUBJECT_MAX_BYTES )); then
+			break
+		fi
+		result+="$char"
+		bytes=$((bytes + char_bytes))
+	done
+	[[ -n "$result" ]] || {
+		printf 'HELM_RELEASE_SUBJECT exceeds its %s-byte limit\n' "$RELEASE_SUBJECT_MAX_BYTES" >&2
+		return 1
+	}
+	printf '%s\n' "$result"
 }
 
 RELEASE_REF=
@@ -150,6 +197,7 @@ if (( PRIVATE_TAILNET_BETA == 1 )); then
 		roadmap.sha256
 		release.ref
 		release.sha
+		release.subject
 		validate-beta-private.sh
 	)
 	BUNDLE_MEMBERS=(
@@ -173,6 +221,7 @@ if (( PRIVATE_TAILNET_BETA == 1 )); then
 		release.manifest.sig
 		release.ref
 		release.sha
+		release.subject
 		validate-beta-private.sh
 	)
 else
@@ -183,6 +232,22 @@ fi
 if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
 	printf 'usage: %s <40-character git sha>\n' "$0" >&2
 	exit 64
+fi
+
+RELEASE_SUBJECT=
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	raw_release_subject=$(resolve_compat_var HELM_RELEASE_SUBJECT ROADMAP_RELEASE_SUBJECT)
+	if [[ -z "$raw_release_subject" ]]; then
+		git -C "$ROOT_DIR" cat-file -e "${SHA}^{commit}" 2>/dev/null || {
+			printf 'a trusted Git commit subject is required for beta release %s\n' "$SHA" >&2
+			exit 1
+		}
+		raw_release_subject=$(git -C "$ROOT_DIR" show -s --format=%s "$SHA") || {
+			printf 'could not read the trusted Git commit subject for beta release %s\n' "$SHA" >&2
+			exit 1
+		}
+	fi
+	RELEASE_SUBJECT=$(normalize_release_subject "$raw_release_subject") || exit 1
 fi
 
 safe_file() {
@@ -420,6 +485,8 @@ chmod 0644 "$BUNDLE_DIR/release.sha"
 if (( PRIVATE_TAILNET_BETA == 1 )); then
 	printf '%s\n' "$RELEASE_REF" > "$BUNDLE_DIR/release.ref"
 	chmod 0644 "$BUNDLE_DIR/release.ref"
+	printf '%s\n' "$RELEASE_SUBJECT" > "$BUNDLE_DIR/release.subject"
+	chmod 0644 "$BUNDLE_DIR/release.subject"
 fi
 (cd "$BUNDLE_DIR" && sha256sum roadmap > roadmap.sha256)
 chmod 0644 "$BUNDLE_DIR/roadmap.sha256"

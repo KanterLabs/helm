@@ -204,7 +204,11 @@ describe('beta build labels and admission', () => {
     const sha = '0123456789abcdef0123456789abcdef01234567';
     expect(betaBranchLabel('refs/heads/feature/visible-beta')).toBe('feature/visible-beta');
     expect(betaShortSha(sha)).toBe('0123456');
-    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', current: true })).toBe(true);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: 'Show commit subjects in beta switcher', current: true })).toBe(true);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta' })).toBe(true);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: 'bad\nsubject' })).toBe(false);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: 'x'.repeat(161) })).toBe(false);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: '🚀'.repeat(41) })).toBe(false);
     expect(isValidBetaBuildShape({ sha: '', ref: 'refs/heads/feature/visible-beta' })).toBe(false);
     expect(isValidBetaBuildShape({ sha, ref: '', current: true })).toBe(false);
   });

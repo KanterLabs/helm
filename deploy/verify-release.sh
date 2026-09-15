@@ -14,6 +14,7 @@ MANIFEST_MAX_BYTES=131072
 SIGNATURE_BYTES=64
 MANIFEST_HEADER='roadmap-release-manifest-v1'
 RELEASE_REF_MAX_BYTES=256
+RELEASE_SUBJECT_MAX_BYTES=160
 # Listing and extraction run under a bounded helper. The size checks below
 # stop the pipeline as soon as a header exceeds the aggregate cap; these
 # process limits cover malformed archives that spend excessive CPU or memory
@@ -84,6 +85,7 @@ BETA_SWITCH_PAYLOAD_MEMBERS=(
 	roadmap.sha256
 	release.ref
 	release.sha
+	release.subject
 	validate-beta-private.sh
 )
 BETA_SWITCH_ALL_MEMBERS=(
@@ -107,6 +109,7 @@ BETA_SWITCH_ALL_MEMBERS=(
 	release.manifest.sig
 	release.ref
 	release.sha
+	release.subject
 	validate-beta-private.sh
 )
 case "$VERIFIER_BASENAME" in
@@ -185,6 +188,24 @@ validate_release_ref_file() {
 	for component in "${branch_components[@]}"; do
 		[[ -n "$component" && "$component" != . && "$component" != .. && "$component" != -* ]] || return 1
 	done
+}
+
+validate_release_subject_file() {
+	local path=$1 subject byte_count line_count
+	local LC_ALL=C.UTF-8
+	[[ -f "$path" && ! -L "$path" ]] || return 1
+	byte_count=$(stat -c '%s' -- "$path") || return 1
+	[[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -gt 1 && "$byte_count" -le $((RELEASE_SUBJECT_MAX_BYTES + 1)) ]] || return 1
+	line_count=$(wc -l < "$path") || return 1
+	[[ "$line_count" =~ ^[[:space:]]*1[[:space:]]*$ ]] || return 1
+	[[ "$(tail -c 1 "$path" | od -An -t x1 | tr -d '[:space:]')" = 0a ]] || return 1
+	subject=$(<"$path")
+	[[ -n "$subject" && "$subject" != *$'\n'* && "$subject" != *$'\r'* && "$subject" != *$'\t'* ]] || return 1
+	[[ "$subject" != *$'\u2028'* && "$subject" != *$'\u2029'* ]] || return 1
+	[[ "$subject" != [[:space:]]* && "$subject" != *[[:space:]] ]] || return 1
+	[[ "$subject" =~ [[:cntrl:]] ]] && return 1
+	printf '%s' "$subject" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || return 1
+	return 0
 }
 
 fail() {
@@ -424,6 +445,10 @@ if (( BETA_SWITCH_PROFILE == 1 )); then
 		|| fail 'beta release ref cannot be read'
 	validate_release_ref_file "$work/release.ref" \
 		|| fail 'beta release ref is not a canonical safe branch ref'
+	bounded_tar -xOf "$ARCHIVE" release.subject > "$work/release.subject" \
+		|| fail 'beta release subject cannot be read'
+	validate_release_subject_file "$work/release.subject" \
+		|| fail 'beta release subject is not a canonical safe UTF-8 subject'
 fi
 
 # Include the signed envelope itself in the aggregate cap, while deliberately

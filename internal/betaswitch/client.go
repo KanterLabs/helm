@@ -74,6 +74,9 @@ func (c *UnixClient) ListReleases(ctx context.Context) (ReleasesResponse, error)
 		if !validSHA(release.SHA) || release.Ref == "" {
 			return ReleasesResponse{}, coded(ErrInternal, errors.New("broker returned invalid release"))
 		}
+		if release.Subject != "" && !ValidCommitSubject(release.Subject) {
+			return ReleasesResponse{}, coded(ErrInternal, errors.New("broker returned invalid release subject"))
+		}
 		if _, err := branchFromRef(release.Ref); err != nil {
 			return ReleasesResponse{}, coded(ErrInternal, errors.New("broker returned invalid release ref"))
 		}

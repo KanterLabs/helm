@@ -91,7 +91,7 @@ func TestBetaBuildsRequireAdminAndSanitizeResponse(t *testing.T) {
 	server.Cfg.PublicOrigin = "https://beta-helm.home.shanekanterman.dev"
 	client := &betaSwitchClientStub{list: betaswitch.ReleasesResponse{
 		CurrentSHA: betaTestSHA,
-		Releases:   []betaswitch.Release{{SHA: betaTestSHA, Ref: "refs/heads/feature/foo", Current: true}},
+		Releases:   []betaswitch.Release{{SHA: betaTestSHA, Ref: "refs/heads/feature/foo", Subject: "Show commit subjects in beta switcher", Current: true}},
 	}}
 	server.BetaSwitch = client
 
@@ -103,7 +103,7 @@ func TestBetaBuildsRequireAdminAndSanitizeResponse(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.Enabled || body.CurrentSHA != betaTestSHA || len(body.Builds) != 1 || body.Builds[0].Ref != "refs/heads/feature/foo" || !body.Builds[0].Current {
+	if !body.Enabled || body.CurrentSHA != betaTestSHA || len(body.Builds) != 1 || body.Builds[0].Ref != "refs/heads/feature/foo" || body.Builds[0].Subject != "Show commit subjects in beta switcher" || !body.Builds[0].Current {
 		t.Fatalf("builds response=%+v", body)
 	}
 
@@ -118,6 +118,21 @@ func TestBetaBuildsRequireAdminAndSanitizeResponse(t *testing.T) {
 	}
 	if client.listCalls != 1 {
 		t.Fatalf("list calls=%d, want 1", client.listCalls)
+	}
+}
+
+func TestBetaBuildsRejectInvalidCommitSubject(t *testing.T) {
+	server, _ := testServer(t, "tailnet")
+	server.Cfg.BetaSwitchEnabled = true
+	server.Cfg.PublicOrigin = "https://beta-helm.home.shanekanterman.dev"
+	server.BetaSwitch = &betaSwitchClientStub{list: betaswitch.ReleasesResponse{
+		CurrentSHA: betaTestSHA,
+		Releases:   []betaswitch.Release{{SHA: betaTestSHA, Ref: "refs/heads/feature/foo", Subject: "unsafe\nsubject", Current: true}},
+	}}
+
+	response := serveBetaRoute(t, server, betaRequestWithIdentity(http.MethodGet, "/api/v1/admin/beta/builds", "", betaAdminIdentity()))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("invalid subject status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

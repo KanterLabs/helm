@@ -27,14 +27,15 @@ import (
 )
 
 const (
-	maxReleaseSHABytes = 128
-	maxReleaseRefBytes = 256
-	maxManifestBytes   = 128 << 10
-	maxChecksumBytes   = 256
-	maxBinaryBytes     = 256 << 20
-	maxJobBytes        = 4096
-	defaultQueueDepth  = 128
-	maxJobIDAttempts   = 64
+	maxReleaseSHABytes     = 128
+	maxReleaseRefBytes     = 256
+	maxReleaseSubjectBytes = MaxCommitSubjectBytes + 1 // subject plus its required newline
+	maxManifestBytes       = 128 << 10
+	maxChecksumBytes       = 256
+	maxBinaryBytes         = 256 << 20
+	maxJobBytes            = 4096
+	defaultQueueDepth      = 128
+	maxJobIDAttempts       = 64
 )
 
 // ExecFunc is deliberately passed the fixed configured executable and the
@@ -600,6 +601,15 @@ func (b *Broker) findRelease(sha string) (Release, error) {
 	if err := b.validateManifestRecord(path, "release.ref", refBytes); err != nil {
 		return Release{}, err
 	}
+	subject, subjectBytes, err := readOptionalCommitSubject(path)
+	if err != nil {
+		return Release{}, err
+	}
+	if len(subjectBytes) > 0 {
+		if err := b.validateManifestRecord(path, "release.subject", subjectBytes); err != nil {
+			return Release{}, err
+		}
+	}
 	signature, err := readRegular(path, "release.manifest.sig", 64)
 	if err != nil {
 		return Release{}, err
@@ -616,7 +626,7 @@ func (b *Broker) findRelease(sha string) (Release, error) {
 	if err := validateBinary(path, "codex"); err != nil {
 		return Release{}, err
 	}
-	return Release{SHA: sha, Ref: ref}, nil
+	return Release{SHA: sha, Ref: ref, Subject: subject}, nil
 }
 
 func (b *Broker) validateReleaseEnv(dir, sha string) error {
@@ -731,6 +741,27 @@ func parseReleaseRef(value []byte) (string, error) {
 		return "", fmt.Errorf("release ref contains a control character")
 	}
 	return ref, nil
+}
+
+func readOptionalCommitSubject(dir string) (string, []byte, error) {
+	path := filepath.Join(dir, "release.subject")
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return "", nil, nil
+	} else if err != nil {
+		return "", nil, err
+	}
+	data, err := readRegular(dir, "release.subject", maxReleaseSubjectBytes)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(data) < 2 || data[len(data)-1] != '\n' || strings.Count(string(data), "\n") != 1 {
+		return "", nil, fmt.Errorf("release subject must contain exactly one newline")
+	}
+	subject := string(data[:len(data)-1])
+	if !ValidCommitSubject(subject) {
+		return "", nil, fmt.Errorf("release subject is invalid")
+	}
+	return subject, data, nil
 }
 
 func validateBinary(dir, name string) error {

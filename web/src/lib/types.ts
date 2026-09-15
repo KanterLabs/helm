@@ -704,6 +704,8 @@ export interface AuthStatus {
 export interface BetaBuild {
   sha: string;
   ref: string;
+  /** Bounded, single-line Git commit subject supplied by the trusted beta release metadata. */
+  subject?: string;
   current?: boolean;
 }
 

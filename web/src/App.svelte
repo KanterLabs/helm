@@ -130,9 +130,9 @@
     return ref.replace(/^refs\/(heads|tags)\//, '') || 'beta';
   }
 
-  export function isValidBetaBuildShape(value: unknown): value is { sha: string; ref: string; current?: boolean } {
+  export function isValidBetaBuildShape(value: unknown): value is { sha: string; ref: string; subject?: string; current?: boolean } {
     if (!value || typeof value !== 'object') return false;
-    const build = value as { sha?: unknown; ref?: unknown; current?: unknown };
+    const build = value as { sha?: unknown; ref?: unknown; subject?: unknown; current?: unknown };
     return typeof build.sha === 'string'
       && build.sha.trim().length > 0
       && /^[0-9a-f]{40}$/.test(build.sha.trim())
@@ -141,6 +141,12 @@
       && build.ref.trim().length > 0
       && build.ref.length <= 256
       && !/[\u0000-\u001f\u007f]/.test(build.ref)
+      && (build.subject === undefined || (
+        typeof build.subject === 'string'
+        && build.subject.trim().length > 0
+        && new TextEncoder().encode(build.subject).length <= 160
+        && !/[\u0000-\u001f\u007f]/.test(build.subject)
+      ))
       && (build.current === undefined || typeof build.current === 'boolean');
   }
 
@@ -925,7 +931,9 @@
   $: betaCurrentBuild = betaBuilds.find((build) => build.sha === betaCurrentSha)
     || betaBuilds.find((build) => build.current);
   $: betaCurrentRef = betaCurrentBuild?.ref || 'beta';
-  $: betaCurrentLabel = `${betaBranchLabelValue(betaCurrentRef)} · ${betaShortShaValue(betaCurrentSha)}`;
+  $: betaCurrentSubject = betaCurrentBuild?.subject || '';
+  $: betaCurrentLabel = `${betaBranchLabelValue(betaCurrentRef)} · ${betaShortShaValue(betaCurrentSha)}${betaCurrentSubject ? ` — ${betaCurrentSubject}` : ''}`;
+  $: betaConfirmBuild = betaBuilds.find((build) => build.sha === betaConfirmSha);
   $: commandChoices = filterCommandChoices(buildCommandChoices({
     projects,
     tasks,
@@ -1689,9 +1697,21 @@
       || !build.ref.trim()
       || build.ref.length > 256
       || /[\u0000-\u001f\u007f]/.test(build.ref)
+      || (build.subject !== undefined && (
+        typeof build.subject !== 'string'
+        || !build.subject.trim()
+        || new TextEncoder().encode(build.subject).length > 160
+        || /[\u0000-\u001f\u007f]/.test(build.subject)
+      ))
       || (build.current !== undefined && typeof build.current !== 'boolean')
     ) return null;
-    return { sha: build.sha.trim(), ref: build.ref.trim(), current: build.current };
+    const subject = typeof build.subject === 'string' ? build.subject.trim() : '';
+    return {
+      sha: build.sha.trim(),
+      ref: build.ref.trim(),
+      ...(subject ? { subject } : {}),
+      current: build.current
+    };
   }
 
   function normalizedBetaBuildsResponse(value: unknown): BetaBuildsResponse | null {
@@ -7347,11 +7367,11 @@
                 aria-controls="beta-build-menu"
                 aria-haspopup="menu"
                 aria-busy={Boolean(betaSwitchingSha)}
-                title={`Full SHA: ${betaCurrentSha || 'unknown'}`}
+                title={`${betaCurrentSubject ? `${betaCurrentSubject}\n` : ''}Full SHA: ${betaCurrentSha || 'unknown'}`}
                 on:click={toggleBetaSwitcher}
               >
                 <span class="beta-switcher-dot" aria-hidden="true"></span>
-                <span class="beta-switcher-label"><span>Beta</span><span class="beta-switcher-separator" aria-hidden="true"> · </span><span class="beta-switcher-branch">{betaBranchLabelValue(betaCurrentRef)}</span><span class="beta-switcher-separator" aria-hidden="true"> · </span><span>{betaShortShaValue(betaCurrentSha)}</span></span>
+                <span class="beta-switcher-label"><span>Beta</span><span class="beta-switcher-separator" aria-hidden="true"> · </span><span class="beta-switcher-branch">{betaBranchLabelValue(betaCurrentRef)}</span><span class="beta-switcher-separator" aria-hidden="true"> · </span><span>{betaShortShaValue(betaCurrentSha)}</span>{#if betaCurrentSubject}<span class="beta-switcher-subject-separator" aria-hidden="true"> — </span><span class="beta-switcher-subject">{betaCurrentSubject}</span>{/if}</span>
                 <span class="picker-chevron" aria-hidden="true">⌄</span>
               </button>
               {#if betaSwitcherOpen}
@@ -7374,7 +7394,8 @@
                     {/if}
                   {:else if betaConfirmSha}
                     <div class="beta-confirmation" role="group" aria-label="Confirm beta build switch">
-                      <p>Switch beta to <strong>{betaBuilds.find((build) => build.sha === betaConfirmSha) ? betaBranchLabelValue(betaBuilds.find((build) => build.sha === betaConfirmSha)?.ref || '') : 'selected build'}</strong> · <code title={betaConfirmSha}>{betaShortShaValue(betaConfirmSha)}</code>?</p>
+                      <p>Switch beta to <strong>{betaConfirmBuild ? betaBranchLabelValue(betaConfirmBuild.ref) : 'selected build'}</strong> · <code title={betaConfirmSha}>{betaShortShaValue(betaConfirmSha)}</code>?</p>
+                      {#if betaConfirmBuild?.subject}<p class="beta-confirm-subject">{betaConfirmBuild.subject}</p>{/if}
                       <div class="beta-confirm-actions"><button class="button quiet-button compact-button" type="button" on:click={cancelBetaBuildConfirmation}>Cancel</button><button class="button primary compact-button" type="button" data-beta-confirm on:click={() => void switchBetaBuild()}>Switch beta</button></div>
                       {#if betaSwitchError}<div class="beta-menu-error" role="alert"><span>{betaSwitchError}</span><button class="text-button" type="button" data-beta-retry on:click={() => void switchBetaBuild()}>Retry</button></div>{/if}
                     </div>
@@ -7384,8 +7405,11 @@
                     {/if}
                     {#if betaBuilds.length}
                       {#each betaBuilds as build (build.sha)}
-                        <button class="beta-build-option" class:current={build.sha === betaCurrentSha} type="button" role="menuitem" data-beta-build={build.sha} aria-current={build.sha === betaCurrentSha ? 'true' : undefined} aria-label={`${betaBranchLabelValue(build.ref)} ${betaShortShaValue(build.sha)}${build.sha === betaCurrentSha ? ', current' : ''}`} on:click={() => selectBetaBuild(build)}>
-                          <span class="beta-build-copy"><strong>{betaBranchLabelValue(build.ref)}</strong><small title={build.sha}>{betaShortShaValue(build.sha)}</small></span>
+                        <button class="beta-build-option" class:current={build.sha === betaCurrentSha} type="button" role="menuitem" data-beta-build={build.sha} aria-current={build.sha === betaCurrentSha ? 'true' : undefined} aria-label={`${build.subject ? `${build.subject}, ` : ''}${betaBranchLabelValue(build.ref)} ${betaShortShaValue(build.sha)}${build.sha === betaCurrentSha ? ', current' : ''}`} on:click={() => selectBetaBuild(build)}>
+                          <span class="beta-build-copy">
+                            <strong class:unavailable={!build.subject}>{build.subject || 'Commit message unavailable'}</strong>
+                            <small title={build.sha}><span>{betaBranchLabelValue(build.ref)}</span><span aria-hidden="true"> · </span><code>{betaShortShaValue(build.sha)}</code></small>
+                          </span>
                           {#if build.sha === betaCurrentSha}<span class="beta-current-badge">Current</span>{/if}
                         </button>
                       {/each}

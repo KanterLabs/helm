@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -37,6 +39,10 @@ const (
 	// DefaultStartupGrace lets the accepted HTTP response flush before the
 	// fixed rollback helper stops the running application service.
 	DefaultStartupGrace = time.Second
+	// MaxCommitSubjectBytes bounds the optional commit subject retained with a
+	// beta build. Subjects are validated as UTF-8 and never contain controls or
+	// line separators, so the field is safe to expose in owner-facing JSON.
+	MaxCommitSubjectBytes = 160
 )
 
 var (
@@ -50,6 +56,7 @@ var (
 type Release struct {
 	SHA     string `json:"sha"`
 	Ref     string `json:"ref"`
+	Subject string `json:"subject,omitempty"`
 	Current bool   `json:"current"`
 }
 
@@ -173,4 +180,22 @@ func validateJobID(id string) error {
 		return fmt.Errorf("invalid job ID")
 	}
 	return nil
+}
+
+// ValidCommitSubject accepts only the canonical, single-line form written to
+// retained release metadata. The subject is optional on old retained builds,
+// but a present value must be valid before it can cross the broker boundary.
+func ValidCommitSubject(subject string) bool {
+	if subject == "" || !utf8.ValidString(subject) || len([]byte(subject)) > MaxCommitSubjectBytes {
+		return false
+	}
+	if strings.TrimSpace(subject) != subject {
+		return false
+	}
+	for _, r := range subject {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return false
+		}
+	}
+	return true
 }
