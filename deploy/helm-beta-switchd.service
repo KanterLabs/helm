@@ -1,0 +1,47 @@
+[Unit]
+Description=Helm private beta switch controller
+After=network-online.target helm.service
+Wants=network-online.target
+# This unit intentionally has no lifecycle coupling to helm.service.
+# Restarting the application must not stop the controller that owns beta jobs.
+
+[Service]
+Type=simple
+User=root
+Group=roadmap
+ExecStart=/usr/local/sbin/helm-beta-switchd \
+  --socket /run/helm-beta-switchd.sock \
+  --releases-dir /var/lib/roadmap/releases \
+  --current-link /var/lib/roadmap/current \
+  --jobs-dir /var/lib/roadmap/beta-switch-jobs \
+  --rollback /usr/local/sbin/helm-rollback \
+  --allowed-user roadmap \
+  --socket-group roadmap
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=20s
+UMask=0027
+
+# The controller is a root-owned, narrowly scoped broker.  It needs to invoke
+# the reviewed rollback helper and systemctl, so hardening below avoids syscall
+# and namespace restrictions that would block those operations.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+MemoryMax=256M
+TasksMax=128
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/etc/roadmap /var/lib/roadmap /run/helm-beta-switcher /run/helm-beta-switchd.sock
+RuntimeDirectory=helm-beta-switcher
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

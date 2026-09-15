@@ -30,6 +30,65 @@ case "$DEPLOY_ENVIRONMENT" in
 		;;
 esac
 
+# A release ref is signed into beta bundles and later displayed/consumed by
+# the beta switch controller.  Keep it a canonical branch ref so it can never
+# become a path, shell fragment, or unbounded log value.  Accepting the short
+# branch label is useful for local callers; it is normalized to the same
+# canonical refs/heads form before it is written to the bundle.
+RELEASE_REF_MAX_BYTES=256
+normalize_release_ref() {
+	local raw=$1 branch component bytes
+	local -a branch_components
+	[[ "$raw" != *$'\n'* && "$raw" != *$'\r'* && "$raw" != *$'\t'* ]] || {
+		printf 'HELM_RELEASE_REF contains a control character\n' >&2
+		return 1
+	}
+	bytes=$(LC_ALL=C printf '%s' "$raw" | wc -c)
+	[[ "$bytes" =~ ^[0-9]+$ && "$bytes" -gt 0 && "$bytes" -le "$RELEASE_REF_MAX_BYTES" ]] || {
+		printf 'HELM_RELEASE_REF exceeds its %s-byte limit\n' "$RELEASE_REF_MAX_BYTES" >&2
+		return 1
+	}
+	if [[ "$raw" = refs/heads/* ]]; then
+		branch=${raw#refs/heads/}
+	elif [[ "$raw" != refs/* ]]; then
+		branch=$raw
+	else
+		printf 'HELM_RELEASE_REF must be refs/heads/<safe branch>\n' >&2
+		return 1
+	fi
+	[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$ ]] || {
+		printf 'HELM_RELEASE_REF contains an unsafe branch label\n' >&2
+		return 1
+	}
+	[[ "$branch" != *'..'* && "$branch" != *'//' && "$branch" != *'@{'* && "$branch" != *$'\\'* ]] || {
+		printf 'HELM_RELEASE_REF contains an unsafe branch separator\n' >&2
+		return 1
+	}
+	[[ "$branch" != */ && "$branch" != *. ]] || {
+		printf 'HELM_RELEASE_REF must not end with a path separator or dot\n' >&2
+		return 1
+	}
+	IFS=/ read -r -a branch_components <<<"$branch"
+	for component in "${branch_components[@]}"; do
+		[[ -n "$component" && "$component" != . && "$component" != .. && "$component" != -* ]] || {
+			printf 'HELM_RELEASE_REF contains an unsafe branch component\n' >&2
+			return 1
+		}
+	done
+	printf 'refs/heads/%s\n' "$branch"
+}
+
+RELEASE_REF=
+if [[ -n "${HELM_RELEASE_REF:-}" ]]; then
+	RELEASE_REF=$(normalize_release_ref "$HELM_RELEASE_REF") || exit 1
+elif (( PRIVATE_TAILNET_BETA == 1 )); then
+	# GitHub supplies GITHUB_REF for CI builds.  The branch label fallback keeps
+	# a locally-invoked beta build deterministic without accepting arbitrary ref
+	# syntax from the caller.
+	derived_release_ref=${GITHUB_REF:-${GITHUB_REF_NAME:-beta}}
+	RELEASE_REF=$(normalize_release_ref "$derived_release_ref") || exit 1
+fi
+
 if (( PRIVATE_TAILNET_BETA == 0 )); then
 	CLOUDFLARED_TOKEN_FILE=$(resolve_compat_var HELM_CLOUDFLARED_TOKEN_FILE ROADMAP_CLOUDFLARED_TOKEN_FILE "$DIST_DIR/cloudflared.token")
 fi
@@ -72,8 +131,50 @@ COMMON_BUNDLE_MEMBERS=(
 	release.sha
 )
 if (( PRIVATE_TAILNET_BETA == 1 )); then
-	PAYLOAD_MEMBERS=("${COMMON_PAYLOAD_MEMBERS[@]}" validate-beta-private.sh)
-	BUNDLE_MEMBERS=("${COMMON_BUNDLE_MEMBERS[@]}" validate-beta-private.sh)
+	PAYLOAD_MEMBERS=(
+		codex
+		codex.sha256
+		compose.yaml
+		helm-beta-switchd
+		helm-beta-switchd.service
+		install-inside-lxc.sh
+		nftables.conf
+		roadmap
+		roadmap-backup.service
+		roadmap-backup.sh
+		roadmap-backup.timer
+		roadmap.env
+		roadmap-restore.sh
+		roadmap-rollback.sh
+		roadmap.service
+		roadmap.sha256
+		release.ref
+		release.sha
+		validate-beta-private.sh
+	)
+	BUNDLE_MEMBERS=(
+		codex
+		codex.sha256
+		compose.yaml
+		helm-beta-switchd
+		helm-beta-switchd.service
+		install-inside-lxc.sh
+		nftables.conf
+		roadmap
+		roadmap-backup.service
+		roadmap-backup.sh
+		roadmap-backup.timer
+		roadmap.env
+		roadmap-restore.sh
+		roadmap-rollback.sh
+		roadmap.service
+		roadmap.sha256
+		release.manifest
+		release.manifest.sig
+		release.ref
+		release.sha
+		validate-beta-private.sh
+	)
 else
 	PAYLOAD_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_PAYLOAD_MEMBERS[@]}")
 	BUNDLE_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_BUNDLE_MEMBERS[@]}")
@@ -107,6 +208,14 @@ safe_file "$DIST_DIR/codex" codex-binary
 	printf 'codex binary must be executable\n' >&2
 	exit 1
 }
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	safe_file "$DIST_DIR/helm-beta-switchd" beta-switch-controller-binary
+	[[ -x "$DIST_DIR/helm-beta-switchd" ]] || {
+		printf 'beta switch controller binary must be executable\n' >&2
+		exit 1
+	}
+	safe_file "$ROOT_DIR/deploy/helm-beta-switchd.service" beta-switch-controller-unit
+fi
 [[ -n "$SIGNING_KEY_FILE" ]] || {
 	printf 'HELM_RELEASE_SIGNING_KEY_FILE is required to sign a release\n' >&2
 	exit 1
@@ -276,6 +385,10 @@ chmod 0700 "$BUNDLE_DIR"
 # canonical Helm runtime names and retains compatibility aliases for rollback.
 install -m 0755 "$DIST_DIR/helm" "$BUNDLE_DIR/roadmap"
 install -m 0755 "$DIST_DIR/codex" "$BUNDLE_DIR/codex"
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	install -m 0755 "$DIST_DIR/helm-beta-switchd" "$BUNDLE_DIR/helm-beta-switchd"
+	install -m 0644 "$ROOT_DIR/deploy/helm-beta-switchd.service" "$BUNDLE_DIR/helm-beta-switchd.service"
+fi
 if (( PRIVATE_TAILNET_BETA == 0 )); then
 	install -m 0755 "$CLOUDFLARED_PATH" "$BUNDLE_DIR/cloudflared"
 	install -m 0600 "$CLOUDFLARED_TOKEN_FILE" "$BUNDLE_DIR/cloudflared.token"
@@ -304,6 +417,10 @@ printf 'HELM_RELEASE_SHA=%s\nROADMAP_RELEASE_SHA=%s\n' "$SHA" "$SHA" >> "$BUNDLE
 chmod 0640 "$BUNDLE_DIR/roadmap.env"
 printf '%s\n' "$SHA" > "$BUNDLE_DIR/release.sha"
 chmod 0644 "$BUNDLE_DIR/release.sha"
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	printf '%s\n' "$RELEASE_REF" > "$BUNDLE_DIR/release.ref"
+	chmod 0644 "$BUNDLE_DIR/release.ref"
+fi
 (cd "$BUNDLE_DIR" && sha256sum roadmap > roadmap.sha256)
 chmod 0644 "$BUNDLE_DIR/roadmap.sha256"
 (cd "$BUNDLE_DIR" && sha256sum codex > codex.sha256)

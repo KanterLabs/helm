@@ -19,6 +19,17 @@ type Config struct {
 	AuthMode     string
 	PublicOrigin string
 	AdminEmail   string
+	// BetaSwitchEnabled exposes the beta release switcher only on the private
+	// Tailnet deployment. It is deliberately disabled by default and is
+	// validated against the exact beta origin below.
+	BetaSwitchEnabled bool
+	// BetaSwitchSocket is the absolute Unix socket used to reach the root-owned
+	// beta switch broker. The application never invokes deployment commands
+	// directly. BetaSwitchSocketPath is retained as an explicit alias for
+	// callers that describe the setting as a path; both fields are populated
+	// from the same environment value.
+	BetaSwitchSocket     string
+	BetaSwitchSocketPath string
 	// CodexBinary is the executable used to launch the local Codex App Server.
 	// CodexHomeRoot contains one isolated CODEX_HOME directory per Helm actor.
 	CodexBinary   string
@@ -73,6 +84,17 @@ func FromEnv() (Config, error) {
 		return Config{}, err
 	}
 	adminEmail, err := resolveEnv("HELM_ADMIN_EMAIL", "ROADMAP_ADMIN_EMAIL")
+	if err != nil {
+		return Config{}, err
+	}
+	betaSwitchEnabled, err := resolveEnv("HELM_BETA_SWITCH_ENABLED", "ROADMAP_BETA_SWITCH_ENABLED")
+	if err != nil {
+		return Config{}, err
+	}
+	betaSwitchSocket, err := resolveEnv(
+		"HELM_BETA_SWITCH_SOCKET", "HELM_BETA_SWITCH_SOCKET_PATH",
+		"ROADMAP_BETA_SWITCH_SOCKET", "ROADMAP_BETA_SWITCH_SOCKET_PATH",
+	)
 	if err != nil {
 		return Config{}, err
 	}
@@ -177,6 +199,7 @@ func FromEnv() (Config, error) {
 		AuthMode:                strings.ToLower(valueOr(authMode, "local")),
 		PublicOrigin:            strings.TrimRight(publicOrigin.value, "/"),
 		AdminEmail:              adminEmail.value,
+		BetaSwitchSocket:        valueOr(betaSwitchSocket, "/run/helm-beta-switchd.sock"),
 		CodexBinary:             valueOr(codexBinary, "codex"),
 		CodexHomeRoot:           valueOr(codexHomeRoot, "data/codex-users"),
 		CodexModel:              valueOr(codexModel, "gpt-5.6-luna"),
@@ -219,6 +242,18 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("HELM_DEMO_SEED must be true or false: %w", err)
 		}
 		c.DemoSeed = parsed
+	}
+	if value := betaSwitchEnabled.value; value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("HELM_BETA_SWITCH_ENABLED must be true or false: %w", err)
+		}
+		c.BetaSwitchEnabled = parsed
+	}
+	c.BetaSwitchSocket = strings.TrimSpace(c.BetaSwitchSocket)
+	c.BetaSwitchSocketPath = c.BetaSwitchSocket
+	if c.BetaSwitchSocket == "" || !filepath.IsAbs(c.BetaSwitchSocket) || strings.ContainsAny(c.BetaSwitchSocket, "\r\n\x00") {
+		return Config{}, fmt.Errorf("HELM_BETA_SWITCH_SOCKET must be an absolute Unix socket path")
 	}
 	if value := lunaEnabled.value; value != "" {
 		parsed, err := strconv.ParseBool(value)
@@ -351,6 +386,15 @@ func FromEnv() (Config, error) {
 			}
 			seenPeers[canonical] = struct{}{}
 			c.TailnetAllowedPeerIPs = append(c.TailnetAllowedPeerIPs, canonical)
+		}
+	}
+	if c.BetaSwitchEnabled {
+		const betaOrigin = "https://beta-helm.home.shanekanterman.dev"
+		if c.AuthMode != "tailnet" {
+			return Config{}, fmt.Errorf("HELM_BETA_SWITCH_ENABLED requires HELM_AUTH_MODE=tailnet")
+		}
+		if c.PublicOrigin != betaOrigin {
+			return Config{}, fmt.Errorf("HELM_BETA_SWITCH_ENABLED requires HELM_PUBLIC_ORIGIN=%s", betaOrigin)
 		}
 	}
 	return c, nil

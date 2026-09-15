@@ -13,6 +13,7 @@ ARCHIVE_MAX_UNCOMPRESSED_BYTES=536870912
 MANIFEST_MAX_BYTES=131072
 SIGNATURE_BYTES=64
 MANIFEST_HEADER='roadmap-release-manifest-v1'
+RELEASE_REF_MAX_BYTES=256
 # Listing and extraction run under a bounded helper. The size checks below
 # stop the pipeline as soon as a header exceeds the aggregate cap; these
 # process limits cover malformed archives that spend excessive CPU or memory
@@ -60,10 +61,59 @@ COMMON_BUNDLE_MEMBERS=(
 	release.sha
 )
 VERIFIER_BASENAME=${BASH_SOURCE[0]##*/}
+BETA_PROFILE=0
+declare -a BETA_LEGACY_PAYLOAD_MEMBERS BETA_LEGACY_ALL_MEMBERS
+BETA_LEGACY_PAYLOAD_MEMBERS=("${COMMON_PAYLOAD_MEMBERS[@]}" validate-beta-private.sh)
+BETA_LEGACY_ALL_MEMBERS=("${COMMON_BUNDLE_MEMBERS[@]}" validate-beta-private.sh)
+BETA_SWITCH_PAYLOAD_MEMBERS=(
+	codex
+	codex.sha256
+	compose.yaml
+	helm-beta-switchd
+	helm-beta-switchd.service
+	install-inside-lxc.sh
+	nftables.conf
+	roadmap
+	roadmap-backup.service
+	roadmap-backup.sh
+	roadmap-backup.timer
+	roadmap.env
+	roadmap-restore.sh
+	roadmap-rollback.sh
+	roadmap.service
+	roadmap.sha256
+	release.ref
+	release.sha
+	validate-beta-private.sh
+)
+BETA_SWITCH_ALL_MEMBERS=(
+	codex
+	codex.sha256
+	compose.yaml
+	helm-beta-switchd
+	helm-beta-switchd.service
+	install-inside-lxc.sh
+	nftables.conf
+	roadmap
+	roadmap-backup.service
+	roadmap-backup.sh
+	roadmap-backup.timer
+	roadmap.env
+	roadmap-restore.sh
+	roadmap-rollback.sh
+	roadmap.service
+	roadmap.sha256
+	release.manifest
+	release.manifest.sig
+	release.ref
+	release.sha
+	validate-beta-private.sh
+)
 case "$VERIFIER_BASENAME" in
-	 helm-beta-verify-release)
-		PAYLOAD_MEMBERS=("${COMMON_PAYLOAD_MEMBERS[@]}" validate-beta-private.sh)
-		ALL_MEMBERS=("${COMMON_BUNDLE_MEMBERS[@]}" validate-beta-private.sh)
+	helm-beta-verify-release)
+		BETA_PROFILE=1
+		PAYLOAD_MEMBERS=("${BETA_SWITCH_PAYLOAD_MEMBERS[@]}")
+		ALL_MEMBERS=("${BETA_SWITCH_ALL_MEMBERS[@]}")
 		;;
 	*)
 		PAYLOAD_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_PAYLOAD_MEMBERS[@]}")
@@ -71,6 +121,18 @@ case "$VERIFIER_BASENAME" in
 		;;
 esac
 ARCHIVE_MAX_MEMBERS=${#ALL_MEMBERS[@]}
+BETA_SWITCH_PROFILE=0
+if (( BETA_PROFILE == 1 )); then
+	ARCHIVE_MIN_MEMBERS=${#BETA_LEGACY_ALL_MEMBERS[@]}
+	ARCHIVE_MAX_MEMBERS=${#BETA_SWITCH_ALL_MEMBERS[@]}
+	# The first bounded listing must allow either the legacy beta envelope or
+	# the new controller/ref envelope.  Exact member-set selection below then
+	# narrows the trust boundary before any payload is extracted.
+	ALL_MEMBERS=("${BETA_LEGACY_ALL_MEMBERS[@]}" "${BETA_SWITCH_ALL_MEMBERS[@]}")
+else
+	ARCHIVE_MIN_MEMBERS=${#ALL_MEMBERS[@]}
+	ARCHIVE_MAX_MEMBERS=${#ALL_MEMBERS[@]}
+fi
 
 member_is_allowed() {
 	local candidate=$1 member
@@ -86,6 +148,43 @@ payload_member_is_allowed() {
 		[[ "$candidate" = "$member" ]] && return 0
 	done
 	return 1
+}
+
+member_set_matches() {
+	local expected_name=$1 member expected count
+	local -n expected_members=$expected_name
+	[[ "${#tar_members[@]}" -eq "${#expected_members[@]}" ]] || return 1
+	for expected in "${expected_members[@]}"; do
+		count=0
+		for member in "${tar_members[@]}"; do
+			[[ "$member" = "$expected" ]] && (( count += 1 ))
+		done
+		[[ "$count" -eq 1 ]] || return 1
+	done
+}
+
+validate_release_ref_file() {
+	local path=$1 ref branch component byte_count ref_bytes line_count
+	local -a branch_components
+	[[ -f "$path" && ! -L "$path" ]] || return 1
+	byte_count=$(stat -c '%s' -- "$path") || return 1
+	[[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -gt 1 && "$byte_count" -le "$RELEASE_REF_MAX_BYTES" ]] || return 1
+	line_count=$(wc -l < "$path") || return 1
+	[[ "$line_count" =~ ^[[:space:]]*1[[:space:]]*$ ]] || return 1
+	[[ "$(tail -c 1 "$path" | od -An -t x1 | tr -d '[:space:]')" = 0a ]] || return 1
+	ref=$(<"$path")
+	[[ "$ref" != *$'\n'* && "$ref" != *$'\r'* && "$ref" != *$'\t'* ]] || return 1
+	ref_bytes=$(LC_ALL=C printf '%s' "$ref" | wc -c) || return 1
+	[[ "$byte_count" = $((ref_bytes + 1)) ]] || return 1
+	[[ "$ref" = refs/heads/* ]] || return 1
+	branch=${ref#refs/heads/}
+	[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$ ]] || return 1
+	[[ "$branch" != *'..'* && "$branch" != *'//' && "$branch" != *'@{'* && "$branch" != *$'\\'* ]] || return 1
+	[[ "$branch" != */ && "$branch" != *. ]] || return 1
+	IFS=/ read -r -a branch_components <<<"$branch"
+	for component in "${branch_components[@]}"; do
+		[[ -n "$component" && "$component" != . && "$component" != .. && "$component" != -* ]] || return 1
+	done
 }
 
 fail() {
@@ -170,6 +269,7 @@ listing_pid=$!
 if (
 	ulimit -v "$TAR_MEMORY_LIMIT_KIB"
 	awk -v max_members="$ARCHIVE_MAX_MEMBERS" \
+		-v min_members="$ARCHIVE_MIN_MEMBERS" \
 		-v max_bytes="$ARCHIVE_MAX_UNCOMPRESSED_BYTES" \
 		-v max_listing_bytes="$TAR_LISTING_LIMIT_BYTES" '
 		function reject(message) { print message > "/dev/stderr"; exit 1 }
@@ -184,7 +284,7 @@ if (
 			total += ($3 + 0)
 			print
 		}
-		END { if (NR != max_members) exit 1 }
+		END { if (NR < min_members || NR > max_members) exit 1 }
 	' < "$tar_listing_fifo" > "$tar_verbose_file"
 ); then
 	listing_status=0
@@ -204,7 +304,7 @@ fi
 listing_pid=
 mapfile -t tar_verbose < "$tar_verbose_file"
 [[ -n "${tar_verbose[*]}" ]] || fail 'release archive is empty'
-[[ ${#tar_verbose[@]} -eq "$ARCHIVE_MAX_MEMBERS" ]] \
+[[ ${#tar_verbose[@]} -ge "$ARCHIVE_MIN_MEMBERS" && ${#tar_verbose[@]} -le "$ARCHIVE_MAX_MEMBERS" ]] \
 	|| fail 'release archive has an unexpected member count'
 
 tar_members=()
@@ -212,6 +312,20 @@ for listing in "${tar_verbose[@]}"; do
 	read -r mode owner member_size member_date member_time member extra <<< "$listing"
 	tar_members+=("$member")
 done
+
+if (( BETA_PROFILE == 1 )); then
+	if member_set_matches BETA_SWITCH_ALL_MEMBERS; then
+		BETA_SWITCH_PROFILE=1
+		PAYLOAD_MEMBERS=("${BETA_SWITCH_PAYLOAD_MEMBERS[@]}")
+		ALL_MEMBERS=("${BETA_SWITCH_ALL_MEMBERS[@]}")
+	elif member_set_matches BETA_LEGACY_ALL_MEMBERS; then
+		BETA_SWITCH_PROFILE=0
+		PAYLOAD_MEMBERS=("${BETA_LEGACY_PAYLOAD_MEMBERS[@]}")
+		ALL_MEMBERS=("${BETA_LEGACY_ALL_MEMBERS[@]}")
+	else
+		fail 'beta release archive does not match a canonical legacy or switcher member set'
+	fi
+fi
 
 declare -A seen_members=()
 for member in "${tar_members[@]}"; do
@@ -304,6 +418,13 @@ while IFS=$'\t' read -r name size digest extra; do
 done < <(tail -n +2 "$work/release.manifest")
 [[ "$payload_count" -eq "${#PAYLOAD_MEMBERS[@]}" ]] \
 	|| fail 'release manifest does not enumerate every payload member'
+
+if (( BETA_SWITCH_PROFILE == 1 )); then
+	bounded_tar -xOf "$ARCHIVE" release.ref > "$work/release.ref" \
+		|| fail 'beta release ref cannot be read'
+	validate_release_ref_file "$work/release.ref" \
+		|| fail 'beta release ref is not a canonical safe branch ref'
+fi
 
 # Include the signed envelope itself in the aggregate cap, while deliberately
 # excluding it from the manifest list to avoid a circular self-hash.

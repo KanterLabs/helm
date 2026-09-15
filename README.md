@@ -428,7 +428,61 @@ unauthenticated HTTP 401 after deployment. The optional
 not the normal private-beta state. Dispatch `rollback_sha` from `beta` to roll
 back beta, or from `main` to roll back production; neither environment's job
 can select the other's gateway. Beta does not use Cloudflare credentials or
-public routing.
+public routing. Normal beta pushes build `helm-beta-switchd` from the exact
+trusted beta checkout and sign `HELM_RELEASE_REF=refs/heads/beta` into the
+bundle, using the fixed `/run/helm-beta-switchd.sock` socket.
+
+### Manual feature-branch candidates
+
+The protected beta branch also carries a separate manual workflow,
+`.github/workflows/beta-candidate.yml`, for trying a schema-compatible feature
+branch on the private beta hostname. Dispatch it from `beta` with both the
+exact 40-character lowercase `candidate_sha` and its canonical
+`candidate_ref` (`refs/heads/<branch>`). Admission resolves that ref in the
+canonical `KanterLabs/helm` repository, requires the same tip SHA, rejects
+forks and the `main`/`beta` branches, and rejects unsafe Git ref syntax. A
+stale SHA or a branch that moves during admission fails closed. The trusted
+beta commit must also be an ancestor of the candidate commit, so candidates
+must be based or rebased on the current beta revision; an unrelated older
+feature branch cannot pass schema equality and strand the beta switcher/API.
+
+Candidate source is tested without beta secrets: short checks run on
+`homelab`, while browser, race, and container checks run on `homelab-heavy`.
+Every candidate checkout is pinned to the admitted SHA. Admission also
+requires the candidate's `internal/db/migrations/` tree and
+`internal/db/db.go` migration engine to be byte-identical to trusted beta, and
+rejects any `go.mod` or `go.sum` change. The module-file restriction prevents a
+candidate from silently changing the dependency/toolchain inputs used by the
+trusted controller and deployment; a dependency update must land in beta first
+through its normal reviewed path. This is intentionally conservative and can
+require a separate reviewed beta change before a candidate can be admitted.
+Binary, container, and provenance artifacts are named with the candidate SHA;
+the provenance records the canonical candidate ref and the exact trusted beta
+workflow/ref/SHA.
+
+The `homelab` and `homelab-heavy` selectors follow the canonical
+`KanterLabs/infrastructure` `homelab/ci-runners/README` contract: every job
+gets one ephemeral runner pod and private Docker-in-Docker daemon, with no host
+Docker socket, host home directory, or static deployment credential mounted.
+The workspace and daemon disappear with the job, so candidate work cannot
+persist into a later job; the workflow still pins every checkout and writes
+secrets only below the per-job `$RUNNER_TEMP` directory.
+
+Within this candidate workflow, only the final `candidate_deploy` job can read
+`BETA_*` secrets. It checks out
+the exact `github.sha` from `refs/heads/beta`, and fails closed unless the
+workflow identity is exactly
+`KanterLabs/helm/.github/workflows/beta-candidate.yml@refs/heads/beta` with
+`GITHUB_WORKFLOW_SHA == GITHUB_SHA`. It then verifies all candidate
+metadata/artifact checksums, builds `helm-beta-switchd` from that trusted beta
+source, and invokes the trusted `deploy/deploy-ci.sh` with
+`HELM_RELEASE_REF=refs/heads/<candidate-branch>`. The beta owner environment
+enables the switcher with `HELM_BETA_SWITCH_ENABLED=true` and the fixed
+`/run/helm-beta-switchd.sock` socket. The job never checks out candidate source
+as workflow or deployment-script input, and production's `main` workflow and
+credentials are unchanged. A paused beta environment prevents the
+secret-bearing candidate deploy while still allowing non-secret checks to
+finish.
 
 ## Backups and rollback
 

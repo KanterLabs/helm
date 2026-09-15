@@ -172,6 +172,30 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .project-picker { display: flex; align-items: center; gap: 9px; padding: 5px 8px 5px 5px; border: 0; border-radius: 9px; color: var(--ink); background: transparent; font-size: 13px; font-weight: 700; }
 .project-picker:hover { background: var(--surface-hover); }
 .picker-chevron { margin-left: 3px; color: var(--muted); font-size: 15px; }
+.beta-switcher { position: relative; display: inline-flex; align-items: center; margin-left: 7px; }
+.beta-switcher-trigger { min-width: 0; max-width: 220px; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--purple), var(--border) 58%); border-radius: 8px; color: var(--purple); background: var(--purple-soft); font-size: 11px; font-weight: 800; letter-spacing: .01em; }
+.beta-switcher-trigger:hover { border-color: var(--purple); background: color-mix(in srgb, var(--purple-soft) 80%, var(--surface)); }
+.beta-switcher-trigger .picker-chevron { flex: 0 0 auto; margin-left: 0; font-size: 13px; }
+.beta-switcher-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--purple); box-shadow: 0 0 0 3px color-mix(in srgb, var(--purple), transparent 82%); }
+.beta-switcher-label { min-width: 0; display: inline-flex; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.beta-switcher-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.beta-build-menu { position: absolute; top: 41px; left: 0; z-index: 45; width: min(320px, calc(100vw - 24px)); max-height: min(420px, calc(100vh - 86px)); overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised); box-shadow: var(--shadow-md); }
+.beta-build-option { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; border-radius: 8px; color: var(--ink-soft); background: transparent; text-align: left; }
+.beta-build-option:hover, .beta-build-option:focus-visible, .beta-build-option.current { color: var(--ink); background: var(--surface-muted); }
+.beta-build-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
+.beta-build-copy strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.beta-build-copy small { color: var(--muted); font: 600 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .03em; }
+.beta-current-badge { flex: 0 0 auto; padding: 3px 6px; border-radius: 999px; color: var(--semantic-green); background: var(--green-soft); font-size: 9px; font-weight: 800; }
+.beta-menu-empty { padding: 18px 10px; color: var(--muted); font-size: 11px; text-align: center; }
+.beta-menu-error { display: flex; align-items: center; gap: 8px; margin: 2px 0 5px; padding: 8px; border: 1px solid color-mix(in srgb, var(--red), var(--border) 72%); border-radius: 8px; color: var(--semantic-red); background: var(--red-soft); font-size: 10px; line-height: 1.4; }
+.beta-menu-error > span { min-width: 0; flex: 1; }
+.beta-menu-error .text-button { min-height: 0; margin-left: auto; }
+.beta-confirmation { padding: 9px 8px 5px; }
+.beta-confirmation p { margin: 0 0 10px; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
+.beta-confirmation code { color: var(--ink); font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.beta-confirm-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.beta-switch-status { display: flex; align-items: center; gap: 8px; padding: 12px 8px; color: var(--ink-soft); font-size: 11px; font-weight: 700; }
+.beta-switch-status .spinner { width: 14px; height: 14px; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
 .command-trigger { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 7px 0 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 11px; }
 .command-trigger:hover { border-color: var(--border-strong); color: var(--ink-soft); }
@@ -1109,8 +1133,10 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .user-chip { justify-content: center; padding: 9px 0 0; }
   .topbar { min-height: 60px; }
   .mobile-brand { display: flex; }
-  .topbar-project { margin-right: auto; }
+  .topbar-project { display: flex; align-items: center; margin-right: auto; }
   .topbar-project .project-picker { font-size: 11px; }
+  .beta-switcher { margin-left: 3px; }
+  .beta-switcher-trigger { max-width: 170px; }
   .command-trigger-label { display: none; }
   .command-trigger { width: 34px; justify-content: center; padding: 0; }
   .command-trigger kbd { display: none; }
@@ -1166,6 +1192,10 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .topbar-project { min-width: 0; max-width: none; flex: 1; margin-right: 0; overflow: hidden; }
   .project-picker { min-height: 44px; max-width: 100%; overflow: hidden; }
   .project-picker > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .beta-switcher { min-width: 0; flex: 0 1 auto; }
+  .beta-switcher-trigger { max-width: 112px; min-height: 44px; padding: 0 7px; gap: 5px; }
+  .beta-switcher-trigger .picker-chevron { display: none; }
+  .beta-build-menu { position: fixed; top: calc(53px + env(safe-area-inset-top)); right: 12px; left: auto; width: min(320px, calc(100vw - 24px)); max-height: calc(100dvh - 78px); }
   .topbar-actions { flex: 0 0 auto; gap: 2px; }
   .topbar-actions > .icon-button[aria-label^='Use '] { display: none; }
   .command-trigger { width: 44px; height: 44px; }
@@ -1310,6 +1340,11 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .audit-finding-meta > span + span { padding-left: 0; border-left: 0; }
   .audit-preview-details { grid-template-columns: 1fr; }
   .toast-stack { right: 14px; bottom: calc(76px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 360px) {
+  .beta-switcher-trigger { max-width: 88px; }
+  .beta-switcher-branch, .beta-switcher-separator { display: none; }
 }
 
 /* Release planning */

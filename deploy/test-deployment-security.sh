@@ -18,6 +18,7 @@ INSTALL="$DEPLOY_DIR/install-inside-lxc.sh"
 PRIVATE_VALIDATE="$DEPLOY_DIR/validate-beta-private.sh"
 PRIVATE_OWNER_TEMPLATE="$DEPLOY_DIR/tailnet-owner.env.example"
 SERVICE="$DEPLOY_DIR/helm.service"
+BETA_SWITCH_SERVICE="$DEPLOY_DIR/helm-beta-switchd.service"
 BACKUP_SERVICE="$DEPLOY_DIR/helm-backup.service"
 CLOUDFLARE="$DEPLOY_DIR/cloudflare.sh"
 VALIDATE="$DEPLOY_DIR/validate-live.sh"
@@ -43,7 +44,7 @@ count_contains() {
 }
 
 for file in "$GATEWAY" "$BOOTSTRAP" "$DEPLOY_CI" "$VERIFY" "$BUILD_BUNDLE" \
-	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$BACKUP_SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
+	"$BACKUP" "$RESTORE" "$ROLLBACK" "$INSTALL" "$PRIVATE_VALIDATE" "$PRIVATE_OWNER_TEMPLATE" "$SERVICE" "$BETA_SWITCH_SERVICE" "$BACKUP_SERVICE" "$CLOUDFLARE" "$VALIDATE" "$WORKFLOW" "$DOCS"; do
 	[[ -f "$file" && ! -L "$file" ]] || fail "deployment file is missing: $file"
 done
 
@@ -145,6 +146,10 @@ bounded_tar_line=$(grep -n '^bounded_tar()' "$VERIFY" | cut -d: -f1)
 	|| fail 'compressed archive cap is not checked before tar processing'
 contains 'ARCHIVE_INGEST_TIMEOUT=120' "$GATEWAY"
 contains 'HELM_RELEASE_SIGNING_KEY_FILE' "$BUILD_BUNDLE"
+contains 'HELM_RELEASE_REF' "$BUILD_BUNDLE"
+contains 'RELEASE_REF_MAX_BYTES=256' "$BUILD_BUNDLE"
+contains 'helm-beta-switchd' "$BUILD_BUNDLE"
+contains 'release.ref' "$BUILD_BUNDLE"
 contains 'HELM_RELEASE_SHA=%s' "$BUILD_BUNDLE"
 contains 'owner environment already contains a release SHA' "$BUILD_BUNDLE"
 contains 'CLOUDFLARED_VERSION=2026.8.2' "$BUILD_BUNDLE"
@@ -160,6 +165,19 @@ contains 'validate_optional_codex()' "$ROLLBACK"
 contains 'validate_optional_codex "$TARGET"' "$ROLLBACK"
 contains 'validate_optional_codex "$previous_target"' "$ROLLBACK"
 contains 'Environment=HELM_CODEX_BINARY=/var/lib/roadmap/current/codex' "$SERVICE"
+contains 'User=root' "$BETA_SWITCH_SERVICE"
+contains 'Group=roadmap' "$BETA_SWITCH_SERVICE"
+contains '--socket /run/helm-beta-switchd.sock' "$BETA_SWITCH_SERVICE"
+contains '--releases-dir /var/lib/roadmap/releases' "$BETA_SWITCH_SERVICE"
+contains '--current-link /var/lib/roadmap/current' "$BETA_SWITCH_SERVICE"
+contains '--jobs-dir /var/lib/roadmap/beta-switch-jobs' "$BETA_SWITCH_SERVICE"
+contains '--rollback /usr/local/sbin/helm-rollback' "$BETA_SWITCH_SERVICE"
+contains '--allowed-user roadmap' "$BETA_SWITCH_SERVICE"
+contains '--socket-group roadmap' "$BETA_SWITCH_SERVICE"
+contains 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' "$BETA_SWITCH_SERVICE"
+not_contains 'PartOf=helm.service' "$BETA_SWITCH_SERVICE"
+not_contains 'BindsTo=helm.service' "$BETA_SWITCH_SERVICE"
+contains 'systemctl enable --now helm-beta-switchd.service' "$INSTALL"
 contains 'docker cp "$container_id:/usr/local/bin/codex" "$image_dir/codex"' "$WORKFLOW"
 contains 'name: helm-image-${{ github.sha }}' "$WORKFLOW"
 contains 'install -m 0755 dist/container/codex dist/codex' "$WORKFLOW"
@@ -1052,6 +1070,9 @@ contains 'identity provider is missing, ambiguous, or nonconforming' "$VALIDATE"
 contains 'PUBLIC_HOST=beta-helm.home.shanekanterman.dev' "$CLOUDFLARE"
 contains 'PUBLIC_HOST=beta-helm.home.shanekanterman.dev' "$VALIDATE"
 contains 'HELM_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev' "$ROOT_DIR/.helm-beta-deploy.env.example"
+contains 'HELM_RELEASE_RETENTION=20' "$ROOT_DIR/.helm-beta-deploy.env.example"
+contains 'RETENTION=$(compat_env HELM_RELEASE_RETENTION ROADMAP_RELEASE_RETENTION 20)' "$INSTALL"
+contains 'RETENTION=$(compat_env HELM_RELEASE_RETENTION ROADMAP_RELEASE_RETENTION 5)' "$INSTALL"
 contains 'beta-helm.home.shanekanterman.dev' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
 contains 'private Tailnet/split-DNS hostname' "$CLOUDFLARE"
 contains 'private Tailnet/split-DNS hostname' "$VALIDATE"
@@ -1972,6 +1993,90 @@ chmod 0755 "$fixture/helm-beta-verify-release"
 "$fixture/helm-beta-verify-release" "$fixture/beta-valid.tar.gz" "$SHA" "$fixture/public.pem" >/dev/null \
 	|| fail 'valid private beta signed release archive was rejected'
 printf 'private_beta_release_profile_test=ok\n'
+
+# The switch-controller beta envelope extends the legacy beta set with the
+# controller unit/binary and a signed canonical branch ref.  Keep this fixture
+# separate so the verifier's rollback compatibility remains exercised above.
+BETA_SWITCH_PAYLOAD_MEMBERS=(
+	codex
+	codex.sha256
+	compose.yaml
+	helm-beta-switchd
+	helm-beta-switchd.service
+	install-inside-lxc.sh
+	nftables.conf
+	roadmap
+	roadmap-backup.service
+	roadmap-backup.sh
+	roadmap-backup.timer
+	roadmap.env
+	roadmap-restore.sh
+	roadmap-rollback.sh
+	roadmap.service
+	roadmap.sha256
+	release.ref
+	release.sha
+	validate-beta-private.sh
+)
+BETA_SWITCH_BUNDLE_MEMBERS=(
+	codex codex.sha256 compose.yaml helm-beta-switchd helm-beta-switchd.service
+	install-inside-lxc.sh nftables.conf roadmap roadmap-backup.service
+	roadmap-backup.sh roadmap-backup.timer roadmap.env roadmap-restore.sh
+	roadmap-rollback.sh roadmap.service roadmap.sha256 release.manifest
+	release.manifest.sig release.ref release.sha validate-beta-private.sh
+)
+beta_switch_source_dir="$fixture/beta-switch-source"
+install -d -m 0700 "$beta_switch_source_dir"
+for member in "${BETA_SWITCH_PAYLOAD_MEMBERS[@]}"; do
+	if [[ "$member" = release.sha ]]; then
+		printf '%s\n' "$SHA" > "$beta_switch_source_dir/$member"
+	elif [[ "$member" = release.ref ]]; then
+		printf 'refs/heads/beta\n' > "$beta_switch_source_dir/$member"
+	else
+		printf 'private beta switch fixture payload for %s\n' "$member" > "$beta_switch_source_dir/$member"
+	fi
+done
+chmod 0755 "$beta_switch_source_dir/helm-beta-switchd"
+{
+	printf 'roadmap-release-manifest-v1\n'
+	for member in "${BETA_SWITCH_PAYLOAD_MEMBERS[@]}"; do
+		bytes=$(stat -c '%s' -- "$beta_switch_source_dir/$member")
+		digest=$(sha256sum -- "$beta_switch_source_dir/$member" | awk '{print $1}')
+		printf '%s\t%s\t%s\n' "$member" "$bytes" "$digest"
+	done
+} > "$beta_switch_source_dir/release.manifest"
+openssl pkeyutl -sign -rawin -inkey "$fixture/private.pem" \
+	-in "$beta_switch_source_dir/release.manifest" \
+	-out "$beta_switch_source_dir/release.manifest.sig"
+GZIP=-n tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
+	-czf "$fixture/beta-switch-valid.tar.gz" -C "$beta_switch_source_dir" "${BETA_SWITCH_BUNDLE_MEMBERS[@]}"
+"$fixture/helm-beta-verify-release" "$fixture/beta-switch-valid.tar.gz" "$SHA" "$fixture/public.pem" >/dev/null \
+	|| fail 'valid private beta switch release archive was rejected'
+printf 'private_beta_switch_release_profile_test=ok\n'
+
+# A signed controller envelope still rejects an unsafe branch ref; signing the
+# manifest does not make metadata with controls or traversal separators valid.
+beta_switch_bad_ref_dir="$fixture/beta-switch-bad-ref"
+cp -a "$beta_switch_source_dir" "$beta_switch_bad_ref_dir"
+printf 'refs/heads/../owner\n' > "$beta_switch_bad_ref_dir/release.ref"
+{
+	printf 'roadmap-release-manifest-v1\n'
+	for member in "${BETA_SWITCH_PAYLOAD_MEMBERS[@]}"; do
+		bytes=$(stat -c '%s' -- "$beta_switch_bad_ref_dir/$member")
+		digest=$(sha256sum -- "$beta_switch_bad_ref_dir/$member" | awk '{print $1}')
+		printf '%s\t%s\t%s\n' "$member" "$bytes" "$digest"
+	done
+} > "$beta_switch_bad_ref_dir/release.manifest"
+openssl pkeyutl -sign -rawin -inkey "$fixture/private.pem" \
+	-in "$beta_switch_bad_ref_dir/release.manifest" \
+	-out "$beta_switch_bad_ref_dir/release.manifest.sig"
+GZIP=-n tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
+	-czf "$fixture/beta-switch-bad-ref.tar.gz" -C "$beta_switch_bad_ref_dir" "${BETA_SWITCH_BUNDLE_MEMBERS[@]}"
+if "$fixture/helm-beta-verify-release" "$fixture/beta-switch-bad-ref.tar.gz" "$SHA" "$fixture/public.pem" \
+	>"$fixture/beta-switch-bad-ref.out" 2>&1; then
+	fail 'unsafe beta release ref was unexpectedly accepted'
+fi
+printf 'private_beta_release_ref_security_test=ok\n'
 
 expect_verify_fail() {
 	local label=$1 archive=$2

@@ -75,6 +75,30 @@ release_revision() {
 	printf '%s' "$revision"
 }
 
+validate_release_ref_file() {
+	local path=$1 ref branch component byte_count ref_bytes line_count
+	local -a branch_components
+	[[ -f "$path" && ! -L "$path" ]] || return 1
+	byte_count=$(stat -c '%s' -- "$path") || return 1
+	[[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -gt 1 && "$byte_count" -le 256 ]] || return 1
+	line_count=$(wc -l < "$path") || return 1
+	[[ "$line_count" =~ ^[[:space:]]*1[[:space:]]*$ ]] || return 1
+	[[ "$(tail -c 1 "$path" | od -An -t x1 | tr -d '[:space:]')" = 0a ]] || return 1
+	ref=$(<"$path")
+	[[ "$ref" != *$'\n'* && "$ref" != *$'\r'* && "$ref" != *$'\t'* ]] || return 1
+	ref_bytes=$(LC_ALL=C printf '%s' "$ref" | wc -c) || return 1
+	[[ "$byte_count" = $((ref_bytes + 1)) ]] || return 1
+	[[ "$ref" = refs/heads/* ]] || return 1
+	branch=${ref#refs/heads/}
+	[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$ ]] || return 1
+	[[ "$branch" != *'..'* && "$branch" != *'//' && "$branch" != *'@{'* && "$branch" != *$'\\'* ]] || return 1
+	[[ "$branch" != */ && "$branch" != *. ]] || return 1
+	IFS=/ read -r -a branch_components <<<"$branch"
+	for component in "${branch_components[@]}"; do
+		[[ -n "$component" && "$component" != . && "$component" != .. && "$component" != -* ]] || return 1
+	done
+}
+
 release_binary_name() {
 	local target=$1
 	if [[ -x "$target/helm" && ! -L "$target/helm" && -f "$target/helm.sha256" && ! -L "$target/helm.sha256" ]]; then
@@ -288,12 +312,31 @@ fi
 for file in "${RELEASE_FILES[@]}"; do
 	[[ -f "$RELEASE_DIR/$file" && ! -L "$RELEASE_DIR/$file" ]] || fail "release member is missing: $file"
 done
+BETA_SWITCH_CONTROLLER=0
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	controller_members=0
+	for file in helm-beta-switchd helm-beta-switchd.service release.ref; do
+		if [[ -e "$RELEASE_DIR/$file" || -L "$RELEASE_DIR/$file" ]]; then
+			(( controller_members += 1 ))
+		fi
+	done
+	case "$controller_members" in
+		0) ;;
+		3) BETA_SWITCH_CONTROLLER=1 ;;
+		*) fail 'beta switch controller release members are incomplete' ;;
+	esac
+fi
 
 SHA=$(tr -d '[:space:]' < "$RELEASE_DIR/release.sha")
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'release SHA is invalid'
 [[ -x "$RELEASE_DIR/roadmap" && -x "$RELEASE_DIR/codex" ]] || fail 'release binaries must be executable'
 if (( PRIVATE_TAILNET_BETA == 0 )); then
 	[[ -x "$RELEASE_DIR/cloudflared" ]] || fail 'cloudflared release binary must be executable'
+else
+	if (( BETA_SWITCH_CONTROLLER == 1 )); then
+		[[ -x "$RELEASE_DIR/helm-beta-switchd" ]] || fail 'beta switch controller binary must be executable'
+		validate_release_ref_file "$RELEASE_DIR/release.ref" || fail 'beta release ref is not a canonical safe branch ref'
+	fi
 fi
 sha256sum "$RELEASE_DIR/roadmap" >/dev/null || fail 'could not hash release binary'
 (cd "$RELEASE_DIR" && sha256sum --check --strict codex.sha256 >/dev/null) || fail 'release Codex checksum failed'
@@ -428,6 +471,21 @@ if [[ -e "$RELEASES_DIR/$SHA" || -L "$RELEASES_DIR/$SHA" ]]; then
 	else
 		install -m 0640 -o root -g root "$RELEASE_DIR/roadmap.env" "$RELEASES_DIR/$SHA/roadmap.env"
 	fi
+	if (( BETA_SWITCH_CONTROLLER == 1 )); then
+		if [[ -e "$RELEASES_DIR/$SHA/release.ref" || -L "$RELEASES_DIR/$SHA/release.ref" ]]; then
+			[[ -f "$RELEASES_DIR/$SHA/release.ref" && ! -L "$RELEASES_DIR/$SHA/release.ref" ]] \
+				|| fail 'retained beta release ref path is invalid'
+			[[ "$(stat -c '%U:%G' -- "$RELEASES_DIR/$SHA/release.ref")" = root:root &&
+				"$(stat -c '%a' -- "$RELEASES_DIR/$SHA/release.ref")" = 644 ]] \
+				|| fail 'retained beta release ref ownership or mode is invalid'
+			validate_release_ref_file "$RELEASES_DIR/$SHA/release.ref" \
+				|| fail 'retained beta release ref is invalid'
+			cmp -s "$RELEASE_DIR/release.ref" "$RELEASES_DIR/$SHA/release.ref" \
+				|| fail 'same SHA was previously retained with different release ref'
+		else
+			install -m 0644 -o root -g root "$RELEASE_DIR/release.ref" "$RELEASES_DIR/$SHA/release.ref"
+		fi
+	fi
 	validate_release_env "$RELEASES_DIR/$SHA/roadmap.env" "$SHA"
 	release_target="$RELEASES_DIR/$SHA"
 else
@@ -440,6 +498,9 @@ else
 	chmod 0644 "$new_target/helm.sha256"
 	install -m 0644 -o root -g root "$RELEASE_DIR/release.manifest" "$new_target/release.manifest"
 	install -m 0644 -o root -g root "$RELEASE_DIR/release.manifest.sig" "$new_target/release.manifest.sig"
+	if (( BETA_SWITCH_CONTROLLER == 1 )); then
+		install -m 0644 -o root -g root "$RELEASE_DIR/release.ref" "$new_target/release.ref"
+	fi
 	install -m 0640 -o root -g root "$RELEASE_DIR/roadmap.env" "$new_target/roadmap.env"
 	verify_release_binary "$new_target" || fail 'new release binary checksum failed'
 	verify_codex_binary "$new_target" || fail 'new release Codex checksum failed'
@@ -607,6 +668,46 @@ disable_unused_postfix() {
 	done
 }
 
+stop_optional_unit() {
+	local unit=$1 load_state
+	load_state=$(systemctl show "$unit" --property=LoadState --value 2>/dev/null || true)
+	case "$load_state" in
+		not-found|'') return 0 ;;
+		loaded|masked) stop_unit "$unit" ;;
+		*) return 1 ;;
+	esac
+}
+
+remove_beta_switch_controller() {
+	local unit=/etc/systemd/system/helm-beta-switchd.service
+	if [[ -e "$unit" || -L "$unit" ]]; then
+		[[ -f "$unit" && ! -L "$unit" ]] || fail 'beta switch controller unit path is invalid'
+		stop_optional_unit helm-beta-switchd.service || fail 'could not stop the beta switch controller before production migration'
+		systemctl disable helm-beta-switchd.service 2>/dev/null || true
+		rm -f -- "$unit"
+	fi
+	if [[ -e /usr/local/sbin/helm-beta-switchd || -L /usr/local/sbin/helm-beta-switchd ]]; then
+		[[ -f /usr/local/sbin/helm-beta-switchd && ! -L /usr/local/sbin/helm-beta-switchd ]] \
+			|| fail 'beta switch controller binary path is invalid'
+		rm -f -- /usr/local/sbin/helm-beta-switchd
+	fi
+	if [[ -e /run/helm-beta-switchd.sock || -L /run/helm-beta-switchd.sock ]]; then
+		[[ -S /run/helm-beta-switchd.sock || -L /run/helm-beta-switchd.sock ]] \
+			|| fail 'beta switch controller socket path is invalid'
+		rm -f -- /run/helm-beta-switchd.sock
+	fi
+}
+
+install_beta_switch_controller() {
+	local binary_tmp=/usr/local/sbin/helm-beta-switchd.new unit_tmp=/etc/systemd/system/helm-beta-switchd.service.new
+	[[ ! -e "$binary_tmp" && ! -L "$binary_tmp" && ! -e "$unit_tmp" && ! -L "$unit_tmp" ]] \
+		|| fail 'beta switch controller temporary path already exists'
+	install -m 0755 -o root -g root "$RELEASE_DIR/helm-beta-switchd" "$binary_tmp"
+	mv -T -- "$binary_tmp" /usr/local/sbin/helm-beta-switchd
+	install -m 0644 -o root -g root "$RELEASE_DIR/helm-beta-switchd.service" "$unit_tmp"
+	mv -T -- "$unit_tmp" /etc/systemd/system/helm-beta-switchd.service
+}
+
 restore_previous() {
 	local app_unit=helm.service previous_profile=${previous_private_profile:-0}
 	[[ -n "$previous_target" ]] || return 1
@@ -651,6 +752,7 @@ on_exit() {
 	trap - EXIT
 	rm -f -- "$CONFIG_DIR/roadmap.env.new" || true
 	rm -f -- /usr/local/sbin/helm-run-current.new || true
+	rm -f -- /usr/local/sbin/helm-beta-switchd.new /etc/systemd/system/helm-beta-switchd.service.new || true
 	if [[ -n "${fresh_preflight_source:-}" ]]; then
 		rm -f -- "$fresh_preflight_source" || true
 	fi
@@ -828,6 +930,11 @@ printf 'pre_upgrade_backup=%s source_schema=%s candidate_schema=%s latest_schema
 log 'Stopping the application before the atomic release switch'
 upgrade_transaction_started=1
 if (( PRIVATE_TAILNET_BETA == 1 )); then
+	if (( BETA_SWITCH_CONTROLLER == 1 )); then
+		stop_optional_unit helm-beta-switchd.service || fail 'could not stop the beta switch controller before private beta migration'
+	else
+		remove_beta_switch_controller
+	fi
 	# The private profile owns no Cloudflare connector. Stop any connector left
 	# by an older beta installation and mask it before the new app starts; it is
 	# never restarted by this transaction or by the beta service enablement.
@@ -838,6 +945,7 @@ if (( PRIVATE_TAILNET_BETA == 1 )); then
 	fi
 else
 	stop_unit cloudflared.service || fail 'could not stop cloudflared.service and verify it is inactive'
+	remove_beta_switch_controller
 fi
 stop_unit roadmap-backup.timer || fail 'could not stop roadmap-backup.timer and verify it is inactive'
 stop_unit helm-backup.timer || fail 'could not stop helm-backup.timer and verify it is inactive'
@@ -858,6 +966,9 @@ install -m 0644 -o root -g root "$RELEASE_DIR/roadmap.service" /etc/systemd/syst
 if (( PRIVATE_TAILNET_BETA == 0 )); then
 	install -m 0644 -o root -g root "$RELEASE_DIR/cloudflared.service" /etc/systemd/system/cloudflared.service
 else
+	if (( BETA_SWITCH_CONTROLLER == 1 )); then
+		install_beta_switch_controller
+	fi
 	install -m 0755 -o root -g root "$RELEASE_DIR/validate-beta-private.sh" /usr/local/sbin/helm-beta-private-ready
 	install_tailnet_credentials
 fi
@@ -888,7 +999,9 @@ disable_unused_postfix
 nft -c -f /etc/nftables.conf
 atomic_switch "$release_target" || fail 'could not switch to requested release'
 systemctl daemon-reload
-if (( PRIVATE_TAILNET_BETA == 1 )); then
+if (( PRIVATE_TAILNET_BETA == 1 && BETA_SWITCH_CONTROLLER == 1 )); then
+	systemd-analyze verify /etc/systemd/system/helm.service /etc/systemd/system/helm-beta-switchd.service /etc/systemd/system/helm-backup.service /etc/systemd/system/helm-backup.timer
+elif (( PRIVATE_TAILNET_BETA == 1 )); then
 	systemd-analyze verify /etc/systemd/system/helm.service /etc/systemd/system/helm-backup.service /etc/systemd/system/helm-backup.timer
 else
 	systemd-analyze verify /etc/systemd/system/helm.service /etc/systemd/system/cloudflared.service /etc/systemd/system/helm-backup.service /etc/systemd/system/helm-backup.timer
@@ -898,6 +1011,8 @@ systemctl restart nftables.service
 systemctl enable helm.service
 if (( PRIVATE_TAILNET_BETA == 0 )); then
 	systemctl enable cloudflared.service
+elif (( BETA_SWITCH_CONTROLLER == 1 )); then
+	systemctl enable helm-beta-switchd.service
 fi
 systemctl enable --now helm-backup.timer
 
@@ -912,6 +1027,10 @@ if ! healthy_revision "$SHA"; then
 fi
 systemctl is-active --quiet helm.service || fail 'helm.service is not active after health check'
 systemctl is-active --quiet roadmap.service || fail 'roadmap.service compatibility alias is not active after health check'
+if (( PRIVATE_TAILNET_BETA == 1 && BETA_SWITCH_CONTROLLER == 1 )); then
+	systemctl enable --now helm-beta-switchd.service
+	systemctl is-active --quiet helm-beta-switchd.service || fail 'beta switch controller is not active after health check'
+fi
 
 if (( PRIVATE_TAILNET_BETA == 0 )); then
 	systemctl start cloudflared.service
@@ -931,7 +1050,11 @@ fi
 
 # Retain the active release plus the newest previous releases.  Do not prune
 # backups here; the backup helper owns their independent retention policy.
-RETENTION=$(compat_env HELM_RELEASE_RETENTION ROADMAP_RELEASE_RETENTION 5)
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	RETENTION=$(compat_env HELM_RELEASE_RETENTION ROADMAP_RELEASE_RETENTION 20)
+else
+	RETENTION=$(compat_env HELM_RELEASE_RETENTION ROADMAP_RELEASE_RETENTION 5)
+fi
 [[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || fail 'release retention must be a positive integer'
 mapfile -t releases < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -name '[0-9a-f]*' -printf '%T@ %p\n' | sort -nr)
 if (( ${#releases[@]} > RETENTION )); then

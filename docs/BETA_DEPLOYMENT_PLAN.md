@@ -68,7 +68,110 @@ The beta job is enabled for private auto-deploy. Each successful push to
 deploys it to CT 106, and invokes the guest's private-profile, localhost
 health, and unauthenticated-401 validator. The private Tailnet route and TLS
 are active; `HELM_BETA_DEPLOY_PAUSED=true` remains available only as an
-explicit maintenance stop.
+explicit maintenance stop. The normal beta job builds `helm-beta-switchd`
+from its exact trusted beta checkout and signs `HELM_RELEASE_REF=refs/heads/beta`
+into each beta bundle; the controller always uses
+`/run/helm-beta-switchd.sock`.
+
+## Manual schema-compatible feature candidates
+
+Feature branches can be tried on the existing private beta installation with
+the protected [`beta-candidate.yml`](../.github/workflows/beta-candidate.yml)
+workflow. This is a beta-only admission path; it does not change the
+production workflow or permit a candidate branch to provide deployment
+workflow, scripts, or secrets.
+
+### Dispatch contract
+
+Dispatch the workflow from the exact protected `refs/heads/beta` ref and
+provide both required inputs:
+
+| Input | Required value |
+| --- | --- |
+| `candidate_sha` | Exactly 40 lowercase hexadecimal characters, identifying the commit to test and deploy |
+| `candidate_ref` | A canonical safe branch ref such as `refs/heads/feature/release-ui`; it must not be `refs/heads/main` or `refs/heads/beta` |
+
+Admission hard-codes the canonical `KanterLabs/helm` repository, rejects fork
+dispatches, validates the ref with Git's ref checker plus an ASCII-safe
+allowlist, and resolves `candidate_ref` through the canonical origin. The
+resolved branch tip must equal `candidate_sha`; the fetched commit is then
+resolved again by its SHA. The trusted event SHA must equal the current
+canonical `refs/heads/beta` tip. If either branch moves or a supplied SHA is
+stale, the run stops before any candidate artifact or beta secret is used. The
+trusted beta commit must also be an ancestor of the candidate commit: rebase
+the feature branch onto current beta before dispatching. This prevents an
+older or unrelated schema-compatible branch from omitting the visible
+switcher/API that the trusted beta deployment expects.
+
+Admission also requires the exact workflow identity
+`KanterLabs/helm/.github/workflows/beta-candidate.yml@refs/heads/beta` and
+`GITHUB_WORKFLOW_SHA == GITHUB_SHA`. The admission checkout fetches full Git
+history (and explicitly unshallows if needed) before the ancestry check; a
+shallow graph is rejected rather than allowing an unverifiable result.
+
+### Candidate checks and schema gate
+
+The short candidate checks run on the `homelab` runner. Browser, race-detector,
+and container checks run on `homelab-heavy`. Those jobs check out only the
+admitted candidate SHA and have no beta environment or deployment secrets.
+Candidate binary, container/runtime, browser-diagnostic, and metadata artifact
+names include that SHA, for example
+`helm-beta-candidate-binary-<candidate_sha>` and
+`helm-beta-candidate-image-<candidate_sha>`.
+
+Before those jobs start, admission compares the candidate and trusted beta
+trees for both `internal/db/migrations/` and the migration engine
+`internal/db/db.go`, and rejects any difference in `go.mod` or `go.sum`. It
+also records a deterministic digest of all four boundaries and requires the
+candidate digest to equal beta's. This gate is intentionally stricter than
+checking only the latest migration number: changing, removing, or renaming an
+embedded migration, changing its engine, or changing dependency/toolchain
+inputs is not compatible with the live beta database/controller boundary. The
+module-file rule is a deliberate tradeoff: a candidate that needs a dependency
+or Go-toolchain update must first land that reviewed change on beta, then be
+redispatched; it avoids silently changing the trusted controller's build
+inputs during candidate admission.
+
+The metadata artifact is produced by the trusted beta workflow source and
+contains the canonical candidate repository/ref/SHA, `trusted_ref=refs/heads/beta`,
+the exact trusted `github.sha`, workflow ref/SHA, schema paths, and schema-gate
+result. The secret-bearing job requires the same metadata copy in every
+candidate artifact and verifies the candidate binary, Codex runtime, and
+container archive checksums before packaging anything for the guest.
+
+### Secret-bearing deployment boundary
+
+Within this workflow, only `candidate_deploy` requests the `beta` GitHub
+environment. It checks out
+`ref: ${{ github.sha }}` after confirming `github.ref=refs/heads/beta` and the
+exact workflow identity above; it never checks out `candidate_ref` or
+`candidate_sha` as source. The job builds
+`dist/helm-beta-switchd` from that trusted beta checkout, sets the fixed
+`HELM_BETA_SWITCH_SOCKET=/run/helm-beta-switchd.sock`, and supplies the
+candidate binary/runtime artifacts to the trusted `deploy/deploy-ci.sh`.
+The owner environment carries:
+
+```text
+HELM_RELEASE_REF=refs/heads/<candidate-branch>
+HELM_BETA_SWITCH_ENABLED=true
+HELM_BETA_SWITCH_SOCKET=/run/helm-beta-switchd.sock
+```
+
+The deployment invokes `deploy-ci.sh deploy <candidate_sha>` with the beta
+SSH/signing secrets and performs the same private readiness check and
+release-only automatic rollback as the normal beta deployment. It never
+prepares Cloudflare or uses production secrets. The `HELM_BETA_DEPLOY_PAUSED`
+maintenance stop also blocks this final secret-bearing job. A candidate run
+must be dispatched again from beta after an intentional pause is lifted.
+
+The `homelab` and `homelab-heavy` labels follow the canonical
+`KanterLabs/infrastructure` `homelab/ci-runners/README` runner contract: one
+ephemeral runner pod and one private Docker-in-Docker daemon per job, with no
+host Docker socket, host home directory, or static deployment credential
+mounted. The workspace and Docker daemon disappear when the job ends, which
+provides the clean-job boundary for candidate artifacts and secrets. Workflow
+steps still use `persist-credentials: false`, exact-SHA checkouts, and
+`$RUNNER_TEMP` cleanup as defense in depth.
 
 ## Dependency order
 

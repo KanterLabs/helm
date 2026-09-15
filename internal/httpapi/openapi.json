@@ -113,6 +113,10 @@
     {
       "name": "Agents",
       "description": "Agent identities and scoped API tokens"
+    },
+    {
+      "name": "Administration",
+      "description": "Human-only administrative controls, including the private beta deployment switcher"
     }
   ],
   "paths": {
@@ -9617,6 +9621,236 @@
           }
         }
       }
+    },
+    "/api/v1/admin/beta/builds": {
+      "get": {
+        "operationId": "listBetaBuilds",
+        "summary": "List retained beta builds",
+        "description": "Lists the signed, retained beta builds and identifies the active build.\nThis is a human-administrator-only control on the private beta Tailnet\ndeployment; bearer agent tokens are never accepted. When the beta\nswitcher is disabled, the route is hidden and returns `404`.\n",
+        "tags": [
+          "Administration"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Beta switcher status and retained builds",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetaBuildsResponse"
+                },
+                "examples": {
+                  "builds": {
+                    "$ref": "#/components/examples/BetaBuildsExample"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/beta/switch": {
+      "post": {
+        "operationId": "requestBetaSwitch",
+        "summary": "Queue a beta build switch",
+        "description": "Queues an asynchronous switch to a retained, signed beta build. This\nis a human-administrator-only control on the private beta Tailnet\ndeployment; bearer agent tokens are never accepted. The request is\naccepted only for an exact lowercase 40-character hexadecimal Git\nSHA. The response is a durable switch job; poll its status with the\njob ID returned in the response.\n",
+        "tags": [
+          "Administration"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/BetaSwitchIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BetaSwitchRequest"
+              },
+              "example": {
+                "sha": "0123456789abcdef0123456789abcdef01234567"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Beta switch job accepted for asynchronous processing",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetaSwitchResponse"
+                },
+                "examples": {
+                  "queued": {
+                    "$ref": "#/components/examples/BetaSwitchResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/beta/switches/{job_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/BetaSwitchJobPath"
+        }
+      ],
+      "get": {
+        "operationId": "getBetaSwitchStatus",
+        "summary": "Get a beta switch job",
+        "description": "Returns the durable status of a queued beta build switch. This is a\nhuman-administrator-only control on the private beta Tailnet\ndeployment; bearer agent tokens are never accepted. `job_id` is an\nexact 32-character lowercase hexadecimal identifier.\n",
+        "tags": [
+          "Administration"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Beta switch job status",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BetaSwitchResponse"
+                },
+                "examples": {
+                  "job": {
+                    "$ref": "#/components/examples/BetaSwitchResponseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9803,6 +10037,19 @@
         },
         "example": "agent_ada"
       },
+      "BetaSwitchJobPath": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "description": "Durable beta switch job ID; exactly 32 lowercase hexadecimal characters.",
+        "schema": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32,
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "example": "0123456789abcdef0123456789abcdef"
+      },
       "TokenPath": {
         "name": "token",
         "in": "path",
@@ -9945,6 +10192,19 @@
           "pattern": ".*\\S.*"
         },
         "example": "release-update-20260903-01"
+      },
+      "BetaSwitchIdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Required client-generated key for safely retrying this beta switch.\nReusing it with the same authenticated principal, method, path, and\npayload replays the original `202` response; using it for a different\nmethod, path, or payload under that principal returns `409` with\n`idempotency_key_reused`. Different principals have isolated key\nnamespaces.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": ".*\\S.*"
+        },
+        "example": "beta-switch-20260903-01"
       },
       "IfMatch": {
         "name": "If-Match",
@@ -10678,6 +10938,44 @@
             "examples": {
               "internalError": {
                 "$ref": "#/components/examples/InternalErrorExample"
+              }
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "The beta switch broker was unavailable or rejected the request.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "unavailable": {
+                "value": {
+                  "error": {
+                    "code": "beta_switch_unavailable",
+                    "message": "beta switch broker is unavailable",
+                    "details": {}
+                  }
+                }
+              },
+              "failed": {
+                "value": {
+                  "error": {
+                    "code": "beta_switch_failed",
+                    "message": "beta switch broker rejected the request",
+                    "details": {}
+                  }
+                }
               }
             }
           }
@@ -16296,6 +16594,136 @@
           }
         ]
       },
+      "BetaBuild": {
+        "type": "object",
+        "required": [
+          "sha",
+          "ref",
+          "current"
+        ],
+        "properties": {
+          "sha": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 40,
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Exact lowercase Git commit SHA for the retained build."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Signed source ref associated with the retained build."
+          },
+          "current": {
+            "type": "boolean",
+            "description": "Whether this build is the active beta build."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaBuildsResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "current_sha",
+          "builds"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the beta switcher is enabled for this deployment."
+          },
+          "current_sha": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^(?:|none|[0-9a-f]{40})$",
+            "description": "Active beta build SHA, or an empty string/`none` when no build is active."
+          },
+          "builds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BetaBuild"
+            },
+            "description": "Retained signed beta builds available for switching."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaSwitchRequest": {
+        "type": "object",
+        "required": [
+          "sha"
+        ],
+        "properties": {
+          "sha": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 40,
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Exact lowercase Git commit SHA of a retained beta build."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaSwitchJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "target_sha",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 32,
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "Durable switch job ID; exactly 32 lowercase hexadecimal characters."
+          },
+          "target_sha": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 40,
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Exact lowercase Git commit SHA selected for the switch."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "description": "Asynchronous switch lifecycle state."
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Sanitized failure class, present only when state is `failed`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaSwitchResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "job"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the beta switcher is enabled for this deployment."
+          },
+          "job": {
+            "$ref": "#/components/schemas/BetaSwitchJob"
+          }
+        },
+        "additionalProperties": false
+      },
       "DependencyEventPayload": {
         "type": "object",
         "required": [
@@ -18677,6 +19105,36 @@
             }
           ],
           "next_cursor": ""
+        }
+      },
+      "BetaBuildsExample": {
+        "summary": "Retained beta builds",
+        "value": {
+          "enabled": true,
+          "current_sha": "0123456789abcdef0123456789abcdef01234567",
+          "builds": [
+            {
+              "sha": "0123456789abcdef0123456789abcdef01234567",
+              "ref": "refs/heads/beta",
+              "current": true
+            },
+            {
+              "sha": "89abcdef0123456789abcdef0123456789abcdef",
+              "ref": "refs/heads/beta",
+              "current": false
+            }
+          ]
+        }
+      },
+      "BetaSwitchResponseExample": {
+        "summary": "Queued beta switch job",
+        "value": {
+          "enabled": true,
+          "job": {
+            "id": "0123456789abcdef0123456789abcdef",
+            "target_sha": "89abcdef0123456789abcdef0123456789abcdef",
+            "state": "queued"
+          }
         }
       },
       "BadRequestExample": {

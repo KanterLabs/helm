@@ -8,6 +8,9 @@ import {
   type ApiErrorShape,
   type ApiToken,
   type AuthStatus,
+  type BetaBuildsResponse,
+  type BetaSwitchJob,
+  type BetaSwitchResponse,
   type CodexAccountStatus,
   type CodexDeviceLogin,
   type AuditDetail,
@@ -72,6 +75,10 @@ export type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   idempotencyKey?: string;
   ifMatch?: string | number;
+  /** Optional control-plane calls may observe an intentional app restart. */
+  suppressNetworkUnavailable?: boolean;
+  /** Optional probes may not invalidate cached read-only board snapshots. */
+  preserveOfflineSnapshotsOnError?: boolean;
 };
 
 export interface TaskListParams {
@@ -185,7 +192,14 @@ function asBody(body: unknown): BodyInit | undefined {
  * the API boundary easy to test without mounting the application.
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, idempotencyKey, ifMatch, ...init } = options;
+  const {
+    body,
+    idempotencyKey,
+    ifMatch,
+    suppressNetworkUnavailable,
+    preserveOfflineSnapshotsOnError,
+    ...init
+  } = options;
   if (!['GET', 'HEAD', 'OPTIONS'].includes((init.method || 'GET').toUpperCase()) && writesBlocked()) {
     throw new ApiError('Offline mode is read-only. Reconnect before making changes.', 0, 'offline_read_only', {});
   }
@@ -212,7 +226,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     // Auth bootstrap handles Access redirects itself. Other unreachable reads
     // and writes enter read-only mode even when navigator.onLine stays true.
     // Failed writes are never retried: the server may already have committed.
-    if (error instanceof TypeError && !path.startsWith('/auth/') && typeof window !== 'undefined') {
+    if (error instanceof TypeError && !path.startsWith('/auth/') && !suppressNetworkUnavailable && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('helm:network-unavailable'));
     }
     throw error;
@@ -230,7 +244,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      await clearOfflineBoards();
+      if (!preserveOfflineSnapshotsOnError) await clearOfflineBoards();
       // A forbidden mutation is a permission failure, not proof that the
       // browser session expired. Only an explicit unauthorized response may
       // invalidate session-bound UI such as the notification inbox.
@@ -310,6 +324,23 @@ export const api = {
     request<Actor | { user: Actor }>('/auth/login', { method: 'POST', body: input }),
   authLogout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   authMe: (signal?: AbortSignal) => request<Actor>('/auth/me', { signal }),
+
+  /** Optional owner-only beta controls. A missing/disabled endpoint is hidden by the UI. */
+  getBetaBuilds: () => request<BetaBuildsResponse>('/admin/beta/builds', {
+    suppressNetworkUnavailable: true,
+    preserveOfflineSnapshotsOnError: true
+  }),
+  switchBetaBuild: (targetSha: string, idempotencyKey = key()) => request<BetaSwitchResponse>('/admin/beta/switch', {
+    method: 'POST',
+    body: { sha: targetSha },
+    idempotencyKey,
+    // The beta process intentionally restarts after accepting this request.
+    suppressNetworkUnavailable: true
+  }).then((payload) => payload.job),
+  getBetaSwitchJob: (jobId: string) => request<BetaSwitchJob | { job: BetaSwitchJob }>(`/admin/beta/switches/${encodeURIComponent(jobId)}`, {
+    suppressNetworkUnavailable: true
+  }).then((payload) => 'job' in payload ? payload.job : payload),
+
   codexAccount: (refresh = false) => request<CodexAccountStatus>(pathWithQuery('/codex/account', { refresh })),
   startCodexLogin: () => request<CodexDeviceLogin>('/codex/login', { method: 'POST' }),
   cancelCodexLogin: (loginId: string) => request<{ status: string }>('/codex/login/cancel', { method: 'POST', body: { login_id: loginId } }),

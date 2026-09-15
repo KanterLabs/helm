@@ -226,7 +226,8 @@ jobs:
             image --input "/scan/helm-${GITHUB_SHA}.tar" \
             --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
           gzip -n "$image_tar"
-          sha256sum "$image_tar.gz" > "$image_tar.gz.sha256"
+          image_archive=${image_tar##*/}.gz
+          (cd "$image_dir" && sha256sum "$image_archive" > "$image_archive.sha256")
       - name: Upload immutable image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -252,6 +253,9 @@ jobs:
     env:
       HELM_DEPLOY_ENVIRONMENT: beta
       HELM_PUBLIC_ORIGIN: https://beta-helm.home.shanekanterman.dev
+      HELM_RELEASE_REF: refs/heads/beta
+      HELM_BETA_SWITCH_ENABLED: 'true'
+      HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switchd.sock
     steps:
       # github.sha is the selected beta commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
@@ -260,6 +264,19 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build trusted beta switch controller
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_REF" = refs/heads/beta ]]
+          [[ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ]]
+          install -d dist
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/helm-beta-switchd ./cmd/helm-beta-switchd
+          test -x dist/helm-beta-switchd
+          sha256sum dist/helm-beta-switchd > dist/helm-beta-switchd.sha256
       - name: Download immutable binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -343,6 +360,8 @@ jobs:
             printf 'HELM_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key\n'
             printf 'HELM_TAILNET_ALLOWED_PEER_IPS=%s\n' "$HELM_TAILNET_ALLOWED_PEER_IPS"
             printf 'HELM_SECURE_COOKIES=true\nHELM_DEMO_SEED=false\n'
+            printf 'HELM_RELEASE_REF=%s\n' "$HELM_RELEASE_REF"
+            printf 'HELM_BETA_SWITCH_ENABLED=true\nHELM_BETA_SWITCH_SOCKET=%s\n' "$HELM_BETA_SWITCH_SOCKET"
             printf 'ROADMAP_ADDR=127.0.0.1:8080\nROADMAP_DB=/var/lib/roadmap/data/roadmap.db\n'
             printf 'ROADMAP_AUTH_MODE=tailnet\nROADMAP_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev\n'
             printf 'ROADMAP_ADMIN_EMAIL=%s\n' "$HELM_ADMIN_EMAIL"
@@ -354,6 +373,8 @@ jobs:
             printf 'ROADMAP_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key\n'
             printf 'ROADMAP_TAILNET_ALLOWED_PEER_IPS=%s\n' "$HELM_TAILNET_ALLOWED_PEER_IPS"
             printf 'ROADMAP_SECURE_COOKIES=true\nROADMAP_DEMO_SEED=false\n'
+            printf 'ROADMAP_RELEASE_REF=%s\n' "$HELM_RELEASE_REF"
+            printf 'ROADMAP_BETA_SWITCH_ENABLED=true\nROADMAP_BETA_SWITCH_SOCKET=%s\n' "$HELM_BETA_SWITCH_SOCKET"
           } > "$owner_file"
           chmod 0600 "$owner_file"
           printf 'HELM_OWNER_ENV_FILE=%s\n' "$owner_file" >> "$GITHUB_ENV"
@@ -368,6 +389,10 @@ jobs:
       - name: Deploy to beta Proxmox guest
         env:
           HELM_RELEASE_SIGNING_KEY_FILE: ${{ runner.temp }}/helm-signing/private.pem
+          HELM_RELEASE_REF: refs/heads/beta
+          HELM_BETA_SWITCH_ENABLED: 'true'
+          HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switchd.sock
+          HELM_BETA_SWITCHD_BINARY: ${{ github.workspace }}/dist/helm-beta-switchd
         run: ./deploy/deploy-ci.sh deploy "${GITHUB_SHA}"
       - name: Validate private beta Tailnet readiness
         env:

@@ -122,6 +122,28 @@
     } as const;
   }
 
+  export function betaShortSha(sha: string): string {
+    return sha.slice(0, 7);
+  }
+
+  export function betaBranchLabel(ref: string): string {
+    return ref.replace(/^refs\/(heads|tags)\//, '') || 'beta';
+  }
+
+  export function isValidBetaBuildShape(value: unknown): value is { sha: string; ref: string; current?: boolean } {
+    if (!value || typeof value !== 'object') return false;
+    const build = value as { sha?: unknown; ref?: unknown; current?: unknown };
+    return typeof build.sha === 'string'
+      && build.sha.trim().length > 0
+      && /^[0-9a-f]{40}$/.test(build.sha.trim())
+      && build.sha.length <= 128
+      && typeof build.ref === 'string'
+      && build.ref.trim().length > 0
+      && build.ref.length <= 256
+      && !/[\u0000-\u001f\u007f]/.test(build.ref)
+      && (build.current === undefined || typeof build.current === 'boolean');
+  }
+
 </script>
 
 <script lang="ts">
@@ -185,6 +207,8 @@
     type Agent,
     type ApiToken,
     type AuthStatus,
+    type BetaBuild,
+    type BetaBuildsResponse,
     type BulkTaskMutationInput,
     type BulkTaskMutationOperation,
     type BulkTaskMutationResponse,
@@ -522,6 +546,27 @@
   let projectSwitcherQuery = '';
   let projectPickerTrigger: HTMLButtonElement | null = null;
   let projectSwitcherPopover: HTMLDivElement | null = null;
+  let betaEnabled = false;
+  let betaCurrentSha = '';
+  let betaBuilds: BetaBuild[] = [];
+  let betaBuildsLoading = false;
+  let betaError = '';
+  let betaSwitcherOpen = false;
+  let betaConfirmSha = '';
+  let betaSwitchingSha = '';
+  let betaSwitchError = '';
+  let betaSwitchJobId = '';
+  let betaSwitchState = '';
+  let betaSwitchTargetSha = '';
+  let betaSwitchIdempotencyKey = '';
+  let betaBuildRequest = 0;
+  let betaSwitchRequest = 0;
+  let betaSwitcherTrigger: HTMLButtonElement | null = null;
+  let betaSwitcherMenu: HTMLDivElement | null = null;
+  let betaSwitcherReturnFocus: HTMLElement | null = null;
+  let betaCurrentBuild: BetaBuild | undefined;
+  let betaCurrentRef = 'beta';
+  let betaCurrentLabel = '';
   let commandOpen = false;
   let commandQuery = '';
   let commandIndex = 0;
@@ -877,6 +922,10 @@
   $: filteredSwitcherProjects = projects.filter((project) =>
     `${project.name} ${project.key}`.toLowerCase().includes(projectSwitcherQuery.trim().toLowerCase())
   );
+  $: betaCurrentBuild = betaBuilds.find((build) => build.sha === betaCurrentSha)
+    || betaBuilds.find((build) => build.current);
+  $: betaCurrentRef = betaCurrentBuild?.ref || 'beta';
+  $: betaCurrentLabel = `${betaBranchLabelValue(betaCurrentRef)} · ${betaShortShaValue(betaCurrentSha)}`;
   $: commandChoices = filterCommandChoices(buildCommandChoices({
     projects,
     tasks,
@@ -1615,6 +1664,290 @@
     boardReconciliationNotice = '';
   }
 
+  function betaShortShaValue(sha: string): string {
+    return sha ? sha.slice(0, 7) : 'unknown';
+  }
+
+  function betaBranchLabelValue(ref: string): string {
+    return ref.replace(/^refs\/(heads|tags)\//, '') || 'beta';
+  }
+
+  function betaOperationKey(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return `beta-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function normalizedBetaBuild(value: unknown): BetaBuild | null {
+    if (!value || typeof value !== 'object') return null;
+    const build = value as Partial<BetaBuild>;
+    if (
+      typeof build.sha !== 'string'
+      || !build.sha.trim()
+      || !/^[0-9a-f]{40}$/.test(build.sha.trim())
+      || build.sha.length > 128
+      || typeof build.ref !== 'string'
+      || !build.ref.trim()
+      || build.ref.length > 256
+      || /[\u0000-\u001f\u007f]/.test(build.ref)
+      || (build.current !== undefined && typeof build.current !== 'boolean')
+    ) return null;
+    return { sha: build.sha.trim(), ref: build.ref.trim(), current: build.current };
+  }
+
+  function normalizedBetaBuildsResponse(value: unknown): BetaBuildsResponse | null {
+    if (!value || typeof value !== 'object') return null;
+    const response = value as Partial<BetaBuildsResponse>;
+    if (typeof response.enabled !== 'boolean' || !Array.isArray(response.builds)) return null;
+    const builds = response.builds.map(normalizedBetaBuild).filter((build): build is BetaBuild => Boolean(build));
+    const rawCurrentSha = typeof response.current_sha === 'string' ? response.current_sha.trim() : '';
+    const currentSha = /^[0-9a-f]{40}$/.test(rawCurrentSha)
+      ? rawCurrentSha
+      : builds.find((build) => build.current)?.sha || '';
+    return {
+      enabled: response.enabled,
+      current_sha: currentSha || builds.find((build) => build.current)?.sha || '',
+      builds
+    };
+  }
+
+  function clearBetaState() {
+    betaEnabled = false;
+    betaCurrentSha = '';
+    betaBuilds = [];
+    betaError = '';
+    betaSwitcherOpen = false;
+    betaConfirmSha = '';
+    betaSwitchingSha = '';
+    betaSwitchError = '';
+    betaSwitchJobId = '';
+    betaSwitchState = '';
+    betaSwitchTargetSha = '';
+    betaSwitchIdempotencyKey = '';
+  }
+
+  type BetaBuildLoadOptions = {
+    initial?: boolean;
+    silent?: boolean;
+    preserveEnabled?: boolean;
+  };
+
+  async function loadBetaBuilds(options: BetaBuildLoadOptions = {}): Promise<boolean> {
+    const requestId = ++betaBuildRequest;
+    const requestedSession = sessionGeneration;
+    if (!options.silent) betaBuildsLoading = true;
+    try {
+      const payload = normalizedBetaBuildsResponse(await api.getBetaBuilds());
+      if (requestId !== betaBuildRequest || requestedSession !== sessionGeneration || !user) return false;
+      if (!payload || !payload.enabled) {
+        if (!options.preserveEnabled) clearBetaState();
+        return false;
+      }
+      betaEnabled = true;
+      betaCurrentSha = payload.current_sha;
+      betaBuilds = payload.builds;
+      betaError = '';
+      return true;
+    } catch (error) {
+      if (requestId !== betaBuildRequest || requestedSession !== sessionGeneration || !user) return false;
+      // The probe is intentionally optional: an unavailable/forbidden beta
+      // endpoint must not make the main workspace look offline. Once enabled,
+      // keep the button visible and show a localized retry affordance.
+      if (!options.initial && !options.silent && betaEnabled) {
+        betaError = friendlyError(error, 'Beta builds could not be loaded.');
+      } else if (!betaEnabled || options.initial) {
+        clearBetaState();
+      }
+      return false;
+    } finally {
+      if (requestId === betaBuildRequest && !options.silent) betaBuildsLoading = false;
+    }
+  }
+
+  function rememberBetaSwitcherFocus() {
+    const active = typeof document !== 'undefined'
+      && document.activeElement instanceof HTMLElement
+      && document.activeElement !== document.body
+      && isFocusableVisible(document.activeElement)
+      ? document.activeElement
+      : null;
+    betaSwitcherReturnFocus = active;
+  }
+
+  function restoreBetaSwitcherFocus() {
+    const target = betaSwitcherReturnFocus || betaSwitcherTrigger;
+    betaSwitcherReturnFocus = null;
+    void tick().then(() => {
+      // Pointer activation moves focus to the clicked outside element after
+      // pointerdown. Defer one task so the restoration wins that handoff as
+      // well as the Escape-key path.
+      window.setTimeout(() => {
+        if (target && isFocusableVisible(target)) target.focus();
+      }, 0);
+    });
+  }
+
+  function openBetaSwitcher() {
+    if (!betaEnabled || betaSwitchingSha) return;
+    rememberBetaSwitcherFocus();
+    betaSwitcherOpen = true;
+    projectSwitcherOpen = false;
+    closeCommandPaletteWithoutFocus();
+    void tick().then(() => {
+      const first = betaSwitcherMenu?.querySelector<HTMLElement>('[role="menuitem"]');
+      first?.focus();
+    });
+  }
+
+  function closeBetaSwitcher(restoreFocus = true) {
+    if (!betaSwitcherOpen) return;
+    betaSwitcherOpen = false;
+    if (restoreFocus) restoreBetaSwitcherFocus();
+  }
+
+  function toggleBetaSwitcher() {
+    if (betaSwitcherOpen) closeBetaSwitcher();
+    else openBetaSwitcher();
+  }
+
+  function betaMenuKeydown(event: KeyboardEvent) {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = betaSwitcherMenu ? focusableElements(betaSwitcherMenu).filter((element) => element.getAttribute('role') === 'menuitem') : [];
+    if (!items.length) return;
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const currentIndex = active ? items.indexOf(active) : -1;
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? items.length - 1
+        : (currentIndex + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+    event.preventDefault();
+    items[nextIndex].focus();
+  }
+
+  function selectBetaBuild(build: BetaBuild) {
+    if (!betaEnabled || betaSwitchingSha) return;
+    if (build.sha === betaCurrentSha) {
+      betaConfirmSha = '';
+      betaSwitchError = '';
+      return;
+    }
+    if (betaSwitchTargetSha !== build.sha) {
+      betaSwitchTargetSha = build.sha;
+      betaSwitchIdempotencyKey = betaOperationKey();
+    }
+    betaSwitchError = '';
+    betaConfirmSha = build.sha;
+    void tick().then(() => betaSwitcherMenu?.querySelector<HTMLElement>('[data-beta-confirm]')?.focus());
+  }
+
+  function cancelBetaBuildConfirmation() {
+    const targetSha = betaConfirmSha;
+    betaConfirmSha = '';
+    betaSwitchError = '';
+    void tick().then(() => {
+      const target = targetSha
+        ? betaSwitcherMenu?.querySelector<HTMLElement>(`[data-beta-build="${targetSha}"]`)
+        : null;
+      (target || betaSwitcherTrigger)?.focus();
+    });
+  }
+
+  function betaSwitchStateLabel(state: string): string {
+    const value = state.toLowerCase();
+    return value.includes('restart') || value === 'restarting' || value === 'running' ? 'Restarting beta…' : 'Switching…';
+  }
+
+  function betaSwitchFailed(state: string): boolean {
+    return ['failed', 'error', 'cancelled', 'canceled', 'rejected'].includes(state.toLowerCase());
+  }
+
+  function betaSwitchFinished(state: string): boolean {
+    return ['succeeded', 'success', 'completed', 'complete', 'done'].includes(state.toLowerCase());
+  }
+
+  function betaSwitchDelay(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  async function waitForBetaSwitch(jobId: string, targetSha: string, requestId: number): Promise<boolean> {
+    // A rollback can include health checks and service replacement that take
+    // longer than a short request timeout. Keep polling bounded, but allow a
+    // full minute for the authoritative build pointer to settle.
+    const maxAttempts = 120;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (requestId !== betaSwitchRequest || !user) return false;
+      if (attempt > 0) await betaSwitchDelay(500);
+      try {
+        const job = await api.getBetaSwitchJob(jobId);
+        if (requestId !== betaSwitchRequest) return false;
+        betaSwitchState = job.state || betaSwitchState;
+        if (betaSwitchFailed(job.state)) {
+          throw new Error(job.error || job.message || 'The beta restart failed.');
+        }
+      } catch (error) {
+        // A restarting beta can close the connection before its job endpoint
+        // answers. Continue polling the authoritative builds endpoint; only a
+        // structured failure response stops the bounded retry loop.
+        if (error instanceof ApiError || (error instanceof Error && !/fetch|network|load failed/i.test(error.message))) {
+          if (error instanceof ApiError && (error.status === 404 || error.status === 502 || error.status === 503)) {
+            // The job may briefly disappear while the process is replaced.
+          } else if (error instanceof ApiError && error.status !== 0) {
+            throw error;
+          } else if (!(error instanceof ApiError)) {
+            throw error;
+          }
+        }
+      }
+      const loaded = await loadBetaBuilds({ silent: true, preserveEnabled: true });
+      if (loaded && betaCurrentSha === targetSha) return true;
+      if (betaSwitchFinished(betaSwitchState) && betaCurrentSha === targetSha) return true;
+    }
+    return false;
+  }
+
+  async function switchBetaBuild() {
+    const targetSha = betaConfirmSha;
+    if (!targetSha || betaSwitchingSha || targetSha === betaCurrentSha) return;
+    if (betaSwitchTargetSha !== targetSha || !betaSwitchIdempotencyKey) {
+      betaSwitchTargetSha = targetSha;
+      betaSwitchIdempotencyKey = betaOperationKey();
+    }
+    const requestId = ++betaSwitchRequest;
+    const idempotencyKey = betaSwitchIdempotencyKey;
+    betaSwitchingSha = targetSha;
+    betaSwitchState = 'switching';
+    betaSwitchError = '';
+    announce(`Switching beta to ${betaShortShaValue(targetSha)}.`);
+    try {
+      const accepted = await api.switchBetaBuild(targetSha, idempotencyKey);
+      if (requestId !== betaSwitchRequest) return;
+      betaSwitchJobId = accepted.id;
+      betaSwitchState = accepted.state || 'switching';
+      const complete = await waitForBetaSwitch(accepted.id, targetSha, requestId);
+      if (!complete) throw new Error('Beta did not restart on the selected build yet.');
+      betaSwitchingSha = '';
+      betaSwitchJobId = '';
+      betaSwitchState = '';
+      betaSwitchError = '';
+      betaConfirmSha = '';
+      betaSwitchTargetSha = '';
+      betaSwitchIdempotencyKey = '';
+      closeBetaSwitcher();
+      announce(`Beta restarted on ${betaShortShaValue(targetSha)}.`);
+    } catch (error) {
+      if (requestId !== betaSwitchRequest) return;
+      betaSwitchingSha = '';
+      betaSwitchJobId = '';
+      betaSwitchState = '';
+      betaSwitchError = friendlyError(error, 'Beta could not switch builds.');
+      announce('Beta build switch failed.');
+      void tick().then(() => {
+        const retry = betaSwitcherOpen ? betaSwitcherMenu?.querySelector<HTMLElement>('[data-beta-retry]') : null;
+        (retry || betaSwitcherTrigger)?.focus();
+      });
+    }
+  }
+
   function browserPlatform(): string {
     if (typeof navigator === 'undefined') return '';
     const navigatorWithUserAgentData = navigator as Navigator & { userAgentData?: { platform?: string } };
@@ -1844,6 +2177,12 @@
     // render their in-context skeleton instead of holding the user on the
     // full-screen bootstrap splash until every request has completed.
     booting = false;
+    betaBuildRequest += 1;
+    betaSwitchRequest += 1;
+    clearBetaState();
+    // Beta controls are an optional owner-only enhancement. Probe after auth
+    // without delaying the normal project/board bootstrap path.
+    void loadBetaBuilds({ initial: true });
     await loadProjects();
     if (sessionGeneration !== requestedSession || !user) return;
     startPolling();
@@ -1955,6 +2294,9 @@
     adminColumns = [];
     adminError = '';
     adminConfirmation = null;
+    betaBuildRequest += 1;
+    betaSwitchRequest += 1;
+    clearBetaState();
     if (pollTimer) window.clearInterval(pollTimer);
     if (pulseTimer) window.clearInterval(pulseTimer);
     if (livenessRefreshTimer) window.clearInterval(livenessRefreshTimer);
@@ -4280,11 +4622,14 @@
   }
 
   function handleProjectSwitcherPointerDown(event: PointerEvent) {
-    if (!projectSwitcherOpen) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
-    if (projectSwitcherPopover?.contains(target) || projectPickerTrigger?.contains(target)) return;
-    projectSwitcherOpen = false;
+    if (projectSwitcherOpen && !projectSwitcherPopover?.contains(target) && !projectPickerTrigger?.contains(target)) {
+      projectSwitcherOpen = false;
+    }
+    if (betaSwitcherOpen && !betaSwitcherMenu?.contains(target) && !betaSwitcherTrigger?.contains(target)) {
+      closeBetaSwitcher();
+    }
   }
 
   function closeTaskModal() {
@@ -4341,6 +4686,7 @@
       && !isEditableTarget(event.target)
       && !commandOpen
       && !projectSwitcherOpen
+      && !betaSwitcherOpen
       && !showProjectModal
       && !showTaskModal
       && !showBugModal
@@ -4358,6 +4704,7 @@
       if (confirmRequest) settleConfirm(false);
       else if (commandOpen) closeCommandPalette();
       else if (projectSwitcherOpen) projectSwitcherOpen = false;
+      else if (betaSwitcherOpen) closeBetaSwitcher();
       else if (adminConfirmation) cancelAdminConfirmation();
       else if (showProjectModal) closeProjectModal();
       else if (showTaskModal) closeTaskModal();
@@ -6972,7 +7319,7 @@
         <div class="mobile-brand"><HelmMark size={30} decorative className="brand-mark" /><strong>Helm</strong></div>
         <div class="topbar-project">
           {#if activeProject}
-            <button bind:this={projectPickerTrigger} class="project-picker" type="button" data-project-picker-trigger aria-label={`Switch project, current ${activeProject.name}`} aria-expanded={projectSwitcherOpen} on:click={() => { projectSwitcherOpen = !projectSwitcherOpen; closeCommandPalette(); }}>
+            <button bind:this={projectPickerTrigger} class="project-picker" type="button" data-project-picker-trigger aria-label={`Switch project, current ${activeProject.name}`} aria-expanded={projectSwitcherOpen} on:click={() => { projectSwitcherOpen = !projectSwitcherOpen; closeBetaSwitcher(false); closeCommandPalette(); }}>
               <span class="project-dot large" style={`--project-color: ${activeProject.color || '#6d5efc'}`}>{projectInitials(activeProject)}</span><span>{activeProject.name}</span><span class="picker-chevron">⌄</span>
             </button>
           {:else}<span class="muted">Workspace</span>{/if}
@@ -6987,6 +7334,65 @@
                 {:else}<div class="popover-empty">No matching projects</div>{/if}
               </div>
               <button class="popover-create" type="button" data-project-modal-trigger on:click={openProjectModal}>＋ Create a project</button>
+            </div>
+          {/if}
+          {#if betaEnabled}
+            <div class="beta-switcher" data-beta-switcher>
+              <button
+                bind:this={betaSwitcherTrigger}
+                class="beta-switcher-trigger"
+                type="button"
+                aria-label={`Beta build ${betaCurrentLabel}`}
+                aria-expanded={betaSwitcherOpen}
+                aria-controls="beta-build-menu"
+                aria-haspopup="menu"
+                aria-busy={Boolean(betaSwitchingSha)}
+                title={`Full SHA: ${betaCurrentSha || 'unknown'}`}
+                on:click={toggleBetaSwitcher}
+              >
+                <span class="beta-switcher-dot" aria-hidden="true"></span>
+                <span class="beta-switcher-label"><span>Beta</span><span class="beta-switcher-separator" aria-hidden="true"> · </span><span class="beta-switcher-branch">{betaBranchLabelValue(betaCurrentRef)}</span><span class="beta-switcher-separator" aria-hidden="true"> · </span><span>{betaShortShaValue(betaCurrentSha)}</span></span>
+                <span class="picker-chevron" aria-hidden="true">⌄</span>
+              </button>
+              {#if betaSwitcherOpen}
+                <div
+                  bind:this={betaSwitcherMenu}
+                  id="beta-build-menu"
+                  class="beta-build-menu"
+                  role={betaConfirmSha || betaSwitchingSha ? undefined : 'menu'}
+                  tabindex="-1"
+                  aria-label="Retained beta builds"
+                  on:keydown={betaMenuKeydown}
+                >
+                  {#if betaSwitchingSha}
+                    <div class="beta-switch-status" role="status" aria-live="polite" aria-busy="true">
+                      <span class="spinner" aria-hidden="true"></span>
+                      <span>{betaSwitchStateLabel(betaSwitchState)}</span>
+                    </div>
+                    {#if betaSwitchError}
+                      <div class="beta-menu-error" role="alert"><span>{betaSwitchError}</span><button class="text-button" type="button" data-beta-retry on:click={() => void switchBetaBuild()}>Retry</button></div>
+                    {/if}
+                  {:else if betaConfirmSha}
+                    <div class="beta-confirmation" role="group" aria-label="Confirm beta build switch">
+                      <p>Switch beta to <strong>{betaBuilds.find((build) => build.sha === betaConfirmSha) ? betaBranchLabelValue(betaBuilds.find((build) => build.sha === betaConfirmSha)?.ref || '') : 'selected build'}</strong> · <code title={betaConfirmSha}>{betaShortShaValue(betaConfirmSha)}</code>?</p>
+                      <div class="beta-confirm-actions"><button class="button quiet-button compact-button" type="button" on:click={cancelBetaBuildConfirmation}>Cancel</button><button class="button primary compact-button" type="button" data-beta-confirm on:click={() => void switchBetaBuild()}>Switch beta</button></div>
+                      {#if betaSwitchError}<div class="beta-menu-error" role="alert"><span>{betaSwitchError}</span><button class="text-button" type="button" data-beta-retry on:click={() => void switchBetaBuild()}>Retry</button></div>{/if}
+                    </div>
+                  {:else}
+                    {#if betaError}
+                      <div class="beta-menu-error" role="alert"><span>{betaError}</span><button class="text-button" type="button" data-beta-retry on:click={() => void loadBetaBuilds()}>Retry</button></div>
+                    {/if}
+                    {#if betaBuilds.length}
+                      {#each betaBuilds as build (build.sha)}
+                        <button class="beta-build-option" class:current={build.sha === betaCurrentSha} type="button" role="menuitem" data-beta-build={build.sha} aria-current={build.sha === betaCurrentSha ? 'true' : undefined} aria-label={`${betaBranchLabelValue(build.ref)} ${betaShortShaValue(build.sha)}${build.sha === betaCurrentSha ? ', current' : ''}`} on:click={() => selectBetaBuild(build)}>
+                          <span class="beta-build-copy"><strong>{betaBranchLabelValue(build.ref)}</strong><small title={build.sha}>{betaShortShaValue(build.sha)}</small></span>
+                          {#if build.sha === betaCurrentSha}<span class="beta-current-badge">Current</span>{/if}
+                        </button>
+                      {/each}
+                    {:else}<div class="beta-menu-empty">No retained builds are available.</div>{/if}
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
         </div>

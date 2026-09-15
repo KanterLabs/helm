@@ -700,6 +700,36 @@ export interface AuthStatus {
   needs_setup?: never;
 }
 
+/** A retained, validated beta build exposed to the owner-only control plane. */
+export interface BetaBuild {
+  sha: string;
+  ref: string;
+  current?: boolean;
+}
+
+/** Optional beta control-plane discovery. Disabled responses stay invisible. */
+export interface BetaBuildsResponse {
+  enabled: boolean;
+  current_sha: string;
+  builds: BetaBuild[];
+}
+
+/** A durable beta switch/restart job returned by the control plane. */
+export interface BetaSwitchJob {
+  id: string;
+  target_sha: string;
+  state: string;
+  current_sha?: string;
+  error?: string;
+  message?: string;
+}
+
+/** A beta switch request accepted by the control plane. */
+export interface BetaSwitchResponse {
+  enabled: boolean;
+  job: BetaSwitchJob;
+}
+
 export interface Collection<T> {
   data: T[];
   next_cursor?: string | null;

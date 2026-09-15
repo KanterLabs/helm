@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/KanterLabs/helm/internal/auth"
+	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
 	"github.com/KanterLabs/helm/internal/db"
@@ -107,7 +108,15 @@ func main() {
 		HomeRoot:   cfg.CodexHomeRoot,
 		WorkingDir: ".",
 	})
-	api := httpapi.New(data, manager, cfg, codexManager)
+	var betaSwitchClient betaswitch.Client
+	if cfg.BetaSwitchEnabled {
+		client, clientErr := betaswitch.NewClient(cfg.BetaSwitchSocket)
+		if clientErr != nil {
+			fatalLog("beta switch broker configuration failed", classifyMainError(clientErr))
+		}
+		betaSwitchClient = client
+	}
+	api := httpapi.NewWithBetaSwitch(data, manager, cfg, betaSwitchClient, codexManager)
 	server := &http.Server{Addr: cfg.Addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
 	var privateServer *http.Server
 	var privateListener net.Listener

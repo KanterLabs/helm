@@ -12,6 +12,93 @@ function response(body: unknown, status = 200, headers: Record<string, string> =
 afterEach(() => vi.restoreAllMocks());
 
 describe('public API client', () => {
+  it('discovers optional beta builds without making the probe part of offline mode', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({
+      enabled: true,
+      current_sha: '0123456789abcdef0123456789abcdef01234567',
+      builds: [{ sha: '0123456789abcdef0123456789abcdef01234567', ref: 'refs/heads/beta', current: true }]
+    }));
+    await api.getBetaBuilds();
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v1/admin/beta/builds');
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBeUndefined();
+  });
+
+  it('does not clear offline snapshots for an optional beta 403 or 404', async () => {
+    const cleared = vi.fn();
+    window.addEventListener('helm:offline-cleared', cleared);
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ error: { code: 'forbidden', message: 'not beta owner' } }, 403))
+      .mockResolvedValueOnce(response({ error: { code: 'not_found', message: 'beta controls unavailable' } }, 404));
+    try {
+      await expect(api.getBetaBuilds()).rejects.toBeInstanceOf(ApiError);
+      await expect(api.getBetaBuilds()).rejects.toBeInstanceOf(ApiError);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(cleared).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('helm:offline-cleared', cleared);
+    }
+  });
+
+  it('keeps normal auth error invalidation behavior', async () => {
+    const cleared = vi.fn();
+    const invalidated = vi.fn();
+    window.addEventListener('helm:offline-cleared', cleared);
+    window.addEventListener('helm:auth-invalidated', invalidated);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ error: { code: 'forbidden', message: 'forbidden' } }, 403))
+      .mockResolvedValueOnce(response({ error: { code: 'unauthorized', message: 'expired' } }, 401));
+    try {
+      await expect(request('/projects')).rejects.toBeInstanceOf(ApiError);
+      await expect(request('/projects')).rejects.toBeInstanceOf(ApiError);
+      expect(cleared).toHaveBeenCalledTimes(2);
+      expect(invalidated).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('helm:offline-cleared', cleared);
+      window.removeEventListener('helm:auth-invalidated', invalidated);
+    }
+  });
+
+  it('switches beta builds with an idempotency key and reads the restart job', async () => {
+    const jobId = '0123456789abcdef0123456789abcdef';
+    const target = 'abcdef0123456789abcdef0123456789abcdef01';
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ enabled: true, job: { id: jobId, target_sha: target, state: 'queued' } }))
+      .mockResolvedValueOnce(response({ enabled: true, job: { id: jobId, target_sha: target, state: 'running' } }));
+    await api.switchBetaBuild(target, 'beta-switch-key-1');
+    await api.getBetaSwitchJob(jobId);
+    const switchInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v1/admin/beta/switch');
+    expect(switchInit.method).toBe('POST');
+    expect(JSON.parse(String(switchInit.body))).toEqual({ sha: target });
+    expect((switchInit.headers as Headers).get('Idempotency-Key')).toBe('beta-switch-key-1');
+    expect(String(fetchMock.mock.calls[1][0])).toBe(`/api/v1/admin/beta/switches/${jobId}`);
+  });
+
+  it('reuses the caller idempotency key across an ambiguous switch retry', async () => {
+    const target = 'abcdef0123456789abcdef0123456789abcdef01';
+    const job = { enabled: true, job: {
+        id: '0123456789abcdef0123456789abcdef',
+        target_sha: target,
+        state: 'queued'
+      } };
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(response(job)));
+    await api.switchBetaBuild(target, 'beta-retry-key');
+    await api.switchBetaBuild(target, 'beta-retry-key');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[0][1]?.headers as Headers).get('Idempotency-Key')).toBe('beta-retry-key');
+    expect((fetchMock.mock.calls[1][1]?.headers as Headers).get('Idempotency-Key')).toBe('beta-retry-key');
+  });
+
+  it('does not dispatch a global network-unavailable event for restart calls', async () => {
+    const networkUnavailable = vi.fn();
+    window.addEventListener('helm:network-unavailable', networkUnavailable);
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await expect(api.getBetaSwitchJob('0123456789abcdef0123456789abcdef')).rejects.toThrow('Failed to fetch');
+    expect(networkUnavailable).not.toHaveBeenCalled();
+    window.removeEventListener('helm:network-unavailable', networkUnavailable);
+  });
+
   it('uses the human Codex subscription lifecycle endpoints', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(response({ connected: false, requires_openai_auth: true }))

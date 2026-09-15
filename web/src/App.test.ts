@@ -6,7 +6,10 @@ import {
   boardMutationReloadCanAnnounce,
   boardRefreshTargetsAreCurrent,
   bulkMutationRequestIsCurrent,
+  betaBranchLabel,
+  betaShortSha,
   clearedIssueFilterState,
+  isValidBetaBuildShape,
   mergeOwnedBoardMetadata,
   plannedReleaseIdForAssignment,
   validBoardReleaseFilter
@@ -193,5 +196,16 @@ describe('release-bound entrypoint guards', () => {
       project: 'all',
       release: 'all'
     });
+  });
+});
+
+describe('beta build labels and admission', () => {
+  it('renders branch refs and short SHAs without losing the full value', () => {
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+    expect(betaBranchLabel('refs/heads/feature/visible-beta')).toBe('feature/visible-beta');
+    expect(betaShortSha(sha)).toBe('0123456');
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', current: true })).toBe(true);
+    expect(isValidBetaBuildShape({ sha: '', ref: 'refs/heads/feature/visible-beta' })).toBe(false);
+    expect(isValidBetaBuildShape({ sha, ref: '', current: true })).toBe(false);
   });
 });
