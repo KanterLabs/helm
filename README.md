@@ -430,7 +430,8 @@ back beta, or from `main` to roll back production; neither environment's job
 can select the other's gateway. Beta does not use Cloudflare credentials or
 public routing. Normal beta pushes build `helm-beta-switchd` from the exact
 trusted beta checkout and sign `HELM_RELEASE_REF=refs/heads/beta` into the
-bundle, using the fixed `/run/helm-beta-switchd.sock` socket.
+bundle, using the fixed `/run/helm-beta-switcher/helm-beta-switchd.sock`
+socket.
 
 ### Manual feature-branch candidates
 
@@ -478,9 +479,10 @@ metadata/artifact checksums, builds `helm-beta-switchd` from that trusted beta
 source, and invokes the trusted `deploy/deploy-ci.sh` with
 `HELM_RELEASE_REF=refs/heads/<candidate-branch>`. The beta owner environment
 enables the switcher with `HELM_BETA_SWITCH_ENABLED=true` and the fixed
-`/run/helm-beta-switchd.sock` socket. The job never checks out candidate source
-as workflow or deployment-script input, and production's `main` workflow and
-credentials are unchanged. A paused beta environment prevents the
+`/run/helm-beta-switcher/helm-beta-switchd.sock` socket. The job never uses
+candidate source as workflow or deployment-script input, and production's
+`main` workflow and credentials are unchanged. A paused beta environment
+prevents the
 secret-bearing candidate deploy while still allowing non-secret checks to
 finish.
 

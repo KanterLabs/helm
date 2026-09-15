@@ -13,7 +13,7 @@ import (
 
 const (
 	// DefaultSocketPath is the only socket path used by the installed daemon.
-	DefaultSocketPath = "/run/helm-beta-switchd.sock"
+	DefaultSocketPath = "/run/helm-beta-switcher/helm-beta-switchd.sock"
 	// DefaultReleasesDir is the immutable release root owned by root.
 	DefaultReleasesDir = "/var/lib/roadmap/releases"
 	// DefaultCurrentPath is the active release pointer maintained by deploy.

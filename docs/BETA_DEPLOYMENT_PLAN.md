@@ -71,7 +71,7 @@ are active; `HELM_BETA_DEPLOY_PAUSED=true` remains available only as an
 explicit maintenance stop. The normal beta job builds `helm-beta-switchd`
 from its exact trusted beta checkout and signs `HELM_RELEASE_REF=refs/heads/beta`
 into each beta bundle; the controller always uses
-`/run/helm-beta-switchd.sock`.
+`/run/helm-beta-switcher/helm-beta-switchd.sock`.
 
 ## Manual schema-compatible feature candidates
 
@@ -147,14 +147,15 @@ environment. It checks out
 exact workflow identity above; it never checks out `candidate_ref` or
 `candidate_sha` as source. The job builds
 `dist/helm-beta-switchd` from that trusted beta checkout, sets the fixed
-`HELM_BETA_SWITCH_SOCKET=/run/helm-beta-switchd.sock`, and supplies the
-candidate binary/runtime artifacts to the trusted `deploy/deploy-ci.sh`.
+`HELM_BETA_SWITCH_SOCKET=/run/helm-beta-switcher/helm-beta-switchd.sock`,
+and supplies the candidate binary/runtime artifacts to the trusted
+`deploy/deploy-ci.sh`.
 The owner environment carries:
 
 ```text
 HELM_RELEASE_REF=refs/heads/<candidate-branch>
 HELM_BETA_SWITCH_ENABLED=true
-HELM_BETA_SWITCH_SOCKET=/run/helm-beta-switchd.sock
+HELM_BETA_SWITCH_SOCKET=/run/helm-beta-switcher/helm-beta-switchd.sock
 ```
 
 The deployment invokes `deploy-ci.sh deploy <candidate_sha>` with the beta

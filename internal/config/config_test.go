@@ -69,7 +69,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.BetaSwitchEnabled {
 		t.Fatal("beta switcher defaulted to enabled")
 	}
-	if cfg.BetaSwitchSocket != "/run/helm-beta-switchd.sock" || cfg.BetaSwitchSocketPath != cfg.BetaSwitchSocket {
+	if cfg.BetaSwitchSocket != "/run/helm-beta-switcher/helm-beta-switchd.sock" || cfg.BetaSwitchSocketPath != cfg.BetaSwitchSocket {
 		t.Fatalf("beta switcher socket = %q/%q", cfg.BetaSwitchSocket, cfg.BetaSwitchSocketPath)
 	}
 }
@@ -89,7 +89,7 @@ func TestFromEnvBetaSwitchBoundary(t *testing.T) {
 		clearConfigEnv(t)
 		t.Setenv("HELM_AUTH_MODE", "disabled")
 		t.Setenv("HELM_ADDR", "127.0.0.1:8080")
-		t.Setenv("HELM_BETA_SWITCH_SOCKET", "run/helm-beta-switchd.sock")
+		t.Setenv("HELM_BETA_SWITCH_SOCKET", "run/helm-beta-switcher/helm-beta-switchd.sock")
 		if _, err := FromEnv(); err == nil {
 			t.Fatal("relative beta switch socket accepted")
 		}

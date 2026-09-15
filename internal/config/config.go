@@ -199,7 +199,7 @@ func FromEnv() (Config, error) {
 		AuthMode:                strings.ToLower(valueOr(authMode, "local")),
 		PublicOrigin:            strings.TrimRight(publicOrigin.value, "/"),
 		AdminEmail:              adminEmail.value,
-		BetaSwitchSocket:        valueOr(betaSwitchSocket, "/run/helm-beta-switchd.sock"),
+		BetaSwitchSocket:        valueOr(betaSwitchSocket, "/run/helm-beta-switcher/helm-beta-switchd.sock"),
 		CodexBinary:             valueOr(codexBinary, "codex"),
 		CodexHomeRoot:           valueOr(codexHomeRoot, "data/codex-users"),
 		CodexModel:              valueOr(codexModel, "gpt-5.6-luna"),
