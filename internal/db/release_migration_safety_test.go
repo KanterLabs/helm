@@ -196,14 +196,15 @@ func TestReleaseColumnLifecycleMigrationGuardsPopulated022Data(t *testing.T) {
 
 	beforeMigration := readSnapshot()
 	if err := Migrate(ctx, database); err != nil {
-		t.Fatalf("migrate populated schema 22 to 23: %v", err)
+		t.Fatalf("migrate populated schema 22 through latest: %v", err)
 	}
 	var schemaVersion int
 	if err := database.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&schemaVersion); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if schemaVersion != 23 {
-		t.Fatalf("schema version = %d, want 23", schemaVersion)
+	latest := migrations[len(migrations)-1].version
+	if schemaVersion != latest {
+		t.Fatalf("schema version = %d, want %d", schemaVersion, latest)
 	}
 	afterMigration := readSnapshot()
 	if beforeMigration.taskID != afterMigration.taskID || beforeMigration.projectID != afterMigration.projectID || beforeMigration.columnID != afterMigration.columnID || beforeMigration.releaseID != afterMigration.releaseID || beforeMigration.completedAt != afterMigration.completedAt || beforeMigration.taskUpdatedAt != afterMigration.taskUpdatedAt || beforeMigration.taskVersion != afterMigration.taskVersion {
@@ -276,7 +277,7 @@ func TestReleaseColumnLifecycleMigrationGuardsPopulated022Data(t *testing.T) {
 		t.Fatalf("rerun migration 023 SQL: %v", err)
 	}
 	if err := Migrate(ctx, database); err != nil {
-		t.Fatalf("rerun migrations through 023: %v", err)
+		t.Fatalf("rerun migrations through latest: %v", err)
 	}
 	if err := CheckIntegrity(ctx, database); err != nil {
 		t.Fatalf("migration 023 integrity: %v", err)
