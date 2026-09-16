@@ -29,6 +29,7 @@ const (
 	portableMaxTasks      = 10000
 	portableMaxLabels     = 5000
 	portableMaxComments   = 50000
+	portableMaxAgentNotes = 50000
 	portableMaxRelations  = 50000
 	portableMaxEvents     = 100000
 	portableMaxActivity   = 100000
@@ -139,6 +140,19 @@ type PortableComment struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type PortableAgentNote struct {
+	ID         string   `json:"id"`
+	TaskID     string   `json:"task_id"`
+	ActorID    string   `json:"actor_id"`
+	Category   string   `json:"category"`
+	Body       string   `json:"body"`
+	Evidence   []string `json:"evidence"`
+	Version    int64    `json:"version"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
+	ResolvedAt *string  `json:"resolved_at,omitempty"`
+}
+
 type PortableEvent struct {
 	Cursor    int64           `json:"cursor"`
 	ID        string          `json:"id"`
@@ -228,6 +242,7 @@ type PortableArchive struct {
 	AgentWork        []PortableAgentWork        `json:"agent_work,omitempty"`
 	AgentWorkHistory []PortableAgentWorkHistory `json:"agent_work_history,omitempty"`
 	Comments         []PortableComment          `json:"comments"`
+	AgentNotes       []PortableAgentNote        `json:"agent_notes,omitempty"`
 }
 
 type PortableImportOptions struct {
@@ -269,6 +284,8 @@ type PortableImportCounts struct {
 	TaskLabelsSkipped   int `json:"task_labels_skipped"`
 	CommentsCreated     int `json:"comments_created"`
 	CommentsSkipped     int `json:"comments_skipped"`
+	AgentNotesCreated   int `json:"agent_notes_created"`
+	AgentNotesSkipped   int `json:"agent_notes_skipped"`
 	DependenciesCreated int `json:"dependencies_created"`
 	DependenciesSkipped int `json:"dependencies_skipped"`
 	LinksCreated        int `json:"links_created"`
@@ -325,6 +342,9 @@ func (a *PortableArchive) normalize() {
 	}
 	if a.Comments == nil {
 		a.Comments = []PortableComment{}
+	}
+	if a.AgentNotes == nil {
+		a.AgentNotes = []PortableAgentNote{}
 	}
 	if a.Actors == nil {
 		a.Actors = []PortableActorReference{}
@@ -398,7 +418,7 @@ func exportPortable(ctx context.Context, q portableSQL, projectIDs []string) (Po
 		Format: PortableFormat, Version: PortableVersion, ExportedAt: now(),
 		Source:   PortableSource{Product: "helm", API: "/api/v1"},
 		Projects: []PortableProject{}, Columns: []PortableColumn{}, Tasks: []PortableTask{},
-		Labels: []PortableLabel{}, Actors: []PortableActorReference{}, Comments: []PortableComment{},
+		Labels: []PortableLabel{}, Actors: []PortableActorReference{}, Comments: []PortableComment{}, AgentNotes: []PortableAgentNote{},
 		Relationships: PortableRelationships{TaskLabels: []PortableTaskLabel{}, Dependencies: []PortableDependency{}, TaskLinks: []PortableTaskLink{}},
 		Activity:      PortableActivity{Events: []PortableEvent{}, AgentWork: []PortableAgentWork{}, AgentWorkHistory: []PortableAgentWorkHistory{}},
 	}
@@ -629,6 +649,33 @@ func exportPortable(ctx context.Context, q portableSQL, projectIDs []string) (Po
 		}
 		archive.Comments = append(archive.Comments, comment)
 		actorSet[comment.ActorID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return PortableArchive{}, err
+	}
+	rows.Close()
+
+	where, args = portableIDsClause("t.project_id", projectIDs)
+	rows, err = q.QueryContext(ctx, `SELECT n.id,n.task_id,n.actor_id,n.category,n.body,n.evidence_json,n.version,n.created_at,n.updated_at,n.resolved_at FROM agent_notes n JOIN tasks t ON t.id=n.task_id WHERE t.deleted_at IS NULL`+where+` ORDER BY n.task_id,n.created_at,n.id`, args...)
+	if err != nil {
+		return PortableArchive{}, err
+	}
+	for rows.Next() {
+		var note PortableAgentNote
+		var evidence string
+		var resolved sql.NullString
+		if err := rows.Scan(&note.ID, &note.TaskID, &note.ActorID, &note.Category, &note.Body, &evidence, &note.Version, &note.CreatedAt, &note.UpdatedAt, &resolved); err != nil {
+			rows.Close()
+			return PortableArchive{}, err
+		}
+		if err := json.Unmarshal([]byte(evidence), &note.Evidence); err != nil {
+			rows.Close()
+			return PortableArchive{}, err
+		}
+		note.ResolvedAt = nullableString(resolved)
+		archive.AgentNotes = append(archive.AgentNotes, note)
+		actorSet[note.ActorID] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -872,6 +919,9 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	}
 	if len(archive.Comments) > portableMaxComments {
 		addPortableIssue(report, "archive", "", "comments", "too many comments")
+	}
+	if len(archive.AgentNotes) > portableMaxAgentNotes {
+		addPortableIssue(report, "archive", "", "agent_notes", "too many agent notes")
 	}
 	if len(archive.Relationships.TaskLabels)+len(archive.Relationships.Dependencies)+len(archive.Relationships.TaskLinks) > portableMaxRelations {
 		addPortableIssue(report, "archive", "", "relationships", "too many relationships")
@@ -1182,6 +1232,35 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 		}
 		commentSet[comment.ID] = struct{}{}
 	}
+	noteSet := map[string]struct{}{}
+	activeNotes := map[string]int{}
+	for _, note := range archive.AgentNotes {
+		if !portableSafeID(note.ID) || !portableSafeID(note.TaskID) || !portableSafeID(note.ActorID) {
+			addPortableIssue(report, "agent_note", note.ID, "id", "agent note identifiers are invalid")
+		}
+		if _, ok := taskSet[note.TaskID]; !ok {
+			addPortableIssue(report, "agent_note", note.ID, "task_id", "task does not exist in archive")
+		}
+		if _, _, _, err := validateAgentNote(note.Category, note.Body, note.Evidence); err != nil {
+			addPortableIssue(report, "agent_note", note.ID, "content", "agent note content is invalid")
+		}
+		if note.Version < 1 {
+			addPortableIssue(report, "agent_note", note.ID, "version", "version must be positive")
+		}
+		if !portableTimestamp(note.CreatedAt, false) || !portableTimestamp(note.UpdatedAt, false) || (note.ResolvedAt != nil && !portableTimestamp(*note.ResolvedAt, false)) {
+			addPortableIssue(report, "agent_note", note.ID, "timestamp", "timestamps must be RFC3339")
+		}
+		if note.ResolvedAt == nil {
+			activeNotes[note.TaskID]++
+			if activeNotes[note.TaskID] > MaxActiveAgentNotes {
+				addPortableIssue(report, "agent_note", note.ID, "task_id", "task has more than six active agent notes")
+			}
+		}
+		if _, exists := noteSet[note.ID]; exists {
+			addPortableIssue(report, "agent_note", note.ID, "id", "duplicate agent note id")
+		}
+		noteSet[note.ID] = struct{}{}
+	}
 	eventSet, eventCursorSet := map[string]struct{}{}, map[int64]struct{}{}
 	for _, event := range archive.Activity.Events {
 		if !portableSafeID(event.ID) || strings.TrimSpace(event.Type) == "" || len(event.Type) > 200 {
@@ -1441,6 +1520,14 @@ type portableCommentPlan struct {
 	create  bool
 }
 
+type portableAgentNotePlan struct {
+	source  PortableAgentNote
+	id      string
+	taskID  string
+	actorID string
+	create  bool
+}
+
 type portableDependencyPlan struct {
 	source         PortableDependency
 	taskID         string
@@ -1502,6 +1589,7 @@ type portableImportPlan struct {
 	dependencies   []portableDependencyPlan
 	links          []portableLinkPlan
 	comments       []portableCommentPlan
+	agentNotes     []portableAgentNotePlan
 	events         []portableEventPlan
 	work           []portableWorkPlan
 	history        []portableHistoryPlan
@@ -1585,6 +1673,24 @@ func portableExistingComment(q portableSQL, id string) (PortableComment, bool, e
 	return comment, true, nil
 }
 
+func portableExistingAgentNote(q portableSQL, id string) (PortableAgentNote, bool, error) {
+	var note PortableAgentNote
+	var evidence string
+	var resolved sql.NullString
+	err := q.QueryRowContext(context.Background(), `SELECT id,task_id,actor_id,category,body,evidence_json,version,created_at,updated_at,resolved_at FROM agent_notes WHERE id=?`, id).Scan(&note.ID, &note.TaskID, &note.ActorID, &note.Category, &note.Body, &evidence, &note.Version, &note.CreatedAt, &note.UpdatedAt, &resolved)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PortableAgentNote{}, false, nil
+	}
+	if err != nil {
+		return PortableAgentNote{}, false, err
+	}
+	if err := json.Unmarshal([]byte(evidence), &note.Evidence); err != nil {
+		return PortableAgentNote{}, false, err
+	}
+	note.ResolvedAt = nullableString(resolved)
+	return note, true, nil
+}
+
 func portableIDSet(q portableSQL, table string) (map[string]struct{}, error) {
 	// table is selected only from fixed internal call sites below; never pass
 	// user input here.
@@ -1650,6 +1756,18 @@ func portableBugFieldsEqual(a, b *PortableBug) bool {
 
 func portableCommentFieldsEqual(a, b PortableComment) bool {
 	return a.TaskID == b.TaskID && a.ActorID == b.ActorID && a.Body == b.Body && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt
+}
+
+func portableAgentNoteFieldsEqual(a, b PortableAgentNote) bool {
+	if a.TaskID != b.TaskID || a.ActorID != b.ActorID || a.Category != b.Category || a.Body != b.Body || a.Version != b.Version || a.CreatedAt != b.CreatedAt || a.UpdatedAt != b.UpdatedAt || stringPointerValue(a.ResolvedAt) != stringPointerValue(b.ResolvedAt) || len(a.Evidence) != len(b.Evidence) {
+		return false
+	}
+	for index := range a.Evidence {
+		if a.Evidence[index] != b.Evidence[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func portableAddRemap(report *PortableImportReport, entity, source, target, field, reason string) {
@@ -2094,7 +2212,7 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 	plan := portableImportPlan{
 		archive: archive, report: report, options: options,
 		projects: []portableProjectPlan{}, columns: []portableColumnPlan{}, labels: []portableLabelPlan{}, tasks: []portableTaskPlan{},
-		taskLabels: []PortableTaskLabel{}, dependencies: []portableDependencyPlan{}, links: []portableLinkPlan{}, comments: []portableCommentPlan{}, events: []portableEventPlan{}, work: []portableWorkPlan{}, history: []portableHistoryPlan{},
+		taskLabels: []PortableTaskLabel{}, dependencies: []portableDependencyPlan{}, links: []portableLinkPlan{}, comments: []portableCommentPlan{}, agentNotes: []portableAgentNotePlan{}, events: []portableEventPlan{}, work: []portableWorkPlan{}, history: []portableHistoryPlan{},
 		projectMap: map[string]string{}, columnMap: map[string]string{}, taskMap: map[string]string{}, labelMap: map[string]string{}, commentMap: map[string]string{}, eventCursorMap: map[int64]int64{},
 	}
 	usedProjectIDs, err := portableIDSet(q, "projects")
@@ -2114,6 +2232,10 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 		return portableImportPlan{}, err
 	}
 	usedCommentIDs, err := portableIDSet(q, "comments")
+	if err != nil {
+		return portableImportPlan{}, err
+	}
+	usedAgentNoteIDs, err := portableIDSet(q, "agent_notes")
 	if err != nil {
 		return portableImportPlan{}, err
 	}
@@ -2903,6 +3025,49 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 		plan.comments = append(plan.comments, portableCommentPlan{source: mapped, id: targetID, taskID: taskID, actorID: actorID, create: create})
 		plan.commentMap[source.ID] = targetID
 	}
+	for _, source := range archive.AgentNotes {
+		taskID := plan.taskMap[source.TaskID]
+		actorID, err := portableMapActor(q, source.ActorID, options.ActorID, &plan.report, actorMap)
+		if err != nil {
+			return portableImportPlan{}, err
+		}
+		targetID, create := source.ID, true
+		mapped := source
+		mapped.TaskID, mapped.ActorID = taskID, actorID
+		existing, exists, err := portableExistingAgentNote(q, targetID)
+		if err != nil {
+			return portableImportPlan{}, err
+		}
+		if exists && portableAgentNoteFieldsEqual(existing, mapped) {
+			create = false
+			plan.report.Counts.AgentNotesSkipped++
+		} else if exists {
+			if options.Conflict == portableConflictFail {
+				return portableImportPlan{}, portableConflictError(plan.report, "agent note id conflict")
+			}
+			candidateID, candidateMatches, lookupErr := portableFindMatchingCandidate("agent-note", source.ID, func(id string) (bool, bool, error) {
+				candidate, candidateExists, candidateErr := portableExistingAgentNote(q, id)
+				return candidateExists, candidateExists && portableAgentNoteFieldsEqual(candidate, mapped), candidateErr
+			})
+			if lookupErr != nil {
+				return portableImportPlan{}, lookupErr
+			}
+			if candidateMatches {
+				targetID, create = candidateID, false
+				plan.report.Counts.AgentNotesSkipped++
+				portableAddRemap(&plan.report, "agent_note", source.ID, targetID, "id", "reused deterministic remap from an earlier import")
+			} else {
+				targetID = portableCandidateID("agent-note", source.ID, usedAgentNoteIDs)
+				usedAgentNoteIDs[targetID] = struct{}{}
+				portableAddRemap(&plan.report, "agent_note", source.ID, targetID, "id", "source id conflicted with a destination record")
+				plan.report.Counts.AgentNotesCreated++
+			}
+		} else {
+			usedAgentNoteIDs[targetID] = struct{}{}
+			plan.report.Counts.AgentNotesCreated++
+		}
+		plan.agentNotes = append(plan.agentNotes, portableAgentNotePlan{source: mapped, id: targetID, taskID: taskID, actorID: actorID, create: create})
+	}
 
 	for _, source := range archive.Activity.Events {
 		targetID := source.ID
@@ -3242,6 +3407,11 @@ func bumpPortableTaskCollectionRevisions(ctx context.Context, tx *sql.Tx, plan *
 			addProject(taskProjects[comment.taskID])
 		}
 	}
+	for _, note := range plan.agentNotes {
+		if note.create {
+			addProject(taskProjects[note.taskID])
+		}
+	}
 	for _, event := range plan.events {
 		if !event.create {
 			continue
@@ -3354,6 +3524,19 @@ func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableIm
 			continue
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO comments(id,task_id,actor_id,body,created_at,updated_at) VALUES (?,?,?,?,?,?)`, comment.id, comment.taskID, comment.actorID, comment.source.Body, comment.source.CreatedAt, comment.source.UpdatedAt)
+		if err != nil {
+			return err
+		}
+	}
+	for _, note := range plan.agentNotes {
+		if !note.create {
+			continue
+		}
+		evidence, err := json.Marshal(note.source.Evidence)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO agent_notes(id,task_id,actor_id,category,body,evidence_json,version,created_at,updated_at,resolved_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, note.id, note.taskID, note.actorID, note.source.Category, note.source.Body, string(evidence), note.source.Version, note.source.CreatedAt, note.source.UpdatedAt, portableStringArg(note.source.ResolvedAt))
 		if err != nil {
 			return err
 		}

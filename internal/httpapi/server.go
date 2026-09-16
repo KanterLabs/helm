@@ -689,6 +689,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			switch parts[2] {
 			case "comments":
 				s.comments(w, r, identity, parts[1])
+			case "agent-notes":
+				s.agentNotes(w, r, identity, parts[1])
 			case "timeline":
 				s.taskTimeline(w, r, identity, parts[1])
 			case "dependencies":
@@ -740,6 +742,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		}
 		if len(parts) == 4 && parts[2] == "comments" {
 			s.commentMutation(w, r, identity, parts[1], parts[3])
+			return
+		}
+		if len(parts) == 4 && parts[2] == "agent-notes" {
+			s.agentNoteMutation(w, r, identity, parts[1], parts[3])
 			return
 		}
 		if len(parts) == 4 && parts[2] == "children" {

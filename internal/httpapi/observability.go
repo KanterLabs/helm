@@ -73,7 +73,7 @@ var metricRouteTemplates = map[string]struct{}{
 	"/api/v1/tasks/:task/hierarchy": {}, "/api/v1/tasks/:task/children": {}, "/api/v1/tasks/:task/children/:child": {},
 	"/api/v1/tasks/:task/ancestors": {}, "/api/v1/tasks/:task/descendants": {}, "/api/v1/tasks/:task/parent": {},
 	"/api/v1/tasks/:task/dependencies": {}, "/api/v1/tasks/:task/dependencies/:prerequisite": {},
-	"/api/v1/tasks/:task/comments": {}, "/api/v1/tasks/:task/comments/:comment": {}, "/api/v1/tasks/:task/timeline": {},
+	"/api/v1/tasks/:task/comments": {}, "/api/v1/tasks/:task/comments/:comment": {}, "/api/v1/tasks/:task/agent-notes": {}, "/api/v1/tasks/:task/agent-notes/:note": {}, "/api/v1/tasks/:task/timeline": {},
 	"/api/v1/tasks/:task/progress": {}, "/api/v1/tasks/:task/heartbeat": {}, "/api/v1/tasks/:task/claim": {}, "/api/v1/tasks/:task/renew": {},
 	"/api/v1/tasks/:task/release": {}, "/api/v1/tasks/:task/complete": {}, "/api/v1/tasks/:task/block": {},
 	"/api/v1/tasks/:task/triage": {}, "/api/v1/tasks/:task/resolve": {}, "/api/v1/tasks/:task/reopen": {},
@@ -97,6 +97,7 @@ var metricDynamicSegments = map[string]string{
 	"children":       ":child",
 	"dependencies":   ":prerequisite",
 	"comments":       ":comment",
+	"agent-notes":    ":note",
 }
 
 var proxyIdentityHeaders = [...]string{

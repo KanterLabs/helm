@@ -352,6 +352,21 @@ export interface Comment {
   actor?: Pick<Actor, 'name'> | string;
 }
 
+export type AgentNoteCategory = 'known_issue' | 'rejected_approach' | 'constraint' | 'workaround';
+
+export interface AgentNote {
+  id: string;
+  task_id: string;
+  actor_id: string;
+  category: AgentNoteCategory;
+  body: string;
+  evidence: string[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
+}
+
 export interface ActivityEvent {
   cursor: number;
   id: string;

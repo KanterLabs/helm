@@ -410,6 +410,8 @@ class CommandTests(unittest.TestCase):
         class StubClient:
             def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
                 calls.append((method, path, kwargs))
+                if method == "GET" and path.endswith("/agent-notes"):
+                    return {"data": []}, {}
                 if method == "GET" and path.startswith("/tasks/"):
                     return current, {}
                 if path.endswith("/claim"):
@@ -436,6 +438,8 @@ class CommandTests(unittest.TestCase):
             def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
                 calls.append((method, path, kwargs))
                 if method == "GET":
+                    if path.endswith("/agent-notes"):
+                        return {"data": []}, {}
                     if path.endswith("/columns?limit=200"):
                         return {"data": [{"id": "active", "semantic_state": "active"}]}, {}
                     return current, {}
@@ -1513,6 +1517,8 @@ class WorkflowCommandTests(unittest.TestCase):
                     self.task_semantic = "active"
                     self.task_version += 1
                     return self.task(), {}
+                if method == "GET" and path == "/tasks/task-1/agent-notes":
+                    return {"data": []}, {}
                 if method == "POST" and path == "/tasks/task-1/dependencies":
                     self.task_version += 1
                     return self.task(), {}

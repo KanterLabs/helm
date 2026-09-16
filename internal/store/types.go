@@ -400,6 +400,22 @@ type Comment struct {
 	DeletedAt *string `json:"deleted_at,omitempty"`
 }
 
+// AgentNote is bounded, curated task knowledge. It is intentionally separate
+// from comments and progress: active notes are injected into agent recovery
+// context, while resolved notes remain retained for auditability.
+type AgentNote struct {
+	ID         string   `json:"id"`
+	TaskID     string   `json:"task_id"`
+	ActorID    string   `json:"actor_id"`
+	Category   string   `json:"category"`
+	Body       string   `json:"body"`
+	Evidence   []string `json:"evidence"`
+	Version    int64    `json:"version"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
+	ResolvedAt *string  `json:"resolved_at,omitempty"`
+}
+
 // TimelineActor is the least-privilege actor identity embedded in a task
 // activity item.  Timeline reads intentionally do not expose actor email,
 // administrator state, token metadata, or project grants.

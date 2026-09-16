@@ -5,6 +5,7 @@ import {
   type Agent,
   type AgentWorkInput,
   type AgentWorkStateFilter,
+  type AgentNote,
   type ApiErrorShape,
   type ApiToken,
   type AuthStatus,
@@ -555,6 +556,22 @@ export const api = {
       method: 'DELETE',
       ifMatch: version,
       idempotencyKey: key()
+    }),
+  listAgentNotes: (task: string, includeResolved = false) =>
+    request<Collection<AgentNote>>(
+      pathWithQuery(`/tasks/${encodeURIComponent(task)}/agent-notes`, { include_resolved: includeResolved || undefined })
+    ).then(collectionFrom),
+  createAgentNote: (task: string, input: Pick<AgentNote, 'category' | 'body' | 'evidence'>) =>
+    request<AgentNote>(`/tasks/${encodeURIComponent(task)}/agent-notes`, {
+      method: 'POST', body: input, idempotencyKey: key()
+    }),
+  updateAgentNote: (task: string, note: string, version: number, input: Pick<AgentNote, 'category' | 'body' | 'evidence'>) =>
+    request<AgentNote>(`/tasks/${encodeURIComponent(task)}/agent-notes/${encodeURIComponent(note)}`, {
+      method: 'PATCH', body: input, ifMatch: version, idempotencyKey: key()
+    }),
+  resolveAgentNote: (task: string, note: string, version: number) =>
+    request<void>(`/tasks/${encodeURIComponent(task)}/agent-notes/${encodeURIComponent(note)}`, {
+      method: 'DELETE', ifMatch: version, idempotencyKey: key()
     }),
   listTaskTimeline: (task: string, params: { before?: string; limit?: number; kind?: TaskTimelineKind } = {}) =>
     request<TaskTimelineCollection>(

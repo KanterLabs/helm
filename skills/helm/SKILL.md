@@ -109,6 +109,36 @@ such as the task key, operation ID, checkpoint counters, and timestamps; it
 must never contain tokens, prompts, task content, comments, raw tool output,
 or credential paths.
 
+## Preserve bounded agent notes
+
+Use active agent notes only for verified, reusable task knowledge that prevents
+another agent from repeating a failed approach or missing a non-obvious
+constraint. Notes are not progress, next steps, raw logs, speculation, or a
+replacement for the card description. Never put secrets, prompts, credentials,
+customer data, or unredacted tool output in a note.
+
+Each task has at most six active notes. Prefer updating an existing note over
+adding a similar one, and resolve a note as soon as it is obsolete:
+
+```sh
+python3 scripts/helm.py notes list --task TC-1
+python3 scripts/helm.py notes add --task TC-1 \
+  --category rejected_approach \
+  --body "Timestamp joins were rejected because legacy rows can share timestamps." \
+  --evidence internal/store/timeline.go
+python3 scripts/helm.py notes update --task TC-1 --note NOTE_ID \
+  --body "Updated verified finding" --evidence internal/store/timeline_test.go
+python3 scripts/helm.py notes resolve --task TC-1 --note NOTE_ID
+```
+
+Categories are `known_issue`, `rejected_approach`, `constraint`, and
+`workaround`. `start` and `resume` return current active notes. On ordinary
+session recovery and after context compaction, the lifecycle hook re-fetches
+the active notes from Helm and injects their bounded contents into context. It
+never stores note bodies in local hook state or creates notes automatically.
+If refresh fails, treat the hook warning as an instruction to run `notes list`
+before continuing.
+
 ## Coordination inbox and watches
 
 Use notifications and watches when work needs durable coordination beyond the
