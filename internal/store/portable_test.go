@@ -62,6 +62,10 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	note, err := source.CreateAgentNote(ctx, first.ID, worker.ID, "known_issue", "Use the retained migration path", []string{"internal/db/migrations"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	bug, err = source.AddTaskDependency(ctx, bug.ID, first.ID, bug.Version, owner.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +95,7 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(archive.Projects) != 1 || len(archive.Columns) != len(columns) || len(archive.Tasks) != 2 || len(archive.Labels) != 1 || len(archive.Relationships.TaskLabels) != 1 || len(archive.Comments) != 1 || len(archive.Relationships.Dependencies) != 1 || len(archive.Relationships.TaskLinks) != 1 || len(archive.Activity.AgentWork) != 1 || len(archive.Activity.AgentWorkHistory) != 1 {
+	if len(archive.Projects) != 1 || len(archive.Columns) != len(columns) || len(archive.Tasks) != 2 || len(archive.Labels) != 1 || len(archive.Relationships.TaskLabels) != 1 || len(archive.Comments) != 1 || len(archive.AgentNotes) != 1 || len(archive.Relationships.Dependencies) != 1 || len(archive.Relationships.TaskLinks) != 1 || len(archive.Activity.AgentWork) != 1 || len(archive.Activity.AgentWorkHistory) != 1 {
 		t.Fatalf("archive counts projects=%d columns=%d tasks=%d labels=%d task_labels=%d comments=%d deps=%d links=%d work=%d history=%d", len(archive.Projects), len(archive.Columns), len(archive.Tasks), len(archive.Labels), len(archive.Relationships.TaskLabels), len(archive.Comments), len(archive.Relationships.Dependencies), len(archive.Relationships.TaskLinks), len(archive.Activity.AgentWork), len(archive.Activity.AgentWorkHistory))
 	}
 	var exportedBug *PortableBug
@@ -122,7 +126,7 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import archive: %v report=%+v", err, report)
 	}
-	if report.Counts.ProjectsCreated != 1 || report.Counts.TasksCreated != 2 || report.Counts.CommentsCreated != 1 || report.Counts.DependenciesCreated != 1 || report.Counts.LinksCreated != 1 || report.Counts.EventsCreated == 0 || len(report.Remaps) == 0 {
+	if report.Counts.ProjectsCreated != 1 || report.Counts.TasksCreated != 2 || report.Counts.CommentsCreated != 1 || report.Counts.AgentNotesCreated != 1 || report.Counts.DependenciesCreated != 1 || report.Counts.LinksCreated != 1 || report.Counts.EventsCreated == 0 || len(report.Remaps) == 0 {
 		t.Fatalf("import report = %+v", report)
 	}
 	importedBug, err := destination.GetTask(ctx, bug.ID)
@@ -141,6 +145,13 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	}
 	if importedCommentActor != importer.ID || importedDependencyActor != importer.ID {
 		t.Fatalf("attribution comment=%q dependency=%q importer=%q", importedCommentActor, importedDependencyActor, importer.ID)
+	}
+	importedNote, err := destination.GetAgentNote(ctx, note.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if importedNote.ActorID != importer.ID || importedNote.Body != note.Body || len(importedNote.Evidence) != 1 || importedNote.Evidence[0] != note.Evidence[0] {
+		t.Fatalf("imported note = %+v", importedNote)
 	}
 	var importedLinks int
 	if err := destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_links WHERE source_task_id=? AND target_task_id=? AND link_type=?`, first.ID, bug.ID, "relates").Scan(&importedLinks); err != nil {
@@ -161,15 +172,16 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retry archive: %v report=%+v", err, secondReport)
 	}
-	if secondReport.Counts.TasksCreated != 0 || secondReport.Counts.TasksSkipped != 2 || secondReport.Counts.HistoryCreated != 0 || secondReport.Counts.HistorySkipped != 1 {
+	if secondReport.Counts.TasksCreated != 0 || secondReport.Counts.TasksSkipped != 2 || secondReport.Counts.AgentNotesCreated != 0 || secondReport.Counts.AgentNotesSkipped != 1 || secondReport.Counts.HistoryCreated != 0 || secondReport.Counts.HistorySkipped != 1 {
 		t.Fatalf("retry report = %+v", secondReport)
 	}
-	var taskCount, commentCount, historyCount int
+	var taskCount, commentCount, noteCount, historyCount int
 	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE project_id=?`, project.ID).Scan(&taskCount)
 	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments WHERE task_id=?`, first.ID).Scan(&commentCount)
+	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_notes WHERE task_id=?`, first.ID).Scan(&noteCount)
 	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_agent_work_history WHERE task_id=?`, bug.ID).Scan(&historyCount)
-	if taskCount != 2 || commentCount != 1 || historyCount != 1 {
-		t.Fatalf("retry duplicated data tasks=%d comments=%d history=%d", taskCount, commentCount, historyCount)
+	if taskCount != 2 || commentCount != 1 || noteCount != 1 || historyCount != 1 {
+		t.Fatalf("retry duplicated data tasks=%d comments=%d notes=%d history=%d", taskCount, commentCount, noteCount, historyCount)
 	}
 }
 

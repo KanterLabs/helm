@@ -87,13 +87,14 @@ func TestNotificationsMigrationIsAdditiveAndRetainedWritesSurvive(t *testing.T) 
 	if err := database.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&schemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	if schemaVersion != 23 {
-		t.Fatalf("schema version after migration = %d, want 23", schemaVersion)
+	latest := migrations[len(migrations)-1].version
+	if schemaVersion != latest {
+		t.Fatalf("schema version after migration = %d, want %d", schemaVersion, latest)
 	}
 	if err := Migrate(ctx, database); err != nil {
-		t.Fatalf("rerun migrations through 023: %v", err)
+		t.Fatalf("rerun migrations through latest: %v", err)
 	}
 	if err := CheckIntegrity(ctx, database); err != nil {
-		t.Fatalf("migration integrity through 023: %v", err)
+		t.Fatalf("migration integrity through latest: %v", err)
 	}
 }

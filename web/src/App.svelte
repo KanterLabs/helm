@@ -247,6 +247,7 @@
   } from './lib/types';
   import AgentPulse from './lib/components/AgentPulse.svelte';
   import AgentWorkPanel from './lib/components/AgentWorkPanel.svelte';
+  import AgentNotes from './lib/components/AgentNotes.svelte';
   import AuditReview from './lib/components/AuditReview.svelte';
   import BoardTimeline from './lib/components/BoardTimeline.svelte';
   import BoardOverflowNavigation from './lib/components/BoardOverflowNavigation.svelte';
@@ -7878,7 +7879,9 @@
 	                  onRefreshTask={refreshHierarchyTask}
 	                  onCreateChild={createChildTask}
 	                />
-	                <section class="drawer-section description-section"><div class="section-heading-inline"><h2>Description</h2><span class="markdown-hint">Markdown supported</span></div><textarea class="description-input" rows="7" bind:value={draftDescription} placeholder="What does success look like?"></textarea></section><div class="drawer-save-bar" class:dirty={drawerDraftDirty} aria-live="polite"><span class="drawer-save-status">{#if drawerSaving}<span class="button-spinner"></span>Saving changes…{:else if drawerTaskDraftDirty}<span class="drawer-status-dot"></span>Unsaved changes{:else if drawerDraftDirty}<span class="drawer-status-dot"></span>Action draft pending{:else}<span class="drawer-status-check">✓</span>All changes saved{/if}</span><button class="button primary save-task-button" type="button" disabled={drawerSaving || !drawerTaskDraftDirty || !draftTitle.trim()} on:click={() => void saveTask()}>{#if drawerSaving}<span class="button-spinner"></span>{/if}{drawerTaskDraftDirty ? 'Save changes' : 'Saved'}</button></div>
+	                <section class="drawer-section description-section"><div class="section-heading-inline"><h2>Description</h2><span class="markdown-hint">Markdown supported</span></div><textarea class="description-input" rows="7" bind:value={draftDescription} placeholder="What does success look like?"></textarea></section>
+                  <AgentNotes task={drawerTask} currentActorId={user?.id || ''} canManage={Boolean(user?.admin)} />
+                  <div class="drawer-save-bar" class:dirty={drawerDraftDirty} aria-live="polite"><span class="drawer-save-status">{#if drawerSaving}<span class="button-spinner"></span>Saving changes…{:else if drawerTaskDraftDirty}<span class="drawer-status-dot"></span>Unsaved changes{:else if drawerDraftDirty}<span class="drawer-status-dot"></span>Action draft pending{:else}<span class="drawer-status-check">✓</span>All changes saved{/if}</span><button class="button primary save-task-button" type="button" disabled={drawerSaving || !drawerTaskDraftDirty || !draftTitle.trim()} on:click={() => void saveTask()}>{#if drawerSaving}<span class="button-spinner"></span>{/if}{drawerTaskDraftDirty ? 'Save changes' : 'Saved'}</button></div>
 	          </div>
         </div>
         {:else}

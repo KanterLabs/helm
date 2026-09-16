@@ -74,6 +74,25 @@ def _context(state: helm_session.SessionState, *, compact: bool = False) -> str:
     return f"{prefix} Helm task {task}{project}: agent state {state.agent_state}{checkpoint}; operation {state.operation_id}{reminder}."
 
 
+def _agent_notes_context(state: helm_session.SessionState) -> str:
+    """Fetch fresh bounded task memory without persisting note bodies locally."""
+
+    client = helm.Client(helm.load_config())
+    payload, _ = client.call("GET", f"/tasks/{quote(state.task_id, safe='')}/agent-notes")
+    notes = payload.get("data", []) if isinstance(payload, dict) else []
+    if not isinstance(notes, list):
+        raise ValueError("unexpected agent note collection")
+    labels = {"known_issue": "Known issue", "rejected_approach": "Rejected approach", "constraint": "Constraint", "workaround": "Workaround"}
+    lines: list[str] = []
+    for note in notes[:6]:
+        if not isinstance(note, Mapping):
+            continue
+        body = str(note.get("body", "")).strip().replace("\r", " ").replace("\n", " ")[:500]
+        if body:
+            lines.append(f"- [{labels.get(str(note.get('category', '')), 'Agent note')}] {body}")
+    return "Active agent notes (review before continuing):\n" + "\n".join(lines) if lines else "Active agent notes: none."
+
+
 def _safe_empty() -> dict[str, Any]:
     return {}
 
@@ -143,6 +162,7 @@ def handle_event(
     now: datetime | None = None,
     store_factory: Callable[[Mapping[str, Any]], helm_session.StateStore | None] | None = None,
     heartbeat_fn: Callable[[helm_session.StateStore], helm_session.HeartbeatResult] | None = None,
+    notes_fn: Callable[[helm_session.SessionState], str] | None = None,
 ) -> dict[str, Any]:
     """Handle a parsed hook event and return protocol JSON.
 
@@ -172,6 +192,11 @@ def handle_event(
             if state is None:
                 return _safe_empty()
             context = _context(state, compact=_is_compact(event))
+            try:
+                context += "\n" + ((notes_fn or _agent_notes_context)(state))
+            except Exception as exc:
+                _warning(exc)
+                context += "\nAgent notes could not be refreshed; check the task before continuing."
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",

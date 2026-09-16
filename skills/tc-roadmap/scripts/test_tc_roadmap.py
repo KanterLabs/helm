@@ -437,6 +437,8 @@ class CommandTests(unittest.TestCase):
         class StubClient:
             def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
                 calls.append((method, path, kwargs))
+                if method == "GET" and path.endswith("/agent-notes"):
+                    return {"data": []}, {}
                 if method == "GET" and path.startswith("/tasks/"):
                     return current, {}
                 if path.endswith("/claim"):
@@ -463,6 +465,8 @@ class CommandTests(unittest.TestCase):
             def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
                 calls.append((method, path, kwargs))
                 if method == "GET":
+                    if path.endswith("/agent-notes"):
+                        return {"data": []}, {}
                     if path.endswith("/columns?limit=200"):
                         return {"data": [{"id": "active", "semantic_state": "active"}]}, {}
                     return current, {}
@@ -473,6 +477,28 @@ class CommandTests(unittest.TestCase):
         args = argparse.Namespace(task="TC-1", lease_seconds=600, operation_id="resume-2")
         helper.cmd_resume(StubClient(), args)  # type: ignore[arg-type]
         self.assertFalse(any(method == "PATCH" for method, _path, _kwargs in calls))
+
+    def test_agent_note_commands_create_and_resolve_with_version_guards(self) -> None:
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if method == "GET" and path == "/tasks/TC-1":
+                    return {"id": "task-1", "key": "TC-1", "version": 1}, {}
+                if method == "GET" and path.endswith("/note-1"):
+                    return {"id": "note-1", "version": 3}, {}
+                if method == "POST":
+                    return {"id": "note-1", "version": 1}, {}
+                return None, {}
+
+        client = StubClient()
+        added = helper.cmd_note_add(client, argparse.Namespace(task="TC-1", category="known_issue", body=" Verified ", evidence=["test"], operation_id="note-add"))  # type: ignore[arg-type]
+        self.assertEqual(added["agent_note"]["id"], "note-1")
+        self.assertEqual(calls[-1][2]["body"]["body"], "Verified")
+        helper.cmd_note_resolve(client, argparse.Namespace(task="TC-1", note="note-1", operation_id="note-resolve"))  # type: ignore[arg-type]
+        self.assertEqual(calls[-1][0], "DELETE")
+        self.assertEqual(calls[-1][2]["if_match"], 3)
 
     def test_operation_id_is_rejected_before_network_mutation(self) -> None:
         class StubClient:

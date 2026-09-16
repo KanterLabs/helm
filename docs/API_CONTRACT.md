@@ -144,7 +144,7 @@ defaults to `#94a3b8` when omitted or null.
 - `GET /api/v1/projects/{project}/boards`
 
 Portable archives use the versioned `helm.portable` format (`version: 2`) and
-include projects, columns, tasks/bug details, labels, comments,
+include projects, columns, tasks/bug details, labels, comments, agent notes,
 task-label/dependency/link relationships, actor display references,
 project-scoped activity, releases, and each task's explicit nullable
 `release_id`. Export requires `projects:read`, `tasks:read`, and `events:read`;
@@ -190,6 +190,8 @@ use the separate documented SQLite workflow for exact database recovery.
 - `GET|PATCH|DELETE /api/v1/tasks/{task}`
 - `GET|POST /api/v1/tasks/{task}/comments`
 - `GET|PATCH|DELETE /api/v1/tasks/{task}/comments/{comment}`
+- `GET|POST /api/v1/tasks/{task}/agent-notes`
+- `GET|PATCH|DELETE /api/v1/tasks/{task}/agent-notes/{note}`
 - `GET /api/v1/tasks/{task}/timeline`
 - `POST /api/v1/tasks/{task}/claim`
 - `POST /api/v1/tasks/{task}/progress`
@@ -296,6 +298,18 @@ may edit or tombstone comments. Tombstones retain the body for retention and
 are omitted from active comment reads; immutable `comment.updated` and
 `comment.deleted` events remain in the task timeline. Stale versions return
 `409` without changing the comment.
+
+Agent notes are a separate, deliberately bounded surface for verified reusable
+task knowledge: known issues, rejected approaches, constraints, and
+workarounds. A task may have at most six active notes. Bodies are 1–500
+characters and each note may carry up to six short evidence references. Notes
+are not progress logs or scratchpads. Active reads are capped at six; adding a
+seventh returns `409`. `include_resolved=true` exposes at most 200 retained
+records for review. Authors and human administrators may update or resolve an
+active note with its exact `If-Match: "vN"`; resolution is a retained soft
+delete and resolved notes are immutable. Claim and resume clients return the
+fresh active set, and the lifecycle hook re-reads it on every `SessionStart`,
+including compaction recovery, without persisting note bodies locally.
 
 `GET /api/v1/projects/{project}/timeline` returns the same typed, newest-first
 timeline items as the task route, merged across every non-deleted task in the

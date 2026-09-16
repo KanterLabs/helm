@@ -1957,6 +1957,56 @@ def cmd_release(client: Client, args: argparse.Namespace) -> Any:
     return {"task": payload, "operation_id": operation_id}
 
 
+def _agent_notes(client: Client, task_id: str) -> list[dict[str, Any]]:
+    payload, _ = client.call("GET", "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes")
+    return [dict(note) for note in _data(payload) if isinstance(note, dict)]
+
+
+def cmd_note_list(client: Client, args: argparse.Namespace) -> Any:
+    task = _task(client, args.task)
+    suffix = "?include_resolved=true" if args.include_resolved else ""
+    payload, _ = client.call("GET", "/tasks/" + parse.quote(str(task["id"]), safe="") + "/agent-notes" + suffix)
+    return {"task": task.get("key", task["id"]), "data": _data(payload)}
+
+
+def cmd_note_add(client: Client, args: argparse.Namespace) -> Any:
+    args.operation_id = _validate_operation_id(args.operation_id)
+    task = _task(client, args.task)
+    path = "/tasks/" + parse.quote(str(task["id"]), safe="") + "/agent-notes"
+    body = {"category": args.category, "body": args.body.strip(), "evidence": args.evidence}
+    note, _ = client.call("POST", path, body=body, idempotency_key=_mutation_idempotency(args.operation_id, "POST", path, body))
+    return {"task": task.get("key", task["id"]), "agent_note": note, "operation_id": args.operation_id}
+
+
+def _note(client: Client, task_id: str, note_id: str) -> dict[str, Any]:
+    path = "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes/" + parse.quote(note_id, safe="")
+    payload, _ = client.call("GET", path)
+    if not isinstance(payload, dict) or not isinstance(payload.get("version"), int):
+        raise RoadmapError("TC Roadmap returned an unexpected agent note")
+    return payload
+
+
+def cmd_note_update(client: Client, args: argparse.Namespace) -> Any:
+    args.operation_id = _validate_operation_id(args.operation_id)
+    task = _task(client, args.task)
+    task_id = str(task["id"])
+    current = _note(client, task_id, args.note)
+    path = "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes/" + parse.quote(args.note, safe="")
+    body = {"category": args.category or current.get("category"), "body": args.body.strip() if args.body else current.get("body"), "evidence": args.evidence if args.evidence is not None else current.get("evidence", [])}
+    note, _ = client.call("PATCH", path, body=body, if_match=current["version"], idempotency_key=_mutation_idempotency(args.operation_id, "PATCH", path, body))
+    return {"task": task.get("key", task_id), "agent_note": note, "operation_id": args.operation_id}
+
+
+def cmd_note_resolve(client: Client, args: argparse.Namespace) -> Any:
+    args.operation_id = _validate_operation_id(args.operation_id)
+    task = _task(client, args.task)
+    task_id = str(task["id"])
+    current = _note(client, task_id, args.note)
+    path = "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes/" + parse.quote(args.note, safe="")
+    client.call("DELETE", path, if_match=current["version"], idempotency_key=_mutation_idempotency(args.operation_id, "DELETE", path))
+    return {"task": task.get("key", task_id), "resolved_agent_note": args.note, "operation_id": args.operation_id}
+
+
 def cmd_start(client: Client, args: argparse.Namespace) -> Any:
     args.operation_id = _validate_operation_id(args.operation_id)
     project = _project(client, args.project)
@@ -1994,7 +2044,7 @@ def cmd_start(client: Client, args: argparse.Namespace) -> Any:
     if not isinstance(claimed, dict) or not isinstance(claimed.get("version"), int):
         raise RoadmapError("TC Roadmap returned an unexpected claimed task")
     _record_session_start(claimed, project_id, args.operation_id)
-    return {"task": claimed, "operation_id": args.operation_id}
+    return {"task": claimed, "agent_notes": _agent_notes(client, str(claimed["id"])), "operation_id": args.operation_id}
 
 
 def cmd_backlog(client: Client, args: argparse.Namespace) -> Any:
@@ -2095,7 +2145,7 @@ def cmd_resume(client: Client, args: argparse.Namespace) -> Any:
         snapshot_ready = True
         break
     _record_session_start(moved, project_id, args.operation_id, snapshot_ready=snapshot_ready)
-    return {"task": moved, "operation_id": args.operation_id}
+    return {"task": moved, "agent_notes": _agent_notes(client, task_id), "operation_id": args.operation_id}
 
 
 def cmd_progress(client: Client, args: argparse.Namespace) -> Any:
@@ -2399,6 +2449,33 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--task", required=True)
     release.add_argument("--operation-id", help="UUIDv4 for deterministic replay (generated when omitted)")
     release.set_defaults(handler=cmd_release)
+
+    notes = subparsers.add_parser("notes", aliases=("agent-notes",), help="Read or curate bounded agent task notes")
+    note_actions = notes.add_subparsers(dest="note_action", required=True)
+    note_list = note_actions.add_parser("list", help="List agent notes")
+    note_list.add_argument("--task", required=True)
+    note_list.add_argument("--include-resolved", action="store_true")
+    note_list.set_defaults(handler=cmd_note_list)
+    note_add = note_actions.add_parser("add", help="Add verified reusable task knowledge")
+    note_add.add_argument("--task", required=True)
+    note_add.add_argument("--category", required=True, choices=("known_issue", "rejected_approach", "constraint", "workaround"))
+    note_add.add_argument("--body", required=True)
+    note_add.add_argument("--evidence", action="append", default=[])
+    note_add.add_argument("--operation-id", required=True)
+    note_add.set_defaults(handler=cmd_note_add)
+    note_update = note_actions.add_parser("update", help="Update an active agent note")
+    note_update.add_argument("--task", required=True)
+    note_update.add_argument("--note", required=True)
+    note_update.add_argument("--category", choices=("known_issue", "rejected_approach", "constraint", "workaround"))
+    note_update.add_argument("--body")
+    note_update.add_argument("--evidence", action="append", default=None)
+    note_update.add_argument("--operation-id", required=True)
+    note_update.set_defaults(handler=cmd_note_update)
+    note_resolve = note_actions.add_parser("resolve", help="Resolve an obsolete agent note")
+    note_resolve.add_argument("--task", required=True)
+    note_resolve.add_argument("--note", required=True)
+    note_resolve.add_argument("--operation-id", required=True)
+    note_resolve.set_defaults(handler=cmd_note_resolve)
 
     heartbeat = subparsers.add_parser("heartbeat", help="Refresh agent-work liveness")
     heartbeat.add_argument("--task", required=True)
