@@ -182,6 +182,9 @@ func (s *Store) listIssues(ctx context.Context, filter TaskFilter, allowExtra bo
 			return nil, false, err
 		}
 	}
+	if err := s.populateTaskReleaseReferences(ctx, result); err != nil {
+		return nil, false, err
+	}
 	return result, hasMore, nil
 }
 
@@ -228,6 +231,18 @@ func appendIssueFilters(query string, args []any, filter TaskFilter, readAt time
 		} else {
 			query += ` AND EXISTS (SELECT 1 FROM bug_details bd WHERE bd.task_id=t.id AND bd.resolution=?)`
 			args = append(args, filter.Resolution)
+		}
+	}
+	releaseFilter := filter.ReleaseID
+	if releaseFilter == "" {
+		releaseFilter = filter.Release
+	}
+	if releaseFilter != "" {
+		if strings.EqualFold(strings.TrimSpace(releaseFilter), "unassigned") || strings.EqualFold(strings.TrimSpace(releaseFilter), "none") {
+			query += ` AND t.release_id IS NULL`
+		} else {
+			query += ` AND t.release_id=?`
+			args = append(args, strings.TrimSpace(releaseFilter))
 		}
 	}
 	// A completed bug can retain its last agent snapshot for history, but it

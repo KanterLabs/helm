@@ -202,6 +202,9 @@ func (s *Store) Roadmap(ctx context.Context, projectID string) (Roadmap, error) 
 	if err := s.populateTaskDependencySummaries(ctx, roadmap.Upcoming); err != nil {
 		return roadmap, err
 	}
+	if err := s.populateTaskReleaseReferences(ctx, roadmap.Upcoming); err != nil {
+		return roadmap, err
+	}
 	events, err := s.ListRecentEvents(ctx, projectID, 10)
 	if err != nil {
 		return roadmap, err
@@ -294,6 +297,18 @@ func (s *Store) listMyWorkFiltered(ctx context.Context, actorID string, projectI
 			args = append(args, projectID)
 		}
 		query += ` AND t.project_id IN (` + strings.Join(placeholders, ",") + ")"
+	}
+	releaseFilter := filter.ReleaseID
+	if releaseFilter == "" {
+		releaseFilter = filter.Release
+	}
+	if releaseFilter != "" {
+		if strings.EqualFold(strings.TrimSpace(releaseFilter), "unassigned") || strings.EqualFold(strings.TrimSpace(releaseFilter), "none") {
+			query += ` AND t.release_id IS NULL`
+		} else {
+			query += ` AND t.release_id=?`
+			args = append(args, strings.TrimSpace(releaseFilter))
+		}
 	}
 	if filter.State != "" {
 		query += ` AND c.semantic_state=?`
@@ -423,6 +438,9 @@ func (s *Store) listMyWorkFiltered(ctx context.Context, actorID string, projectI
 		}
 	}
 	if err := s.populateTaskDependencySummaries(ctx, result); err != nil {
+		return nil, false, err
+	}
+	if err := s.populateTaskReleaseReferences(ctx, result); err != nil {
 		return nil, false, err
 	}
 	return result, hasMore, nil

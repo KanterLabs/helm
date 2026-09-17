@@ -279,11 +279,11 @@ test.describe('task drawer safeguards', () => {
     await drawer.getByLabel('Task title').fill(draftTitle);
     await drawer.getByRole('button', { name: /Renew claim/ }).click();
     await expect(drawer.getByLabel('Task title')).toHaveValue(draftTitle);
-    await drawer.getByRole('button', { name: 'Release', exact: true }).click();
+    await drawer.getByRole('button', { name: 'Release claim', exact: true }).click();
     await expect(drawer.getByLabel('Task title')).toHaveValue(draftTitle);
     await drawer.getByRole('button', { name: /Claim task/ }).click();
     await expect(drawer.getByLabel('Task title')).toHaveValue(draftTitle);
-    await drawer.getByRole('button', { name: 'Release', exact: true }).click();
+    await drawer.getByRole('button', { name: 'Release claim', exact: true }).click();
     await expect(drawer.getByLabel('Task title')).toHaveValue(draftTitle);
 
     await drawer.getByRole('button', { name: '■ Block', exact: true }).click();

@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/KanterLabs/helm/internal/auth"
+	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
 	"github.com/KanterLabs/helm/internal/store"
@@ -30,11 +31,16 @@ import (
 )
 
 type Server struct {
-	Store  *store.Store
-	Auth   *auth.Manager
-	Cfg    config.Config
-	Codex  CodexAccountService
-	idemMu sync.Mutex
+	Store *store.Store
+	Auth  *auth.Manager
+	Cfg   config.Config
+	Codex CodexAccountService
+	// BetaSwitch is an injected client for the root-owned beta switch broker.
+	// The HTTP layer never invokes deployment commands or accesses release
+	// paths directly.
+	BetaSwitch     betaswitch.Client
+	idemMu         sync.Mutex
+	betaSwitchIdem map[string]betaSwitchReplay
 	// mutationLimiter is initialized by New and is intentionally process-local.
 	// Persistent agent accounting lives in store so a restart cannot reset the
 	// actor's resource budget.
@@ -160,11 +166,18 @@ type CodexAccountService interface {
 }
 
 func New(s *store.Store, manager *auth.Manager, cfg config.Config, codexManagers ...CodexAccountService) *Server {
+	return NewWithBetaSwitch(s, manager, cfg, nil, codexManagers...)
+}
+
+// NewWithBetaSwitch constructs a server with an optional beta switch broker
+// client. Keeping the client separate from the existing Codex variadic
+// dependency preserves the constructor used by existing callers and tests.
+func NewWithBetaSwitch(s *store.Store, manager *auth.Manager, cfg config.Config, betaClient betaswitch.Client, codexManagers ...CodexAccountService) *Server {
 	var codexManager CodexAccountService
 	if len(codexManagers) > 0 {
 		codexManager = codexManagers[0]
 	}
-	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry()}
+	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry()}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +224,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.logRequest(requestID, r.Method, r.URL.Path, responseStatus(w), time.Since(started), identity, hasIdentity)
 	}()
+	// A disabled beta switcher is intentionally indistinguishable from an
+	// unknown route, including before authentication. This avoids turning the
+	// feature flag into an oracle and guarantees the broker is never called.
+	if isBetaSwitchRoute(r) && !s.betaSwitchEnabled() {
+		s.writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
+		return
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,If-Match,Idempotency-Key,X-Request-ID")
@@ -554,6 +574,18 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	s.dispatchAuthed(w, r, identity, parts)
 }
 
+func isBetaSwitchRoute(r *http.Request) bool {
+	if r == nil || !isAPIPath(r.URL.Path) {
+		return false
+	}
+	parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1"))
+	return len(parts) >= 2 && parts[0] == "admin" && parts[1] == "beta"
+}
+
+func (s *Server) betaSwitchEnabled() bool {
+	return s != nil && s.Cfg.BetaSwitchEnabled && s.Cfg.AuthMode == "tailnet" && s.Cfg.PublicOrigin == "https://beta-helm.home.shanekanterman.dev"
+}
+
 func (s *Server) validMutationOrigin(r *http.Request) bool {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 		return true
@@ -623,6 +655,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		}
 		return
 	}
+	if len(parts) >= 3 && parts[0] == "admin" && parts[1] == "beta" {
+		s.betaSwitchRoute(w, r, identity, parts[2:])
+		return
+	}
 	if parts[0] == "issues" && len(parts) == 2 && parts[1] == "metrics" {
 		s.issueMetrics(w, r, identity)
 		return
@@ -636,6 +672,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			switch parts[2] {
 			case "tasks":
 				s.tasks(w, r, identity, parts[1])
+			case "releases":
+				s.releases(w, r, identity, parts[1])
 			case "task-context":
 				s.taskContext(w, r, identity, parts[1])
 			case "task-draft":
@@ -668,6 +706,16 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			return
 		}
 	}
+	if parts[0] == "releases" {
+		if len(parts) == 2 {
+			s.release(w, r, identity, parts[1], "")
+			return
+		}
+		if len(parts) == 3 && (parts[2] == "complete" || parts[2] == "reopen" || parts[2] == "work-queue") {
+			s.release(w, r, identity, parts[1], parts[2])
+			return
+		}
+	}
 	if parts[0] == "codex" {
 		s.codexAccount(w, r, identity, parts[1:])
 		return
@@ -689,6 +737,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			switch parts[2] {
 			case "comments":
 				s.comments(w, r, identity, parts[1])
+			case "agent-notes":
+				s.agentNotes(w, r, identity, parts[1])
 			case "timeline":
 				s.taskTimeline(w, r, identity, parts[1])
 			case "dependencies":
@@ -740,6 +790,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		}
 		if len(parts) == 4 && parts[2] == "comments" {
 			s.commentMutation(w, r, identity, parts[1], parts[3])
+			return
+		}
+		if len(parts) == 4 && parts[2] == "agent-notes" {
+			s.agentNoteMutation(w, r, identity, parts[1], parts[3])
 			return
 		}
 		if len(parts) == 4 && parts[2] == "children" {
@@ -1452,6 +1506,26 @@ func (s *Server) writeStoreErrorForIdentity(w http.ResponseWriter, identity auth
 		status, code, message = http.StatusNotFound, "hierarchy_not_found", err.Error()
 	case errors.Is(err, store.ErrHierarchyInUse):
 		status, code, message = http.StatusConflict, "hierarchy_in_use", err.Error()
+	case errors.Is(err, store.ErrReleaseNotFound):
+		status, code, message = http.StatusNotFound, "release_not_found", err.Error()
+	case errors.Is(err, store.ErrReleaseNameExists):
+		status, code, message = http.StatusConflict, "release_name_exists", err.Error()
+	case errors.Is(err, store.ErrReleaseCrossProject):
+		status, code, message = http.StatusBadRequest, "release_cross_project", err.Error()
+	case errors.Is(err, store.ErrReleaseAlreadyCompleted):
+		status, code, message = http.StatusConflict, "release_already_completed", err.Error()
+	case errors.Is(err, store.ErrReleaseNotCompleted):
+		status, code, message = http.StatusConflict, "release_not_completed", err.Error()
+	case errors.Is(err, store.ErrReleaseHasTasks):
+		status, code, message = http.StatusConflict, "release_has_tasks", err.Error()
+	case errors.Is(err, store.ErrReleaseIncomplete):
+		status, code, message = http.StatusConflict, "release_incomplete", err.Error()
+	case errors.Is(err, store.ErrReleaseDependencyConflict):
+		status, code, message = http.StatusConflict, "release_dependency_conflict", err.Error()
+	case errors.Is(err, store.ErrReleaseFrozen):
+		status, code, message = http.StatusConflict, "release_frozen", err.Error()
+	case errors.Is(err, store.ErrReleaseQueueChanged):
+		status, code, message = http.StatusConflict, "release_queue_changed", err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, code, message = http.StatusBadRequest, "invalid_request", err.Error()
 	case errors.Is(err, store.ErrNotFound):
@@ -1490,7 +1564,49 @@ func (s *Server) writeStoreErrorForIdentity(w http.ResponseWriter, identity auth
 	}
 	details = redactTaskConflictDetails(identity, details)
 	details = redactDependencyDetails(identity, err, details)
+	details = redactReleaseDetails(identity, err, details)
 	s.writeError(w, status, code, message, details)
+}
+
+// redactReleaseDetails keeps a write-only bearer from learning release names,
+// task counts, or dependency metadata through a lifecycle error. A queue
+// restart marker and optimistic versions are safe retry metadata; everything
+// else requires the tasks:read capability.
+func redactReleaseDetails(identity auth.Identity, err error, details any) any {
+	if !identity.IsToken || identity.HasScope("tasks:read") || !isReleaseError(err) {
+		return details
+	}
+	value, ok := details.(map[string]any)
+	if !ok {
+		return map[string]any{}
+	}
+	redacted := make(map[string]any)
+	for _, key := range []string{"current_version", "expected_version", "restart"} {
+		if item, exists := value[key]; exists {
+			redacted[key] = item
+		}
+	}
+	return redacted
+}
+
+func isReleaseError(err error) bool {
+	for _, candidate := range []error{
+		store.ErrReleaseNotFound,
+		store.ErrReleaseNameExists,
+		store.ErrReleaseCrossProject,
+		store.ErrReleaseAlreadyCompleted,
+		store.ErrReleaseNotCompleted,
+		store.ErrReleaseHasTasks,
+		store.ErrReleaseIncomplete,
+		store.ErrReleaseDependencyConflict,
+		store.ErrReleaseFrozen,
+		store.ErrReleaseQueueChanged,
+	} {
+		if errors.Is(err, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // redactDependencyDetails keeps dependency error envelopes useful to tokens

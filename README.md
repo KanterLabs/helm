@@ -16,13 +16,16 @@ Trello-compatible API or a full team-suite replacement.
 - Work from a board with Backlog, Ready, In progress, Blocked, and Done
   columns. Create tasks quickly, move them with drag-and-drop or keyboard
   controls, and filter by text, state, kind, priority, severity, label,
-  assignee, reporter, resolution, or agent-work state. Claimed agent tasks
-  expose a compact live pulse on the board and a fuller progress panel in the
-  task drawer.
+  assignee, reporter, resolution, focus (including **No focus**), or
+  agent-work state. Claimed agent tasks expose a compact live pulse on the
+  board and a fuller progress panel in the task drawer.
 - Keep task context in Markdown descriptions, priorities, due dates, labels,
   assignees, comments, and chronological human/agent activity. Record bugs
   with actual versus expected behavior, reproduction steps, environment, and
   affected version.
+- Plan product delivery with project-local Focus: bound the tasks that matter
+  now, optionally set a target date, assign each task or bug, track readiness,
+  and explicitly complete or reopen the Focus.
 - Follow assigned work in **My work** and all published agent pulses across
   permitted projects in cross-project **Live Work**, or inspect completion,
   overdue work, upcoming deadlines, and recent activity in **Roadmap**.
@@ -167,6 +170,45 @@ The API contract is documented in [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md)
 The human-edited OpenAPI source is [`openapi.yaml`](openapi.yaml); the checked-in
 JSON document is [`internal/httpapi/openapi.json`](internal/httpapi/openapi.json)
 and is served at `/openapi.json`.
+
+### Focus
+
+Focus is a bounded, project-local set of tasks that matter now. A focus can
+have an optional target date, task assignments, readiness tracking, and
+explicit completion or reopening. The project view is `/p/:slug/focus`;
+existing `/releases` links remain compatible. Internally and in the API, this
+feature retains the `release` and `release_id` compatibility names. Focus is
+separate from the deployment `X-Roadmap-Revision`, the task claim action
+`POST /api/v1/tasks/{task}/release` (which releases an agent claim), and a
+bug's `affected_version`. The release API is:
+
+- `GET|POST /api/v1/projects/{project}/releases`
+- `GET|PATCH|DELETE /api/v1/releases/{release}`
+- `POST /api/v1/releases/{release}/complete`
+- `POST /api/v1/releases/{release}/reopen`
+- `GET /api/v1/releases/{release}/work-queue`
+
+Release reads and the read-only work queue use `tasks:read`; release
+creation, edits, deletion, completion, and reopening use `tasks:write`. The
+existing project ceiling applies, and no new bearer scope is required.
+Release metadata mutations use the strong release `ETag` in `If-Match` and an
+`Idempotency-Key`; released releases are frozen until reopened with a reason.
+
+Task creation and PATCH accept nullable `release_id`; omission preserves an
+existing assignment and explicit `null` clears it. A release must be planned
+and belong to the task's project. Project task collections accept
+`release={id|name|unassigned}`; global Issues, My work, Search, and saved
+views use stable `release_id={id|unassigned}`. Filters are applied before
+pagination and names are resolved only within a selected project.
+
+The work queue is read-only: it includes direct members and transitive
+same-project prerequisites, reports dependency and cross-release conflicts,
+and orders owned work before claimable tasks. Agents still claim and finish
+one task at a time through the existing task lifecycle. Queue cursors are
+invalidated by relevant changes and return `release_queue_changed` with
+`restart: true`. Portable exports are `helm.portable` v2 with releases and
+task release references; v1 archives remain import-compatible with tasks
+unassigned on import.
 
 Tasks declare `kind: task` or `kind: bug`. Bug creation requires nested
 `bug.actual_behavior`; triage sets `severity` (`s1`–`s4`), resolve records a
@@ -325,13 +367,13 @@ Cloudflare Access
   → /var/lib/roadmap/data/roadmap.db
 ```
 
-Changes are tested through a separate environment before production:
+Changes are tested through a private beta environment before production:
 
 ```text
 beta branch
   → beta GitHub environment and beta-only secrets
-  → beta-helm.home.shanekanterman.dev (private Tailnet target; route pending)
-  → private Tailnet TLS listener at 10.0.0.39:8443 (pending activation)
+  → beta-helm.home.shanekanterman.dev (active private Tailnet target)
+  → private Tailnet TLS listener at 10.0.0.39:8443
   → the `helm-beta` LXC (CT 106, 10.0.0.39)
   → an independent /var/lib/roadmap/data/roadmap.db
 
@@ -365,8 +407,9 @@ firewall posture, private preprovisioning, and recovery checks are in
 After the one-time Proxmox and private Tailnet preprovisioning described there, pushes to
 `beta` and `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Both branches run Go/frontend checks, browser tests, and a container smoke
-test. A `beta` push is paused pending the private route migration; public
-Cloudflare beta provisioning is disabled. The selected target is
+test. A successful `beta` push automatically deploys to the active private
+Tailnet target and validates its private readiness; public Cloudflare beta
+provisioning remains disabled. The selected target is
 `beta-helm.home.shanekanterman.dev`, while a `main` push may deploy only through the
 `production` environment and validate <https://tc.shanekanterman.dev>. Normal
 production deployment requires the GitHub Actions
@@ -383,11 +426,69 @@ Beta uses corresponding `BETA_*` environment secrets, including
 `BETA_ADMIN_EMAIL`, and the configured Tailnet owner login
 `ShaneKanterman04@github`, plus a distinct forced SSH account and
 release-signing key. Its signed private bundle omits cloudflared;
-the beta gateway validates only loopback health and an unauthenticated HTTP 401
-after deployment. The beta pause variable remains required while the private
-route/TLS is being verified. Dispatch `rollback_sha` from `beta` to roll back
-beta, or from `main` to roll back production; neither environment's job can
-select the other's gateway.
+the beta gateway validates loopback health, private-profile invariants, and an
+unauthenticated HTTP 401 after deployment. The optional
+`HELM_BETA_DEPLOY_PAUSED=true` setting remains an explicit maintenance stop,
+not the normal private-beta state. Dispatch `rollback_sha` from `beta` to roll
+back beta, or from `main` to roll back production; neither environment's job
+can select the other's gateway. Beta does not use Cloudflare credentials or
+public routing. Normal beta pushes build `helm-beta-switchd` from the exact
+trusted beta checkout and sign `HELM_RELEASE_REF=refs/heads/beta` into the
+bundle, using the fixed `/run/helm-beta-switcher/helm-beta-switchd.sock`
+socket.
+
+### Manual feature-branch candidates
+
+The protected beta branch also carries a separate manual workflow,
+`.github/workflows/beta-candidate.yml`, for trying a schema-compatible feature
+branch on the private beta hostname. Dispatch it from `beta` with both the
+exact 40-character lowercase `candidate_sha` and its canonical
+`candidate_ref` (`refs/heads/<branch>`). Admission resolves that ref in the
+canonical `KanterLabs/helm` repository, requires the same tip SHA, rejects
+forks and the `main`/`beta` branches, and rejects unsafe Git ref syntax. A
+stale SHA or a branch that moves during admission fails closed. The trusted
+beta commit must also be an ancestor of the candidate commit, so candidates
+must be based or rebased on the current beta revision; an unrelated older
+feature branch cannot pass schema equality and strand the beta switcher/API.
+
+Candidate source is tested without beta secrets: short checks run on
+`homelab`, while browser, race, and container checks run on `homelab-heavy`.
+Every candidate checkout is pinned to the admitted SHA. Admission also
+requires the candidate's `internal/db/migrations/` tree and
+`internal/db/db.go` migration engine to be byte-identical to trusted beta, and
+rejects any `go.mod` or `go.sum` change. The module-file restriction prevents a
+candidate from silently changing the dependency/toolchain inputs used by the
+trusted controller and deployment; a dependency update must land in beta first
+through its normal reviewed path. This is intentionally conservative and can
+require a separate reviewed beta change before a candidate can be admitted.
+Binary, container, and provenance artifacts are named with the candidate SHA;
+the provenance records the canonical candidate ref and the exact trusted beta
+workflow/ref/SHA.
+
+The `homelab` and `homelab-heavy` selectors follow the canonical
+`KanterLabs/infrastructure` `homelab/ci-runners/README` contract: every job
+gets one ephemeral runner pod and private Docker-in-Docker daemon, with no host
+Docker socket, host home directory, or static deployment credential mounted.
+The workspace and daemon disappear with the job, so candidate work cannot
+persist into a later job; the workflow still pins every checkout and writes
+secrets only below the per-job `$RUNNER_TEMP` directory.
+
+Within this candidate workflow, only the final `candidate_deploy` job can read
+`BETA_*` secrets. It checks out
+the exact `github.sha` from `refs/heads/beta`, and fails closed unless the
+workflow identity is exactly
+`KanterLabs/helm/.github/workflows/beta-candidate.yml@refs/heads/beta` with
+`GITHUB_WORKFLOW_SHA == GITHUB_SHA`. It then verifies all candidate
+metadata/artifact checksums, builds `helm-beta-switchd` from that trusted beta
+source, and invokes the trusted `deploy/deploy-ci.sh` with
+`HELM_RELEASE_REF=refs/heads/<candidate-branch>`. The beta owner environment
+enables the switcher with `HELM_BETA_SWITCH_ENABLED=true` and the fixed
+`/run/helm-beta-switcher/helm-beta-switchd.sock` socket. The job never uses
+candidate source as workflow or deployment-script input, and production's
+`main` workflow and credentials are unchanged. A paused beta environment
+prevents the
+secret-bearing candidate deploy while still allowing non-secret checks to
+finish.
 
 ## Backups and rollback
 

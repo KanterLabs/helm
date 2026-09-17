@@ -43,7 +43,11 @@ class HookTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             store = self.make_store(raw, _state(checkpoint_completed=2, checkpoint_total=4))
             event = {"hook_event_name": "SessionStart", "source": "compact", "session_id": "session-1"}
-            result = hook.handle_event(event, store_factory=lambda _event: store)
+            result = hook.handle_event(
+                event,
+                store_factory=lambda _event: store,
+                notes_fn=lambda _state: "Active agent notes (review before continuing):\n- [Known issue] Do not retry the rejected path.",
+            )
             context = result["hookSpecificOutput"]["additionalContext"]
             self.assertIn("Recovered Helm task TC-1", context)
             self.assertIn("agent state working", context)
@@ -51,6 +55,20 @@ class HookTests(unittest.TestCase):
             self.assertIn("operation session/op-1", context)
             self.assertNotIn("session-1", context)
             self.assertNotIn("summary", context)
+            self.assertIn("Do not retry the rejected path", context)
+
+    def test_session_start_warns_when_notes_cannot_be_refreshed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = self.make_store(raw, _state())
+            with mock.patch("sys.stderr"):
+                result = hook.handle_event(
+                    {"event": "SessionStart", "session_id": "session-1"},
+                    store_factory=lambda _event: store,
+                    notes_fn=lambda _state: (_ for _ in ()).throw(RuntimeError("private failure")),
+                )
+            context = result["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("Agent notes could not be refreshed", context)
+            self.assertNotIn("private failure", context)
 
     def test_initial_snapshot_reminder_and_no_heartbeat_before_progress(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

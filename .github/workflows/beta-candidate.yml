@@ -130,14 +130,53 @@ jobs:
           candidate_schema_digest=$(tree_digest "$CANDIDATE_SHA_INPUT")
           [[ "$trusted_schema_digest" = "$candidate_schema_digest" ]] || fail 'candidate schema provenance digest differs from trusted beta'
 
+          # Commit subjects are untrusted display text even though the commit
+          # identity is canonical. Normalize them in this non-secret admission
+          # job, then carry the exact bounded value in the provenance artifact.
+          candidate_subject=$(
+            python3 - "$CANDIDATE_SHA_INPUT" <<'PY'
+          import subprocess
+          import sys
+          import unicodedata
+
+          raw = subprocess.check_output(
+              ["git", "show", "-s", "--format=%s", sys.argv[1]],
+              stderr=subprocess.DEVNULL,
+          )
+          text = raw.decode("utf-8", "strict")
+          output = []
+          pending_space = False
+          for char in text:
+              if char.isspace() or unicodedata.category(char).startswith("C"):
+                  pending_space = True
+                  continue
+              if pending_space and output:
+                  output.append(" ")
+              output.append(char)
+              pending_space = False
+          normalized = "".join(output)
+          bounded = ""
+          for char in normalized:
+              if len((bounded + char).encode("utf-8")) > 160:
+                  break
+              bounded += char
+          if not bounded:
+              raise SystemExit("candidate commit subject is empty after normalization")
+          sys.stdout.write(bounded)
+          PY
+          ) || fail 'candidate commit subject could not be normalized'
+          [[ -n "$candidate_subject" ]] || fail 'candidate commit subject is empty'
+          [[ "$(LC_ALL=C printf '%s' "$candidate_subject" | wc -c)" -le 160 ]] || fail 'candidate commit subject exceeds its byte bound'
+
           metadata_name="helm-beta-candidate-metadata-$CANDIDATE_SHA_INPUT"
           metadata="$RUNNER_TEMP/candidate.metadata"
           umask 077
           {
-            printf 'metadata_version=helm-beta-candidate-v1\n'
+            printf 'metadata_version=helm-beta-candidate-v2\n'
             printf 'candidate_repository=%s\n' "$CANONICAL_REPOSITORY"
             printf 'candidate_sha=%s\n' "$CANDIDATE_SHA_INPUT"
             printf 'candidate_ref=%s\n' "$CANDIDATE_REF_INPUT"
+            printf 'candidate_subject=%s\n' "$candidate_subject"
             printf 'trusted_repository=%s\n' "$CANONICAL_REPOSITORY"
             printf 'trusted_ref=refs/heads/beta\n'
             printf 'trusted_sha=%s\n' "$GITHUB_SHA"
@@ -515,10 +554,21 @@ jobs:
             local key=$1 path=$2
             awk -F= -v key="$key" '$1 == key { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path"
           }
-          [[ "$(metadata_value metadata_version "$metadata")" = helm-beta-candidate-v1 ]] || fail 'unexpected metadata version'
+          [[ "$(metadata_value metadata_version "$metadata")" = helm-beta-candidate-v2 ]] || fail 'unexpected metadata version'
           [[ "$(metadata_value candidate_repository "$metadata")" = KanterLabs/helm ]] || fail 'candidate repository is not canonical'
           [[ "$(metadata_value candidate_sha "$metadata")" = "$CANDIDATE_SHA" ]] || fail 'candidate SHA metadata mismatch'
           [[ "$(metadata_value candidate_ref "$metadata")" = "$CANDIDATE_REF" ]] || fail 'candidate ref metadata mismatch'
+          candidate_subject=$(metadata_value candidate_subject "$metadata") || fail 'candidate subject metadata is missing'
+          python3 - "$candidate_subject" <<'PY' || fail 'candidate subject metadata is not canonical'
+          import sys
+          import unicodedata
+
+          value = sys.argv[1]
+          if not value or len(value.encode("utf-8")) > 160 or value.strip() != value:
+              raise SystemExit(1)
+          if any(char != " " and (char.isspace() or unicodedata.category(char).startswith("C")) for char in value):
+              raise SystemExit(1)
+          PY
           [[ "$(metadata_value trusted_repository "$metadata")" = KanterLabs/helm ]] || fail 'trusted repository metadata mismatch'
           [[ "$(metadata_value trusted_ref "$metadata")" = refs/heads/beta ]] || fail 'trusted ref metadata mismatch'
           [[ "$(metadata_value trusted_sha "$metadata")" = "$TRUSTED_BETA_SHA" ]] || fail 'trusted SHA metadata mismatch'
@@ -530,6 +580,8 @@ jobs:
           [[ "$(metadata_value schema_gate "$metadata")" = identical-to-trusted-beta ]] || fail 'schema gate metadata mismatch'
           cmp -s "$metadata" "$binary_metadata" || fail 'binary artifact provenance does not match trusted metadata'
           cmp -s "$metadata" "$image_metadata" || fail 'container artifact provenance does not match trusted metadata'
+          printf '%s\n' "$candidate_subject" > "$RUNNER_TEMP/candidate-subject"
+          chmod 0600 "$RUNNER_TEMP/candidate-subject"
           (cd "$RUNNER_TEMP/candidate-binary" && sha256sum --check --strict helm.sha256) || fail 'candidate binary checksum failed'
           (cd "$RUNNER_TEMP/candidate-image" && sha256sum --check --strict codex.sha256) || fail 'tested Codex checksum failed'
           (cd "$RUNNER_TEMP/candidate-image" && sha256sum --check --strict "helm-$CANDIDATE_SHA.tar.gz.sha256") || fail 'tested candidate image checksum failed'
@@ -651,7 +703,9 @@ jobs:
           set -Eeuo pipefail
           [[ "$GITHUB_REF" = refs/heads/beta ]]
           [[ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ]]
-          ./deploy/deploy-ci.sh deploy "$CANDIDATE_SHA"
+          candidate_subject=$(<"$RUNNER_TEMP/candidate-subject")
+          [[ -n "$candidate_subject" ]]
+          HELM_RELEASE_SUBJECT="$candidate_subject" ./deploy/deploy-ci.sh deploy "$CANDIDATE_SHA"
       - name: Validate private beta candidate readiness
         env:
           PREVIOUS_RELEASE_SHA: ${{ steps.previous_release.outputs.sha }}
@@ -676,4 +730,5 @@ jobs:
         run: |
           rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
           rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-private"
+          rm -f -- "$RUNNER_TEMP/candidate-subject"
           rm -f -- dist/owner.env

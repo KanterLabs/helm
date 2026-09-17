@@ -12,6 +12,7 @@ import re
 import stat
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,10 @@ CANONICAL_CONFIG = Path("~/.config/helm/credentials.json").expanduser()
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_TRANSIENT_RETRIES = 2
 MAX_RETRY_DELAY_SECONDS = 5.0
+MAX_RELEASE_QUEUE_RESTARTS = 2
+UUID4_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
 
 # Board Audit is intentionally a client-side, read-only projection. Keep the
 # limits here independent from the API's larger collection limits so one audit
@@ -366,6 +371,41 @@ def _paged_collection(
             raise RoadmapError(f"invalid {context} collection response") from exc
         if not next_cursor:
             return result
+        if next_cursor in seen or next_cursor == cursor:
+            raise RoadmapError(f"{context} collection returned a repeated cursor")
+        seen.add(next_cursor)
+        cursor = next_cursor
+
+
+def _paged_collection_with_cursor(
+    client: Client,
+    path: str,
+    params: list[tuple[str, str]],
+    *,
+    context: str,
+    initial_cursor: str = "",
+    cursor_param: str = "cursor",
+    collect_all: bool = False,
+) -> tuple[list[dict[str, Any]], str]:
+    """Read one or every cursor page while preserving the terminal cursor."""
+
+    result: list[dict[str, Any]] = []
+    cursor = initial_cursor.strip()
+    seen: set[str] = set()
+    while True:
+        page_params = [(key, value) for key, value in params if key != cursor_param]
+        if cursor:
+            page_params.append((cursor_param, cursor))
+        payload, _ = client.call("GET", _query_path(path, page_params))
+        try:
+            result.extend(_data(payload))
+            next_cursor = _collection_cursor(payload)
+        except RoadmapError as exc:
+            raise RoadmapError(f"invalid {context} collection response") from exc
+        if not collect_all:
+            return result, next_cursor
+        if not next_cursor:
+            return result, ""
         if next_cursor in seen or next_cursor == cursor:
             raise RoadmapError(f"{context} collection returned a repeated cursor")
         seen.add(next_cursor)
@@ -958,6 +998,100 @@ def _project(client: Client, reference: str) -> dict[str, Any]:
         if any(isinstance(item, str) and item.casefold() == folded for item in candidates):
             return project
     raise RoadmapError(f"project not found: {reference}")
+
+
+def _release_project(client: Client, reference: str) -> dict[str, Any]:
+    """Resolve one project strictly before reading project-local releases."""
+
+    normalized = str(reference or "").strip()
+    if not normalized:
+        raise RoadmapError("project must not be empty")
+    projects, _ = _paged_collection_with_cursor(
+        client,
+        "/projects",
+        [("limit", "200")],
+        context="projects",
+        collect_all=True,
+    )
+    folded = normalized.casefold()
+    matches = []
+    for project in projects:
+        candidates = (project.get("id"), project.get("key"), project.get("slug"), project.get("name"))
+        if any(isinstance(item, str) and item.casefold() == folded for item in candidates):
+            matches.append(project)
+    if not matches:
+        raise RoadmapError(f"project not found: {normalized}")
+    if len(matches) > 1:
+        raise RoadmapError(f"project reference is ambiguous: {normalized}")
+    project = matches[0]
+    if not isinstance(project.get("id"), str) or not project["id"].strip():
+        raise RoadmapError("TC Roadmap returned an unexpected project")
+    return project
+
+
+def _project_releases(
+    client: Client,
+    project: dict[str, Any],
+    *,
+    status: str | None = None,
+    target_from: str | None = None,
+    target_to: str | None = None,
+    cursor: str = "",
+    limit: int = 50,
+    collect_all: bool = False,
+) -> tuple[list[dict[str, Any]], str]:
+    """Read a project's release collection with opaque cursor handling."""
+
+    project_id = str(project.get("id") or "").strip()
+    if not project_id:
+        raise RoadmapError("TC Roadmap returned an unexpected project")
+    params: list[tuple[str, str]] = [("limit", str(limit))]
+    if status:
+        normalized_status = status.strip().lower()
+        if normalized_status not in {"planned", "released"}:
+            raise RoadmapError("status must be planned or released")
+        params.append(("status", normalized_status))
+    if target_from:
+        params.append(("target_from", target_from.strip()))
+    if target_to:
+        params.append(("target_to", target_to.strip()))
+    path = "/projects/" + parse.quote(project_id, safe="") + "/releases"
+    return _paged_collection_with_cursor(
+        client,
+        path,
+        params,
+        context="releases",
+        initial_cursor=cursor,
+        collect_all=collect_all,
+    )
+
+
+def _release_reference(
+    client: Client,
+    project_reference: str,
+    release_reference: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve one release ID or case-insensitive name within one project."""
+
+    normalized = str(release_reference or "").strip()
+    if not normalized:
+        raise RoadmapError("release must not be empty")
+    project = _release_project(client, project_reference)
+    releases, _ = _project_releases(client, project, limit=200, collect_all=True)
+    folded = normalized.casefold()
+    matches = []
+    for release in releases:
+        candidates = (release.get("id"), release.get("name"))
+        if any(isinstance(item, str) and item.casefold() == folded for item in candidates):
+            matches.append(release)
+    if not matches:
+        raise RoadmapError(f"release not found: {normalized}")
+    if len(matches) > 1:
+        raise RoadmapError(f"release reference is ambiguous: {normalized}")
+    release = matches[0]
+    if not isinstance(release.get("id"), str) or not release["id"].strip():
+        raise RoadmapError("TC Roadmap returned an unexpected release")
+    return project, release
 
 
 def _audit_columns(client: Client, project_id: str, page_size: int) -> dict[str, dict[str, Any]]:
@@ -1593,6 +1727,286 @@ def cmd_tasks(client: Client, args: argparse.Namespace) -> Any:
     return {"project": project.get("key"), "tasks": _data(payload)}
 
 
+def _validate_limit(value: Any, *, default: int = 50) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise RoadmapError("limit must be an integer between 1 and 200") from exc
+    if parsed < 1 or parsed > 200:
+        raise RoadmapError("limit must be an integer between 1 and 200")
+    return parsed
+
+
+def cmd_releases_list(client: Client, args: argparse.Namespace) -> Any:
+    """List releases in one project, preserving the API's cursor contract."""
+
+    project = _release_project(client, str(getattr(args, "project", "")))
+    limit = _validate_limit(getattr(args, "limit", 50))
+    releases, next_cursor = _project_releases(
+        client,
+        project,
+        status=str(getattr(args, "status", "") or "").strip() or None,
+        target_from=str(getattr(args, "target_from", "") or "").strip() or None,
+        target_to=str(getattr(args, "target_to", "") or "").strip() or None,
+        cursor=str(getattr(args, "cursor", "") or "").strip(),
+        limit=limit,
+        collect_all=bool(getattr(args, "all", False)),
+    )
+    return {"project": project.get("key"), "releases": releases, "next_cursor": next_cursor}
+
+
+def cmd_releases_get(client: Client, args: argparse.Namespace) -> Any:
+    """Resolve a project-local release name/ID, then read its resource."""
+
+    project, release = _release_reference(
+        client,
+        str(getattr(args, "project", "")),
+        str(getattr(args, "release", "")),
+    )
+    release_id = str(release["id"])
+    payload, _ = client.call("GET", "/releases/" + parse.quote(release_id, safe=""))
+    if not isinstance(payload, dict) or not isinstance(payload.get("version"), int):
+        raise RoadmapError("TC Roadmap returned an unexpected release")
+    payload_project = payload.get("project_id")
+    if isinstance(payload_project, str) and payload_project.strip() != str(project["id"]).strip():
+        raise RoadmapError("release does not belong to the requested project")
+    return payload
+
+
+def _release_queue_page(
+    client: Client,
+    release_id: str,
+    *,
+    cursor: str,
+    limit: int,
+) -> tuple[dict[str, Any], str]:
+    """Read and validate one release work-queue page."""
+
+    path = "/releases/" + parse.quote(release_id, safe="") + "/work-queue"
+    params: list[tuple[str, str]] = [("limit", str(limit))]
+    if cursor:
+        params.append(("cursor", cursor))
+    payload, _ = client.call("GET", _query_path(path, params))
+    if not isinstance(payload, dict):
+        raise RoadmapError("TC Roadmap returned an unexpected release work queue")
+    rows = payload.get("data")
+    if not isinstance(rows, list) or not all(isinstance(item, dict) for item in rows):
+        raise RoadmapError("TC Roadmap returned an unexpected release work queue")
+    try:
+        next_cursor = _collection_cursor(payload)
+    except RoadmapError as exc:
+        raise RoadmapError("invalid release work queue response") from exc
+    return dict(payload), next_cursor
+
+
+def _release_workflow_projection(queue: dict[str, Any]) -> dict[str, Any]:
+    """Derive deterministic agent guidance from one queue snapshot."""
+
+    summary = queue.get("summary")
+    if not isinstance(summary, dict):
+        return {
+            "state": "waiting",
+            "guidance": ["Queue summary is unavailable; re-read the release queue before acting."],
+            "next": "refresh_queue",
+        }
+
+    def count(name: str) -> int:
+        value = summary.get(name, 0)
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+    direct, required, completed = count("direct"), count("required"), count("completed")
+    owned, claimable = count("owned"), count("claimable")
+    blockers = (
+        ("dependency_blocked", "dependency blockers"),
+        ("manually_blocked", "manual blockers"),
+        ("claimed_elsewhere", "foreign claims"),
+        ("cross_release_conflicts", "cross-release conflicts"),
+    )
+    blocked = [(label, count(name)) for name, label in blockers if count(name) > 0]
+    if direct > 0 and required > 0 and completed >= required:
+        state, next_action = "ready", "release_review"
+        guidance = [
+            "All required release work is complete; review the release summary.",
+            "Do not auto-complete the product release; release completion is an explicit separate action.",
+        ]
+    elif owned > 0:
+        state, next_action = "handoff", "resume_owned_task"
+        guidance = [
+            "Resume your owned active task before claiming another task.",
+            "Hold no more than one new claim at a time and refresh the queue after every task mutation.",
+        ]
+    elif claimable > 0:
+        state, next_action = "handoff", "claim_one_task"
+        guidance = [
+            "Claim exactly one claimable task in queue order, then use its goal and acceptance criteria as the work contract.",
+            "Refresh the queue from the first page after every completion, block, released claim, stale ETag, or scope-changing event.",
+        ]
+    elif required == 0 or direct == 0:
+        state, next_action = "waiting", "confirm_release_scope"
+        guidance = [
+            "The release has no direct member work; confirm its scope before taking action.",
+            "Do not mark an empty release released automatically.",
+        ]
+    else:
+        state, next_action = "waiting", "resolve_blockers"
+        guidance = [
+            "No task is currently claimable; stop and report the blockers with their next actions.",
+            "Do not bypass a manual blocker, override a foreign claim, or work a prerequisite assigned to another planned release.",
+        ]
+    if blocked:
+        guidance.append("Current queue blockers: " + ", ".join(f"{label} ({amount})" for label, amount in blocked) + ".")
+    warning_count = count("checklist_warning_count")
+    if warning_count:
+        guidance.append(f"Review {warning_count} completed task checklist warning(s) before release review.")
+    return {"state": state, "next": next_action, "guidance": guidance}
+
+
+def cmd_release_work(client: Client, args: argparse.Namespace) -> Any:
+    """Read a dependency-aware release queue without mutating Helm."""
+
+    _project, release = _release_reference(
+        client,
+        str(getattr(args, "project", "")),
+        str(getattr(args, "release", "")),
+    )
+    release_id = str(release["id"])
+    limit = _validate_limit(getattr(args, "limit", 50))
+    requested_cursor = str(getattr(args, "cursor", "") or "").strip()
+    collect_all = bool(getattr(args, "all", False))
+    restart_count = 0
+    while True:
+        cursor = requested_cursor
+        seen: set[str] = {cursor} if cursor else set()
+        combined: list[dict[str, Any]] = []
+        first_page: dict[str, Any] | None = None
+        try:
+            while True:
+                page, next_cursor = _release_queue_page(
+                    client,
+                    release_id,
+                    cursor=cursor,
+                    limit=limit,
+                )
+                if first_page is None:
+                    first_page = page
+                combined.extend(page["data"])
+                if not collect_all or not next_cursor:
+                    result = page if not collect_all else dict(first_page)
+                    if collect_all:
+                        result["data"] = combined
+                        result["next_cursor"] = ""
+                    workflow_input = result
+                    release_summary = release.get("summary")
+                    if isinstance(release_summary, dict) and isinstance(result.get("summary"), dict):
+                        checklist_warnings = release_summary.get("checklist_warning_count")
+                        if isinstance(checklist_warnings, int) and checklist_warnings >= 0:
+                            workflow_input = dict(result)
+                            workflow_input["summary"] = dict(result["summary"])
+                            workflow_input["summary"].setdefault("checklist_warning_count", checklist_warnings)
+                    workflow = _release_workflow_projection(workflow_input)
+                    result["state"] = workflow["state"]
+                    result["guidance"] = workflow["guidance"]
+                    result["workflow"] = workflow
+                    if restart_count:
+                        result["queue_restarts"] = restart_count
+                    return result
+                if next_cursor in seen or next_cursor == cursor:
+                    raise RoadmapError("release work queue returned a repeated cursor")
+                seen.add(next_cursor)
+                cursor = next_cursor
+        except RoadmapError as exc:
+            if exc.error_code != "release_queue_changed":
+                raise
+            if restart_count >= MAX_RELEASE_QUEUE_RESTARTS:
+                raise RoadmapError(
+                    "release work queue changed repeatedly; stop and restart from the first page",
+                    status_code=exc.status_code,
+                    error_code=exc.error_code,
+                    retry_after=exc.retry_after,
+                ) from exc
+            restart_count += 1
+            requested_cursor = ""
+
+
+# Alternate function names make the compatibility module's public dispatch
+# surface match the canonical Helm helper.
+cmd_release_list = cmd_releases_list
+cmd_release_get = cmd_releases_get
+
+
+def cmd_release(client: Client, args: argparse.Namespace) -> Any:
+    """Release (unclaim) the current owner's active task lease."""
+
+    supplied = getattr(args, "operation_id", None)
+    operation_id = str(supplied).strip() if supplied is not None else ""
+    if not operation_id:
+        operation_id = str(uuid.uuid4())
+    else:
+        operation_id = _validate_operation_id(operation_id)
+    current = _task(client, str(getattr(args, "task", "")))
+    path = "/tasks/" + parse.quote(str(current["id"]), safe="") + "/release"
+    payload, _ = client.call(
+        "POST",
+        path,
+        if_match=current["version"],
+        idempotency_key=_mutation_idempotency(operation_id, "POST", path),
+    )
+    _clear_matching_session(current, operation_id)
+    return {"task": payload, "operation_id": operation_id}
+
+
+def _agent_notes(client: Client, task_id: str) -> list[dict[str, Any]]:
+    payload, _ = client.call("GET", "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes")
+    return [dict(note) for note in _data(payload) if isinstance(note, dict)]
+
+
+def cmd_note_list(client: Client, args: argparse.Namespace) -> Any:
+    task = _task(client, args.task)
+    suffix = "?include_resolved=true" if args.include_resolved else ""
+    payload, _ = client.call("GET", "/tasks/" + parse.quote(str(task["id"]), safe="") + "/agent-notes" + suffix)
+    return {"task": task.get("key", task["id"]), "data": _data(payload)}
+
+
+def cmd_note_add(client: Client, args: argparse.Namespace) -> Any:
+    args.operation_id = _validate_operation_id(args.operation_id)
+    task = _task(client, args.task)
+    path = "/tasks/" + parse.quote(str(task["id"]), safe="") + "/agent-notes"
+    body = {"category": args.category, "body": args.body.strip(), "evidence": args.evidence}
+    note, _ = client.call("POST", path, body=body, idempotency_key=_mutation_idempotency(args.operation_id, "POST", path, body))
+    return {"task": task.get("key", task["id"]), "agent_note": note, "operation_id": args.operation_id}
+
+
+def _note(client: Client, task_id: str, note_id: str) -> dict[str, Any]:
+    path = "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes/" + parse.quote(note_id, safe="")
+    payload, _ = client.call("GET", path)
+    if not isinstance(payload, dict) or not isinstance(payload.get("version"), int):
+        raise RoadmapError("TC Roadmap returned an unexpected agent note")
+    return payload
+
+
+def cmd_note_update(client: Client, args: argparse.Namespace) -> Any:
+    args.operation_id = _validate_operation_id(args.operation_id)
+    task = _task(client, args.task)
+    task_id = str(task["id"])
+    current = _note(client, task_id, args.note)
+    path = "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes/" + parse.quote(args.note, safe="")
+    body = {"category": args.category or current.get("category"), "body": args.body.strip() if args.body else current.get("body"), "evidence": args.evidence if args.evidence is not None else current.get("evidence", [])}
+    note, _ = client.call("PATCH", path, body=body, if_match=current["version"], idempotency_key=_mutation_idempotency(args.operation_id, "PATCH", path, body))
+    return {"task": task.get("key", task_id), "agent_note": note, "operation_id": args.operation_id}
+
+
+def cmd_note_resolve(client: Client, args: argparse.Namespace) -> Any:
+    args.operation_id = _validate_operation_id(args.operation_id)
+    task = _task(client, args.task)
+    task_id = str(task["id"])
+    current = _note(client, task_id, args.note)
+    path = "/tasks/" + parse.quote(task_id, safe="") + "/agent-notes/" + parse.quote(args.note, safe="")
+    client.call("DELETE", path, if_match=current["version"], idempotency_key=_mutation_idempotency(args.operation_id, "DELETE", path))
+    return {"task": task.get("key", task_id), "resolved_agent_note": args.note, "operation_id": args.operation_id}
+
+
 def cmd_start(client: Client, args: argparse.Namespace) -> Any:
     args.operation_id = _validate_operation_id(args.operation_id)
     project = _project(client, args.project)
@@ -1630,7 +2044,7 @@ def cmd_start(client: Client, args: argparse.Namespace) -> Any:
     if not isinstance(claimed, dict) or not isinstance(claimed.get("version"), int):
         raise RoadmapError("TC Roadmap returned an unexpected claimed task")
     _record_session_start(claimed, project_id, args.operation_id)
-    return {"task": claimed, "operation_id": args.operation_id}
+    return {"task": claimed, "agent_notes": _agent_notes(client, str(claimed["id"])), "operation_id": args.operation_id}
 
 
 def cmd_backlog(client: Client, args: argparse.Namespace) -> Any:
@@ -1731,7 +2145,7 @@ def cmd_resume(client: Client, args: argparse.Namespace) -> Any:
         snapshot_ready = True
         break
     _record_session_start(moved, project_id, args.operation_id, snapshot_ready=snapshot_ready)
-    return {"task": moved, "operation_id": args.operation_id}
+    return {"task": moved, "agent_notes": _agent_notes(client, task_id), "operation_id": args.operation_id}
 
 
 def cmd_progress(client: Client, args: argparse.Namespace) -> Any:
@@ -1924,6 +2338,36 @@ def build_parser() -> argparse.ArgumentParser:
     tasks.add_argument("--query", default="")
     tasks.set_defaults(handler=cmd_tasks)
 
+    releases = subparsers.add_parser("releases", help="List or inspect project product releases")
+    release_actions = releases.add_subparsers(dest="release_action", required=True)
+
+    releases_list = release_actions.add_parser("list", help="List releases in a project")
+    releases_list.add_argument("--project", required=True, help="Project ID, key, slug, or name")
+    releases_list.add_argument("--status", choices=("planned", "released"))
+    releases_list.add_argument("--target-from", dest="target_from", help="Earliest target date (YYYY-MM-DD)")
+    releases_list.add_argument("--target-to", dest="target_to", help="Latest target date (YYYY-MM-DD)")
+    releases_list.add_argument("--limit", type=int, default=50)
+    releases_list.add_argument("--cursor", default="")
+    releases_list.add_argument("--all", action="store_true", help="Follow every cursor page")
+    releases_list.set_defaults(handler=cmd_releases_list)
+
+    releases_get = release_actions.add_parser("get", help="Read one project release")
+    releases_get.add_argument("--project", required=True, help="Project ID, key, slug, or name")
+    releases_get.add_argument("--release", required=True, help="Release ID or case-insensitive name")
+    releases_get.set_defaults(handler=cmd_releases_get)
+
+    release_work = subparsers.add_parser(
+        "release-work",
+        aliases=("release_work",),
+        help="Read a release's dependency-aware work queue",
+    )
+    release_work.add_argument("--project", required=True, help="Project ID, key, slug, or name")
+    release_work.add_argument("--release", required=True, help="Release ID or case-insensitive name")
+    release_work.add_argument("--limit", type=int, default=50)
+    release_work.add_argument("--cursor", default="")
+    release_work.add_argument("--all", action="store_true", help="Follow every queue page")
+    release_work.set_defaults(handler=cmd_release_work)
+
     audit = subparsers.add_parser("audit", help="Read-only audit of board column placement")
     audit.add_argument("--project", required=True)
     audit.add_argument(
@@ -1996,6 +2440,42 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--lease-seconds", type=int, choices=range(30, 604801), default=604800)
     resume.add_argument("--operation-id", required=True)
     resume.set_defaults(handler=cmd_resume)
+
+    release = subparsers.add_parser(
+        "release",
+        aliases=("unclaim",),
+        help="Release (unclaim) the current owner's active task lease",
+    )
+    release.add_argument("--task", required=True)
+    release.add_argument("--operation-id", help="UUIDv4 for deterministic replay (generated when omitted)")
+    release.set_defaults(handler=cmd_release)
+
+    notes = subparsers.add_parser("notes", aliases=("agent-notes",), help="Read or curate bounded agent task notes")
+    note_actions = notes.add_subparsers(dest="note_action", required=True)
+    note_list = note_actions.add_parser("list", help="List agent notes")
+    note_list.add_argument("--task", required=True)
+    note_list.add_argument("--include-resolved", action="store_true")
+    note_list.set_defaults(handler=cmd_note_list)
+    note_add = note_actions.add_parser("add", help="Add verified reusable task knowledge")
+    note_add.add_argument("--task", required=True)
+    note_add.add_argument("--category", required=True, choices=("known_issue", "rejected_approach", "constraint", "workaround"))
+    note_add.add_argument("--body", required=True)
+    note_add.add_argument("--evidence", action="append", default=[])
+    note_add.add_argument("--operation-id", required=True)
+    note_add.set_defaults(handler=cmd_note_add)
+    note_update = note_actions.add_parser("update", help="Update an active agent note")
+    note_update.add_argument("--task", required=True)
+    note_update.add_argument("--note", required=True)
+    note_update.add_argument("--category", choices=("known_issue", "rejected_approach", "constraint", "workaround"))
+    note_update.add_argument("--body")
+    note_update.add_argument("--evidence", action="append", default=None)
+    note_update.add_argument("--operation-id", required=True)
+    note_update.set_defaults(handler=cmd_note_update)
+    note_resolve = note_actions.add_parser("resolve", help="Resolve an obsolete agent note")
+    note_resolve.add_argument("--task", required=True)
+    note_resolve.add_argument("--note", required=True)
+    note_resolve.add_argument("--operation-id", required=True)
+    note_resolve.set_defaults(handler=cmd_note_resolve)
 
     heartbeat = subparsers.add_parser("heartbeat", help="Refresh agent-work liveness")
     heartbeat.add_argument("--task", required=True)

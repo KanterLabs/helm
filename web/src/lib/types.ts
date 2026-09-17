@@ -18,12 +18,18 @@ export interface SearchSort {
   direction: 'asc' | 'desc';
 }
 
+/** Persisted search/view filters. `release_id` is always an opaque ID or the
+ * `unassigned` sentinel; global views never persist a release name. */
+export interface SavedViewFilters extends Record<string, unknown> {
+  release_id?: ReleaseFilterValue;
+}
+
 export interface SavedView {
   id: string;
   owner_id: string;
   name: string;
   description?: string;
-  filters: Record<string, unknown>;
+  filters: SavedViewFilters;
   sort: SearchSort[];
   shared: boolean;
   created_at?: string;
@@ -134,6 +140,76 @@ export interface Project {
   version?: number;
 }
 
+/** Product-planning release lifecycle state. This is unrelated to releasing a task claim. */
+export type ReleaseStatus = 'planned' | 'released';
+
+/** Stable sentinel used by collection filters for tasks without a release. */
+export const UNASSIGNED_RELEASE = 'unassigned' as const;
+export type ReleaseFilterValue = string | typeof UNASSIGNED_RELEASE;
+/** Compatibility alias for callers that treat a release filter as a domain type. */
+export type ReleaseFilter = ReleaseFilterValue;
+
+/** Direct membership and transitive prerequisite progress for a release. */
+export interface ReleaseSummary {
+  task_count: number;
+  completed_count: number;
+  blocked_count: number;
+  claimed_count: number;
+  checklist_warning_count: number;
+  required_task_count: number;
+  required_completed_count: number;
+  cross_release_conflict_count: number;
+  ready_to_release: boolean;
+}
+
+/** Compact project-local release relation embedded on task reads. */
+export interface ReleaseReference {
+  id: string;
+  name: string;
+  status: ReleaseStatus;
+  /** Omitted by the API when no target date is set. */
+  target_date?: string | null;
+}
+
+/** Compatibility alias for callers that use the shorter relation name. */
+export type ReleaseRef = ReleaseReference;
+
+/** Project-local planned or released product delivery boundary. */
+export interface Release {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  target_date?: string | null;
+  status: ReleaseStatus;
+  released_at?: string | null;
+  released_by?: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  summary: ReleaseSummary;
+}
+
+/** Inputs accepted by the create-release endpoint. */
+export interface ReleaseCreateInput {
+  name: string;
+  description?: string | null;
+  target_date?: string | null;
+}
+
+/** Inputs accepted by the release metadata PATCH endpoint. */
+export type ReleasePatchInput = Partial<Pick<ReleaseCreateInput, 'name' | 'description' | 'target_date'>>;
+
+/** Required reason for reopening a released release. */
+export interface ReleaseReopenInput {
+  reason: string;
+}
+
+/** Compatibility aliases matching the OpenAPI request schema names. */
+export type ReleaseCreateRequest = ReleaseCreateInput;
+export type ReleasePatchRequest = ReleasePatchInput;
+export type ReleaseReopenRequest = ReleaseReopenInput;
+
 /** Runtime task JSON uses actor IDs; the partial shape keeps old board fixtures compatible. */
 export type TaskActorReference = string | Pick<Actor, 'id' | 'kind' | 'name'>;
 
@@ -214,6 +290,87 @@ export interface TaskReference {
   completed_at: string | null;
   satisfied: boolean;
 }
+
+/** Compact task identity/version returned by the release work queue. */
+export interface ReleaseQueueTaskReference {
+  id: string;
+  key: string;
+  version: number;
+  /** Present in some contract revisions; the queue's release already scopes it. */
+  project_id?: string;
+}
+
+/** Compact prerequisite reference that explains why a queue item is blocked. */
+export interface ReleaseQueueBlocker {
+  id: string;
+  key: string;
+  title: string;
+  completed_at: string | null;
+  satisfied: boolean;
+}
+
+export type ReleaseQueueRelationship = 'direct' | 'prerequisite';
+export type ReleaseQueueDisposition =
+  | 'completed'
+  | 'owned'
+  | 'claimable'
+  | 'dependency_blocked'
+  | 'manually_blocked'
+  | 'claimed_elsewhere'
+  | 'cross_release_conflict';
+
+/** One direct member or transitive prerequisite in a release work queue. */
+export interface ReleaseQueueItem {
+  task: ReleaseQueueTaskReference;
+  relationship: ReleaseQueueRelationship;
+  disposition: ReleaseQueueDisposition;
+  blocked_by: ReleaseQueueBlocker[];
+}
+
+/** Snapshot metadata captured for one queue read. */
+export interface ReleaseQueueSnapshot {
+  project_revision: number;
+  task_collection_revision?: number;
+  read_at: string;
+}
+
+/** Aggregate disposition counts for one release work-queue snapshot. */
+export interface ReleaseQueueSummary {
+  direct: number;
+  required: number;
+  completed: number;
+  claimable: number;
+  owned: number;
+  dependency_blocked: number;
+  manually_blocked: number;
+  claimed_elsewhere: number;
+  cross_release_conflicts: number;
+}
+
+/** Compact release identity/version echoed by the queue response. */
+export interface ReleaseQueueRelease {
+  id: string;
+  name: string;
+  version: number;
+}
+
+/** Bounded, cursor-paginated, dependency-aware release work queue. */
+export interface ReleaseWorkQueue {
+  release: ReleaseQueueRelease;
+  snapshot: ReleaseQueueSnapshot;
+  summary: ReleaseQueueSummary;
+  data: ReleaseQueueItem[];
+  next_cursor: string;
+}
+
+/** Verbose aliases used by some consumers of the work-queue API. */
+export type ReleaseQueue = ReleaseWorkQueue;
+export type ReleaseQueueTask = ReleaseQueueTaskReference;
+export type ReleaseWorkQueueTaskReference = ReleaseQueueTaskReference;
+export type ReleaseWorkQueueBlocker = ReleaseQueueBlocker;
+export type ReleaseWorkQueueItem = ReleaseQueueItem;
+export type ReleaseWorkQueueSnapshot = ReleaseQueueSnapshot;
+export type ReleaseWorkQueueSummary = ReleaseQueueSummary;
 
 /** Direct dependency edges in both directions for one task. */
 export interface TaskDependencies {
@@ -316,6 +473,10 @@ export interface Task {
   claimed_by?: TaskActorReference;
   claim_expires_at?: string;
   due_at?: string;
+  /** Explicit nullable project-local delivery release assignment. */
+  release_id?: string | null;
+  /** Compact release relation; omitted when the task is unassigned. */
+  release?: ReleaseReference | null;
   version: number;
   created_at?: string;
   updated_at?: string;
@@ -350,6 +511,21 @@ export interface Comment {
   author?: Pick<Actor, 'name'> | string;
   /** @deprecated The runtime response has no actor object. */
   actor?: Pick<Actor, 'name'> | string;
+}
+
+export type AgentNoteCategory = 'known_issue' | 'rejected_approach' | 'constraint' | 'workaround';
+
+export interface AgentNote {
+  id: string;
+  task_id: string;
+  actor_id: string;
+  category: AgentNoteCategory;
+  body: string;
+  evidence: string[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
 }
 
 export interface ActivityEvent {
@@ -539,6 +715,38 @@ export interface AuthStatus {
   needs_setup?: never;
 }
 
+/** A retained, validated beta build exposed to the owner-only control plane. */
+export interface BetaBuild {
+  sha: string;
+  ref: string;
+  /** Bounded, single-line Git commit subject supplied by the trusted beta release metadata. */
+  subject?: string;
+  current?: boolean;
+}
+
+/** Optional beta control-plane discovery. Disabled responses stay invisible. */
+export interface BetaBuildsResponse {
+  enabled: boolean;
+  current_sha: string;
+  builds: BetaBuild[];
+}
+
+/** A durable beta switch/restart job returned by the control plane. */
+export interface BetaSwitchJob {
+  id: string;
+  target_sha: string;
+  state: string;
+  current_sha?: string;
+  error?: string;
+  message?: string;
+}
+
+/** A beta switch request accepted by the control plane. */
+export interface BetaSwitchResponse {
+  enabled: boolean;
+  job: BetaSwitchJob;
+}
+
 export interface Collection<T> {
   data: T[];
   next_cursor?: string | null;
@@ -633,6 +841,8 @@ export type TaskPatch = Partial<Pick<Task, 'title' | 'description' | 'priority' 
   parent?: string | null;
   parent_id?: string | null;
   parent_task_id?: string | null;
+  /** Omit to preserve the assignment; pass null to clear it. */
+  release_id?: string | null;
 };
 
 /** A bounded, optimistic-concurrency guarded project task mutation. */

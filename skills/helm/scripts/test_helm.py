@@ -401,6 +401,215 @@ class CommandTests(unittest.TestCase):
         with self.assertRaisesRegex(helper.HelmError, "no backlog column"):
             helper.cmd_backlog(StubClient(), args)  # type: ignore[arg-type]
 
+    def test_release_commands_resolve_project_and_release_name(self) -> None:
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        release = {
+            "id": "release-1",
+            "project_id": "project-1",
+            "name": "1.4",
+            "status": "planned",
+            "version": 3,
+            "summary": {"task_count": 1},
+        }
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if path == "/projects?limit=200":
+                    return {"data": [{"id": "project-1", "key": "TC"}], "next_cursor": ""}, {}
+                if path in {
+                    "/projects/project-1/releases?limit=200",
+                    "/projects/project-1/releases?limit=50&status=planned",
+                }:
+                    return {"data": [release], "next_cursor": ""}, {}
+                if path == "/releases/release-1":
+                    return release, {"etag": '"v3"'}
+                raise AssertionError(f"unexpected mocked API call: {method} {path}")
+
+        listed = helper.cmd_releases_list(
+            StubClient(),
+            argparse.Namespace(
+                project="tc",
+                status="planned",
+                target_from=None,
+                target_to=None,
+                cursor="",
+                limit=50,
+                all=False,
+            ),  # type: ignore[arg-type]
+        )
+        self.assertEqual(listed["project"], "TC")
+        self.assertEqual(listed["releases"], [release])
+        self.assertEqual(listed["next_cursor"], "")
+        fetched = helper.cmd_releases_get(
+            StubClient(), argparse.Namespace(project="TC", release="1.4")  # type: ignore[arg-type]
+        )
+        self.assertEqual(fetched, release)
+        self.assertEqual(
+            [entry[1] for entry in calls],
+            [
+                "/projects?limit=200",
+                "/projects/project-1/releases?limit=50&status=planned",
+                "/projects?limit=200",
+                "/projects/project-1/releases?limit=200",
+                "/releases/release-1",
+            ],
+        )
+        self.assertTrue(all(method == "GET" for method, _path, _kwargs in calls))
+        self.assertTrue(all(not kwargs for _method, _path, kwargs in calls))
+
+    def test_release_list_follows_release_cursor_pages(self) -> None:
+        paths: list[str] = []
+
+        class StubClient:
+            def call(self, _method: str, path: str, **_kwargs):  # type: ignore[no-untyped-def]
+                paths.append(path)
+                if path == "/projects?limit=200":
+                    return {"data": [{"id": "project-1", "key": "TC"}], "next_cursor": ""}, {}
+                if "cursor=next" not in path:
+                    return {"data": [{"id": "release-1"}], "next_cursor": "next"}, {}
+                return {"data": [{"id": "release-2"}], "next_cursor": ""}, {}
+
+        result = helper.cmd_releases_list(
+            StubClient(),
+            argparse.Namespace(
+                project="TC",
+                status=None,
+                target_from="2026-01-01",
+                target_to="2026-12-31",
+                cursor="",
+                limit=1,
+                all=True,
+            ),  # type: ignore[arg-type]
+        )
+        self.assertEqual([item["id"] for item in result["releases"]], ["release-1", "release-2"])
+        self.assertEqual(result["next_cursor"], "")
+        self.assertEqual(
+            paths,
+            [
+                "/projects?limit=200",
+                "/projects/project-1/releases?limit=1&target_from=2026-01-01&target_to=2026-12-31",
+                "/projects/project-1/releases?limit=1&target_from=2026-01-01&target_to=2026-12-31&cursor=next",
+            ],
+        )
+
+    def test_release_work_queue_includes_workflow_projection_and_restarts_snapshot(self) -> None:
+        calls: list[tuple[str, str, dict[str, object]]] = []
+        release = {
+            "id": "release-1",
+            "project_id": "project-1",
+            "name": "1.4",
+            "status": "planned",
+            "version": 3,
+        }
+        queue = {
+            "release": {"id": "release-1", "name": "1.4", "version": 3},
+            "snapshot": {"project_revision": 10, "read_at": "2026-09-12T00:00:00Z"},
+            "summary": {
+                "direct": 2,
+                "required": 3,
+                "completed": 1,
+                "claimable": 1,
+                "owned": 1,
+                "dependency_blocked": 1,
+                "manually_blocked": 0,
+                "claimed_elsewhere": 0,
+                "cross_release_conflicts": 0,
+            },
+            "data": [
+                {
+                    "task": {"id": "task-owned", "key": "TC-1", "version": 4},
+                    "relationship": "direct",
+                    "disposition": "owned",
+                    "blocked_by": [],
+                }
+            ],
+            "next_cursor": "page-2",
+        }
+        final_queue = {**queue, "next_cursor": "", "data": [
+            {
+                "task": {"id": "task-claimable", "key": "TC-2", "version": 2},
+                "relationship": "prerequisite",
+                "disposition": "claimable",
+                "blocked_by": [],
+            }
+        ]}
+
+        # The first queue read invalidates once. The next read starts at page
+        # one again; the repeated path is handled by the stateful stub below.
+        first_page = True
+
+        def call(method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal first_page
+            calls.append((method, path, kwargs))
+            if path == "/projects?limit=200":
+                return {"data": [{"id": "project-1", "key": "TC"}], "next_cursor": ""}, {}
+            if path == "/projects/project-1/releases?limit=200":
+                return {"data": [release], "next_cursor": ""}, {}
+            if path == "/releases/release-1/work-queue?limit=1" and first_page:
+                first_page = False
+                raise helper.HelmError("snapshot changed", status_code=409, error_code="release_queue_changed")
+            if path == "/releases/release-1/work-queue?limit=1":
+                return queue, {}
+            if path == "/releases/release-1/work-queue?limit=1&cursor=page-2":
+                return final_queue, {}
+            raise AssertionError(f"unexpected mocked API call: {method} {path}")
+
+        class StatefulClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                return call(method, path, **kwargs)
+
+        result = helper.cmd_release_work(
+            StatefulClient(),
+            argparse.Namespace(project="TC", release="1.4", limit=1, cursor="", all=True),  # type: ignore[arg-type]
+        )
+        self.assertEqual(result["state"], "handoff")
+        self.assertEqual(result["workflow"]["next"], "resume_owned_task")
+        self.assertEqual(result["queue_restarts"], 1)
+        self.assertEqual(result["next_cursor"], "")
+        self.assertEqual(len(result["data"]), 2)
+        self.assertEqual([entry[0] for entry in calls], ["GET"] * len(calls))
+        self.assertTrue(all("body" not in kwargs for _method, _path, kwargs in calls))
+
+    def test_release_work_waits_on_manual_foreign_and_cross_release_blockers(self) -> None:
+        for field in ("manually_blocked", "claimed_elsewhere", "cross_release_conflicts"):
+            queue = {
+                "summary": {
+                    "direct": 1,
+                    "required": 2,
+                    "completed": 0,
+                    "claimable": 0,
+                    "owned": 0,
+                    "dependency_blocked": 0,
+                    field: 1,
+                }
+            }
+            workflow = helper._release_workflow_projection(queue)
+            self.assertEqual(workflow["state"], "waiting")
+            self.assertEqual(workflow["next"], "resolve_blockers")
+            label = {
+                "manually_blocked": "manual blockers",
+                "claimed_elsewhere": "foreign claims",
+                "cross_release_conflicts": "cross-release conflicts",
+            }[field]
+            self.assertTrue(any(label in item for item in workflow["guidance"]))
+
+    def test_release_parser_keeps_claim_release_and_adds_unclaim_alias(self) -> None:
+        release = helper.build_parser().parse_args(["release", "--task", "TC-1"])
+        unclaim = helper.build_parser().parse_args(["unclaim", "--task", "TC-1"])
+        self.assertEqual(release.command, "release")
+        self.assertEqual(unclaim.command, "unclaim")
+        self.assertIs(release.handler, helper.cmd_release)
+        self.assertIs(unclaim.handler, helper.cmd_release)
+
+        releases_list = helper.build_parser().parse_args(["releases", "list", "--project", "TC"])
+        releases_get = helper.build_parser().parse_args(["releases", "get", "--project", "TC", "--release", "1.4"])
+        work = helper.build_parser().parse_args(["release-work", "--project", "TC", "--release", "1.4"])
+        self.assertIs(releases_list.handler, helper.cmd_releases_list)
+        self.assertIs(releases_get.handler, helper.cmd_releases_get)
+        self.assertIs(work.handler, helper.cmd_release_work)
+
     def test_resume_claims_then_activates_only_when_needed(self) -> None:
         calls: list[tuple[str, str, dict[str, object]]] = []
         current = {"id": "task-1", "key": "TC-1", "project_id": "project-1", "column_id": "ready", "version": 3}
@@ -410,6 +619,8 @@ class CommandTests(unittest.TestCase):
         class StubClient:
             def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
                 calls.append((method, path, kwargs))
+                if method == "GET" and path.endswith("/agent-notes"):
+                    return {"data": []}, {}
                 if method == "GET" and path.startswith("/tasks/"):
                     return current, {}
                 if path.endswith("/claim"):
@@ -436,6 +647,8 @@ class CommandTests(unittest.TestCase):
             def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
                 calls.append((method, path, kwargs))
                 if method == "GET":
+                    if path.endswith("/agent-notes"):
+                        return {"data": []}, {}
                     if path.endswith("/columns?limit=200"):
                         return {"data": [{"id": "active", "semantic_state": "active"}]}, {}
                     return current, {}
@@ -1513,6 +1726,8 @@ class WorkflowCommandTests(unittest.TestCase):
                     self.task_semantic = "active"
                     self.task_version += 1
                     return self.task(), {}
+                if method == "GET" and path == "/tasks/task-1/agent-notes":
+                    return {"data": []}, {}
                 if method == "POST" and path == "/tasks/task-1/dependencies":
                     self.task_version += 1
                     return self.task(), {}

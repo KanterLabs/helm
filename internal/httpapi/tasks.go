@@ -115,7 +115,12 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request, identity auth.Ide
 			s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 			return
 		}
-		filter := store.TaskFilter{State: state, Column: columnFilter, Priority: priority, Label: label, Assignee: assignee, Kind: kind, Severity: severity, Reporter: reporter, Resolution: resolution, Dependency: dependency, AgentState: agentState, ActionNeeded: actionNeeded, Query: query, Cursor: offset, CursorToken: cursorToken, Sort: sortName, Descending: descending, Limit: limit, UpdatedAfter: updatedAfter}
+		releaseFilter, err := s.parseProjectReleaseFilter(r, project.ID)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		filter := store.TaskFilter{State: state, Column: columnFilter, Priority: priority, Label: label, Assignee: assignee, Kind: kind, Severity: severity, Reporter: reporter, Resolution: resolution, ReleaseID: releaseFilter, Dependency: dependency, AgentState: agentState, ActionNeeded: actionNeeded, Query: query, Cursor: offset, CursorToken: cursorToken, Sort: sortName, Descending: descending, Limit: limit, UpdatedAfter: updatedAfter}
 		tasks, more, nextCursor, err := s.Store.ListTasksCursor(r.Context(), project.ID, filter)
 		if err != nil {
 			s.writeStoreError(w, err)
@@ -142,6 +147,21 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request, identity auth.Ide
 			// same-project validation and receive the typed 400 response.
 			if !identity.CanProject(parent.ProjectID) {
 				s.writeError(w, http.StatusNotFound, "not_found", "task not found", nil)
+				return
+			}
+		}
+		if input.ReleaseID != nil {
+			release, releaseErr := s.Store.GetRelease(r.Context(), *input.ReleaseID)
+			if releaseErr != nil {
+				s.writeStoreErrorForIdentity(w, identity, releaseErr)
+				return
+			}
+			if release.ProjectID != project.ID {
+				if identity.IsToken {
+					s.writeError(w, http.StatusNotFound, "not_found", "release not found", nil)
+				} else {
+					s.writeStoreError(w, &store.Error{Kind: store.ErrReleaseCrossProject, Message: "release belongs to another project"})
+				}
 				return
 			}
 		}
@@ -290,6 +310,21 @@ func (s *Server) task(w http.ResponseWriter, r *http.Request, identity auth.Iden
 				return
 			}
 		}
+		if input.ReleaseID != nil {
+			release, releaseErr := s.Store.GetRelease(r.Context(), *input.ReleaseID)
+			if releaseErr != nil {
+				s.writeStoreErrorForIdentity(w, identity, releaseErr)
+				return
+			}
+			if release.ProjectID != task.ProjectID {
+				if identity.IsToken {
+					s.writeError(w, http.StatusNotFound, "not_found", "release not found", nil)
+				} else {
+					s.writeStoreError(w, &store.Error{Kind: store.ErrReleaseCrossProject, Message: "release belongs to another project"})
+				}
+				return
+			}
+		}
 		s.mutation(w, r, identity, func() (int, []byte, string, error) {
 			updated, err := s.Store.UpdateTaskWithClaimOverride(r.Context(), id, input, version, identity.Actor.ID, !identity.IsToken && identity.Actor.Admin)
 			if err != nil {
@@ -346,7 +381,7 @@ func decodeTaskInput(r *http.Request, creating bool) (store.TaskInput, error) {
 	payload = fields
 	for name := range payload {
 		switch name {
-		case "title", "description", "priority", "kind", "bug", "column_id", "column", "position", "assignee", "assignee_id", "due_at", "labels", "label_ids", "parent", "parent_id", "parent_task_id":
+		case "title", "description", "priority", "kind", "bug", "column_id", "column", "position", "assignee", "assignee_id", "due_at", "labels", "label_ids", "parent", "parent_id", "parent_task_id", "release_id":
 		default:
 			return store.TaskInput{}, taskInputError("unknown task field: " + name)
 		}
@@ -362,7 +397,7 @@ func decodeTaskInput(r *http.Request, creating bool) (store.TaskInput, error) {
 	// clients cannot accidentally believe an ignored field was applied.
 	if !creating {
 		recognized := false
-		for _, name := range []string{"title", "description", "priority", "kind", "bug", "column_id", "column", "position", "assignee", "assignee_id", "due_at", "labels", "label_ids", "parent", "parent_id", "parent_task_id"} {
+		for _, name := range []string{"title", "description", "priority", "kind", "bug", "column_id", "column", "position", "assignee", "assignee_id", "due_at", "labels", "label_ids", "parent", "parent_id", "parent_task_id", "release_id"} {
 			if _, ok := payload[name]; ok {
 				recognized = true
 				break
@@ -510,6 +545,20 @@ func decodeTaskInput(r *http.Request, creating bool) (store.TaskInput, error) {
 			value = &trimmed
 		}
 		input.ParentTaskID, input.ParentSet = value, true
+	}
+	if raw, ok := payload["release_id"]; ok {
+		value, err := parseTaskString(raw, "release_id", true)
+		if err != nil {
+			return store.TaskInput{}, err
+		}
+		if value != nil {
+			trimmed := strings.TrimSpace(*value)
+			if trimmed == "" {
+				return store.TaskInput{}, taskInputError("release_id must not be empty")
+			}
+			value = &trimmed
+		}
+		input.ReleaseID, input.ReleaseSet, input.ReleaseIDSet = value, true, true
 	}
 	if raw, ok := preferredTaskField(payload, "labels"); ok {
 		if err := validateIdentifierArray(raw, "labels", true); err != nil {

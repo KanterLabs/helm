@@ -6,7 +6,13 @@ import {
   boardMutationReloadCanAnnounce,
   boardRefreshTargetsAreCurrent,
   bulkMutationRequestIsCurrent,
-  mergeOwnedBoardMetadata
+  betaBranchLabel,
+  betaShortSha,
+  clearedIssueFilterState,
+  isValidBetaBuildShape,
+  mergeOwnedBoardMetadata,
+  plannedReleaseIdForAssignment,
+  validBoardReleaseFilter
 } from './App.svelte';
 import {
   boardColumnHasKnownGlobalBounds,
@@ -152,5 +158,58 @@ describe('bulk mutation response ownership guards', () => {
     expect(bulkMutationRequestIsCurrent(request, { ...request, projectId: 'project-b', projectSlug: 'beta', authenticated: true })).toBe(false);
     expect(bulkMutationRequestIsCurrent(request, { ...request, sessionGeneration: 9, authenticated: true })).toBe(false);
     expect(bulkMutationRequestIsCurrent(request, { ...request, authenticated: false })).toBe(false);
+  });
+});
+
+describe('release-bound entrypoint guards', () => {
+  const releases = [
+    { id: 'planned-release', status: 'planned' },
+    { id: 'released-release', status: 'released' }
+  ];
+
+  it('allows only planned releases to be assigned by task entrypoints', () => {
+    expect(plannedReleaseIdForAssignment('planned-release', releases)).toBe('planned-release');
+    expect(plannedReleaseIdForAssignment('released-release', releases)).toBe('');
+    expect(plannedReleaseIdForAssignment('unassigned', releases)).toBe('');
+  });
+
+  it('clears invalid and cross-project board release links while retaining valid filters', () => {
+    expect(validBoardReleaseFilter('planned-release', releases)).toBe('planned-release');
+    expect(validBoardReleaseFilter('missing-release', releases)).toBe('all');
+    expect(validBoardReleaseFilter('released-release', releases)).toBe('released-release');
+    expect(validBoardReleaseFilter('unassigned', releases)).toBe('unassigned');
+  });
+
+  it('resets issue release state together with the local filters', () => {
+    expect(clearedIssueFilterState()).toEqual({
+      filters: {
+        query: '',
+        priority: 'all',
+        label: 'all',
+        assignee: 'all',
+        state: 'all',
+        kind: 'bug',
+        severity: 'all',
+        reporter: 'all',
+        resolution: 'all'
+      },
+      project: 'all',
+      release: 'all'
+    });
+  });
+});
+
+describe('beta build labels and admission', () => {
+  it('renders branch refs and short SHAs without losing the full value', () => {
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+    expect(betaBranchLabel('refs/heads/feature/visible-beta')).toBe('feature/visible-beta');
+    expect(betaShortSha(sha)).toBe('0123456');
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: 'Show commit subjects in beta switcher', current: true })).toBe(true);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta' })).toBe(true);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: 'bad\nsubject' })).toBe(false);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: 'x'.repeat(161) })).toBe(false);
+    expect(isValidBetaBuildShape({ sha, ref: 'refs/heads/feature/visible-beta', subject: '🚀'.repeat(41) })).toBe(false);
+    expect(isValidBetaBuildShape({ sha: '', ref: 'refs/heads/feature/visible-beta' })).toBe(false);
+    expect(isValidBetaBuildShape({ sha, ref: '', current: true })).toBe(false);
   });
 });

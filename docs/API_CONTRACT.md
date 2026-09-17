@@ -143,13 +143,20 @@ defaults to `#94a3b8` when omitted or null.
 - `POST /api/v1/import/trello`
 - `GET /api/v1/projects/{project}/boards`
 
-Portable archives use the versioned `helm.portable` format (`version: 1`) and
-include projects, columns, tasks/bug details, labels, comments,
-task-label/dependency/link relationships, actor display references, and
-project-scoped activity. Export requires `projects:read`, `tasks:read`, and
-`events:read`; import requires `projects:write` and `tasks:write`. Authentication
-material is never exported. The global and Trello import routes accept an
-existing `target_project` ID/key/slug when a destination should be selected.
+Portable archives use the versioned `helm.portable` format (`version: 2`) and
+include projects, columns, tasks/bug details, labels, comments, agent notes,
+task-label/dependency/link relationships, actor display references,
+project-scoped activity, releases, and each task's explicit nullable
+`release_id`. Export requires `projects:read`, `tasks:read`, and `events:read`;
+import requires `projects:write` and `tasks:write`. Authentication material is
+never exported. The global and Trello import routes accept an existing
+`target_project` ID/key/slug when a destination should be selected.
+
+Version 1 archives remain import-compatible. Since v1 has no release model,
+v1 imports create no release records and force every imported task to
+`release_id = null`; unknown archive versions are rejected. Release IDs and
+task references are validated and remapped transactionally alongside the other
+stable IDs.
 
 Import validates the entire archive before mutation. `dry_run=true` returns a
 report without writing; `conflict=remap` (the default) keeps stable IDs where
@@ -183,11 +190,13 @@ use the separate documented SQLite workflow for exact database recovery.
 - `GET|PATCH|DELETE /api/v1/tasks/{task}`
 - `GET|POST /api/v1/tasks/{task}/comments`
 - `GET|PATCH|DELETE /api/v1/tasks/{task}/comments/{comment}`
+- `GET|POST /api/v1/tasks/{task}/agent-notes`
+- `GET|PATCH|DELETE /api/v1/tasks/{task}/agent-notes/{note}`
 - `GET /api/v1/tasks/{task}/timeline`
 - `POST /api/v1/tasks/{task}/claim`
 - `POST /api/v1/tasks/{task}/progress`
 - `POST /api/v1/tasks/{task}/renew`
-- `POST /api/v1/tasks/{task}/release`
+- `POST /api/v1/tasks/{task}/release` (release the task claim; not a product release)
 - `POST /api/v1/tasks/{task}/complete`
 - `POST /api/v1/tasks/{task}/block`
 - `POST /api/v1/tasks/{task}/triage`
@@ -205,11 +214,16 @@ described below. The assignee, current claimant, claim expiry, due date, and
 completion timestamp are omitted when unset. Task responses may also include a
 bounded `dependency_summary` with `prerequisite_count`,
 `unmet_prerequisite_count`, `dependent_count`, and `blocked`; the counts cover
-only live, same-project direct relations and each count is capped at 200.
+only live, same-project direct relations and each count is capped at 200. A
+task may additionally contain `release_id` and a compact `release` reference
+(`id`, `name`, `status`, and optional `target_date`). These are explicit
+project-local planning fields; a null/omitted release means `No release` and
+is never inferred from a bug's `affected_version`, labels, dates, hierarchy,
+or dependencies.
 
 Task PATCH requires at least one recognized field. `{}` and unknown-only bodies
 return `400`. `column_id`/`column`, `position`, and other non-null fields
-reject JSON null. `description`, `assignee`/`assignee_id`, `due_at`, and
+reject JSON null. `description`, `assignee`/`assignee_id`, `due_at`, `release_id`, and
 `labels`/`label_ids` accept null to clear their value. The `column` names are
 aliases for `column_id`; `labels` and `label_ids` are aliases. Task responses
 include a strong `ETag` in the exact form `"vN"`. Position is non-negative and
@@ -222,6 +236,17 @@ This reduced form applies to task creation, PATCH, claim, renew, release,
 complete, block, progress, triage, resolve, and reopen, and idempotent retries
 replay the already-reduced body.
 Direct task GET and task collections still require `tasks:read`.
+
+Task creation and PATCH accept a nullable `release_id` for explicit release
+assignment. Creation may leave it omitted or null. On PATCH, omission preserves
+the current membership and explicit null clears it. The target release must be
+live, planned, and in the same project; assigning a released release or a
+cross-project release returns a stable `release_frozen` or
+`release_cross_project` conflict. Assignment changes advance the task version,
+participate in the project task-collection revision, and an existing task's
+assignment update emits one `task.release_changed` event. Initial membership
+is included on the `task.created` or `bug.created` event. A task can belong to
+at most one release.
 
 `POST /api/v1/projects/{project}/tasks/bulk` applies a bounded set of guarded
 task mutations. The request must contain 1–100 items, each with a `task`
@@ -274,6 +299,18 @@ are omitted from active comment reads; immutable `comment.updated` and
 `comment.deleted` events remain in the task timeline. Stale versions return
 `409` without changing the comment.
 
+Agent notes are a separate, deliberately bounded surface for verified reusable
+task knowledge: known issues, rejected approaches, constraints, and
+workarounds. A task may have at most six active notes. Bodies are 1–500
+characters and each note may carry up to six short evidence references. Notes
+are not progress logs or scratchpads. Active reads are capped at six; adding a
+seventh returns `409`. `include_resolved=true` exposes at most 200 retained
+records for review. Authors and human administrators may update or resolve an
+active note with its exact `If-Match: "vN"`; resolution is a retained soft
+delete and resolved notes are immutable. Claim and resume clients return the
+fresh active set, and the lifecycle hook re-reads it on every `SessionStart`,
+including compaction recovery, without persisting note bodies locally.
+
 `GET /api/v1/projects/{project}/timeline` returns the same typed, newest-first
 timeline items as the task route, merged across every non-deleted task in the
 selected project. It requires `tasks:read` and honors project-scoped bearer
@@ -307,6 +344,163 @@ compatibility alias `duration_seconds`) must be an integer from 30 through
 the current owner may renew or release an active lease. A non-owner cannot
 complete or block a task with an active claim (`403`), except for a human
 administrator explicitly overriding that claim.
+
+### Releases and release-bound work
+
+A release is a project-local product-planning boundary. It is separate from
+the deployed `X-Roadmap-Revision`, from the task claim action
+`POST /api/v1/tasks/{task}/release` (which releases an agent lease), and from a
+bug's `affected_version`. A live task or bug belongs to zero or one release;
+existing tasks remain unassigned unless explicitly changed.
+
+The release routes are:
+
+- `GET|POST /api/v1/projects/{project}/releases`
+- `GET|PATCH|DELETE /api/v1/releases/{release}`
+- `POST /api/v1/releases/{release}/complete`
+- `POST /api/v1/releases/{release}/reopen`
+- `GET /api/v1/releases/{release}/work-queue`
+
+Release reads and the read-only work queue require `tasks:read`; creation,
+PATCH, DELETE, complete, and reopen require `tasks:write`. Existing project
+ceilings apply before a release or any release-bound task is returned. No new
+token scope is introduced. Release names are unique case-insensitively within
+their project, while the opaque release ID is the stable cross-request filter
+value.
+
+A release has `id`, `project_id`, `name`, `description`, optional ISO
+`target_date` (`YYYY-MM-DD`), `status` (`planned` or `released`), optional
+`released_at`/`released_by`, `version`, timestamps, and a `summary`:
+
+```json
+{
+  "id": "release_14",
+  "project_id": "proj_ops",
+  "name": "1.4",
+  "description": "Search and release planning.",
+  "target_date": "2026-11-15",
+  "status": "planned",
+  "version": 3,
+  "summary": {
+    "task_count": 12,
+    "completed_count": 7,
+    "blocked_count": 2,
+    "claimed_count": 1,
+    "checklist_warning_count": 0,
+    "required_task_count": 15,
+    "required_completed_count": 9,
+    "cross_release_conflict_count": 1,
+    "ready_to_release": false
+  }
+}
+```
+
+`GET /api/v1/projects/{project}/releases` is cursor-paginated and accepts
+`status=planned|released`, inclusive `target_from`/`target_to` date filters,
+`cursor`, and `limit`. `POST` requires `name`; `description` is capped at
+10,000 characters. `PATCH` accepts partial `name`, `description`, and
+`target_date`; omission preserves each field and explicit null clears
+description or target date. PATCH, DELETE, complete, and reopen require the
+exact release ETag in `If-Match: "vN"`; all release mutations accept an
+`Idempotency-Key`, return the resulting release ETag where a release remains,
+and replay the original scope-aware body. DELETE is allowed only for an empty,
+planned release and returns 204. A released release and its membership are
+frozen until reopened.
+
+Complete is explicit and transactional. It succeeds only when the release has
+at least one direct member, every required task in the transitive prerequisite
+closure is complete in its completed semantic column, and no incomplete
+prerequisite belongs to another planned release. Completing the last task only
+makes the release `ready_to_release`; it never completes the release
+automatically. Reopen requires a non-empty `reason`, increments the release
+version, records `release.reopened`, and makes metadata/membership/task
+lifecycle writable again.
+
+Release mutation responses follow the existing redaction boundary: humans and
+bearer tokens with `tasks:read` receive the full Release; a bearer with
+`tasks:write` but without `tasks:read` receives only `{ "id": "...", "version":
+N }` and the strong ETag. Direct release reads and release collections always
+require `tasks:read`. Missing `If-Match` is 428; malformed is 400; stale is a
+409 release conflict. A missing release returns 404 `release_not_found`;
+stable release conflict codes are
+`release_name_exists`, `release_cross_project`, `release_already_completed`,
+`release_not_completed`, `release_has_tasks`, `release_incomplete`,
+`release_dependency_conflict`, `release_frozen`, and `release_queue_changed`
+(plus the existing `conflict`, `stale_task`, and `idempotency_key_reused`
+envelopes where applicable). A caller without access to the release's project
+receives the existing redacted 403 boundary and never learns cross-project
+release details.
+
+#### Release work queue
+
+`GET /api/v1/releases/{release}/work-queue` is read-only and returns a bounded,
+cursor-paginated snapshot:
+
+```json
+{
+  "release": {"id": "release_14", "name": "1.4", "version": 3},
+  "snapshot": {"project_revision": 812, "read_at": "2026-08-27T10:00:00Z"},
+  "summary": {
+    "direct": 12, "required": 15, "completed": 9, "claimable": 1,
+    "owned": 1, "dependency_blocked": 2, "manually_blocked": 1,
+    "claimed_elsewhere": 1, "cross_release_conflicts": 1
+  },
+  "data": [{
+    "task": {"id": "task_42", "key": "OPS-42", "version": 8},
+    "relationship": "direct",
+    "disposition": "claimable",
+    "blocked_by": []
+  }],
+  "next_cursor": ""
+}
+```
+
+The scope starts with live direct release members and walks existing
+dependency edges toward same-project prerequisites. It does not add hierarchy
+children unless they are direct release members or dependency prerequisites.
+Each item is classified at one read timestamp as `completed`, `owned`,
+`claimable`, `dependency_blocked`, `manually_blocked`, `claimed_elsewhere`, or
+`cross_release_conflict`. Tasks without dependencies are claimable when
+unfinished, not manually blocked, and free of a foreign active claim. Owned
+items sort first; claimable items then follow topological prerequisite order,
+with priority, board position, task number, and task ID tie-breakers. The queue
+never claims, reassigns, completes, or otherwise mutates a task.
+
+The cursor captures release version, project/task-collection revision, page
+offset, and read timestamp. A task, dependency, claim, or release change
+invalidates a continuation with HTTP 409, `error.code: release_queue_changed`, and
+`error.details.restart: true`; clients discard the cursor and restart from the
+first page. Agents continue to use individual versioned claim, progress,
+complete, block, and release-claim actions. There is no bulk-claim endpoint.
+
+#### Release filters and events
+
+The project task collection accepts `release={id|name|unassigned}`. Names are
+resolved case-insensitively only within the selected project; `unassigned`
+selects a NULL release assignment (`none` remains a compatibility alias). The
+global `/api/v1/issues`, `/api/v1/my-work`, and `/api/v1/search` collections use
+`release_id={opaque-id|unassigned}` because a bare release name can repeat in
+different projects. The same `release_id` field is supported in saved-view
+filters and in `/api/v1/views/{view}/search`. Every release filter is applied
+before pagination; assignment changes invalidate an in-flight project task
+cursor with the existing `task_collection_changed` contract.
+
+Helm emits bounded, project-scoped `release.created`, `release.updated`,
+`release.completed`, `release.reopened`, and `release.deleted` events containing
+safe release IDs, names, target dates, statuses, and (where a live release
+version exists) versions. Task assignment or clearing emits
+`task.release_changed` with nullable old/new release IDs and names. Bearer
+event reads retain the existing `events:read` scope and redaction rules;
+payloads never include task descriptions, credentials, or claim secrets.
+
+Portable archives use `helm.portable` **v2** and include a `releases` array
+plus each task's nullable `release_id`. Import validates release/project/task
+references and remaps release IDs transactionally alongside other stable IDs.
+New binaries continue accepting **v1** archives; because v1 has no release
+model, v1 imports omit release records and force every imported task to
+`release_id = null`. Unknown archive versions are rejected. Release data is
+never inferred from labels, dates, titles, Git revisions, or bug
+`affected_version`.
 
 ### Task dependencies
 

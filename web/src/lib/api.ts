@@ -5,9 +5,13 @@ import {
   type Agent,
   type AgentWorkInput,
   type AgentWorkStateFilter,
+  type AgentNote,
   type ApiErrorShape,
   type ApiToken,
   type AuthStatus,
+  type BetaBuildsResponse,
+  type BetaSwitchJob,
+  type BetaSwitchResponse,
   type CodexAccountStatus,
   type CodexDeviceLogin,
   type AuditDetail,
@@ -21,6 +25,13 @@ import {
   type IssueMetrics,
   type Label,
   type Project,
+  type Release,
+  type ReleaseCreateInput,
+  type ReleaseFilterValue,
+  type ReleasePatchInput,
+  type ReleaseReopenInput,
+  type ReleaseStatus,
+  type ReleaseWorkQueue,
   type BugInput,
   type BugSeverity,
   type BugResolution,
@@ -30,6 +41,7 @@ import {
   type RoadmapSummary,
   type SidebarCounts,
   type SavedView,
+  type SavedViewFilters,
   type SearchResponse,
   type SearchSort,
   type Task,
@@ -64,6 +76,10 @@ export type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   idempotencyKey?: string;
   ifMatch?: string | number;
+  /** Optional control-plane calls may observe an intentional app restart. */
+  suppressNetworkUnavailable?: boolean;
+  /** Optional probes may not invalidate cached read-only board snapshots. */
+  preserveOfflineSnapshotsOnError?: boolean;
 };
 
 export interface TaskListParams {
@@ -72,6 +88,10 @@ export interface TaskListParams {
   priority?: string;
   label?: string;
   assignee?: string;
+  /** Project-local target release ID/name, or `unassigned`. */
+  release?: ReleaseFilterValue;
+  /** Compatibility alias; project task routes serialize this as `release`. */
+  release_id?: ReleaseFilterValue;
   kind?: Task['kind'];
   severity?: BugSeverity | 'untriaged' | 'none';
   reporter?: string;
@@ -87,8 +107,12 @@ export interface TaskListParams {
   limit?: number;
 }
 
-export interface IssueListParams extends Omit<TaskListParams, 'kind'> {
+export interface IssueListParams extends Omit<TaskListParams, 'kind' | 'release' | 'release_id'> {
   project?: string;
+  /** Global issue route uses the stable `release_id` query parameter. */
+  release_id?: ReleaseFilterValue;
+  /** Accepted as a client-side alias and serialized to `release_id`. */
+  release?: ReleaseFilterValue;
 }
 
 export type WorkView = 'assigned' | 'live';
@@ -98,6 +122,10 @@ export interface MyWorkParams {
   state?: string;
   priority?: string;
   label?: string;
+  /** Global My Work route uses the stable `release_id` query parameter. */
+  release_id?: ReleaseFilterValue;
+  /** Accepted as a client-side alias and serialized to `release_id`. */
+  release?: ReleaseFilterValue;
   q?: string;
   updated_after?: string;
   view?: WorkView;
@@ -118,11 +146,28 @@ export interface SearchParams {
   priority?: string;
   assignee?: string;
   claim_owner?: string;
+  /** Stable opaque release ID or the `unassigned` sentinel. */
+  release_id?: ReleaseFilterValue;
   project?: string;
   due_from?: string;
   due_to?: string;
   sort?: string;
   view?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/** Cursor-paginated project release list filters. */
+export interface ReleaseListParams {
+  status?: ReleaseStatus;
+  target_from?: string;
+  target_to?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/** Cursor pagination for the dependency-aware release work queue. */
+export interface ReleaseWorkQueueParams {
   cursor?: string;
   limit?: number;
 }
@@ -148,7 +193,14 @@ function asBody(body: unknown): BodyInit | undefined {
  * the API boundary easy to test without mounting the application.
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, idempotencyKey, ifMatch, ...init } = options;
+  const {
+    body,
+    idempotencyKey,
+    ifMatch,
+    suppressNetworkUnavailable,
+    preserveOfflineSnapshotsOnError,
+    ...init
+  } = options;
   if (!['GET', 'HEAD', 'OPTIONS'].includes((init.method || 'GET').toUpperCase()) && writesBlocked()) {
     throw new ApiError('Offline mode is read-only. Reconnect before making changes.', 0, 'offline_read_only', {});
   }
@@ -175,7 +227,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     // Auth bootstrap handles Access redirects itself. Other unreachable reads
     // and writes enter read-only mode even when navigator.onLine stays true.
     // Failed writes are never retried: the server may already have committed.
-    if (error instanceof TypeError && !path.startsWith('/auth/') && typeof window !== 'undefined') {
+    if (error instanceof TypeError && !path.startsWith('/auth/') && !suppressNetworkUnavailable && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('helm:network-unavailable'));
     }
     throw error;
@@ -193,7 +245,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      await clearOfflineBoards();
+      if (!preserveOfflineSnapshotsOnError) await clearOfflineBoards();
       // A forbidden mutation is a permission failure, not proof that the
       // browser session expired. Only an explicit unauthorized response may
       // invalidate session-bound UI such as the notification inbox.
@@ -273,6 +325,23 @@ export const api = {
     request<Actor | { user: Actor }>('/auth/login', { method: 'POST', body: input }),
   authLogout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   authMe: (signal?: AbortSignal) => request<Actor>('/auth/me', { signal }),
+
+  /** Optional owner-only beta controls. A missing/disabled endpoint is hidden by the UI. */
+  getBetaBuilds: () => request<BetaBuildsResponse>('/admin/beta/builds', {
+    suppressNetworkUnavailable: true,
+    preserveOfflineSnapshotsOnError: true
+  }),
+  switchBetaBuild: (targetSha: string, idempotencyKey = key()) => request<BetaSwitchResponse>('/admin/beta/switch', {
+    method: 'POST',
+    body: { sha: targetSha },
+    idempotencyKey,
+    // The beta process intentionally restarts after accepting this request.
+    suppressNetworkUnavailable: true
+  }).then((payload) => payload.job),
+  getBetaSwitchJob: (jobId: string) => request<BetaSwitchJob | { job: BetaSwitchJob }>(`/admin/beta/switches/${encodeURIComponent(jobId)}`, {
+    suppressNetworkUnavailable: true
+  }).then((payload) => 'job' in payload ? payload.job : payload),
+
   codexAccount: (refresh = false) => request<CodexAccountStatus>(pathWithQuery('/codex/account', { refresh })),
   startCodexLogin: () => request<CodexDeviceLogin>('/codex/login', { method: 'POST' }),
   cancelCodexLogin: (loginId: string) => request<{ status: string }>('/codex/login/cancel', { method: 'POST', body: { login_id: loginId } }),
@@ -285,6 +354,99 @@ export const api = {
   listAllProjects: (params: { includeArchived?: boolean } = {}) => collectPages((cursor) =>
     request<Collection<Project>>(pathWithQuery('/projects', { cursor, limit: 200, archived: params.includeArchived ? true : undefined })).then(collectionFrom)
   ),
+
+  /** List project-local product releases, including planned and released history. */
+  listProjectReleases: (project: string, params: ReleaseListParams = {}) =>
+    request<Collection<Release> | Release[]>(
+      pathWithQuery(`/projects/${encodeURIComponent(project)}/releases`, {
+        status: params.status,
+        target_from: params.target_from,
+        target_to: params.target_to,
+        cursor: params.cursor,
+        limit: params.limit
+      })
+    ).then(collectionFrom),
+  /** Short alias for project-scoped release discovery. */
+  listReleases: (project: string, params: ReleaseListParams = {}) =>
+    api.listProjectReleases(project, params),
+  listAllProjectReleases: (project: string, params: ReleaseListParams = {}) => collectPages((cursor) =>
+    api.listProjectReleases(project, { ...params, cursor, limit: params.limit ?? 200 }), params.cursor
+  ),
+  listAllReleases: (project: string, params: ReleaseListParams = {}) =>
+    api.listAllProjectReleases(project, params),
+  createProjectRelease: (project: string, input: ReleaseCreateInput) =>
+    request<Release>(`/projects/${encodeURIComponent(project)}/releases`, {
+      method: 'POST',
+      body: input,
+      idempotencyKey: key()
+    }),
+  /** Short alias for creating a project-local product release. */
+  createRelease: (project: string, input: ReleaseCreateInput) =>
+    api.createProjectRelease(project, input),
+  getRelease: (release: string) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}`),
+  patchRelease: (release: string, input: ReleasePatchInput, version: number) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}`, {
+      method: 'PATCH',
+      body: input,
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  /** OpenAPI operation-name alias for patchRelease. */
+  updateRelease: (release: string, input: ReleasePatchInput, version: number) =>
+    api.patchRelease(release, input, version),
+  deleteRelease: (release: string, version: number) =>
+    request<void>(`/releases/${encodeURIComponent(release)}`, {
+      method: 'DELETE',
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  completeRelease: (release: string, version: number) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}/complete`, {
+      method: 'POST',
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  reopenRelease: (release: string, version: number, input: ReleaseReopenInput | string) =>
+    request<Release>(`/releases/${encodeURIComponent(release)}/reopen`, {
+      method: 'POST',
+      body: typeof input === 'string' ? { reason: input } : input,
+      ifMatch: version,
+      idempotencyKey: key()
+    }),
+  getReleaseWorkQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    request<ReleaseWorkQueue>(
+      pathWithQuery(`/releases/${encodeURIComponent(release)}/work-queue`, {
+        cursor: params.cursor,
+        limit: params.limit
+      })
+    ),
+  getAllReleaseWorkQueue: async (release: string): Promise<ReleaseWorkQueue> => {
+    let cursor: string | undefined;
+    let first: ReleaseWorkQueue | undefined;
+    const data: ReleaseWorkQueue['data'] = [];
+    const seen = new Set<string>();
+    for (let page = 0; page < 10; page += 1) {
+      const result = await api.getReleaseWorkQueue(release, { cursor, limit: 200 });
+      first ??= result;
+      data.push(...result.data);
+      if (!result.next_cursor) return { ...first, data, next_cursor: '' };
+      if (seen.has(result.next_cursor) || result.next_cursor === cursor) {
+        throw new ApiError('The server repeated a release queue cursor.', 500, 'invalid_pagination_cursor');
+      }
+      seen.add(result.next_cursor);
+      cursor = result.next_cursor;
+    }
+    throw new ApiError('The release work queue exceeded its browser pagination safety limit.', 500, 'pagination_limit');
+  },
+  /** Short alias for the read-only dependency-aware release queue. */
+  releaseWorkQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    api.getReleaseWorkQueue(release, params),
+  listReleaseWorkQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    api.getReleaseWorkQueue(release, params),
+  getReleaseQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
+    api.getReleaseWorkQueue(release, params),
+
   createProject: (input: { key: string; name: string; description?: string; color?: string; favorite?: boolean; checklist_completion_policy?: Project['checklist_completion_policy'] }) =>
     request<Project>('/projects', { method: 'POST', body: input, idempotencyKey: key() }),
   getProject: (project: string) => request<Project>(`/projects/${encodeURIComponent(project)}`),
@@ -343,6 +505,7 @@ export const api = {
         priority: params.priority,
         label: params.label,
         assignee: params.assignee,
+        release: params.release ?? params.release_id,
         kind: params.kind,
         severity: params.severity,
         reporter: params.reporter,
@@ -368,6 +531,7 @@ export const api = {
         priority: params.priority,
         label: params.label,
         assignee: params.assignee,
+        release_id: params.release_id ?? params.release,
         severity: params.severity,
         reporter: params.reporter,
         resolution: params.resolution,
@@ -392,6 +556,8 @@ export const api = {
       position?: number;
       due_at?: string | null;
       assignee?: string | null;
+      /** Omit for no assignment; pass null to leave the new task unassigned. */
+      release_id?: string | null;
       labels?: string[];
       label_ids?: string[];
       parent?: string | null;
@@ -556,6 +722,22 @@ export const api = {
       ifMatch: version,
       idempotencyKey: key()
     }),
+  listAgentNotes: (task: string, includeResolved = false) =>
+    request<Collection<AgentNote>>(
+      pathWithQuery(`/tasks/${encodeURIComponent(task)}/agent-notes`, { include_resolved: includeResolved || undefined })
+    ).then(collectionFrom),
+  createAgentNote: (task: string, input: Pick<AgentNote, 'category' | 'body' | 'evidence'>) =>
+    request<AgentNote>(`/tasks/${encodeURIComponent(task)}/agent-notes`, {
+      method: 'POST', body: input, idempotencyKey: key()
+    }),
+  updateAgentNote: (task: string, note: string, version: number, input: Pick<AgentNote, 'category' | 'body' | 'evidence'>) =>
+    request<AgentNote>(`/tasks/${encodeURIComponent(task)}/agent-notes/${encodeURIComponent(note)}`, {
+      method: 'PATCH', body: input, ifMatch: version, idempotencyKey: key()
+    }),
+  resolveAgentNote: (task: string, note: string, version: number) =>
+    request<void>(`/tasks/${encodeURIComponent(task)}/agent-notes/${encodeURIComponent(note)}`, {
+      method: 'DELETE', ifMatch: version, idempotencyKey: key()
+    }),
   listTaskTimeline: (task: string, params: { before?: string; limit?: number; kind?: TaskTimelineKind } = {}) =>
     request<TaskTimelineCollection>(
       pathWithQuery(`/tasks/${encodeURIComponent(task)}/timeline`, {
@@ -645,6 +827,7 @@ export const api = {
         agent_state: params.agent_state,
         action_needed: params.action_needed,
         dependency: params.dependency,
+        release_id: params.release_id ?? params.release,
         cursor: params.cursor,
         limit: params.limit
       })
@@ -662,6 +845,7 @@ export const api = {
         agent_state: params.agent_state,
         action_needed: params.action_needed,
         dependency: params.dependency,
+        release_id: params.release_id ?? params.release,
         cursor,
         limit: params.limit ?? 200
       })
@@ -712,6 +896,7 @@ export const api = {
         priority: params.priority,
         assignee: params.assignee,
         claim_owner: params.claim_owner,
+        release_id: params.release_id,
         project: params.project,
         due_from: params.due_from,
         due_to: params.due_to,
@@ -729,9 +914,9 @@ export const api = {
     request<Collection<SavedView> | SavedView[]>(pathWithQuery('/views', { cursor, limit: 200 })).then(collectionFrom)
   ),
   getSavedView: (view: string) => request<SavedView>(`/views/${encodeURIComponent(view)}`),
-  createSavedView: (input: { name: string; description?: string; filters: Record<string, unknown>; sort?: SearchSort[]; shared?: boolean }) =>
+  createSavedView: (input: { name: string; description?: string; filters: SavedViewFilters; sort?: SearchSort[]; shared?: boolean }) =>
     request<SavedView>('/views', { method: 'POST', body: input, idempotencyKey: key() }),
-  patchSavedView: (view: string, input: Partial<{ name: string; description: string; filters: Record<string, unknown>; sort: SearchSort[]; shared: boolean }>) =>
+  patchSavedView: (view: string, input: Partial<{ name: string; description: string; filters: SavedViewFilters; sort: SearchSort[]; shared: boolean }>) =>
     request<SavedView>(`/views/${encodeURIComponent(view)}`, { method: 'PATCH', body: input, idempotencyKey: key() }),
   deleteSavedView: (view: string) =>
     request<void>(`/views/${encodeURIComponent(view)}`, { method: 'DELETE', idempotencyKey: key() }),
@@ -833,6 +1018,14 @@ export async function listAllTasks(project: string, params: TaskListParams = {})
 export async function listAllIssues(params: IssueListParams = {}): Promise<Collection<Task>> {
   return collectPages((cursor) => api.listIssues({ ...params, cursor, limit: params.limit ?? 200 }), params.cursor);
 }
+
+/** Fetch every release page while retaining the public cursor API. */
+export async function listAllProjectReleases(project: string, params: ReleaseListParams = {}): Promise<Collection<Release>> {
+  return collectPages((cursor) => api.listProjectReleases(project, { ...params, cursor, limit: params.limit ?? 200 }), params.cursor);
+}
+
+/** Concise top-level alias matching the api object's release collection helper. */
+export const listAllReleases = listAllProjectReleases;
 
 export function unwrapActor(value: Actor | { user: Actor }): Actor {
   return 'user' in value ? value.user : value;

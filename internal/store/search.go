@@ -111,6 +111,14 @@ func (s *Store) listSearchTasks(ctx context.Context, filter SearchFilter, allowE
 		query += ` AND (p.id=? OR lower(p.key)=lower(?) OR lower(p.slug)=lower(?))`
 		args = append(args, filter.Project, filter.Project, filter.Project)
 	}
+	if filter.ReleaseID != "" {
+		if strings.EqualFold(strings.TrimSpace(filter.ReleaseID), "unassigned") || strings.EqualFold(strings.TrimSpace(filter.ReleaseID), "none") {
+			query += ` AND t.release_id IS NULL`
+		} else {
+			query += ` AND t.release_id=?`
+			args = append(args, strings.TrimSpace(filter.ReleaseID))
+		}
+	}
 	if filter.State != "" {
 		query += ` AND c.semantic_state=?`
 		args = append(args, filter.State)
@@ -203,6 +211,9 @@ func (s *Store) listSearchTasks(ctx context.Context, filter SearchFilter, allowE
 		}
 	}
 	if err := s.populateTaskDependencySummaries(ctx, result); err != nil {
+		return nil, false, err
+	}
+	if err := s.populateTaskReleaseReferences(ctx, result); err != nil {
 		return nil, false, err
 	}
 	return result, hasMore, nil

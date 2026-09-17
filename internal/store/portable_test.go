@@ -62,6 +62,10 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	note, err := source.CreateAgentNote(ctx, first.ID, worker.ID, "known_issue", "Use the retained migration path", []string{"internal/db/migrations"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	bug, err = source.AddTaskDependency(ctx, bug.ID, first.ID, bug.Version, owner.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +95,7 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(archive.Projects) != 1 || len(archive.Columns) != len(columns) || len(archive.Tasks) != 2 || len(archive.Labels) != 1 || len(archive.Relationships.TaskLabels) != 1 || len(archive.Comments) != 1 || len(archive.Relationships.Dependencies) != 1 || len(archive.Relationships.TaskLinks) != 1 || len(archive.Activity.AgentWork) != 1 || len(archive.Activity.AgentWorkHistory) != 1 {
+	if len(archive.Projects) != 1 || len(archive.Columns) != len(columns) || len(archive.Tasks) != 2 || len(archive.Labels) != 1 || len(archive.Relationships.TaskLabels) != 1 || len(archive.Comments) != 1 || len(archive.AgentNotes) != 1 || len(archive.Relationships.Dependencies) != 1 || len(archive.Relationships.TaskLinks) != 1 || len(archive.Activity.AgentWork) != 1 || len(archive.Activity.AgentWorkHistory) != 1 {
 		t.Fatalf("archive counts projects=%d columns=%d tasks=%d labels=%d task_labels=%d comments=%d deps=%d links=%d work=%d history=%d", len(archive.Projects), len(archive.Columns), len(archive.Tasks), len(archive.Labels), len(archive.Relationships.TaskLabels), len(archive.Comments), len(archive.Relationships.Dependencies), len(archive.Relationships.TaskLinks), len(archive.Activity.AgentWork), len(archive.Activity.AgentWorkHistory))
 	}
 	var exportedBug *PortableBug
@@ -122,7 +126,7 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import archive: %v report=%+v", err, report)
 	}
-	if report.Counts.ProjectsCreated != 1 || report.Counts.TasksCreated != 2 || report.Counts.CommentsCreated != 1 || report.Counts.DependenciesCreated != 1 || report.Counts.LinksCreated != 1 || report.Counts.EventsCreated == 0 || len(report.Remaps) == 0 {
+	if report.Counts.ProjectsCreated != 1 || report.Counts.TasksCreated != 2 || report.Counts.CommentsCreated != 1 || report.Counts.AgentNotesCreated != 1 || report.Counts.DependenciesCreated != 1 || report.Counts.LinksCreated != 1 || report.Counts.EventsCreated == 0 || len(report.Remaps) == 0 {
 		t.Fatalf("import report = %+v", report)
 	}
 	importedBug, err := destination.GetTask(ctx, bug.ID)
@@ -141,6 +145,13 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	}
 	if importedCommentActor != importer.ID || importedDependencyActor != importer.ID {
 		t.Fatalf("attribution comment=%q dependency=%q importer=%q", importedCommentActor, importedDependencyActor, importer.ID)
+	}
+	importedNote, err := destination.GetAgentNote(ctx, note.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if importedNote.ActorID != importer.ID || importedNote.Body != note.Body || len(importedNote.Evidence) != 1 || importedNote.Evidence[0] != note.Evidence[0] {
+		t.Fatalf("imported note = %+v", importedNote)
 	}
 	var importedLinks int
 	if err := destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_links WHERE source_task_id=? AND target_task_id=? AND link_type=?`, first.ID, bug.ID, "relates").Scan(&importedLinks); err != nil {
@@ -161,15 +172,506 @@ func TestPortableArchiveRoundTripPreservesPopulatedData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retry archive: %v report=%+v", err, secondReport)
 	}
-	if secondReport.Counts.TasksCreated != 0 || secondReport.Counts.TasksSkipped != 2 || secondReport.Counts.HistoryCreated != 0 || secondReport.Counts.HistorySkipped != 1 {
+	if secondReport.Counts.TasksCreated != 0 || secondReport.Counts.TasksSkipped != 2 || secondReport.Counts.AgentNotesCreated != 0 || secondReport.Counts.AgentNotesSkipped != 1 || secondReport.Counts.HistoryCreated != 0 || secondReport.Counts.HistorySkipped != 1 {
 		t.Fatalf("retry report = %+v", secondReport)
 	}
-	var taskCount, commentCount, historyCount int
+	var taskCount, commentCount, noteCount, historyCount int
 	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE project_id=?`, project.ID).Scan(&taskCount)
 	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments WHERE task_id=?`, first.ID).Scan(&commentCount)
+	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_notes WHERE task_id=?`, first.ID).Scan(&noteCount)
 	_ = destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_agent_work_history WHERE task_id=?`, bug.ID).Scan(&historyCount)
-	if taskCount != 2 || commentCount != 1 || historyCount != 1 {
-		t.Fatalf("retry duplicated data tasks=%d comments=%d history=%d", taskCount, commentCount, historyCount)
+	if taskCount != 2 || commentCount != 1 || noteCount != 1 || historyCount != 1 {
+		t.Fatalf("retry duplicated data tasks=%d comments=%d notes=%d history=%d", taskCount, commentCount, noteCount, historyCount)
+	}
+}
+
+func TestPortableReleaseV2RoundTripAndLegacyV1Assignment(t *testing.T) {
+	ctx := context.Background()
+	timestamp := "2026-09-04T00:00:00Z"
+	sourceDB, err := db.Open(ctx, filepath.Join(t.TempDir(), "release-source.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sourceDB.Close()
+	source := New(sourceDB)
+	owner, err := source.CreateActor(ctx, Actor{Kind: "human", Name: "Release owner"}, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := source.CreateProject(ctx, ProjectInput{Key: portableTestString("REL"), Slug: portableTestString("release-source"), Name: portableTestString("Release source")}, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns, err := source.ListColumns(ctx, project.ID)
+	if err != nil || len(columns) == 0 {
+		t.Fatalf("source columns = %d, err=%v", len(columns), err)
+	}
+	task, err := source.CreateTask(ctx, project.ID, TaskInput{Title: portableTestString("Release task"), ColumnID: &columns[0].ID}, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseID := "portable-release"
+	if _, err := sourceDB.ExecContext(ctx, `INSERT INTO releases(id,project_id,name,description,target_date,released_at,released_by,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, releaseID, project.ID, "1.4", "Search and release planning", "2026-11-15", nil, nil, 3, timestamp, timestamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourceDB.ExecContext(ctx, `UPDATE tasks SET release_id=? WHERE id=?`, releaseID, task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	archive, err := source.ExportPortable(ctx, []string{project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Version != 2 || len(archive.Releases) != 1 || archive.Releases[0].Status != "planned" {
+		t.Fatalf("v2 release export = version %d releases=%+v", archive.Version, archive.Releases)
+	}
+	if len(archive.Tasks) != 1 || archive.Tasks[0].ReleaseID == nil || *archive.Tasks[0].ReleaseID != releaseID {
+		t.Fatalf("v2 task release export = %+v", archive.Tasks)
+	}
+
+	destinationDB, err := db.Open(ctx, filepath.Join(t.TempDir(), "release-destination.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer destinationDB.Close()
+	destination := New(destinationDB)
+	importer, err := destination.CreateActor(ctx, Actor{Kind: "human", Name: "Release importer"}, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := destination.ImportPortable(ctx, archive, PortableImportOptions{ActorID: importer.ID})
+	if err != nil {
+		t.Fatalf("v2 release import: %v report=%+v", err, report)
+	}
+	if report.Counts.ReleasesCreated != 1 || report.Counts.TasksCreated != 1 {
+		t.Fatalf("v2 release import report = %+v", report)
+	}
+	var importedReleaseID, importedTaskReleaseID string
+	if err := destinationDB.QueryRowContext(ctx, `SELECT id FROM releases WHERE project_id=?`, project.ID).Scan(&importedReleaseID); err != nil {
+		t.Fatal(err)
+	}
+	if err := destinationDB.QueryRowContext(ctx, `SELECT release_id FROM tasks WHERE id=?`, task.ID).Scan(&importedTaskReleaseID); err != nil {
+		t.Fatal(err)
+	}
+	if importedReleaseID != releaseID || importedTaskReleaseID != releaseID {
+		t.Fatalf("imported release binding release=%q task=%q", importedReleaseID, importedTaskReleaseID)
+	}
+
+	// v1 archives predate releases. Even if a caller-populated struct carries
+	// release-shaped fields, the importer must leave every task unassigned and
+	// must not create release rows.
+	legacy := archive
+	legacy.Version = 1
+	legacy.Tasks = append([]PortableTask(nil), archive.Tasks...)
+	legacy.Releases = append([]PortableRelease(nil), archive.Releases...)
+	legacyReport, err := destination.ImportPortable(ctx, legacy, PortableImportOptions{ActorID: importer.ID, TargetProjectID: project.ID})
+	if err != nil {
+		t.Fatalf("v1 release import: %v report=%+v", err, legacyReport)
+	}
+	if legacyReport.Counts.ReleasesCreated != 0 || legacyReport.Counts.TasksCreated != 1 {
+		t.Fatalf("v1 release import report = %+v", legacyReport)
+	}
+	var unassigned int
+	if err := destinationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE project_id=? AND release_id IS NULL`, project.ID).Scan(&unassigned); err != nil {
+		t.Fatal(err)
+	}
+	if unassigned != 1 {
+		t.Fatalf("v1 import unassigned task count = %d", unassigned)
+	}
+}
+
+func TestPortableReleaseImportRejectsCrossProjectReferenceBeforeWrites(t *testing.T) {
+	ctx := context.Background()
+	timestamp := "2026-09-04T00:00:00Z"
+	database, err := db.Open(ctx, filepath.Join(t.TempDir(), "release-invalid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	data := New(database)
+	actor, err := data.CreateActor(ctx, Actor{Kind: "human", Name: "Importer"}, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstProject := PortableProject{ID: "release-project-a", Key: "RELA", Slug: "release-a", Name: "Release A", Color: "#64748b", CreatedAt: timestamp, UpdatedAt: timestamp}
+	secondProject := PortableProject{ID: "release-project-b", Key: "RELB", Slug: "release-b", Name: "Release B", Color: "#64748b", CreatedAt: timestamp, UpdatedAt: timestamp}
+	archive := PortableArchive{
+		Format: PortableFormat, Version: PortableVersion, ExportedAt: timestamp,
+		Projects: []PortableProject{firstProject, secondProject},
+		Columns: []PortableColumn{
+			{ID: "release-column-a", ProjectID: firstProject.ID, Name: "Backlog", SemanticState: "backlog", Position: 0, CreatedAt: timestamp, UpdatedAt: timestamp},
+			{ID: "release-column-b", ProjectID: secondProject.ID, Name: "Backlog", SemanticState: "backlog", Position: 0, CreatedAt: timestamp, UpdatedAt: timestamp},
+		},
+		Releases: []PortableRelease{{ID: "release-b", ProjectID: secondProject.ID, Name: "2.0", Version: 1, CreatedAt: timestamp, UpdatedAt: timestamp}},
+		Tasks:    []PortableTask{{ID: "release-task-a", Number: 1, ProjectID: firstProject.ID, Kind: "task", ColumnID: "release-column-a", Title: "Wrong project release", Priority: "normal", ReleaseID: portableTestString("release-b"), Version: 1, CreatedAt: timestamp, UpdatedAt: timestamp}},
+		Labels:   []PortableLabel{}, Comments: []PortableComment{},
+		Relationships: PortableRelationships{TaskLabels: []PortableTaskLabel{}, Dependencies: []PortableDependency{}, TaskLinks: []PortableTaskLink{}},
+		Activity:      PortableActivity{Events: []PortableEvent{}, AgentWork: []PortableAgentWork{}, AgentWorkHistory: []PortableAgentWorkHistory{}},
+	}
+	report, err := data.ImportPortable(ctx, archive, PortableImportOptions{ActorID: actor.ID})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("cross-project release import error=%v report=%+v, want ErrInvalid", err, report)
+	}
+	var projects, releases, tasks int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM projects`: &projects,
+		`SELECT COUNT(*) FROM releases`: &releases,
+		`SELECT COUNT(*) FROM tasks`:    &tasks,
+	} {
+		if err := database.QueryRowContext(ctx, query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if projects != 0 || releases != 0 || tasks != 0 {
+		t.Fatalf("cross-project validation wrote projects=%d releases=%d tasks=%d", projects, releases, tasks)
+	}
+}
+
+func TestPortableReleaseImportRejectsReservedNamesBeforeWrites(t *testing.T) {
+	ctx := context.Background()
+	timestamp := "2026-09-04T00:00:00Z"
+	for _, name := range []string{"unassigned", "NONE", " Unassigned "} {
+		t.Run(name, func(t *testing.T) {
+			database, err := db.Open(ctx, filepath.Join(t.TempDir(), "release-reserved.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			data := New(database)
+			actor, err := data.CreateActor(ctx, Actor{Kind: "human", Name: "Importer"}, "hash")
+			if err != nil {
+				t.Fatal(err)
+			}
+			project := PortableProject{ID: "release-project", Key: "REL", Slug: "release-project", Name: "Release project", Color: "#64748b", CreatedAt: timestamp, UpdatedAt: timestamp}
+			archive := PortableArchive{
+				Format: PortableFormat, Version: PortableVersion, ExportedAt: timestamp,
+				Projects: []PortableProject{project},
+				Columns:  []PortableColumn{},
+				Releases: []PortableRelease{{ID: "reserved-release", ProjectID: project.ID, Name: name, Version: 1, CreatedAt: timestamp, UpdatedAt: timestamp}},
+				Tasks:    []PortableTask{}, Labels: []PortableLabel{}, Comments: []PortableComment{},
+				Relationships: PortableRelationships{TaskLabels: []PortableTaskLabel{}, Dependencies: []PortableDependency{}, TaskLinks: []PortableTaskLink{}},
+				Activity:      PortableActivity{Events: []PortableEvent{}, AgentWork: []PortableAgentWork{}, AgentWorkHistory: []PortableAgentWorkHistory{}},
+			}
+			report, err := data.ImportPortable(ctx, archive, PortableImportOptions{ActorID: actor.ID})
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("reserved release import error=%v report=%+v, want ErrInvalid", err, report)
+			}
+			var projects, releases int
+			if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&projects); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM releases`).Scan(&releases); err != nil {
+				t.Fatal(err)
+			}
+			if projects != 0 || releases != 0 {
+				t.Fatalf("reserved-name validation wrote projects=%d releases=%d", projects, releases)
+			}
+		})
+	}
+}
+
+func TestPortableReleasedReleaseRoundTripStagesMembership(t *testing.T) {
+	ctx := context.Background()
+	timestamp := "2026-09-04T00:00:00Z"
+	sourceDB, err := db.Open(ctx, filepath.Join(t.TempDir(), "released-source.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sourceDB.Close()
+	source := New(sourceDB)
+	owner, err := source.CreateActor(ctx, Actor{Kind: "human", Name: "Release owner"}, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := source.CreateProject(ctx, ProjectInput{Key: portableTestString("RELR"), Slug: portableTestString("released-source"), Name: portableTestString("Released source")}, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := source.StateColumn(ctx, project.ID, "completed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := source.CreateTask(ctx, project.ID, TaskInput{Title: portableTestString("Released task"), ColumnID: &completed.ID}, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseID := "portable-released-release"
+	if _, err := sourceDB.ExecContext(ctx, `INSERT INTO releases(id,project_id,name,description,target_date,released_at,released_by,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, releaseID, project.ID, "1.5", "Released planning", "2026-11-15", nil, nil, 4, timestamp, timestamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sourceDB.ExecContext(ctx, `UPDATE tasks SET release_id=? WHERE id=?`, releaseID, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	releasedAt := "2026-09-05T00:00:00Z"
+	if _, err := sourceDB.ExecContext(ctx, `UPDATE releases SET released_at=?,released_by=?,updated_at=? WHERE id=?`, releasedAt, owner.ID, releasedAt, releaseID); err != nil {
+		t.Fatal(err)
+	}
+
+	archive, err := source.ExportPortable(ctx, []string{project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archive.Releases) != 1 || archive.Releases[0].Status != "released" || archive.Releases[0].ReleasedAt == nil || *archive.Releases[0].ReleasedAt != releasedAt {
+		t.Fatalf("released export = %+v", archive.Releases)
+	}
+
+	destinationDB, err := db.Open(ctx, filepath.Join(t.TempDir(), "released-destination.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer destinationDB.Close()
+	destination := New(destinationDB)
+	importer, err := destination.CreateActor(ctx, Actor{Kind: "human", Name: "Release importer"}, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := destination.ImportPortable(ctx, archive, PortableImportOptions{ActorID: importer.ID})
+	if err != nil {
+		t.Fatalf("released import: %v report=%+v", err, report)
+	}
+	var importedReleasedAt, importedReleasedBy string
+	if err := destinationDB.QueryRowContext(ctx, `SELECT released_at,released_by FROM releases WHERE id=?`, releaseID).Scan(&importedReleasedAt, &importedReleasedBy); err != nil {
+		t.Fatal(err)
+	}
+	if importedReleasedAt != releasedAt || importedReleasedBy != importer.ID {
+		t.Fatalf("imported release completion released_at=%q released_by=%q importer=%q", importedReleasedAt, importedReleasedBy, importer.ID)
+	}
+	var importedTaskRelease string
+	if err := destinationDB.QueryRowContext(ctx, `SELECT release_id FROM tasks WHERE id=?`, task.ID).Scan(&importedTaskRelease); err != nil {
+		t.Fatal(err)
+	}
+	if importedTaskRelease != releaseID {
+		t.Fatalf("imported released task release_id=%q", importedTaskRelease)
+	}
+}
+
+func TestPortableReleaseImportRemapsProjectAndReleaseIDs(t *testing.T) {
+	ctx := context.Background()
+	timestamp := "2026-09-04T00:00:00Z"
+	database, err := db.Open(ctx, filepath.Join(t.TempDir(), "release-remap.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	data := New(database)
+	actor, err := data.CreateActor(ctx, Actor{Kind: "human", Name: "Importer"}, "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := data.CreateProject(ctx, ProjectInput{Key: portableTestString("RELTARGET"), Slug: portableTestString("release-target"), Name: portableTestString("Release target")}, actor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `INSERT INTO releases(id,project_id,name,description,target_date,released_at,released_by,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, "release-shared-id", target.ID, "Existing", "Retained destination release", nil, nil, nil, 1, timestamp, timestamp); err != nil {
+		t.Fatal(err)
+	}
+	sourceProjectID, sourceColumnID, sourceReleaseID := "release-source-project", "release-source-column", "release-shared-id"
+	archive := PortableArchive{
+		Format: PortableFormat, Version: PortableVersion, ExportedAt: timestamp,
+		Projects: []PortableProject{{ID: sourceProjectID, Key: "RELSOURCE", Slug: "release-source", Name: "Release source", Color: "#64748b", CreatedAt: timestamp, UpdatedAt: timestamp}},
+		Columns:  []PortableColumn{{ID: sourceColumnID, ProjectID: sourceProjectID, Name: "Imported backlog", SemanticState: "backlog", Position: 0, CreatedAt: timestamp, UpdatedAt: timestamp}},
+		Releases: []PortableRelease{{ID: sourceReleaseID, ProjectID: sourceProjectID, Name: "1.4", Description: "Imported release", Version: 2, CreatedAt: timestamp, UpdatedAt: timestamp}},
+		Tasks:    []PortableTask{{ID: "release-remap-task", Number: 1, ProjectID: sourceProjectID, Kind: "task", ColumnID: sourceColumnID, Title: "Bound task", Priority: "normal", ReleaseID: portableTestString(sourceReleaseID), Version: 1, CreatedAt: timestamp, UpdatedAt: timestamp}},
+		Labels:   []PortableLabel{}, Comments: []PortableComment{},
+		Relationships: PortableRelationships{TaskLabels: []PortableTaskLabel{}, Dependencies: []PortableDependency{}, TaskLinks: []PortableTaskLink{}},
+		Activity:      PortableActivity{Events: []PortableEvent{}, AgentWork: []PortableAgentWork{}, AgentWorkHistory: []PortableAgentWorkHistory{}},
+	}
+	report, err := data.ImportPortable(ctx, archive, PortableImportOptions{ActorID: actor.ID, TargetProjectID: target.ID})
+	if err != nil {
+		t.Fatalf("release remap import: %v report=%+v", err, report)
+	}
+	if report.Counts.ReleasesCreated != 1 || !portableReportHasRemap(report, "release", "id") || !portableReportHasRemap(report, "project", "id") {
+		t.Fatalf("release remap report = %+v", report)
+	}
+	var importedReleaseID, importedProjectID string
+	if err := database.QueryRowContext(ctx, `SELECT release_id,project_id FROM tasks WHERE id=?`, "release-remap-task").Scan(&importedReleaseID, &importedProjectID); err != nil {
+		t.Fatal(err)
+	}
+	if importedProjectID != target.ID || importedReleaseID == sourceReleaseID || importedReleaseID == "" {
+		t.Fatalf("remapped task project=%q release=%q target project=%q", importedProjectID, importedReleaseID, target.ID)
+	}
+	var importedReleaseProject string
+	if err := database.QueryRowContext(ctx, `SELECT project_id FROM releases WHERE id=?`, importedReleaseID).Scan(&importedReleaseProject); err != nil {
+		t.Fatal(err)
+	}
+	if importedReleaseProject != target.ID {
+		t.Fatalf("remapped release project=%q target project=%q", importedReleaseProject, target.ID)
+	}
+}
+
+func TestPortableReleaseNameCollisionPreservesBothLifecyclesAndEventPayloadIDs(t *testing.T) {
+	ctx := context.Background()
+	timestamp := "2026-09-04T00:00:00Z"
+	cases := []struct {
+		name                string
+		sourceReleased      bool
+		destinationReleased bool
+	}{
+		{name: "planned source versus released destination", sourceReleased: false, destinationReleased: true},
+		{name: "released source versus planned destination", sourceReleased: true, destinationReleased: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			database, err := db.Open(ctx, filepath.Join(t.TempDir(), "release-collision.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			data := New(database)
+			importer, err := data.CreateActor(ctx, Actor{Kind: "human", Name: "Release importer"}, "hash")
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, err := data.CreateProject(ctx, ProjectInput{Key: portableTestString("COLLIDE"), Slug: portableTestString("release-collision"), Name: portableTestString("Release collision")}, importer.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			columns, err := data.ListColumns(ctx, target.ID)
+			if err != nil || len(columns) == 0 {
+				t.Fatalf("target columns = %d, err=%v", len(columns), err)
+			}
+
+			const releaseID = "collision-release"
+			const taskID = "collision-task"
+			const releaseName = "2.0"
+			const projectID = "collision-source-project"
+			const columnID = "collision-source-column"
+			const actorID = "collision-source-actor"
+			destinationReleasedAtValue := any(nil)
+			destinationReleasedByValue := any(nil)
+			if tc.destinationReleased {
+				destinationReleasedAtValue = "2026-09-03T00:00:00Z"
+				destinationReleasedByValue = importer.ID
+			}
+			if _, err := database.ExecContext(ctx, `INSERT INTO releases(id,project_id,name,description,target_date,released_at,released_by,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, releaseID, target.ID, releaseName, "destination metadata", nil, destinationReleasedAtValue, destinationReleasedByValue, 1, timestamp, timestamp); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := database.ExecContext(ctx, `INSERT INTO tasks(id,project_id,number,column_id,kind,title,description,priority,position,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, taskID, target.ID, 1, columns[0].ID, "task", "destination task", "destination metadata", "normal", 0, 1, timestamp, timestamp); err != nil {
+				t.Fatal(err)
+			}
+
+			sourceReleasedAt := (*string)(nil)
+			sourceReleasedBy := (*string)(nil)
+			taskCompletedAt := (*string)(nil)
+			semanticState := "backlog"
+			if tc.sourceReleased {
+				releasedAt := "2026-09-05T00:00:00Z"
+				sourceReleasedAt = &releasedAt
+				sourceReleasedBy = portableTestString(actorID)
+				taskCompletedAt = &releasedAt
+				semanticState = "completed"
+			}
+			sourceReleaseID := releaseID
+			sourceTaskID := taskID
+			sourceProjectID := projectID
+			sourceActorID := actorID
+			eventOneProjectID, eventOneActorID := sourceProjectID, sourceActorID
+			eventTwoProjectID, eventTwoTaskID, eventTwoActorID := sourceProjectID, sourceTaskID, sourceActorID
+			eventOnePayload, _ := json.Marshal(map[string]any{
+				"project_id":  sourceProjectID,
+				"release_id":  sourceReleaseID,
+				"actor_id":    sourceActorID,
+				"released_by": sourceActorID,
+			})
+			eventTwoPayload, _ := json.Marshal(map[string]any{
+				"project_id":          sourceProjectID,
+				"task_id":             sourceTaskID,
+				"release_id":          sourceReleaseID,
+				"previous_release_id": sourceReleaseID,
+				"new_release_id":      sourceReleaseID,
+				"old_release_id":      sourceReleaseID,
+				"actor_id":            sourceActorID,
+			})
+			archive := PortableArchive{
+				Format: PortableFormat, Version: PortableVersion, ExportedAt: timestamp,
+				Projects: []PortableProject{{ID: sourceProjectID, Key: "COLLSRC", Slug: "collision-source", Name: "Collision source", Color: "#64748b", CreatedAt: timestamp, UpdatedAt: timestamp}},
+				Columns:  []PortableColumn{{ID: columnID, ProjectID: sourceProjectID, Name: "Imported column", SemanticState: semanticState, Position: 0, CreatedAt: timestamp, UpdatedAt: timestamp}},
+				Releases: []PortableRelease{{ID: sourceReleaseID, ProjectID: sourceProjectID, Name: releaseName, Description: "source metadata", Version: 2, ReleasedAt: sourceReleasedAt, ReleasedBy: sourceReleasedBy, CreatedAt: timestamp, UpdatedAt: timestamp}},
+				Tasks:    []PortableTask{{ID: sourceTaskID, Number: 1, ProjectID: sourceProjectID, Kind: "task", ColumnID: columnID, Title: "source task", Description: "source metadata", Priority: "normal", Position: 0, Version: 1, CompletedAt: taskCompletedAt, ReleaseID: &sourceReleaseID, CreatedAt: timestamp, UpdatedAt: timestamp}},
+				Activity: PortableActivity{Events: []PortableEvent{
+					{Cursor: 1, ID: "collision-release-event", Type: "release.completed", ActorID: &eventOneActorID, ProjectID: &eventOneProjectID, Payload: eventOnePayload, CreatedAt: timestamp},
+					{Cursor: 2, ID: "collision-task-release-event", Type: "task.release_changed", ActorID: &eventTwoActorID, ProjectID: &eventTwoProjectID, TaskID: &eventTwoTaskID, Payload: eventTwoPayload, CreatedAt: timestamp},
+				}},
+			}
+
+			report, err := data.ImportPortable(ctx, archive, PortableImportOptions{ActorID: importer.ID, TargetProjectID: target.ID})
+			if err != nil {
+				t.Fatalf("release collision import: %v report=%+v", err, report)
+			}
+			if report.Counts.ReleasesCreated != 1 || report.Counts.TasksCreated != 1 || report.Counts.EventsCreated != 2 {
+				t.Fatalf("release collision report = %+v", report)
+			}
+			if !portableReportHasRemap(report, "release", "name") || !portableReportHasRemap(report, "release", "id") || !portableReportHasRemap(report, "task", "id") || !portableReportHasRemap(report, "project", "id") {
+				t.Fatalf("release collision remaps = %+v", report.Remaps)
+			}
+
+			var importedReleaseID string
+			for _, remap := range report.Remaps {
+				if remap.Entity == "release" && remap.Field == "id" && remap.Source == sourceReleaseID {
+					importedReleaseID = remap.Target
+					break
+				}
+			}
+			if importedReleaseID == "" || importedReleaseID == sourceReleaseID {
+				t.Fatalf("imported release id remap = %q, report=%+v", importedReleaseID, report.Remaps)
+			}
+			var importedReleaseName, importedDescription string
+			var importedReleasedAt, importedReleasedBy sql.NullString
+			if err := database.QueryRowContext(ctx, `SELECT name,description,released_at,released_by FROM releases WHERE id=?`, importedReleaseID).Scan(&importedReleaseName, &importedDescription, &importedReleasedAt, &importedReleasedBy); err != nil {
+				t.Fatal(err)
+			}
+			if importedReleaseName == releaseName || importedDescription != "source metadata" {
+				t.Fatalf("imported release metadata name=%q description=%q", importedReleaseName, importedDescription)
+			}
+			if tc.sourceReleased != importedReleasedAt.Valid || (tc.sourceReleased && importedReleasedBy.String != importer.ID) {
+				t.Fatalf("imported release status released_at=%q released_by=%q sourceReleased=%t", importedReleasedAt.String, importedReleasedBy.String, tc.sourceReleased)
+			}
+			var destinationDescription string
+			var destinationReleasedAt sql.NullString
+			if err := database.QueryRowContext(ctx, `SELECT description,released_at FROM releases WHERE id=?`, releaseID).Scan(&destinationDescription, &destinationReleasedAt); err != nil {
+				t.Fatal(err)
+			}
+			if destinationDescription != "destination metadata" || destinationReleasedAt.Valid != tc.destinationReleased {
+				t.Fatalf("destination release changed description=%q released=%q", destinationDescription, destinationReleasedAt.String)
+			}
+
+			var importedTaskID, importedTaskReleaseID string
+			if err := database.QueryRowContext(ctx, `SELECT id,release_id FROM tasks WHERE title=?`, "source task").Scan(&importedTaskID, &importedTaskReleaseID); err != nil {
+				t.Fatal(err)
+			}
+			if importedTaskID == sourceTaskID || importedTaskReleaseID != importedReleaseID {
+				t.Fatalf("imported task id=%q release=%q want release=%q", importedTaskID, importedTaskReleaseID, importedReleaseID)
+			}
+
+			var releasePayload, taskPayload string
+			if err := database.QueryRowContext(ctx, `SELECT payload FROM events WHERE id=?`, "collision-release-event").Scan(&releasePayload); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.QueryRowContext(ctx, `SELECT payload FROM events WHERE id=?`, "collision-task-release-event").Scan(&taskPayload); err != nil {
+				t.Fatal(err)
+			}
+			var releasePayloadValues, taskPayloadValues map[string]any
+			if err := json.Unmarshal([]byte(releasePayload), &releasePayloadValues); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(taskPayload), &taskPayloadValues); err != nil {
+				t.Fatal(err)
+			}
+			if releasePayloadValues["project_id"] != target.ID || releasePayloadValues["release_id"] != importedReleaseID || releasePayloadValues["actor_id"] != importer.ID || releasePayloadValues["released_by"] != importer.ID {
+				t.Fatalf("release event payload = %#v", releasePayloadValues)
+			}
+			if taskPayloadValues["project_id"] != target.ID || taskPayloadValues["task_id"] != importedTaskID || taskPayloadValues["release_id"] != importedReleaseID || taskPayloadValues["previous_release_id"] != importedReleaseID || taskPayloadValues["new_release_id"] != importedReleaseID || taskPayloadValues["old_release_id"] != importedReleaseID || taskPayloadValues["actor_id"] != importer.ID {
+				t.Fatalf("task release event payload = %#v", taskPayloadValues)
+			}
+
+			retry, err := data.ImportPortable(ctx, archive, PortableImportOptions{ActorID: importer.ID, TargetProjectID: target.ID})
+			if err != nil {
+				t.Fatalf("release collision retry: %v report=%+v", err, retry)
+			}
+			if retry.Counts.ReleasesCreated != 0 || retry.Counts.TasksCreated != 0 || retry.Counts.EventsCreated != 0 || retry.Counts.ReleasesSkipped != 1 || retry.Counts.TasksSkipped != 1 || retry.Counts.EventsSkipped != 2 {
+				t.Fatalf("release collision retry report = %+v", retry)
+			}
+		})
 	}
 }
 
