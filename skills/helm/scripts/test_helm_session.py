@@ -134,6 +134,20 @@ class StateStoreTests(unittest.TestCase):
                 store.heartbeat_if_due(lambda _task, _operation: (_ for _ in ()).throw(RuntimeError("network")), now=start + timedelta(minutes=9))
             self.assertIsNone(store.load().last_heartbeat_at)  # type: ignore[union-attr]
 
+    def test_clear_matching_can_match_task_without_operation_id(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = session.StateStore("session-1", directory=raw)
+            store.save(_state(operation_id="progress-operation"))
+            self.assertTrue(store.clear_matching(task_id="task-1", operation_id=None))
+            self.assertIsNone(store.load())
+
+    def test_clear_matching_task_only_does_not_clear_another_task(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = session.StateStore("session-1", directory=raw)
+            store.save(_state(task_id="task-active", operation_id="progress-operation"))
+            self.assertFalse(store.clear_matching(task_id="task-other", operation_id=None))
+            self.assertIsNotNone(store.load())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
