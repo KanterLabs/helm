@@ -256,6 +256,7 @@
   import LiveWorkRow from './lib/components/LiveWorkRow.svelte';
   import NotificationsInbox from './lib/components/NotificationsInbox.svelte';
   import RoadmapActivity from './lib/components/RoadmapActivity.svelte';
+  import AdminMetrics from './lib/components/AdminMetrics.svelte';
   import RoadmapLiveWork from './lib/components/RoadmapLiveWork.svelte';
   import TaskActivityTimeline from './lib/components/TaskActivityTimeline.svelte';
   import TaskChecklist from './lib/components/TaskChecklist.svelte';
@@ -309,7 +310,7 @@
   } from './lib/boardOrdering';
   import { buildTaskShareUrl } from './lib/taskShare';
 
-  type View = CommandView | 'releases';
+  type View = CommandView | 'releases' | 'admin';
   type AuthView = 'login' | 'setup' | 'tailnet';
   type ToastKind = 'success' | 'error' | 'info';
   type ToastAction = {
@@ -2755,6 +2756,9 @@
         applySearchRouteFilters(new URL(window.location.href).searchParams);
         view = 'search';
         await loadSearch();
+      } else if (/^\/admin\/?$/.test(path)) {
+        roadmapProjectId = undefined;
+        view = 'admin';
       } else if (/^\/settings\/?$/.test(path)) {
         roadmapProjectId = undefined;
         view = 'settings';
@@ -4362,6 +4366,8 @@
       if (push) navigate('/issues');
       syncIssueViewURL(issueFilters, issueProjectFilter);
       await loadIssues();
+    } else if (next === 'admin') {
+      if (push) navigate('/admin');
     } else if (next === 'roadmap') {
       roadmapProjectId = undefined;
       if (push) navigate('/roadmap');
@@ -4523,6 +4529,7 @@
     }
     else if (/^\/roadmap\/?$/.test(window.location.pathname)) void setView('roadmap', false);
     else if (/^\/settings\/?$/.test(window.location.pathname)) void setView('settings', false);
+    else if (/^\/admin\/?$/.test(window.location.pathname)) void setView('admin', false);
     else if (/^\/?$/.test(window.location.pathname)) handleRootRoute();
   }
 
@@ -6411,6 +6418,8 @@
       } else {
         view = 'releases';
       }
+    } else if (/^\/admin\/?$/.test(path)) {
+      view = 'admin';
     } else if (/^\/settings\/?$/.test(path)) {
       view = 'settings';
     } else if (/^\/p\/[^/]+\/timeline\/?$/.test(path)) {
@@ -7357,6 +7366,7 @@
       </div>
 
       <div class="sidebar-bottom">
+        {#if user.admin}<button class:active={view === 'admin'} class="settings-link" type="button" aria-label="Admin metrics" on:click={() => setView('admin')}><span class="nav-icon">▥</span><span>Metrics</span><span class="nav-count">beta</span></button>{/if}
         <button class:active={view === 'settings'} class="settings-link" type="button" aria-label="Settings" on:click={() => setView('settings')}><span class="nav-icon">⚙</span><span>Settings</span></button>
         <div class="user-chip"><span class="avatar" class:agent={user.kind === 'agent'}>{projectInitials({ name: user.name, key: user.name })}</span><span class="user-copy"><strong>{user.name}</strong><small>{user.email || (user.kind === 'agent' ? 'Agent' : 'Workspace member')}</small></span><button class="icon-button tiny" type="button" aria-label="Sign out" on:click={logout}>↪</button></div>
       </div>
@@ -7778,6 +7788,8 @@
           <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>{roadmapProject ? roadmapProject.key : 'Overview'}</span></div><h1>{roadmapProject ? `${roadmapProject.name} progress` : 'Roadmap overview'}</h1><p>{roadmapProject ? 'A focused view of delivery, deadlines, and recent activity for this project.' : 'A high-level pulse on every project and what needs attention next.'}</p></div><div class="heading-actions">{#if roadmapProject}<button class="button quiet-button" type="button" on:click={() => setView('roadmap')}>All projects</button>{/if}<button class="button quiet-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>↻ Refresh</button></div></section>
           {#if roadmapError}<div class="inline-alert error content-alert" role="alert"><span>!</span>{roadmapError}<button class="text-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>Retry</button></div>{/if}
           {#if roadmapLoading}<div class="roadmap-skeleton"><div></div><div></div><div></div></div>{:else}<section class="roadmap-content"><div class="roadmap-hero"><div class="hero-copy"><span class="eyebrow">Workspace pulse</span><h2>Momentum, at a glance.</h2><p>Progress is calculated from each project's semantic board state.</p></div><div class="hero-progress"><div class="progress-ring" style={`--progress: ${roadmapCompletion}%`}><span>{Math.round(roadmapCompletion)}<small>%</small></span></div><div><strong>{roadmapTotal} total tasks</strong><span>{roadmap?.completed_count ?? Math.round(roadmapTotal * roadmapCompletion / 100)} completed</span></div></div></div><div class="metric-grid"><div class="metric-card"><span class="metric-icon purple">◒</span><span class="metric-label">Completion</span><strong>{Math.round(roadmapCompletion)}%</strong><span class="metric-note">Across all projects</span></div><div class="metric-card"><span class="metric-icon red">!</span><span class="metric-label">Overdue</span><strong>{roadmap?.overdue_count ?? 0}</strong><span class="metric-note">Need attention</span></div><div class="metric-card"><span class="metric-icon amber">◷</span><span class="metric-label">Due soon</span><strong>{roadmap?.due_soon_count ?? 0}</strong><span class="metric-note">Next 7 days</span></div><div class="metric-card"><span class="metric-icon green">✓</span><span class="metric-label">Completed</span><strong>{roadmap?.completed_count ?? 0}</strong><span class="metric-note">Shipped so far</span></div></div><RoadmapLiveWork tasks={roadmapLiveTasks} {projects} columnsByProject={roadmapLiveColumnsByProject} actors={roadmapActors} now={pulseClock} loading={roadmapLiveLoading} error={roadmapLiveError} onOpen={openRoadmapTask} onViewAll={() => setView('my-work')} /><div class="roadmap-columns"><section class="roadmap-panel project-progress-panel"><div class="panel-heading"><div><h2>Project progress</h2><p>Where each project stands today.</p></div><button class="icon-button" type="button" aria-label="Refresh progress" on:click={() => loadRoadmap(roadmapProjectId)}>↻</button></div>{#if roadmapProjectRows.length}{#each roadmapProjectRows as row}<button class="project-progress-row" type="button" on:click={() => selectProject(row.project)}><span class="project-dot" style={`--project-color: ${row.project.color || '#6d5efc'}`}>{projectInitials(row.project)}</span><span class="project-progress-name"><strong>{row.project.name}</strong><small>{row.project.key}</small></span><span class="progress-track"><span style={`width: ${row.total_tasks ? (row.completed_tasks / row.total_tasks) * 100 : 0}%; --project-color: ${row.project.color || '#6d5efc'}`}></span></span><span class="progress-number">{row.total_tasks ? Math.round((row.completed_tasks / row.total_tasks) * 100) : 0}%</span><span>→</span></button>{/each}{:else}<div class="panel-empty">Create a project to see progress here.</div>{/if}</section><section class="roadmap-panel upcoming-panel"><div class="panel-heading"><div><h2>Coming up</h2><p>Tasks with the nearest due dates.</p></div></div>{#if roadmap?.upcoming_tasks?.length}{#each roadmap.upcoming_tasks.slice(0, 5) as task}<button class="upcoming-row" type="button" on:click={() => openWorkTask(task)}><span class="upcoming-key">{task.key}</span><span class="upcoming-title">{task.title}</span><span class={`upcoming-date ${taskDueClass(task)}`}>{formatDate(task.due_at)}</span></button>{/each}{:else}<div class="panel-empty">No upcoming deadlines. Nice breathing room.</div>{/if}</section></div><RoadmapActivity events={roadmapActivityEvents} tasksById={roadmapActivityTasks} {projects} actors={roadmapActors} filter={roadmapActivityFilter} loading={roadmapActivityLoading} error={roadmapActivityError} onFilterChange={(next) => roadmapActivityFilter = next} onOpen={openRoadmapActivity} /></section>{/if}
+        {:else if view === 'admin'}
+          {#if user?.admin}<AdminMetrics />{:else}<div class="empty-state"><div class="empty-icon">◎</div><h3>Administrator access required</h3><p>Ask a workspace administrator for access to metrics.</p></div>{/if}
         {:else}
           <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Preferences</span></div><h1>Settings</h1><p>Manage the agents and tokens that help your workspace move.</p></div></section>
           {#if user?.admin}

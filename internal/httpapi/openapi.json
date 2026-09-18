@@ -4391,6 +4391,68 @@
         }
       }
     },
+    "/api/v1/admin/metrics": {
+      "get": {
+        "operationId": "getAdminMetrics",
+        "summary": "Get installation-wide administrator metrics (beta)",
+        "description": "Human administrators only; bearer tokens are always rejected. Returns\npoint-in-time totals, persisted activity counted from the event log for\nthe trailing `days` UTC calendar days (including today), per-agent\nactivity, and process-local HTTP request counters. Request counters are\nkept in memory, reset when the server restarts, and cover at most the\nlast 24 hours in `requests.hourly`.\n",
+        "tags": [
+          "Agents"
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "Trailing window in UTC calendar days, including today.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 7
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Administrator metrics snapshot",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMetrics"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
     "/api/v1/issues": {
       "get": {
         "operationId": "listIssues",
@@ -11529,6 +11591,356 @@
           }
         },
         "additionalProperties": false
+      },
+      "AdminMetrics": {
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window_days",
+          "release_sha",
+          "requests",
+          "totals",
+          "activity",
+          "daily",
+          "agents"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          },
+          "release_sha": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "object",
+            "description": "Process-local request counters since `since` (server start).",
+            "required": [
+              "since",
+              "total",
+              "agent",
+              "human",
+              "anonymous",
+              "errors",
+              "avg_ms",
+              "hourly",
+              "top_actors"
+            ],
+            "properties": {
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agent": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "human": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "anonymous": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "errors": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "avg_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hourly": {
+                "type": "array",
+                "maxItems": 24,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "hour",
+                    "total",
+                    "agent",
+                    "human",
+                    "anonymous",
+                    "errors"
+                  ],
+                  "properties": {
+                    "hour": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "agent": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "human": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "anonymous": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "top_actors": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "actor_id",
+                    "name",
+                    "kind",
+                    "requests",
+                    "errors",
+                    "avg_ms",
+                    "last_seen_at"
+                  ],
+                  "properties": {
+                    "actor_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "requests": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "avg_ms": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "last_seen_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "totals": {
+            "type": "object",
+            "required": [
+              "projects",
+              "tasks_open",
+              "tasks_done",
+              "bugs_open",
+              "claims_active",
+              "humans",
+              "agents",
+              "active_tokens"
+            ],
+            "properties": {
+              "projects": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tasks_open": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tasks_done": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bugs_open": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claims_active": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "humans": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agents": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "active_tokens": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "activity": {
+            "type": "object",
+            "required": [
+              "tasks_created",
+              "tasks_completed",
+              "bugs_reported",
+              "bugs_resolved",
+              "comments",
+              "claims",
+              "progress_updates",
+              "agent_events",
+              "human_events"
+            ],
+            "properties": {
+              "tasks_created": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tasks_completed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bugs_reported": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bugs_resolved": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "comments": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claims": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "progress_updates": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agent_events": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "human_events": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "daily": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "type": "object",
+              "required": [
+                "date",
+                "tasks_created",
+                "tasks_completed",
+                "comments",
+                "agent_events",
+                "human_events"
+              ],
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "tasks_created": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "tasks_completed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "comments": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "agent_events": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "human_events": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "agents": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "required": [
+                "actor_id",
+                "name",
+                "disabled",
+                "events",
+                "claims",
+                "completions",
+                "last_event_at",
+                "token_last_used_at"
+              ],
+              "properties": {
+                "actor_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "disabled": {
+                  "type": "boolean"
+                },
+                "events": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "claims": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "completions": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "last_event_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "token_last_used_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
       },
       "IssueMetrics": {
         "type": "object",

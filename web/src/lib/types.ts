@@ -661,6 +661,31 @@ export interface IssueMetrics {
   as_of: string;
 }
 
+export interface AdminRequestCounts {
+  total: number;
+  agent: number;
+  human: number;
+  anonymous: number;
+  errors: number;
+}
+
+/** Installation-wide administrator metrics (beta). Request counters are process-local. */
+export interface AdminMetrics {
+  generated_at: string;
+  window_days: number;
+  release_sha: string;
+  requests: AdminRequestCounts & {
+    since: string;
+    avg_ms: number;
+    hourly: Array<AdminRequestCounts & { hour: string }>;
+    top_actors: Array<{ actor_id: string; name: string; kind: string; requests: number; errors: number; avg_ms: number; last_seen_at: string }>;
+  };
+  totals: { projects: number; tasks_open: number; tasks_done: number; bugs_open: number; claims_active: number; humans: number; agents: number; active_tokens: number };
+  activity: { tasks_created: number; tasks_completed: number; bugs_reported: number; bugs_resolved: number; comments: number; claims: number; progress_updates: number; agent_events: number; human_events: number };
+  daily: Array<{ date: string; tasks_created: number; tasks_completed: number; comments: number; agent_events: number; human_events: number }>;
+  agents: Array<{ actor_id: string; name: string; disabled: boolean; events: number; claims: number; completions: number; last_event_at: string | null; token_last_used_at: string | null }>;
+}
+
 /** Scalar navigation counts; no task rows are returned by this endpoint. */
 export interface SidebarCounts {
   issues: number;
