@@ -1664,7 +1664,7 @@ not_contains 'tailscale0' "$INSTALL"
 not_contains 'tailscale0' "$DEPLOY_DIR/nftables.conf"
 contains 'homelab-edge' "$ROOT_DIR/docs/BETA_DEPLOYMENT_PLAN.md"
 contains '10.0.0.101' "$DOCS"
-contains '10.0.0.101' "$ROOT_DIR/README.md"
+contains '10.0.0.101' "$ROOT_DIR/docs/HOMELAB_DEPLOYMENT.md"
 
 # The private profile's generated rules must replace the release marker in the
 # file nftables.service actually loads. Mock install so this exercises the
@@ -1741,8 +1741,8 @@ awk '
 contains 'HEALTHCHECK' "$ROOT_DIR/Dockerfile"
 contains 'test: ["CMD", "/usr/local/bin/helm", "healthcheck"]' "$ROOT_DIR/compose.yaml"
 
-contains '/var/lib/roadmap/data/roadmap.db' "$ROOT_DIR/README.md"
-contains '`ROADMAP_RELEASE_SIGNING_KEY`' "$ROOT_DIR/README.md"
+contains '/var/lib/roadmap/data/roadmap.db' "$ROOT_DIR/docs/HOMELAB_DEPLOYMENT.md"
+contains '`ROADMAP_RELEASE_SIGNING_KEY`' "$ROOT_DIR/docs/HOMELAB_DEPLOYMENT.md"
 
 # Local key material must never enter a Docker build context. .gitignore is
 # intentionally owned by the repository integration agent; test its Docker
