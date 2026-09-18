@@ -155,6 +155,29 @@ def _heartbeat(store: helm_session.StateStore, *, now: datetime | None = None) -
     )
 
 
+def _task_is_terminal_and_unclaimed(task: Any) -> bool:
+    if not isinstance(task, Mapping):
+        return False
+    semantic = task.get("semantic_state")
+    column = task.get("column")
+    if not isinstance(semantic, str) and isinstance(column, Mapping):
+        semantic = column.get("semantic_state")
+    if semantic not in {"completed", "blocked"} or task.get("claimed_by"):
+        return False
+    claim = task.get("claim")
+    return not isinstance(claim, Mapping) or claim.get("status") != "active"
+
+
+def _reconcile_terminal_state(store: helm_session.StateStore, state: helm_session.SessionState) -> bool:
+    """Clear stale local state when the server already finalized its task."""
+
+    client = helm.Client(helm.load_config())
+    payload, _ = client.call("GET", "/tasks/" + quote(state.task_id, safe=""))
+    if not _task_is_terminal_and_unclaimed(payload):
+        return False
+    return store.clear_matching(task_id=state.task_id, operation_id=None)
+
+
 def handle_event(
     event: Mapping[str, Any],
     *,
@@ -163,6 +186,7 @@ def handle_event(
     store_factory: Callable[[Mapping[str, Any]], helm_session.StateStore | None] | None = None,
     heartbeat_fn: Callable[[helm_session.StateStore], helm_session.HeartbeatResult] | None = None,
     notes_fn: Callable[[helm_session.SessionState], str] | None = None,
+    reconcile_fn: Callable[[helm_session.StateStore, helm_session.SessionState], bool] | None = None,
 ) -> dict[str, Any]:
     """Handle a parsed hook event and return protocol JSON.
 
@@ -236,6 +260,10 @@ def handle_event(
                 _heartbeat(store, now=now)
             return _safe_empty()
 
+        state = store.load()
+        if state is not None and state.agent_state in {"working", "verifying"}:
+            if (reconcile_fn or _reconcile_terminal_state)(store, state):
+                return _safe_empty()
         should_block, state = store.stop_decision()
         if should_block and state is not None:
             task = state.task_key or state.task_id

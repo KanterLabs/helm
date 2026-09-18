@@ -79,6 +79,7 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaisesRegex(helper.HelmError, "conflicting"):
                     helper.load_config()
 
+
     def test_rejects_broad_credential_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / "credentials.json"
@@ -164,6 +165,66 @@ class ConfigTests(unittest.TestCase):
             config = helper.load_config()
         self.assertEqual(config.cf_access_client_id, "client-id")
         self.assertEqual(config.cf_access_client_secret, "client-secret")
+
+
+class TerminalActionTests(unittest.TestCase):
+    def test_complete_and_block_clear_by_task_after_progress_operation_changes(self) -> None:
+        for action, field in (("complete", "comment"), ("block", "reason")):
+            calls: list[tuple[str, str, dict[str, object]]] = []
+
+            class StubClient:
+                def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                    calls.append((method, path, kwargs))
+                    if method == "GET":
+                        return {"id": "task-1", "version": 4}, {}
+                    return {"id": "task-1", "version": 5}, {}
+
+            args = argparse.Namespace(task="TC-1", operation_id="terminal-operation", **{field: "done"})
+            with mock.patch.object(helper, "_clear_matching_session") as clear:
+                result = helper._action(StubClient(), args, action, field)  # type: ignore[arg-type]
+            self.assertEqual(result["task"]["version"], 5)
+            clear.assert_called_once_with({"id": "task-1", "version": 4}, operation_id=None)
+
+    def test_terminal_action_removes_local_progress_state_with_new_operation_id(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = session.StateStore("session-1", directory=raw)
+            store.save(
+                session.SessionState(
+                    task_id="task-1",
+                    task_key="TC-1",
+                    project_id="project-1",
+                    operation_id="progress-operation-a",
+                    agent_state="verifying",
+                    snapshot_ready=True,
+                )
+            )
+
+            class StubClient:
+                def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                    if method == "GET":
+                        return {"id": "task-1", "version": 4}, {}
+                    return {"id": "task-1", "version": 5}, {}
+
+            args = argparse.Namespace(task="TC-1", operation_id="terminal-operation-b", comment="done")
+            with mock.patch.object(helper, "_session_store", return_value=store):
+                helper._action(StubClient(), args, "complete", "comment")  # type: ignore[arg-type]
+            self.assertIsNone(store.load())
+
+    def test_replaying_terminal_operation_reuses_mutation_idempotency_key(self) -> None:
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class StubClient:
+            def call(self, method: str, path: str, **kwargs):  # type: ignore[no-untyped-def]
+                calls.append((method, path, kwargs))
+                if method == "GET":
+                    return {"id": "task-1", "version": 4}, {}
+                return {"id": "task-1", "version": 5}, {}
+
+        args = argparse.Namespace(task="TC-1", operation_id="terminal-operation", comment="done")
+        with mock.patch.object(helper, "_clear_matching_session"):
+            helper._action(StubClient(), args, "complete", "comment")  # type: ignore[arg-type]
+            helper._action(StubClient(), args, "complete", "comment")  # type: ignore[arg-type]
+        self.assertEqual(calls[1][2]["idempotency_key"], calls[3][2]["idempotency_key"])
 
 
 class CommandTests(unittest.TestCase):
@@ -722,6 +783,25 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(selected.states, ["ready", "blocked"])
         self.assertEqual(selected.page_size, 2)
         self.assertEqual(selected.evidence_limit, 1)
+
+    def test_audit_terminal_lifecycle_precedes_historical_work_signals(self) -> None:
+        completed = helper._audit_classification(
+            "completed",
+            {"status": "unclaimed"},
+            {"state": "verifying"},
+            "stale",
+            "2026-09-17T00:00:00Z",
+        )
+        self.assertEqual(completed[:3], ("correct", "completed", 0.95))
+
+        blocked = helper._audit_classification(
+            "blocked",
+            {"status": "unclaimed"},
+            {"state": "handoff"},
+            "stale",
+            None,
+        )
+        self.assertEqual(blocked[:3], ("correct", "blocked", 0.92))
 
     def test_audit_follows_every_task_page_and_uses_get_only(self) -> None:
         calls: list[tuple[str, str, dict[str, object]]] = []

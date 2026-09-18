@@ -113,10 +113,10 @@ class HookTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             store = self.make_store(raw, _state(agent_state="verifying"))
             event = {"event": "Stop", "session_id": "session-1"}
-            first = hook.handle_event(event, store_factory=lambda _event: store)
+            first = hook.handle_event(event, store_factory=lambda _event: store, reconcile_fn=lambda _store, _state: False)
             self.assertEqual(first["decision"], "block")
             self.assertIn("TC-1", first["reason"])
-            continuation = hook.handle_event({**event, "stop_hook_active": True}, store_factory=lambda _event: store)
+            continuation = hook.handle_event({**event, "stop_hook_active": True}, store_factory=lambda _event: store, reconcile_fn=lambda _store, _state: False)
             self.assertEqual(continuation, {})
 
     def test_waiting_handoff_missing_id_and_unknown_event_allow_stop(self) -> None:
@@ -125,6 +125,48 @@ class HookTests(unittest.TestCase):
             self.assertEqual(hook.handle_event({"event": "Stop", "session_id": "session-1"}, store_factory=lambda _event: store), {})
             self.assertEqual(hook.handle_event({"event": "Stop"}), {})
             self.assertEqual(hook.handle_event({"event": "Unknown", "session_id": "session-1"}, store_factory=lambda _event: store), {})
+
+    def test_stop_reconciles_server_terminal_task_and_clears_stale_state(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = self.make_store(raw, _state(agent_state="verifying"))
+            reconcile = mock.Mock(return_value=True)
+            result = hook.handle_event(
+                {"event": "Stop", "session_id": "session-1"},
+                store_factory=lambda _event: store,
+                reconcile_fn=reconcile,
+            )
+            self.assertEqual(result, {})
+            reconcile.assert_called_once_with(store, _state(agent_state="verifying"))
+
+    def test_stop_does_not_reconcile_or_clear_when_server_task_is_still_active(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = self.make_store(raw, _state(agent_state="working"))
+            reconcile = mock.Mock(return_value=False)
+            result = hook.handle_event(
+                {"event": "Stop", "session_id": "session-1"},
+                store_factory=lambda _event: store,
+                reconcile_fn=reconcile,
+            )
+            self.assertEqual(result["decision"], "block")
+
+    def test_terminal_reconciliation_uses_server_lifecycle_and_unclaimed_status(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            for semantic in ("completed", "blocked"):
+                store = self.make_store(raw + semantic, _state(agent_state="verifying"))
+                client = mock.Mock()
+                client.call.return_value = ({"semantic_state": semantic, "claimed_by": None}, {})
+                with mock.patch.object(hook.helm, "load_config"), mock.patch.object(hook.helm, "Client", return_value=client):
+                    self.assertTrue(hook._reconcile_terminal_state(store, _state(agent_state="verifying")))
+                self.assertIsNone(store.load())
+
+    def test_terminal_reconciliation_keeps_claimed_task_state(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            store = self.make_store(raw, _state(agent_state="working"))
+            client = mock.Mock()
+            client.call.return_value = ({"semantic_state": "completed", "claimed_by": "agent-2"}, {})
+            with mock.patch.object(hook.helm, "load_config"), mock.patch.object(hook.helm, "Client", return_value=client):
+                self.assertFalse(hook._reconcile_terminal_state(store, _state(agent_state="working")))
+            self.assertIsNotNone(store.load())
 
 
 if __name__ == "__main__":

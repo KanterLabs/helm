@@ -963,6 +963,13 @@ def _audit_classification(
     if semantic not in AUDIT_SEMANTIC_STATES:
         return "needs_attention", semantic, 0.25, "current semantic column is unavailable or unknown", warnings
 
+    # Terminal lifecycle metadata is authoritative over historical agent-work
+    # pulses. A final verifying/working pulse is expected after completion.
+    if semantic == "completed" and completed_at and claim.get("status") != "active":
+        return "correct", semantic, 0.95, "completion metadata matches the completed column", warnings
+    if semantic == "blocked" and claim.get("status") != "active" and state in {"waiting", "handoff"}:
+        return "correct", semantic, 0.92, f"blocked lifecycle metadata matches the {state} handoff state", warnings
+
     fresh_active_work = (
         claim.get("status") == "active"
         and state in {"working", "verifying"}
@@ -992,8 +999,6 @@ def _audit_classification(
         return "needs_attention", semantic, 0.78, "work signals do not match this non-active column", warnings
     if liveness == "stale":
         return "needs_attention", semantic, 0.65, "stale agent pulse needs review; it does not prove abandonment", warnings
-    if semantic == "completed" and completed_at:
-        return "correct", semantic, 0.95, "completion metadata matches the completed column", warnings
     # Missing pulses are expected for unclaimed backlog work. Keep the warning
     # in the machine context without proposing a move based on absence.
     if semantic == "backlog" and claim.get("status") == "unclaimed" and work is None:
@@ -1540,7 +1545,7 @@ def _record_session_heartbeat(task: Any, args: argparse.Namespace) -> None:
         _state_warning(exc)
 
 
-def _clear_matching_session(task: Any, operation_id: str) -> None:
+def _clear_matching_session(task: Any, operation_id: str | None = None) -> None:
     store = _session_store()
     if store is None:
         return
@@ -3018,7 +3023,13 @@ def _action(client: Client, args: argparse.Namespace, action: str, field: str) -
         if_match=current["version"],
         idempotency_key=_command_mutation_id(args.operation_id, "POST", path, body),
     )
-    _clear_matching_session(current, args.operation_id)
+    # Terminal actions use a fresh operation ID after progress may have
+    # written a different one locally. Match the task only so successful
+    # completion/block actions always clear that task's recovery record.
+    if action in {"complete", "block"}:
+        _clear_matching_session(current, operation_id=None)
+    else:
+        _clear_matching_session(current, args.operation_id)
     return {"task": payload, "operation_id": args.operation_id}
 
 

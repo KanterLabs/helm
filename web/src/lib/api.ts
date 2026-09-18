@@ -22,6 +22,7 @@ import {
   type Collection,
   type Column,
   type Comment,
+  type AdminMetrics,
   type IssueMetrics,
   type Label,
   type Project,
@@ -851,6 +852,7 @@ export const api = {
       })
     ).then(collectionFrom), params.cursor
   ),
+  adminMetrics: (days = 7) => request<AdminMetrics>(pathWithQuery('/admin/metrics', { days })),
   issueMetrics: (params: { project?: string } = {}) =>
     request<IssueMetrics>(pathWithQuery('/issues/metrics', { project: params.project })),
   sidebarCounts: (params: { project?: string; view?: WorkView } = {}) =>
