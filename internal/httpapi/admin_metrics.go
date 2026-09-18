@@ -1,8 +1,8 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,161 +13,107 @@ import (
 )
 
 const (
-	adminActivityHours     = 24
-	adminActivityMaxActors = 500
-	adminMetricsMaxDays    = 90
+	adminActivityHours       = 24
+	adminActivityMaxPending  = 5000
+	adminMetricsMaxDays      = 90
+	requestActivityRetention = 90 * 24 * time.Hour
+	requestActivityFlush     = time.Minute
 )
 
-// adminActivityTracker keeps process-local request counts for the admin
-// metrics view. Unlike metricsRegistry it is keyed by actor so an
-// administrator can see which agent is busy, which is why it is never exposed
-// on the unauthenticated-loopback /metrics endpoint. Memory is bounded by the
-// fixed hourly ring and the actor cap; counters reset on restart.
+// adminActivityTracker batches per-actor, per-hour request counts in memory
+// and adds them to request_activity_hourly about once a minute, when an
+// administrator opens the metrics page, and on graceful shutdown. Counts are
+// keyed by actor, which is why they are never exposed on the
+// unauthenticated-loopback /metrics endpoint. The pending batch is bounded;
+// if the database is unavailable for long enough to fill it, new actor/hour
+// keys are dropped rather than growing memory.
 type adminActivityTracker struct {
-	mu        sync.Mutex
-	startedAt time.Time
-	hours     [adminActivityHours]adminActivityHour
-	actors    map[string]*adminActivityActor
-	totals    adminActivityCounts
+	mu      sync.Mutex
+	pending map[adminActivityKey]*store.RequestActivityDelta
+	flushMu sync.Mutex
 }
 
-type adminActivityCounts struct {
-	Total      uint64 `json:"total"`
-	Agent      uint64 `json:"agent"`
-	Human      uint64 `json:"human"`
-	Anonymous  uint64 `json:"anonymous"`
-	Errors     uint64 `json:"errors"`
-	DurationMS uint64 `json:"-"`
-}
-
-type adminActivityHour struct {
-	start  time.Time
-	counts adminActivityCounts
-}
-
-type adminActivityActor struct {
-	kind       string
-	requests   uint64
-	errors     uint64
-	durationMS uint64
-	lastSeen   time.Time
+type adminActivityKey struct {
+	hour    int64
+	actorID string
 }
 
 func newAdminActivityTracker() *adminActivityTracker {
-	return &adminActivityTracker{startedAt: time.Now().UTC(), actors: make(map[string]*adminActivityActor)}
+	return &adminActivityTracker{pending: make(map[adminActivityKey]*store.RequestActivityDelta)}
 }
 
 func (t *adminActivityTracker) record(identity auth.Identity, authenticated bool, status int, duration time.Duration, at time.Time) {
 	if t == nil {
 		return
 	}
-	kind := "anonymous"
+	kind, actorID := "anonymous", ""
 	if authenticated {
-		kind = identity.Actor.Kind
+		kind, actorID = identity.Actor.Kind, identity.Actor.ID
 	}
-	isError := status >= 400
 	ms := uint64(0)
 	if duration > 0 {
 		ms = uint64(duration.Milliseconds())
 	}
-	hourStart := at.UTC().Truncate(time.Hour)
-	slot := &t.hours[hourStart.Unix()/3600%adminActivityHours]
+	at = at.UTC()
+	hour := at.Truncate(time.Hour)
+	key := adminActivityKey{hour: hour.Unix(), actorID: actorID}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !slot.start.Equal(hourStart) {
-		*slot = adminActivityHour{start: hourStart}
-	}
-	for _, counts := range []*adminActivityCounts{&t.totals, &slot.counts} {
-		counts.Total++
-		counts.DurationMS += ms
-		switch kind {
-		case "agent":
-			counts.Agent++
-		case "human":
-			counts.Human++
-		default:
-			counts.Anonymous++
-		}
-		if isError {
-			counts.Errors++
-		}
-	}
-	if !authenticated || identity.Actor.ID == "" {
-		return
-	}
-	actor := t.actors[identity.Actor.ID]
-	if actor == nil {
-		if len(t.actors) >= adminActivityMaxActors {
+	delta := t.pending[key]
+	if delta == nil {
+		if len(t.pending) >= adminActivityMaxPending {
 			return
 		}
-		actor = &adminActivityActor{kind: kind}
-		t.actors[identity.Actor.ID] = actor
+		delta = &store.RequestActivityDelta{Hour: hour, ActorID: actorID, ActorKind: kind}
+		t.pending[key] = delta
 	}
-	actor.requests++
-	actor.durationMS += ms
-	actor.lastSeen = at.UTC()
-	if isError {
-		actor.errors++
+	delta.Requests++
+	delta.DurationMSSum += ms
+	if status >= 400 {
+		delta.Errors++
+	}
+	if at.After(delta.LastSeenAt) {
+		delta.LastSeenAt = at
 	}
 }
 
-type adminRequestHour struct {
-	Hour string `json:"hour"`
-	adminActivityCounts
-}
-
-type adminRequestActor struct {
-	ActorID    string `json:"actor_id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	Requests   uint64 `json:"requests"`
-	Errors     uint64 `json:"errors"`
-	AvgMS      uint64 `json:"avg_ms"`
-	LastSeenAt string `json:"last_seen_at"`
-}
-
-type adminRequestMetrics struct {
-	Since string `json:"since"`
-	adminActivityCounts
-	AvgMS     uint64              `json:"avg_ms"`
-	Hourly    []adminRequestHour  `json:"hourly"`
-	TopActors []adminRequestActor `json:"top_actors"`
-}
-
-func (t *adminActivityTracker) snapshot(now time.Time) adminRequestMetrics {
+// flush writes the pending batch. On failure the batch is merged back so the
+// next flush retries it; AddRequestActivity is all-or-nothing, so nothing is
+// double counted.
+func (t *adminActivityTracker) flush(ctx context.Context, data *store.Store, now time.Time) error {
+	if t == nil || data == nil {
+		return nil
+	}
+	t.flushMu.Lock()
+	defer t.flushMu.Unlock()
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	result := adminRequestMetrics{Since: t.startedAt.Format(time.RFC3339), adminActivityCounts: t.totals, Hourly: []adminRequestHour{}, TopActors: []adminRequestActor{}}
-	if t.totals.Total > 0 {
-		result.AvgMS = t.totals.DurationMS / t.totals.Total
+	batch := t.pending
+	t.pending = make(map[adminActivityKey]*store.RequestActivityDelta)
+	t.mu.Unlock()
+	deltas := make([]store.RequestActivityDelta, 0, len(batch))
+	for _, delta := range batch {
+		deltas = append(deltas, *delta)
 	}
-	current := now.UTC().Truncate(time.Hour)
-	for offset := adminActivityHours - 1; offset >= 0; offset-- {
-		hourStart := current.Add(-time.Duration(offset) * time.Hour)
-		entry := adminRequestHour{Hour: hourStart.Format(time.RFC3339)}
-		if slot := t.hours[hourStart.Unix()/3600%adminActivityHours]; slot.start.Equal(hourStart) {
-			entry.adminActivityCounts = slot.counts
+	err := data.AddRequestActivity(ctx, deltas, now.Add(-requestActivityRetention))
+	if err == nil {
+		return nil
+	}
+	t.mu.Lock()
+	for key, delta := range batch {
+		if current := t.pending[key]; current != nil {
+			current.Requests += delta.Requests
+			current.Errors += delta.Errors
+			current.DurationMSSum += delta.DurationMSSum
+			if delta.LastSeenAt.After(current.LastSeenAt) {
+				current.LastSeenAt = delta.LastSeenAt
+			}
+		} else {
+			t.pending[key] = delta
 		}
-		result.Hourly = append(result.Hourly, entry)
 	}
-	for id, actor := range t.actors {
-		entry := adminRequestActor{ActorID: id, Kind: actor.kind, Requests: actor.requests, Errors: actor.errors, LastSeenAt: actor.lastSeen.Format(time.RFC3339)}
-		if actor.requests > 0 {
-			entry.AvgMS = actor.durationMS / actor.requests
-		}
-		result.TopActors = append(result.TopActors, entry)
-	}
-	sort.Slice(result.TopActors, func(i, j int) bool {
-		if result.TopActors[i].Requests != result.TopActors[j].Requests {
-			return result.TopActors[i].Requests > result.TopActors[j].Requests
-		}
-		return result.TopActors[i].ActorID < result.TopActors[j].ActorID
-	})
-	if len(result.TopActors) > 20 {
-		result.TopActors = result.TopActors[:20]
-	}
-	return result
+	t.mu.Unlock()
+	return err
 }
 
 func (s *Server) adminActivityValue() *adminActivityTracker {
@@ -179,17 +125,40 @@ func (s *Server) adminActivityValue() *adminActivityTracker {
 	return s.adminActivity
 }
 
+// FlushRequestActivity writes any pending request counts. The server calls it
+// on graceful shutdown so a deploy or restart does not lose counts.
+func (s *Server) FlushRequestActivity(ctx context.Context) error {
+	return s.adminActivityValue().flush(ctx, s.Store, time.Now())
+}
+
+// RunRequestActivityFlusher writes pending request counts every minute until
+// ctx is canceled. Write errors are logged and retried on the next tick.
+func (s *Server) RunRequestActivityFlusher(ctx context.Context) {
+	ticker := time.NewTicker(requestActivityFlush)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.FlushRequestActivity(ctx); err != nil && ctx.Err() == nil {
+				s.logJSON(map[string]any{"level": "error", "msg": "request activity flush failed", "error_class": classifyError(err)})
+			}
+		}
+	}
+}
+
 type adminMetricsResponse struct {
-	GeneratedAt string              `json:"generated_at"`
-	WindowDays  int                 `json:"window_days"`
-	ReleaseSHA  string              `json:"release_sha"`
-	Requests    adminRequestMetrics `json:"requests"`
+	GeneratedAt string                `json:"generated_at"`
+	WindowDays  int                   `json:"window_days"`
+	ReleaseSHA  string                `json:"release_sha"`
+	Requests    store.RequestActivity `json:"requests"`
 	store.AdminMetrics
 }
 
 // adminMetrics serves GET /api/v1/admin/metrics?days=N for human
-// administrators. It combines persisted activity with process-local request
-// counters and is deliberately not available to bearer tokens.
+// administrators. Activity comes from the event log and request counts from
+// request_activity_hourly; it is deliberately not available to bearer tokens.
 func (s *Server) adminMetrics(w http.ResponseWriter, r *http.Request, identity auth.Identity) {
 	if !requireAdmin(w, identity) {
 		return
@@ -213,13 +182,14 @@ func (s *Server) adminMetrics(w http.ResponseWriter, r *http.Request, identity a
 		s.writeInternal(w, err)
 		return
 	}
-	requests := s.adminActivityValue().snapshot(now)
-	if len(requests.TopActors) > 0 {
-		for index := range requests.TopActors {
-			if actor, err := s.Store.GetActor(r.Context(), requests.TopActors[index].ActorID); err == nil {
-				requests.TopActors[index].Name = actor.Name
-			}
-		}
+	// Include requests from the last minute that have not been flushed yet.
+	if err := s.FlushRequestActivity(r.Context()); err != nil {
+		s.logJSON(map[string]any{"level": "error", "msg": "request activity flush failed", "error_class": classifyError(err)})
+	}
+	requests, err := s.Store.RequestActivitySince(r.Context(), now.AddDate(0, 0, -(days-1)), now, adminActivityHours)
+	if err != nil {
+		s.writeInternal(w, err)
+		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, adminMetricsResponse{

@@ -669,7 +669,7 @@ export interface AdminRequestCounts {
   errors: number;
 }
 
-/** Installation-wide administrator metrics (beta). Request counters are process-local. */
+/** Installation-wide administrator metrics (beta). Request counts are persisted hourly. */
 export interface AdminMetrics {
   generated_at: string;
   window_days: number;
@@ -678,6 +678,7 @@ export interface AdminMetrics {
     since: string;
     avg_ms: number;
     hourly: Array<AdminRequestCounts & { hour: string }>;
+    daily: Array<AdminRequestCounts & { date: string }>;
     top_actors: Array<{ actor_id: string; name: string; kind: string; requests: number; errors: number; avg_ms: number; last_seen_at: string }>;
   };
   totals: { projects: number; tasks_open: number; tasks_done: number; bugs_open: number; claims_active: number; humans: number; agents: number; active_tokens: number };

@@ -111,7 +111,7 @@
       <div class="stat"><span class="stat-label">Tasks created</span><strong>{fmt(activity.tasks_created)}</strong><span class="stat-note">Last {metrics.window_days} days</span></div>
       <div class="stat"><span class="stat-label">Tasks completed</span><strong>{fmt(activity.tasks_completed)}</strong><span class="stat-note">Last {metrics.window_days} days</span></div>
       <div class="stat"><span class="stat-label">Agent actions</span><strong>{fmt(activity.agent_events)}</strong><span class="stat-note">{fmt(activity.claims)} claims · {fmt(activity.progress_updates)} progress updates</span></div>
-      <div class="stat"><span class="stat-label">API requests</span><strong>{fmt(requests.total)}</strong><span class="stat-note">{agentShare}% from agents · since restart</span></div>
+      <div class="stat"><span class="stat-label">API requests</span><strong>{fmt(requests.total)}</strong><span class="stat-note">{agentShare}% from agents · last {metrics.window_days} days</span></div>
       <div class="stat"><span class="stat-label">Comments</span><strong>{fmt(activity.comments)}</strong><span class="stat-note">Last {metrics.window_days} days</span></div>
       <div class="stat"><span class="stat-label">Bugs</span><strong>{fmt(activity.bugs_reported)} <small>/ {fmt(activity.bugs_resolved)}</small></strong><span class="stat-note">Reported / resolved</span></div>
       <div class="stat"><span class="stat-label">Error rate</span><strong>{errorRate}%</strong><span class="stat-note">{fmt(requests.errors)} responses ≥ 400 · avg {fmt(requests.avg_ms)} ms</span></div>
@@ -153,7 +153,7 @@
 
       <section class="panel">
         <div class="panel-title">
-          <div><h2>API requests, last 24h</h2><p>Hourly, since restart {formatRelative(requests.since)}</p></div>
+          <div><h2>API requests, last 24h</h2><p>Hourly, updated about once a minute</p></div>
           <div class="legend"><span><i class="swatch a"></i>Agents</span><span><i class="swatch b"></i>Humans</span></div>
         </div>
         <div class="chart" role="img" aria-label="API requests per hour over the last 24 hours, split by agents and humans">
@@ -212,7 +212,7 @@
       </section>
 
       <section class="panel">
-        <div class="panel-title"><div><h2>Top API callers</h2><p>Requests since restart</p></div></div>
+        <div class="panel-title"><div><h2>Top API callers</h2><p>Requests in the last {metrics.window_days} days</p></div></div>
         {#if requests.top_actors.length}
           <div class="table-wrap">
             <table>
@@ -231,7 +231,7 @@
             </table>
           </div>
         {:else}
-          <div class="panel-empty">No authenticated requests since the server started.</div>
+          <div class="panel-empty">No authenticated requests in this window.</div>
         {/if}
       </section>
     </div>
@@ -239,7 +239,7 @@
     <p class="footnote">
       {fmt(totals.projects)} projects · {fmt(totals.tasks_open)} open / {fmt(totals.tasks_done)} done tasks · {fmt(totals.bugs_open)} open bugs ·
       {fmt(totals.humans)} people · {fmt(totals.agents)} agents · {fmt(totals.active_tokens)} active tokens.
-      Activity comes from the event log; request counts are kept in memory and reset when Helm restarts.
+      Activity comes from the event log; request counts are saved hourly, kept for 90 days, and can lag by up to a minute.
       {#if metrics.release_sha}Release <code>{metrics.release_sha.slice(0, 7)}</code>.{/if}
     </p>
   {/if}
