@@ -1014,6 +1014,7 @@ func (s *Server) logRequest(requestID, method, rawPath string, status int, durat
 	}
 	s.logJSON(fields)
 	s.metricsValue().recordRequest(method, rawPath, status, duration)
+	s.adminActivityValue().record(identity, authenticated, status, duration, time.Now())
 }
 
 func (s *Server) logInternalError(w http.ResponseWriter, err error) {

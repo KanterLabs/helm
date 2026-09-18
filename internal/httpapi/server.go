@@ -54,6 +54,8 @@ type Server struct {
 	bearerAuthSlots             chan struct{}
 	metrics                     *metricsRegistry
 	metricsOnce                 sync.Once
+	adminActivity               *adminActivityTracker
+	adminActivityOnce           sync.Once
 	static                      http.Handler
 }
 
@@ -177,7 +179,7 @@ func NewWithBetaSwitch(s *store.Store, manager *auth.Manager, cfg config.Config,
 	if len(codexManagers) > 0 {
 		codexManager = codexManagers[0]
 	}
-	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry()}
+	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry(), adminActivity: newAdminActivityTracker()}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -653,6 +655,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		default:
 			s.writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
 		}
+		return
+	}
+	if len(parts) == 2 && parts[0] == "admin" && parts[1] == "metrics" {
+		s.adminMetrics(w, r, identity)
 		return
 	}
 	if len(parts) >= 3 && parts[0] == "admin" && parts[1] == "beta" {

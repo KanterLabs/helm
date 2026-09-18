@@ -112,3 +112,15 @@ Deployments should gate activation on `/readyz`, retain the previous release,
 and use `helm-backup` plus `schema-preflight` before migrations. A failed
 readiness check is a signal to pause promotion, not a reason to recreate or
 restore over the live database.
+
+## Admin metrics page (beta)
+
+Human administrators can open **Metrics** in the sidebar (`/admin`), backed by
+`GET /api/v1/admin/metrics?days=N` (1–90, default 7). Bearer tokens are always
+rejected. Workspace totals and activity (tasks created and completed, bugs,
+comments, claims, progress updates, and per-agent actions) are computed from
+the existing event log, so they survive restarts and need no schema change.
+Per-actor API request counts, error counts, and the last-24-hour hourly
+breakdown are kept in memory, bounded to 500 actors, and reset when Helm
+restarts. They are never exposed through the Prometheus `/metrics` endpoint,
+which keeps its actor-free label set.
