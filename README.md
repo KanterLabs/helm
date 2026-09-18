@@ -1,534 +1,269 @@
-# Helm
+<div align="center">
 
-Helm is a small, self-hosted project board and internal bug tracker for
-teams where humans and software agents move work together. Humans get a
-focused Kanban workspace; agents get a stable, auditable API for discovering,
-claiming, updating, and finishing tasks without sharing a human login.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.svg">
+  <img alt="Helm: a task moving across a board while an agent reports live progress" src="docs/assets/hero-light.svg" width="900">
+</picture>
 
-Helm v1 intentionally keeps the model small: one board per project,
-ordered semantic columns, and SQLite persistence. It is not intended to be a
-Trello-compatible API or a full team-suite replacement.
+<br>
 
-## What you can do
+**A small, self-hosted project board and bug tracker for teams where humans and software agents move work together.**
 
-- Organize work into projects with stable keys and URLs, favorites, recents,
-  and a persistent project switcher (`Cmd/Ctrl+K`).
-- Work from a board with Backlog, Ready, In progress, Blocked, and Done
-  columns. Create tasks quickly, move them with drag-and-drop or keyboard
-  controls, and filter by text, state, kind, priority, severity, label,
-  assignee, reporter, resolution, focus (including **No focus**), or
-  agent-work state. Claimed agent tasks expose a compact live pulse on the
-  board and a fuller progress panel in the task drawer.
-- Keep task context in Markdown descriptions, priorities, due dates, labels,
-  assignees, comments, and chronological human/agent activity. Record bugs
-  with actual versus expected behavior, reproduction steps, environment, and
-  affected version.
-- Plan product delivery with project-local Focus: bound the tasks that matter
-  now, optionally set a target date, assign each task or bug, track readiness,
-  and explicitly complete or reopen the Focus.
-- Follow assigned work in **My work** and all published agent pulses across
-  permitted projects in cross-project **Live Work**, or inspect completion,
-  overdue work, upcoming deadlines, and recent activity in **Roadmap**.
-- Coordinate safely through atomic leased claims, renew/release/complete/block
-  actions, bug triage/resolve/reopen actions, optimistic versions
-  (`ETag`/`If-Match`), idempotency keys, and a cursor-based event feed.
-- Capture read-only board audits, review immutable findings, and explicitly
-  preview and apply guarded recommendations without moving work implicitly.
-- Create agents and issue project-scoped bearer tokens with independently
-  selected read, write, claim, and event scopes.
-- Follow projects or tasks with watches and receive deduplicated in-app
-  notifications for assignments, mentions, blockers, and state changes. See
-  [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md); safe automations and
-  external delivery remain deferred to TC-165 and TC-166.
-- Keep the live view current through bounded polling. The responsive browser
-  UI remains usable on mobile widths and supports keyboard navigation,
-  focus-visible controls, and screen-reader status announcements.
+[![CI](https://github.com/KanterLabs/helm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/KanterLabs/helm/actions/workflows/ci.yml)
+![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
+![Svelte](https://img.shields.io/badge/Svelte-TypeScript-FF3E00?logo=svelte&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-one_container-2496ED?logo=docker&logoColor=white)
+![Self-hosted](https://img.shields.io/badge/self--hosted-yes-6d5efc)
 
-The built-in bug tracker is an internal MVP. Bugs use the existing task,
-board, claim, comment, scope, and event model. Public issue intake, external
-tracker synchronization, bug-specific notification policies, attachments,
-service-level agreements, and a separate bug-permission model are out of scope
-for now. See
-[`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) for the lifecycle and complete
-request/response contract.
+[Quick start](#quick-start) ·
+[Features](#features) ·
+[Agents](#agents) ·
+[Configuration](#configuration) ·
+[Docs](#docs) ·
+[Development](#development)
 
-Screenshots are not checked in yet; run the local stack below to see the
-current UI.
+</div>
 
-## Architecture
+---
 
-```text
-Browser (Svelte + TypeScript) ─┐
-                               ├─ Go Helm server
-Agent clients (JSON API) ──────┘    ├─ /api/v1 REST API
-                                    ├─ /healthz, /readyz, and /metrics
-                                    ├─ embedded frontend and migrations
-                                    └─ SQLite (WAL, foreign keys, /data)
-```
+Humans get a focused Kanban workspace. Agents get a stable, auditable API for
+discovering, claiming, updating, and finishing tasks, without sharing a human
+login. Both use the same versioned API, and everything runs as one unprivileged
+container backed by SQLite.
 
-The browser and external agents use the same versioned API. The production
-image is built as one unprivileged container; only the database/configuration
-volume is writable. The checked-in `compose.yaml` binds local traffic to
-`127.0.0.1:8080`, uses a persistent `roadmap-data` volume, drops Linux
-capabilities, and runs with a read-only root filesystem.
+Helm deliberately keeps its model small: one board per project, ordered
+semantic columns, and a single database file. It is not a Trello-compatible API
+or a full team-suite replacement.
 
-## Run locally with Docker Compose
+<a id="quick-start"></a>
 
-The commands below assume the repository checkout root and the checked-in
-`compose.yaml`, `Dockerfile`, and `Makefile`.
+## 🚀 Quick start
 
-Prerequisite: Docker Engine with the Docker Compose plugin.
+You need Docker Engine with the Compose plugin.
 
 ```sh
+git clone https://github.com/KanterLabs/helm.git && cd helm
 docker compose up --build --detach
 curl --fail http://127.0.0.1:8080/healthz
 ```
 
-Visit <http://localhost:8080>. The local Compose defaults are local account
-authentication, `http://localhost:8080` as the public origin, secure cookies
-disabled for localhost, and demo seed data enabled. On the first visit, create
-the local administrator in the setup screen. To start with an empty database,
-set `HELM_DEMO_SEED=false` before starting:
+Open <http://localhost:8080> and create the local administrator on the setup
+screen. The default stack binds to `127.0.0.1:8080`, seeds demo data, and keeps
+everything in the persistent `roadmap-data` volume.
+
+<details>
+<summary>Start empty, stop, or reset</summary>
 
 ```sh
-HELM_DEMO_SEED=false docker compose up --build --detach
+HELM_DEMO_SEED=false docker compose up --build --detach   # no demo data
+docker compose down                                        # stop
+docker compose down -v                                     # stop AND delete all data
 ```
 
-Stop the stack with:
+</details>
 
-```sh
-docker compose down
-```
+<a id="features"></a>
 
-`docker compose down -v` also deletes the local `roadmap-data` volume; use it
-only when intentionally discarding local data.
+## ✨ Features
 
-Each signed-in human can connect their own Codex-enabled ChatGPT subscription
-from **Settings → Your Codex subscription**. The container includes Codex and
-uses the device-code flow, so this works on remote or headless installations.
-Codex credentials remain in actor-isolated directories under the persistent
-`/data/codex-users` volume; Helm never shares a host API key between users.
-Non-container installs must make `codex` available on `PATH` or set
-`HELM_CODEX_BINARY`, and may relocate the protected state root with
-`HELM_CODEX_HOME_ROOT`.
+<table>
+<tr>
+<td width="50%" valign="top">
 
-Operators can immediately stop model turns without removing anyone's saved
-connection by setting `HELM_LUNA_ENABLED=false` and restarting Helm. See
-[`docs/LUNA_TASK_ASSIST.md`](docs/LUNA_TASK_ASSIST.md) for tuning, fallbacks,
-privacy-safe metrics, and validation thresholds.
+### 🗂️ Boards that stay out of the way
+Backlog, Ready, In progress, Blocked, and Done columns. Drag-and-drop or
+keyboard moves, fast task creation, and filters for state, kind, priority,
+severity, label, assignee, focus, and agent state. `Cmd/Ctrl+K` switches
+projects.
 
-Production request, database, capacity, readiness, and redacted-log
-diagnostics are documented in [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
+</td>
+<td width="50%" valign="top">
 
-## Authentication and agent access
+### 🤖 Agents as first-class teammates
+Agents get their own identities and project-scoped bearer tokens. Leased
+claims, live progress updates, and a cursor-based event feed show you what
+every agent is doing, with nothing shared through a human login.
 
-`HELM_AUTH_MODE` selects the human-facing mode:
+</td>
+</tr>
+<tr>
+<td valign="top">
 
-- `local` (default): the first-run setup creates a local administrator; users
-  sign in with an email/password session cookie.
-- `cloudflare`: the service verifies Cloudflare Access identity assertions.
-  Configure the HTTPS `HELM_CLOUDFLARE_ISSUER` and
-  `HELM_CF_ACCESS_AUDIENCES` as a comma-separated list containing the UI
-  and `/api/v1/*` application AUD tags. `HELM_CLOUDFLARE_JWKS_URL` is
-  optional when the issuer's standard certificates endpoint is usable.
-  Production also sets `HELM_PUBLIC_ORIGIN`,
-  `HELM_SECURE_COOKIES=true`, `HELM_DEMO_SEED=false`, and binds only to
-  loopback. Password login and ordinary proxy identity headers are not used in
-  Cloudflare mode.
-- `tailnet`: private-only authentication. The trusted edge resolves the
-  Tailnet peer through tailscaled and sends Helm a short-lived, request-bound
-  assertion; Helm does not trust raw Tailscale/proxy identity headers and does
-  not offer local password setup or login. Configure the exact
-  `HELM_TAILNET_OWNER_LOGIN`, existing `HELM_ADMIN_EMAIL`, private HTTPS
-  origin/audience, protected assertion key, TLS files, and edge peer allowlist.
-- `disabled`: development-only authentication bypass. Never use it for a
-  reachable or production deployment.
+### 🐞 A built-in bug tracker
+Bugs record actual vs. expected behavior, reproduction steps, environment, and
+affected version. Triage by severity (`s1`–`s4`), resolve with a reason, and
+reopen when a regression returns.
 
-`HELM_*` variables are canonical. Equal-value `ROADMAP_*` aliases remain
-supported for retained releases and existing operator configuration; when
-both spellings are set to different non-empty values, Helm fails closed.
+</td>
+<td valign="top">
 
-Agents are separate actors. An administrator creates an agent, then issues a
-token from Settings or `POST /api/v1/agents/{agent}/tokens`. Send it as:
+### 🎯 Focus and roadmap
+Group the tasks that matter now into a Focus with an optional target date and
+readiness tracking. **My work**, **Live Work**, and **Roadmap** views show
+assignments, agent progress, deadlines, and recent activity across projects.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔍 Guarded board audits
+Run read-only audits, review immutable findings, and preview recommendations
+before applying them. Nothing moves until someone explicitly confirms it.
+
+</td>
+<td valign="top">
+
+### 🔒 Secure by default
+Read-only root filesystem, no Linux capabilities, loopback-only port binding,
+and hashed tokens that are shown only once. Supports local accounts,
+Cloudflare Access, or private Tailnet authentication.
+
+</td>
+</tr>
+</table>
+
+You also get Markdown descriptions, comments, labels, due dates, watches with
+deduplicated in-app notifications, portable export/import between
+installations, and a responsive UI that works on mobile, with keyboard
+navigation and screen-reader support.
+
+<a id="agents"></a>
+
+## 🤖 Built for agents
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/agent-loop-dark.svg">
+  <img alt="Agent work loop: discover, claim, pulse progress, finish" src="docs/assets/agent-loop-light.svg" width="900">
+</picture>
+
+An administrator creates an agent, then issues a token from **Settings** or
+`POST /api/v1/agents/{agent}/tokens`:
 
 ```sh
 export HELM_TOKEN='store-this-in-your-secret-manager'
-curl --fail \
-  -H "Authorization: Bearer ${HELM_TOKEN}" \
+curl --fail -H "Authorization: Bearer ${HELM_TOKEN}" \
   http://127.0.0.1:8080/api/v1/projects
 ```
 
-Available scopes are `projects:read`, `projects:write`, `tasks:read`,
-`tasks:write`, `tasks:claim`, and `events:read`. An agent's project list is an
-access ceiling; each token may narrow it but cannot widen it. Token plaintext
-is returned only once and is hashed at rest. Do not commit or paste real
-tokens into source, task data, or deployment artifacts.
+| Scope | Grants |
+| --- | --- |
+| `projects:read` / `projects:write` | Read or manage projects |
+| `tasks:read` / `tasks:write` | Read or edit tasks, bugs, Focus, and audits |
+| `tasks:claim` | Claim, renew, release, and complete work |
+| `events:read` | Follow the event feed |
 
-## API and development
+An agent's project list is a ceiling: each token can narrow it but never widen
+it. Every mutation uses optimistic concurrency (`ETag` / `If-Match`) and
+idempotency keys, so retries are safe. Claimed tasks show a live progress
+indicator on the board, and one that hasn't updated in 15 minutes is marked
+stale.
 
-The API contract is documented in [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md).
-The human-edited OpenAPI source is [`openapi.yaml`](openapi.yaml); the checked-in
-JSON document is [`internal/httpapi/openapi.json`](internal/httpapi/openapi.json)
-and is served at `/openapi.json`.
+**Codex skill:** the installable [`helm` skill](skills/helm/SKILL.md) makes Helm
+the durable work record for coding agents. Install it from
+`KanterLabs/helm/tree/main/skills/helm` with Codex's skill installer. See
+[the skill docs](skills/helm/SKILL.md) for lifecycle hooks and
+[authentication](skills/helm/references/authentication.md).
 
-### Focus
+## 🏗️ Architecture
 
-Focus is a bounded, project-local set of tasks that matter now. A focus can
-have an optional target date, task assignments, readiness tracking, and
-explicit completion or reopening. The project view is `/p/:slug/focus`;
-existing `/releases` links remain compatible. Internally and in the API, this
-feature retains the `release` and `release_id` compatibility names. Focus is
-separate from the deployment `X-Roadmap-Revision`, the task claim action
-`POST /api/v1/tasks/{task}/release` (which releases an agent claim), and a
-bug's `affected_version`. The release API is:
+```mermaid
+flowchart LR
+    B["Browser<br/>Svelte + TypeScript"] --> S
+    A["Agents<br/>JSON API + bearer tokens"] --> S
+    subgraph S["Helm server (Go, one container)"]
+        API["/api/v1 REST"]
+        OPS["/healthz · /readyz · /metrics"]
+        UI["Embedded frontend + migrations"]
+    end
+    S --> DB[("SQLite<br/>WAL · /data")]
+```
 
-- `GET|POST /api/v1/projects/{project}/releases`
-- `GET|PATCH|DELETE /api/v1/releases/{release}`
-- `POST /api/v1/releases/{release}/complete`
-- `POST /api/v1/releases/{release}/reopen`
-- `GET /api/v1/releases/{release}/work-queue`
+The only writable path is the `/data` volume, which holds the database and
+configuration.
 
-Release reads and the read-only work queue use `tasks:read`; release
-creation, edits, deletion, completion, and reopening use `tasks:write`. The
-existing project ceiling applies, and no new bearer scope is required.
-Release metadata mutations use the strong release `ETag` in `If-Match` and an
-`Idempotency-Key`; released releases are frozen until reopened with a reason.
+<a id="configuration"></a>
 
-Task creation and PATCH accept nullable `release_id`; omission preserves an
-existing assignment and explicit `null` clears it. A release must be planned
-and belong to the task's project. Project task collections accept
-`release={id|name|unassigned}`; global Issues, My work, Search, and saved
-views use stable `release_id={id|unassigned}`. Filters are applied before
-pagination and names are resolved only within a selected project.
+## ⚙️ Configuration
 
-The work queue is read-only: it includes direct members and transitive
-same-project prerequisites, reports dependency and cross-release conflicts,
-and orders owned work before claimable tasks. Agents still claim and finish
-one task at a time through the existing task lifecycle. Queue cursors are
-invalidated by relevant changes and return `release_queue_changed` with
-`restart: true`. Portable exports are `helm.portable` v2 with releases and
-task release references; v1 archives remain import-compatible with tasks
-unassigned on import.
+`HELM_*` variables are the current names. The older `ROADMAP_*` aliases still
+work; if both are set to different values, Helm refuses to start.
 
-Tasks declare `kind: task` or `kind: bug`. Bug creation requires nested
-`bug.actual_behavior`; triage sets `severity` (`s1`–`s4`), resolve records a
-documented resolution, and reopen records a reason. These mutations use the
-same `If-Match`, idempotency, claim, and bearer-scope rules as other task
-actions. Agents with `tasks:read` can use `GET /api/v1/issues` to list bugs
-across their permitted projects with lifecycle, board, ownership, search, and
-pagination filters.
+| Variable | Default (Compose) | Purpose |
+| --- | --- | --- |
+| `HELM_AUTH_MODE` | `local` | `local`, `cloudflare`, `tailnet`, or `disabled` (dev only) |
+| `HELM_PUBLIC_ORIGIN` | `http://localhost:8080` | External URL users reach Helm at |
+| `HELM_SECURE_COOKIES` | `false` | Set `true` behind HTTPS |
+| `HELM_DEMO_SEED` | `true` | Seed demo projects on first start |
+| `HELM_ADMIN_EMAIL` | — | Administrator identity for SSO modes |
+| `HELM_ADDR` | `0.0.0.0:8080` | Listen address inside the container |
+| `HELM_DB` | `/data/roadmap.db` | SQLite database path |
+| `HELM_LUNA_ENABLED` | `true` | Task assist via each user's own Codex subscription |
 
-Agent issue workflow:
+<details>
+<summary>Authentication modes</summary>
 
-1. Report with `POST /api/v1/projects/{project}/tasks`, `kind: "bug"`, nested
-   bug details, and an `Idempotency-Key`; the server records the reporter.
-2. Discover work with `GET /api/v1/issues?severity=untriaged`, then claim the
-   selected task with `POST /api/v1/tasks/{task}/claim`.
-3. Triage severity, priority, assignment, and destination together with
-   `POST /api/v1/tasks/{task}/triage` and the current `If-Match` value.
-4. Use the ordinary task patch, comment, claim-renewal, and event-polling APIs
-   while working the bug.
-5. Finish through `POST .../resolve` with an explicit resolution; use
-   `POST .../reopen` with a reason if the regression returns. Retry mutations
-   with the same idempotency key and refresh after a stale ETag conflict.
+- **`local`**: the first-run setup creates an administrator, and users sign in
+  with email and password.
+- **`cloudflare`**: verifies Cloudflare Access identity assertions. Set
+  `HELM_CLOUDFLARE_ISSUER` and `HELM_CF_ACCESS_AUDIENCES` (the UI and API AUD
+  tags). `HELM_CLOUDFLARE_JWKS_URL` is optional.
+- **`tailnet`**: private-only. A trusted edge sends a short-lived,
+  request-bound assertion. Configure `HELM_TAILNET_OWNER_LOGIN`,
+  `HELM_ADMIN_EMAIL`, the private origin and audience, an assertion key, TLS
+  files, and the edge peer allowlist.
+- **`disabled`**: bypasses authentication for development. Never use it on a
+  reachable deployment.
 
-The Issues view exposes operational counts for open, untriaged, S1/S2,
-recently resolved, and recently reopened bugs. Command search opens issue keys
-and titles directly. Filters use the same global issue query vocabulary, so a
-filtered URL can be bookmarked as a working view without a separate issue
-permission or search system.
+</details>
 
-Agent work workflow:
+<details>
+<summary>Codex task assist</summary>
 
-1. Claim a task with `POST /api/v1/tasks/{task}/claim` using a token with the
-   `tasks:claim` scope, then retain the returned strong task ETag.
-2. Publish a complete progress snapshot with
-   `POST /api/v1/tasks/{task}/progress`, the current `If-Match` value, and an
-   `Idempotency-Key`. The request requires an `operation_id`, one of the
-   documented agent-work states, and a non-empty `summary`; optional phase,
-   next action, checkpoint references, and paired checkpoint counts are
-   described in [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md).
-3. Refresh the ETag from each response before the next mutation. The server
-   records the structured pulse and a readable activity comment atomically;
-   ordinary `POST .../comments` remains available for notes that are not live
-   progress snapshots.
+Each signed-in user can connect their own Codex-enabled ChatGPT subscription
+from **Settings → Your Codex subscription** with the device-code flow, which
+also works on headless servers. Credentials stay in per-user directories under
+`/data/codex-users`, and Helm never shares a host API key between users. Set
+`HELM_LUNA_ENABLED=false` and restart to turn it off. See
+[`docs/LUNA_TASK_ASSIST.md`](docs/LUNA_TASK_ASSIST.md).
 
-The board and drawer read the same `Task.agent_work` snapshot. A pulse is
-marked stale deterministically after 15 minutes without an update; stale is a
-coordination signal, not a task failure or automatic claim release. Filter
-task collections with `agent_state` or `action_needed=true`, and use
-`/api/v1/my-work?view=live` for the Live Work view. Unscoped human identities
-may see live work across their visible projects; a project-scoped bearer token
-must include a permitted `project` query value.
-Completed tasks retain their last snapshot as history, but its `stale` and
-`action_needed` flags are inactive; completed tasks do not match live-work
-filters and the browser does not render their snapshot as a live pulse.
+</details>
 
-Board-audit workflow:
+<a id="docs"></a>
 
-1. List or start a project audit with `GET|POST
-   /api/v1/projects/{project}/audits`. Audit reads require `tasks:read`; audit
-   writes require `tasks:write`. Starting a run only captures audit metadata.
-2. Read the bounded run summary and cursor-paginated findings with
-   `GET /api/v1/audits/{audit}` and `GET
-   /api/v1/audits/{audit}/findings`. The summary's `findings` array is always
-   empty, and findings expose `changed_since_audit` drift.
-3. Review a finding with `PATCH /api/v1/audit-findings/{finding}` using its
-   `If-Match` ETag. Approval, dismissal, finalization, and all audit reads are
-   task read/review operations; none moves a task.
-4. After a separate read-only preview and explicit confirmation, call
-   `POST /api/v1/tasks/{task}/move` with the current task `If-Match`, expected
-   source column, provenance, and an `Idempotency-Key`. Only backlog and ready
-   destinations are allowed, active claims reject the move, the server
-   computes position atomically, and success emits `task.moved`. See
-   [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) for exact finding, review,
-   and move request fields and aliases.
+## 📚 Documentation
 
-The UI's Run audit action creates a queued run for an agent. The bundled Helm
-skill processes that same run with `submit --audit AUDIT_ID`, so a
-UI request is not duplicated before its findings are finalized for review.
+| Topic | Doc |
+| --- | --- |
+| Full API contract | [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) · [`openapi.yaml`](openapi.yaml) (served at `/openapi.json`) |
+| Focus, bug, live-work, and audit workflows | [`docs/AGENT_WORKFLOWS.md`](docs/AGENT_WORKFLOWS.md) |
+| Notifications and watches | [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) |
+| Moving data between installations | [`docs/PORTABILITY.md`](docs/PORTABILITY.md) |
+| Metrics, readiness, and logs | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) |
+| Installable PWA | [`docs/PWA.md`](docs/PWA.md) |
+| Operations, backups, and restore | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
+| How the maintainers deploy Helm | [`docs/HOMELAB_DEPLOYMENT.md`](docs/HOMELAB_DEPLOYMENT.md) |
+
+<a id="development"></a>
+
+## 🛠️ Development
 
 ```sh
-# Contract and liveness checks
-curl --fail http://127.0.0.1:8080/openapi.json
-
-# Full build: npm ci, frontend check/test/build, asset embedding, Go build
-make build
-
-# Focused checks
-make test
-make vet
-make lint
-make web-check
-make web-test
+make build          # npm ci, frontend check/test/build, embed assets, Go build
+make test vet lint  # Go checks
+make web-check web-test
+make openapi        # regenerate openapi.json after editing openapi.yaml
 make openapi-check
-
-# Regenerate the checked-in OpenAPI JSON after editing openapi.yaml
-make openapi
-
-# Compose helpers
-make compose-up
-make compose-down
-make docker-build
 ```
 
-The Makefile targets above are the source of truth for the repository's
-validation sequence. Frontend-only development can use the scripts in
-[`web/package.json`](web/package.json):
+For frontend-only work, run `cd web && npm ci && npm run dev`. The Playwright
+suite (`npm run e2e`) expects a server at `http://127.0.0.1:18080`; install its
+browser once with `npm run e2e:install`. [`ci.yml`](.github/workflows/ci.yml)
+shows the full disposable-server setup.
 
-```sh
-cd web
-npm ci
-npm run dev
-npm run check
-npm test
-```
+---
 
-## Codex Helm skill
-
-The installable [`helm`](skills/helm/SKILL.md) skill makes TC the
-durable work record for coding agents. It creates or resumes one task for a
-substantive workstream, records the goal and checkpoints, posts meaningful
-progress, and completes or blocks the task with the same optimistic-concurrency
-and claim semantics as any other API client.
-
-Install it from the public repository with Codex's skill installer using the
-GitHub path `KanterLabs/helm/tree/main/skills/helm`. The installed
-`scripts/update_skill.py` command compares its recorded source revision with
-GitHub `main` first, and only sparse-clones and atomically installs the skill
-when the revision changed. A matching revision is a no-op for the skill fetch,
-but still reconciles the local lifecycle hooks. The companion
-[`scripts/install_hooks.py`](skills/helm/scripts/install_hooks.py)
-additively installs bounded SessionStart, PostToolUse, PreCompact, and Stop
-commands into `hooks.json`, preserving existing policy and never changing
-Codex trust hashes; review/trust the command once in Codex `/hooks` after a
-configuration change.
-Agent and optional Cloudflare Access credentials stay in environment variables
-or a mode-`0600` local file; see
-[`skills/helm/references/authentication.md`](skills/helm/references/authentication.md).
-The [`tc-roadmap`](skills/tc-roadmap/SKILL.md) package remains as a
-compatibility shim for installed agents during the transition.
-
-The Playwright suite (`npm run e2e`) expects an already-running server at
-`http://127.0.0.1:18080` by default; install its browser once with
-`npm run e2e:install`. CI shows the complete disposable-server setup in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-
-## Beta and production deployment
-
-The intended homelab path is:
-
-```text
-Cloudflare Access
-  → tc.shanekanterman.dev (UI and /api/v1/* applications)
-  → roadmap-homelab Tunnel (retained infrastructure identity)
-  → cloudflared in the Debian 12 `roadmap` LXC (retained guest identity)
-  → helm.service on 127.0.0.1:8080
-  → /var/lib/roadmap/data/roadmap.db
-```
-
-Changes are tested through a private beta environment before production:
-
-```text
-beta branch
-  → beta GitHub environment and beta-only secrets
-  → beta-helm.home.shanekanterman.dev (active private Tailnet target)
-  → private Tailnet TLS listener at 10.0.0.39:8443
-  → the `helm-beta` LXC (CT 106, 10.0.0.39)
-  → an independent /var/lib/roadmap/data/roadmap.db
-
-explicit pull request or merge to main
-  → production GitHub environment and ROADMAP_* secrets
-  → tc.shanekanterman.dev and the production `roadmap` LXC (CT 103)
-```
-
-The guests do not share databases, backups, releases, tunnel tokens, deploy
-keys, signing keys, or GitHub environments. See
-[`docs/BETA_DEPLOYMENT_PLAN.md`](docs/BETA_DEPLOYMENT_PLAN.md) for the fixed
-identity table, promotion contract, and validation gates.
-
-The data root, database and backup names, Unix account, Compose volume,
-hostname, tunnel/guest identities, `X-Roadmap-Revision` header, Roadmap API
-routes and schema names, and signed Roadmap v1 gateway envelope are stable
-compatibility identifiers. See
-[`docs/HELM_LEGACY_IDENTIFIERS.md`](docs/HELM_LEGACY_IDENTIFIERS.md) for the
-reviewed allowlist.
-
-The production guest has no inbound application or SSH port; the application
-and connector communicate over loopback. The beta private profile permits only
-the approved homelab-edge LAN source (`10.0.0.101`) to its TLS listener, masks
-`cloudflared.service`, and never performs public Cloudflare reconciliation. The
-guest does not require a Tailscale interface for this LAN ingress. Releases use
-an immutable SHA-tagged Go binary, a constrained Proxmox deployment identity,
-and signed bundle/backup/rollback checks. The full bootstrap, host assumptions,
-firewall posture, private preprovisioning, and recovery checks are in
-[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
-
-After the one-time Proxmox and private Tailnet preprovisioning described there, pushes to
-`beta` and `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-Both branches run Go/frontend checks, browser tests, and a container smoke
-test. A successful `beta` push automatically deploys to the active private
-Tailnet target and validates its private readiness; public Cloudflare beta
-provisioning remains disabled. The selected target is
-`beta-helm.home.shanekanterman.dev`, while a `main` push may deploy only through the
-`production` environment and validate <https://tc.shanekanterman.dev>. Normal
-production deployment requires the GitHub Actions
-secrets `ROADMAP_CLOUDFLARE_API_TOKEN`, `ROADMAP_DEPLOY_SSH_KEY`,
-`ROADMAP_DEPLOY_KNOWN_HOSTS`, `ROADMAP_RELEASE_SIGNING_KEY`,
-`ROADMAP_CF_ACCESS_CLIENT_ID`, and `ROADMAP_CF_ACCESS_CLIENT_SECRET`; secret
-values stay in GitHub or the approved operator secret store and are never
-placed in this README or the repository. Create the Cloudflare service token
-and save its one-time secret with the manual `cloudflare.sh prepare` procedure
-before enabling CI; CI refuses to create a token whose secret would remain
-only on an ephemeral runner.
-
-Beta uses corresponding `BETA_*` environment secrets, including
-`BETA_ADMIN_EMAIL`, and the configured Tailnet owner login
-`ShaneKanterman04@github`, plus a distinct forced SSH account and
-release-signing key. Its signed private bundle omits cloudflared;
-the beta gateway validates loopback health, private-profile invariants, and an
-unauthenticated HTTP 401 after deployment. The optional
-`HELM_BETA_DEPLOY_PAUSED=true` setting remains an explicit maintenance stop,
-not the normal private-beta state. Dispatch `rollback_sha` from `beta` to roll
-back beta, or from `main` to roll back production; neither environment's job
-can select the other's gateway. Beta does not use Cloudflare credentials or
-public routing. Normal beta pushes build `helm-beta-switchd` from the exact
-trusted beta checkout and sign `HELM_RELEASE_REF=refs/heads/beta` into the
-bundle, using the fixed `/run/helm-beta-switcher/helm-beta-switchd.sock`
-socket.
-
-### Manual feature-branch candidates
-
-The protected beta branch also carries a separate manual workflow,
-`.github/workflows/beta-candidate.yml`, for trying a schema-compatible feature
-branch on the private beta hostname. Dispatch it from `beta` with both the
-exact 40-character lowercase `candidate_sha` and its canonical
-`candidate_ref` (`refs/heads/<branch>`). Admission resolves that ref in the
-canonical `KanterLabs/helm` repository, requires the same tip SHA, rejects
-forks and the `main`/`beta` branches, and rejects unsafe Git ref syntax. A
-stale SHA or a branch that moves during admission fails closed. The trusted
-beta commit must also be an ancestor of the candidate commit, so candidates
-must be based or rebased on the current beta revision; an unrelated older
-feature branch cannot pass schema equality and strand the beta switcher/API.
-
-Candidate source is tested without beta secrets: short checks run on
-`homelab`, while browser, race, and container checks run on `homelab-heavy`.
-Every candidate checkout is pinned to the admitted SHA. Admission also
-requires the candidate's `internal/db/migrations/` tree and
-`internal/db/db.go` migration engine to be byte-identical to trusted beta, and
-rejects any `go.mod` or `go.sum` change. The module-file restriction prevents a
-candidate from silently changing the dependency/toolchain inputs used by the
-trusted controller and deployment; a dependency update must land in beta first
-through its normal reviewed path. This is intentionally conservative and can
-require a separate reviewed beta change before a candidate can be admitted.
-Binary, container, and provenance artifacts are named with the candidate SHA;
-the provenance records the canonical candidate ref and the exact trusted beta
-workflow/ref/SHA.
-
-The `homelab` and `homelab-heavy` selectors follow the canonical
-`KanterLabs/infrastructure` `homelab/ci-runners/README` contract: every job
-gets one ephemeral runner pod and private Docker-in-Docker daemon, with no host
-Docker socket, host home directory, or static deployment credential mounted.
-The workspace and daemon disappear with the job, so candidate work cannot
-persist into a later job; the workflow still pins every checkout and writes
-secrets only below the per-job `$RUNNER_TEMP` directory.
-
-Within this candidate workflow, only the final `candidate_deploy` job can read
-`BETA_*` secrets. It checks out
-the exact `github.sha` from `refs/heads/beta`, and fails closed unless the
-workflow identity is exactly
-`KanterLabs/helm/.github/workflows/beta-candidate.yml@refs/heads/beta` with
-`GITHUB_WORKFLOW_SHA == GITHUB_SHA`. It then verifies all candidate
-metadata/artifact checksums, builds `helm-beta-switchd` from that trusted beta
-source, and invokes the trusted `deploy/deploy-ci.sh` with
-`HELM_RELEASE_REF=refs/heads/<candidate-branch>`. The beta owner environment
-enables the switcher with `HELM_BETA_SWITCH_ENABLED=true` and the fixed
-`/run/helm-beta-switcher/helm-beta-switchd.sock` socket. The job never uses
-candidate source as workflow or deployment-script input, and production's
-`main` workflow and credentials are unchanged. A paused beta environment
-prevents the
-secret-bearing candidate deploy while still allowing non-secret checks to
-finish.
-
-## Backups and rollback
-
-For moving live project data between Helm installations, use the versioned
-[portable export/import format](docs/PORTABILITY.md). Portable imports are
-validated, dry-runnable, conflict-aware, additive, and transactional; they do
-not replace the database. The separate backup/restore workflow below remains
-the disaster-recovery path for exact SQLite state.
-
-Before each install, the host takes a SQLite online backup, verifies its
-checksum and `PRAGMA integrity_check`, and stores it under
-`/var/lib/roadmap/backups`. A pre-upgrade backup is complete only when its
-release SHA, schema identifier/digest, database digest, and integrity metadata
-are recorded alongside the verified backup. Additive schema migrations run in
-transactions; the candidate release first performs its preflight checks on a
-copy before the active database is touched. The database is kept outside
-release directories and is never replaced by an executable upgrade. By
-default, five releases and fourteen backups are retained.
-
-The active release is switched atomically. Failed Helm health or
-cloudflared checks automatically restore the previous release and restart the
-services. A binary/release rollback changes only the active release pointer:
-it never restores an older database or discards writes accepted by the
-running service. A retained release can also be selected with the workflow's
-`workflow_dispatch` `rollback_sha` input, or from a configured deployment
-shell with:
-
-```sh
-./deploy/deploy-ci.sh rollback <40-character-release-sha>
-```
-
-The live validator can optionally send the Cloudflare service-token headers to
-`/api/v1/roadmap` without an application bearer token. CI requires this probe
-with `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (mapped from the
-production secrets above); it expects the origin's JSON `401` error and echoed
-`X-Request-ID`, which distinguishes Helm from an Access edge error.
-
-For manual backups, database restores, first-time bootstrap, and the exact
-operator permissions, follow [`docs/OPERATIONS.md`](docs/OPERATIONS.md). A
-database restore is a separate, explicitly requested operation against one
-exact retained backup; the restore helper first takes a new recoverable
-`pre-restore` snapshot of the current database before installing the selected
-copy.
+<div align="center">
+<sub>Built by <a href="https://github.com/KanterLabs">KanterLabs</a>.</sub>
+</div>
