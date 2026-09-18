@@ -1083,10 +1083,13 @@ systemctl is-active --quiet roadmap.service || fail 'roadmap.service compatibili
 if (( PRIVATE_TAILNET_BETA == 1 && BETA_SWITCH_CONTROLLER == 1 )); then
 	systemctl enable --now helm-beta-switchd.service
 	beta_switch_ready=0
+	# The first listing after a restart verifies every retained release
+	# binary (hundreds of MiB each) before its result is cached, so allow it
+	# far longer than an ordinary health probe.
 	for _ in $(seq 1 10); do
 		if systemctl is-active --quiet helm-beta-switchd.service &&
 			[[ -S /run/helm-beta-switcher/helm-beta-switchd.sock ]] &&
-			runuser -u roadmap -- curl --fail --silent --show-error --max-time 3 \
+			runuser -u roadmap -- curl --fail --silent --show-error --max-time 60 \
 				--unix-socket /run/helm-beta-switcher/helm-beta-switchd.sock http://localhost/v1/releases >/dev/null; then
 			beta_switch_ready=1
 			break

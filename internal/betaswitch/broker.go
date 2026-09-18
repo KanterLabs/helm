@@ -174,6 +174,12 @@ type Broker struct {
 	done    chan struct{}
 	close   sync.Once
 	admitMu sync.Mutex
+
+	// listMu serializes release listings so a startup warm-up and concurrent
+	// requests never hash the same retained binaries in parallel.
+	listMu      sync.Mutex
+	binaryMu    sync.Mutex
+	binaryCache map[string]binaryStamp
 }
 
 // NewBroker validates fixed paths, creates the durable state directory, and
@@ -290,6 +296,8 @@ func (b *Broker) process(id string) {
 
 // ListReleases returns only complete, immutable release records.
 func (b *Broker) ListReleases(_ context.Context) (ReleasesResponse, error) {
+	b.listMu.Lock()
+	defer b.listMu.Unlock()
 	entries, err := os.ReadDir(b.cfg.ReleasesDir)
 	if err != nil {
 		return ReleasesResponse{}, coded(ErrReleaseInvalid, err)
@@ -304,7 +312,7 @@ func (b *Broker) ListReleases(_ context.Context) (ReleasesResponse, error) {
 		if !validSHA(sha) {
 			continue
 		}
-		release, err := b.findRelease(sha)
+		release, err := b.findReleaseWith(sha, b.validateBinaryCached)
 		if err != nil {
 			continue
 		}
@@ -559,7 +567,13 @@ func (b *Broker) currentSHA() (string, error) {
 	return base, nil
 }
 
+// findRelease fully re-verifies a release, including hashing every binary.
+// It is used before a switch is admitted.
 func (b *Broker) findRelease(sha string) (Release, error) {
+	return b.findReleaseWith(sha, validateBinary)
+}
+
+func (b *Broker) findReleaseWith(sha string, verifyBinary func(dir, name string) error) (Release, error) {
 	if err := validateSHA(sha); err != nil {
 		return Release{}, err
 	}
@@ -620,10 +634,10 @@ func (b *Broker) findRelease(sha string) (Release, error) {
 	if err := b.validateReleaseEnv(path, sha); err != nil {
 		return Release{}, err
 	}
-	if err := validateReleaseBinary(path); err != nil {
+	if err := validateReleaseBinary(path, verifyBinary); err != nil {
 		return Release{}, err
 	}
-	if err := validateBinary(path, "codex"); err != nil {
+	if err := verifyBinary(path, "codex"); err != nil {
 		return Release{}, err
 	}
 	return Release{SHA: sha, Ref: ref, Subject: subject}, nil
@@ -839,13 +853,13 @@ func validateBinaryWithLimit(dir, name string, max int64) error {
 	return nil
 }
 
-func validateReleaseBinary(dir string) error {
+func validateReleaseBinary(dir string, verifyBinary func(dir, name string) error) error {
 	if _, err := os.Lstat(filepath.Join(dir, "helm")); err == nil {
-		return validateBinary(dir, "helm")
+		return verifyBinary(dir, "helm")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return validateBinary(dir, "roadmap")
+	return verifyBinary(dir, "roadmap")
 }
 
 func readRegular(dir, name string, max int64) ([]byte, error) {

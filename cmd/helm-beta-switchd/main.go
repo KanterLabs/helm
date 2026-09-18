@@ -54,6 +54,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go broker.WarmReleaseCache(ctx)
 	if err := broker.Serve(ctx); err != nil {
 		fatal("serve broker: %v", err)
 	}
