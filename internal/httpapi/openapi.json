@@ -4395,7 +4395,7 @@
       "get": {
         "operationId": "getAdminMetrics",
         "summary": "Get installation-wide administrator metrics (beta)",
-        "description": "Human administrators only; bearer tokens are always rejected. Returns\npoint-in-time totals, persisted activity counted from the event log for\nthe trailing `days` UTC calendar days (including today), per-agent\nactivity, and process-local HTTP request counters. Request counters are\nkept in memory, reset when the server restarts, and cover at most the\nlast 24 hours in `requests.hourly`.\n",
+        "description": "Human administrators only; bearer tokens are always rejected. Returns\npoint-in-time totals, activity counted from the event log, per-agent\nactivity, and HTTP request counts for the trailing `days` UTC calendar\ndays (including today). Request counts are persisted hourly, survive\nrestarts, are kept for 90 days, and may lag by up to a minute;\n`requests.hourly` always covers the last 24 hours.\n",
         "tags": [
           "Agents"
         ],
@@ -11619,7 +11619,7 @@
           },
           "requests": {
             "type": "object",
-            "description": "Process-local request counters since `since` (server start).",
+            "description": "Persisted request counts since `since` (start of the window).",
             "required": [
               "since",
               "total",
@@ -11629,6 +11629,7 @@
               "errors",
               "avg_ms",
               "hourly",
+              "daily",
               "top_actors"
             ],
             "properties": {
@@ -11677,6 +11678,47 @@
                     "hour": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "agent": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "human": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "anonymous": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "daily": {
+                "type": "array",
+                "maxItems": 90,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "date",
+                    "total",
+                    "agent",
+                    "human",
+                    "anonymous",
+                    "errors"
+                  ],
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
                     },
                     "total": {
                       "type": "integer",

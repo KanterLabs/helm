@@ -120,7 +120,10 @@ Human administrators can open **Metrics** in the sidebar (`/admin`), backed by
 rejected. Workspace totals and activity (tasks created and completed, bugs,
 comments, claims, progress updates, and per-agent actions) are computed from
 the existing event log, so they survive restarts and need no schema change.
-Per-actor API request counts, error counts, and the last-24-hour hourly
-breakdown are kept in memory, bounded to 500 actors, and reset when Helm
-restarts. They are never exposed through the Prometheus `/metrics` endpoint,
-which keeps its actor-free label set.
+Per-actor API request counts, error counts, and average latency are batched
+in memory and added to the `request_activity_hourly` table about once a minute,
+whenever an administrator opens the page, and on graceful shutdown, so they
+survive restarts and deploys. A hard crash can lose at most the last minute.
+Rows older than 90 days are pruned during each write. Request counts are never
+exposed through the Prometheus `/metrics` endpoint, which keeps its actor-free
+label set.

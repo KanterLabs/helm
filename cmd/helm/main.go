@@ -154,6 +154,7 @@ func main() {
 	}
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go api.RunRequestActivityFlusher(signalCtx)
 	<-signalCtx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -167,6 +168,11 @@ func main() {
 	}
 	if err := codexManager.Close(shutdownCtx); err != nil {
 		errorLog("Codex shutdown failed", err)
+	}
+	// Record requests handled since the last periodic flush, including those
+	// drained by Shutdown above, so a deploy or restart does not lose counts.
+	if err := api.FlushRequestActivity(shutdownCtx); err != nil {
+		errorLog("request activity flush failed", err)
 	}
 }
 
