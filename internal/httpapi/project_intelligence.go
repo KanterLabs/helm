@@ -31,13 +31,13 @@ var projectIntelligenceOutputSchema = json.RawMessage(`{
     "projects":{"type":"array","maxItems":200,"items":{"type":"object","additionalProperties":false,"required":["project_id","attention","reason_codes","summary","confidence"],"properties":{
       "project_id":{"type":"string","minLength":1,"maxLength":128},
       "attention":{"type":"string","enum":["act_now","watch","steady","quiet"]},
-      "reason_codes":{"type":"array","maxItems":3,"uniqueItems":true,"items":{"type":"string","enum":["action_needed","overdue","focus_due_soon","severe_bugs","dependency_blocked","unblock_leverage","blocked_work","due_soon","urgent_work","high_priority","active_work","inbox_attention","growing_backlog","quiet"]}},
+      "reason_codes":{"type":"array","maxItems":3,"items":{"type":"string","enum":["action_needed","overdue","focus_due_soon","severe_bugs","dependency_blocked","unblock_leverage","blocked_work","due_soon","urgent_work","high_priority","active_work","inbox_attention","growing_backlog","quiet"]}},
       "summary":{"type":"string","minLength":1,"maxLength":240},
       "confidence":{"type":"string","enum":["high","medium","low"]}
     }}},
     "workspace_insights":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["kind","project_ids","summary"],"properties":{
       "kind":{"type":"string","enum":["attention_queue","unblock_leverage","delivery_risk","stall_detection","flow_anomaly","agent_attention","planning_hygiene","quiet_project_review"]},
-      "project_ids":{"type":"array","minItems":1,"maxItems":6,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":128}},
+      "project_ids":{"type":"array","minItems":1,"maxItems":6,"items":{"type":"string","minLength":1,"maxLength":128}},
       "summary":{"type":"string","minLength":1,"maxLength":300}
     }}}
   }

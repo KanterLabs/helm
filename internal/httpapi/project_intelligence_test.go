@@ -47,6 +47,30 @@ func TestProjectIntelligenceGETIsDeterministicAndNeverInvokesCodex(t *testing.T)
 	}
 }
 
+func TestProjectIntelligenceOutputSchemaAvoidsUnsupportedUniqueItems(t *testing.T) {
+	var schema any
+	if err := json.Unmarshal(projectIntelligenceOutputSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	var visit func(any)
+	visit = func(value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			if _, unsupported := typed["uniqueItems"]; unsupported {
+				t.Fatal("project intelligence schema contains unsupported uniqueItems")
+			}
+			for _, child := range typed {
+				visit(child)
+			}
+		case []any:
+			for _, child := range typed {
+				visit(child)
+			}
+		}
+	}
+	visit(schema)
+}
+
 func TestProjectIntelligenceAnalyzeRequiresExplicitPOSTAndCachesResult(t *testing.T) {
 	server, data := testServer(t, "disabled")
 	actor, _ := data.EnsureDisabledActor(context.Background())
