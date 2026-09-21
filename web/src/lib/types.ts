@@ -140,6 +140,57 @@ export interface Project {
   version?: number;
 }
 
+export interface ProjectIntelligenceMetrics {
+  open_tasks: number;
+  completed_tasks: number;
+  active_tasks: number;
+  blocked_tasks: number;
+  overdue_tasks: number;
+  due_soon_tasks: number;
+  urgent_tasks: number;
+  high_priority_tasks: number;
+  action_needed: number;
+  stale_agent_work: number;
+  dependency_blocked: number;
+  direct_unblock_count: number;
+  severe_bugs: number;
+  unread_notifications: number;
+  created_7d: number;
+  completed_7d: number;
+  net_open_change_7d: number;
+  planned_focus_count: number;
+  focus_due_soon: number;
+  oldest_active_days?: number;
+  last_activity_at?: string;
+}
+
+export type ProjectAttention = 'act_now' | 'watch' | 'steady' | 'quiet';
+
+export interface ProjectIntelligenceRecommendation {
+  project_id: string;
+  attention: ProjectAttention;
+  reason_codes: string[];
+  summary: string;
+  confidence: 'high' | 'medium' | 'low';
+  metrics: ProjectIntelligenceMetrics;
+}
+
+export interface ProjectIntelligenceInsight {
+  kind: string;
+  project_ids: string[];
+  summary: string;
+}
+
+export interface ProjectIntelligenceResponse {
+  as_of: string;
+  source: 'deterministic' | 'luna';
+  stale: boolean;
+  snapshot_hash: string;
+  recommendation_version: string;
+  projects: ProjectIntelligenceRecommendation[];
+  workspace_insights: ProjectIntelligenceInsight[];
+}
+
 /** Product-planning release lifecycle state. This is unrelated to releasing a task claim. */
 export type ReleaseStatus = 'planned' | 'released';
 

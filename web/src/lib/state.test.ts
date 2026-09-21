@@ -25,6 +25,7 @@ import {
   matchesReleaseFilter,
   moveTaskLocal,
   nextPosition,
+  orderProjects,
   projectInitials,
   roadmapActivityKind,
   roadmapActivityLabel,
@@ -44,7 +45,7 @@ import {
   taskDeepLink,
   toInputDate
 } from './state';
-import type { AgentWork, Column, Task } from './types';
+import type { AgentWork, Column, Project, Task } from './types';
 
 const columns: Column[] = [
   { id: 'backlog', project_id: 'p', name: 'Backlog', semantic_state: 'backlog', position: 0 },
@@ -377,5 +378,16 @@ describe('board state helpers', () => {
     expect(parseTaskRoute('/p/Product%20Ops/tasks/OPS-7', '?intent=activity')).toMatchObject({ intent: 'activity' });
     expect(parseTaskRoute('/p/Product%20Ops/tasks/OPS-7', '', '#activity')).toMatchObject({ intent: 'activity' });
     expect(parseTaskRoute('/p/Product%20Ops/roadmap')).toBeNull();
+  });
+
+  it('pins favorites and applies smart, recent, and alphabetical project order', () => {
+    const projects: Project[] = [
+      { id: 'a', key: 'A', slug: 'alpha', name: 'Alpha', description: '', color: '', favorite: false },
+      { id: 'b', key: 'B', slug: 'beta', name: 'Beta', description: '', color: '', favorite: true },
+      { id: 'c', key: 'C', slug: 'charlie', name: 'Charlie', description: '', color: '', favorite: false }
+    ];
+    expect(orderProjects(projects, 'smart', ['c', 'a']).map((project) => project.id)).toEqual(['b', 'c', 'a']);
+    expect(orderProjects(projects, 'recent', [], ['a', 'c']).map((project) => project.id)).toEqual(['b', 'a', 'c']);
+    expect(orderProjects(projects, 'alphabetical').map((project) => project.id)).toEqual(['b', 'a', 'c']);
   });
 });

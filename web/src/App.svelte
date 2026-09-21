@@ -189,6 +189,7 @@
     legacyRoadmapStorageKeys,
     loadRecentProjects,
     matchesAgentWorkFilter,
+    orderProjects,
     projectInitials,
     readMigratedStorage,
     parseTaskRoute,
@@ -197,7 +198,8 @@
     taskDeepLink,
     shouldShowAgentPulse,
     toInputDate,
-    type BoardFilters
+    type BoardFilters,
+    type ProjectOrderMode
   } from './lib/state';
   import {
     dependencyActionExplanation,
@@ -227,6 +229,8 @@
     type Comment,
     type Label,
     type Project,
+    type ProjectIntelligenceRecommendation,
+    type ProjectIntelligenceResponse,
     type RoadmapActivityFilter,
     type RoadmapSummary,
     type SidebarCounts,
@@ -480,6 +484,12 @@
   let recentProjectIds: string[] = [];
   let projectsLoading = false;
   let projectsError = '';
+  let projectOrderMode: ProjectOrderMode = 'smart';
+  let projectIntelligence: ProjectIntelligenceResponse | null = null;
+  let projectIntelligenceLoading = false;
+  let projectIntelligenceAnalyzing = false;
+  let projectIntelligenceError = '';
+  let projectIntelligenceController: AbortController | undefined;
   let activeProject: Project | undefined;
   let columns: Column[] = [];
   let tasks: Task[] = [];
@@ -923,11 +933,14 @@
     groups[column.id] = sortBoardTasks(visibleTasks.filter((task) => task.column_id === column.id));
     return groups;
   }, {});
-  $: favoriteProjects = projects.filter((project) => project.favorite);
+  $: intelligenceProjectIds = projectIntelligence?.projects.map((project) => project.project_id) || [];
+  $: projectIntelligenceById = new Map((projectIntelligence?.projects || []).map((project) => [project.project_id, project]));
+  $: orderedProjects = orderProjects(projects, projectOrderMode, intelligenceProjectIds, recentProjectIds);
+  $: favoriteProjects = orderedProjects.filter((project) => project.favorite);
   $: recentProjects = recentProjectIds
     .map((id) => projects.find((project) => project.id === id))
     .filter((project): project is Project => Boolean(project));
-  $: filteredSwitcherProjects = projects.filter((project) =>
+  $: filteredSwitcherProjects = orderedProjects.filter((project) =>
     `${project.name} ${project.key}`.toLowerCase().includes(projectSwitcherQuery.trim().toLowerCase())
   );
   $: betaCurrentBuild = betaBuilds.find((build) => build.sha === betaCurrentSha)
@@ -937,7 +950,7 @@
   $: betaCurrentLabel = `${betaBranchLabelValue(betaCurrentRef)} · ${betaShortShaValue(betaCurrentSha)}${betaCurrentSubject ? ` — ${betaCurrentSubject}` : ''}`;
   $: betaConfirmBuild = betaBuilds.find((build) => build.sha === betaConfirmSha);
   $: commandChoices = filterCommandChoices(buildCommandChoices({
-    projects,
+    projects: orderedProjects,
     tasks,
     issueTasks,
     searchProjects: commandSearchProjects,
@@ -968,7 +981,7 @@
   $: roadmapUpcoming = roadmap?.upcoming_tasks ?? roadmap?.upcoming ?? [];
   $: roadmapProject = projects.find((project) => project.id === roadmapProjectId);
   $: roadmapActivityEvents = roadmap?.recent_activity ?? [];
-  $: roadmapProjectRows = roadmap?.projects?.length
+  $: roadmapProjectRowsUnordered = roadmap?.projects?.length
     ? roadmap.projects
     : projects.map((project) => ({
         project,
@@ -976,6 +989,11 @@
         completed_tasks: project.completed_task_count ?? project.completed_count ?? 0,
         completion_percentage: project.task_count ? ((project.completed_task_count ?? project.completed_count ?? 0) / project.task_count) * 100 : 0
       }));
+  $: roadmapProjectOrder = new Map(orderedProjects.map((project, index) => [project.id, index]));
+  $: roadmapProjectRows = [...roadmapProjectRowsUnordered].sort((left, right) =>
+    (roadmapProjectOrder.get(left.project.id) ?? Number.MAX_SAFE_INTEGER)
+      - (roadmapProjectOrder.get(right.project.id) ?? Number.MAX_SAFE_INTEGER)
+  );
   $: taskModalProject = projects.find((project) => project.id === taskModalProjectId);
   $: taskModalTitleApplied = Boolean(taskModalSuggestion && taskModalAppliedFields.title && taskModalTitle === taskModalSuggestion.title);
   $: taskModalDescriptionApplied = Boolean(taskModalSuggestion && taskModalAppliedFields.description && taskModalDescription === suggestionDescription(taskModalSuggestion));
@@ -1989,6 +2007,8 @@
     commandShortcut = platformShortcut(browserPlatform());
     applyTheme();
     recentProjectIds = loadRecentProjects(localStorage);
+    const storedProjectOrder = localStorage.getItem(helmStorageKeys.projectOrder);
+    projectOrderMode = storedProjectOrder === 'recent' || storedProjectOrder === 'alphabetical' ? storedProjectOrder : 'smart';
     boardOffline = !navigator.onLine;
     const onlineHandler = () => {
       if ($offlineReadOnly) void reconnectOffline();
@@ -2019,6 +2039,7 @@
         beforeUnloadAttached = false;
       }
       bootstrapController?.abort();
+      projectIntelligenceController?.abort();
     };
     if ($offlineReadOnly || navigator.onLine === false) void enterOffline();
     else void bootstrap();
@@ -2685,6 +2706,7 @@
         if (requestId !== projectListRequest || sessionGeneration !== requestedSession || !user) return;
       }
       projects = nextProjects;
+      void loadProjectIntelligence();
       if (selectionVersion !== projectSwitchVersion) return;
       const routeSlug = getProjectSlugFromLocation();
       const routeProject = routeSlug ? nextProjects.find((project) => project.slug === routeSlug) : undefined;
@@ -2788,6 +2810,59 @@
     } finally {
       if (requestId === projectListRequest && sessionGeneration === requestedSession) projectsLoading = false;
     }
+  }
+
+  function setProjectOrderMode(mode: ProjectOrderMode) {
+    projectOrderMode = mode;
+    localStorage.setItem(helmStorageKeys.projectOrder, mode);
+  }
+
+  function projectAttentionLabel(recommendation?: ProjectIntelligenceRecommendation): string {
+    if (!recommendation) return '';
+    if (recommendation.attention === 'act_now') return 'Act now';
+    if (recommendation.attention === 'watch') return 'Watch';
+    if (recommendation.attention === 'steady') return 'Steady';
+    return 'Quiet';
+  }
+
+  async function loadProjectIntelligence() {
+    if (projectIntelligenceLoading || !user) return;
+    projectIntelligenceLoading = true;
+    projectIntelligenceError = '';
+    try {
+      projectIntelligence = await api.projectIntelligence();
+    } catch (error) {
+      projectIntelligenceError = friendlyError(error, 'Project intelligence could not be loaded.');
+    } finally {
+      projectIntelligenceLoading = false;
+    }
+  }
+
+  async function analyzeProjectIntelligence() {
+    if (projectIntelligenceAnalyzing) return;
+    const controller = new AbortController();
+    projectIntelligenceController = controller;
+    projectIntelligenceAnalyzing = true;
+    projectIntelligenceError = '';
+    try {
+      projectIntelligence = await api.analyzeProjectIntelligence(controller.signal);
+      setProjectOrderMode('smart');
+      toast('success', 'Luna refreshed the Smart project order.');
+    } catch (error) {
+      if (controller.signal.aborted) {
+        projectIntelligenceError = 'Luna analysis was canceled. The metric order is still available.';
+        return;
+      }
+      projectIntelligenceError = friendlyError(error, 'Luna could not analyze the projects.');
+      toast('error', projectIntelligenceError);
+    } finally {
+      if (projectIntelligenceController === controller) projectIntelligenceController = undefined;
+      projectIntelligenceAnalyzing = false;
+    }
+  }
+
+  function cancelProjectIntelligence() {
+    projectIntelligenceController?.abort();
   }
 
   async function loadBoard(options: BoardLoadOptions = {}): Promise<boolean> {
@@ -7330,20 +7405,12 @@
 
       <div class="project-nav">
         <div class="section-label"><span>Projects</span><button class="icon-button tiny" type="button" aria-label="Create project" data-project-modal-trigger on:click={openProjectModal}>＋</button></div>
+        <label class="project-order-control"><span class="sr-only">Project order</span><select aria-label="Project order" value={projectOrderMode} on:change={(event) => setProjectOrderMode((event.currentTarget as HTMLSelectElement).value as ProjectOrderMode)}><option value="smart">Smart</option><option value="recent">Recent</option><option value="alphabetical">A–Z</option></select>{#if projectOrderMode === 'smart' && projectIntelligence}<span class={`intelligence-source ${projectIntelligence.source}`}>{projectIntelligence.source === 'luna' ? 'Luna' : 'Metrics'}</span>{/if}</label>
         {#if favoriteProjects.length}
           <div class="project-subsection"><span class="subsection-label">Favorites</span>
             {#each favoriteProjects as project}
               <button class="project-link" class:active={activeProjectSlug === project.slug} type="button" aria-label={project.name} on:click={() => selectProject(project)}>
                 <span class="project-dot" style={`--project-color: ${project.color || '#6d5efc'}`}>{projectInitials(project)}</span><span class="project-link-name">{project.name}</span><span class="favorite-star" aria-label="Favorite">★</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-        {#if recentProjects.length}
-          <div class="project-subsection"><span class="subsection-label">Recent</span>
-            {#each recentProjects.filter((project) => !project.favorite) as project}
-              <button class="project-link" class:active={activeProjectSlug === project.slug} type="button" aria-label={project.name} on:click={() => selectProject(project)}>
-                <span class="project-dot" style={`--project-color: ${project.color || '#6d5efc'}`}>{projectInitials(project)}</span><span class="project-link-name">{project.name}</span>
               </button>
             {/each}
           </div>
@@ -7355,10 +7422,10 @@
         {:else if !projects.length}
           <div class="nav-empty">No projects yet</div>
         {:else}
-          <div class="project-subsection all-projects"><span class="subsection-label">All projects</span>
-            {#each projects.filter((project) => !project.favorite && !recentProjectIds.includes(project.id)) as project}
+          <div class="project-subsection all-projects"><span class="subsection-label">{projectOrderMode === 'smart' ? 'Smart order' : projectOrderMode === 'recent' ? 'Recent' : 'Alphabetical'}</span>
+            {#each orderedProjects.filter((project) => !project.favorite) as project}
               <button class="project-link" class:active={activeProjectSlug === project.slug} type="button" aria-label={project.name} on:click={() => selectProject(project)}>
-                <span class="project-dot" style={`--project-color: ${project.color || '#6d5efc'}`}>{projectInitials(project)}</span><span class="project-link-name">{project.name}</span>
+                <span class="project-dot" style={`--project-color: ${project.color || '#6d5efc'}`}>{projectInitials(project)}</span><span class="project-link-name">{project.name}</span>{#if projectOrderMode === 'smart' && projectIntelligenceById.get(project.id)}<span class={`attention-dot ${projectIntelligenceById.get(project.id)?.attention}`} title={projectIntelligenceById.get(project.id)?.summary} aria-label={projectAttentionLabel(projectIntelligenceById.get(project.id))}></span>{/if}
               </button>
             {/each}
           </div>
@@ -7785,9 +7852,9 @@
             </section>
           {/if}
         {:else if view === 'roadmap'}
-          <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>{roadmapProject ? roadmapProject.key : 'Overview'}</span></div><h1>{roadmapProject ? `${roadmapProject.name} progress` : 'Roadmap overview'}</h1><p>{roadmapProject ? 'A focused view of delivery, deadlines, and recent activity for this project.' : 'A high-level pulse on every project and what needs attention next.'}</p></div><div class="heading-actions">{#if roadmapProject}<button class="button quiet-button" type="button" on:click={() => setView('roadmap')}>All projects</button>{/if}<button class="button quiet-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>↻ Refresh</button></div></section>
+          <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>{roadmapProject ? roadmapProject.key : 'Overview'}</span></div><h1>{roadmapProject ? `${roadmapProject.name} progress` : 'Roadmap overview'}</h1><p>{roadmapProject ? 'A focused view of delivery, deadlines, and recent activity for this project.' : 'A high-level pulse on every project and what needs attention next.'}</p></div><div class="heading-actions">{#if roadmapProject}<button class="button quiet-button" type="button" on:click={() => setView('roadmap')}>All projects</button>{:else if projectIntelligenceAnalyzing}<button class="button quiet-button" type="button" on:click={cancelProjectIntelligence}>Cancel Luna</button>{:else}<button class="button primary" type="button" on:click={analyzeProjectIntelligence}>Analyze with Luna</button>{/if}<button class="button quiet-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>↻ Refresh</button></div></section>
           {#if roadmapError}<div class="inline-alert error content-alert" role="alert"><span>!</span>{roadmapError}<button class="text-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>Retry</button></div>{/if}
-          {#if roadmapLoading}<div class="roadmap-skeleton"><div></div><div></div><div></div></div>{:else}<section class="roadmap-content"><div class="roadmap-hero"><div class="hero-copy"><span class="eyebrow">Workspace pulse</span><h2>Momentum, at a glance.</h2><p>Progress is calculated from each project's semantic board state.</p></div><div class="hero-progress"><div class="progress-ring" style={`--progress: ${roadmapCompletion}%`}><span>{Math.round(roadmapCompletion)}<small>%</small></span></div><div><strong>{roadmapTotal} total tasks</strong><span>{roadmap?.completed_count ?? Math.round(roadmapTotal * roadmapCompletion / 100)} completed</span></div></div></div><div class="metric-grid"><div class="metric-card"><span class="metric-icon purple">◒</span><span class="metric-label">Completion</span><strong>{Math.round(roadmapCompletion)}%</strong><span class="metric-note">Across all projects</span></div><div class="metric-card"><span class="metric-icon red">!</span><span class="metric-label">Overdue</span><strong>{roadmap?.overdue_count ?? 0}</strong><span class="metric-note">Need attention</span></div><div class="metric-card"><span class="metric-icon amber">◷</span><span class="metric-label">Due soon</span><strong>{roadmap?.due_soon_count ?? 0}</strong><span class="metric-note">Next 7 days</span></div><div class="metric-card"><span class="metric-icon green">✓</span><span class="metric-label">Completed</span><strong>{roadmap?.completed_count ?? 0}</strong><span class="metric-note">Shipped so far</span></div></div><RoadmapLiveWork tasks={roadmapLiveTasks} {projects} columnsByProject={roadmapLiveColumnsByProject} actors={roadmapActors} now={pulseClock} loading={roadmapLiveLoading} error={roadmapLiveError} onOpen={openRoadmapTask} onViewAll={() => setView('my-work')} /><div class="roadmap-columns"><section class="roadmap-panel project-progress-panel"><div class="panel-heading"><div><h2>Project progress</h2><p>Where each project stands today.</p></div><button class="icon-button" type="button" aria-label="Refresh progress" on:click={() => loadRoadmap(roadmapProjectId)}>↻</button></div>{#if roadmapProjectRows.length}{#each roadmapProjectRows as row}<button class="project-progress-row" type="button" on:click={() => selectProject(row.project)}><span class="project-dot" style={`--project-color: ${row.project.color || '#6d5efc'}`}>{projectInitials(row.project)}</span><span class="project-progress-name"><strong>{row.project.name}</strong><small>{row.project.key}</small></span><span class="progress-track"><span style={`width: ${row.total_tasks ? (row.completed_tasks / row.total_tasks) * 100 : 0}%; --project-color: ${row.project.color || '#6d5efc'}`}></span></span><span class="progress-number">{row.total_tasks ? Math.round((row.completed_tasks / row.total_tasks) * 100) : 0}%</span><span>→</span></button>{/each}{:else}<div class="panel-empty">Create a project to see progress here.</div>{/if}</section><section class="roadmap-panel upcoming-panel"><div class="panel-heading"><div><h2>Coming up</h2><p>Tasks with the nearest due dates.</p></div></div>{#if roadmap?.upcoming_tasks?.length}{#each roadmap.upcoming_tasks.slice(0, 5) as task}<button class="upcoming-row" type="button" on:click={() => openWorkTask(task)}><span class="upcoming-key">{task.key}</span><span class="upcoming-title">{task.title}</span><span class={`upcoming-date ${taskDueClass(task)}`}>{formatDate(task.due_at)}</span></button>{/each}{:else}<div class="panel-empty">No upcoming deadlines. Nice breathing room.</div>{/if}</section></div><RoadmapActivity events={roadmapActivityEvents} tasksById={roadmapActivityTasks} {projects} actors={roadmapActors} filter={roadmapActivityFilter} loading={roadmapActivityLoading} error={roadmapActivityError} onFilterChange={(next) => roadmapActivityFilter = next} onOpen={openRoadmapActivity} /></section>{/if}
+          {#if roadmapLoading}<div class="roadmap-skeleton"><div></div><div></div><div></div></div>{:else}<section class="roadmap-content"><div class="roadmap-hero"><div class="hero-copy"><span class="eyebrow">Workspace pulse</span><h2>Momentum, at a glance.</h2><p>Progress is calculated from each project's semantic board state.</p></div><div class="hero-progress"><div class="progress-ring" style={`--progress: ${roadmapCompletion}%`}><span>{Math.round(roadmapCompletion)}<small>%</small></span></div><div><strong>{roadmapTotal} total tasks</strong><span>{roadmap?.completed_count ?? Math.round(roadmapTotal * roadmapCompletion / 100)} completed</span></div></div></div><div class="metric-grid"><div class="metric-card"><span class="metric-icon purple">◒</span><span class="metric-label">Completion</span><strong>{Math.round(roadmapCompletion)}%</strong><span class="metric-note">Across all projects</span></div><div class="metric-card"><span class="metric-icon red">!</span><span class="metric-label">Overdue</span><strong>{roadmap?.overdue_count ?? 0}</strong><span class="metric-note">Need attention</span></div><div class="metric-card"><span class="metric-icon amber">◷</span><span class="metric-label">Due soon</span><strong>{roadmap?.due_soon_count ?? 0}</strong><span class="metric-note">Next 7 days</span></div><div class="metric-card"><span class="metric-icon green">✓</span><span class="metric-label">Completed</span><strong>{roadmap?.completed_count ?? 0}</strong><span class="metric-note">Shipped so far</span></div></div>{#if !roadmapProject}<section class="project-intelligence-panel" aria-labelledby="project-intelligence-heading"><div class="roadmap-panel-heading"><div><h2 id="project-intelligence-heading">Smart project attention</h2><p>{projectIntelligence?.source === 'luna' ? 'Luna analysis from your last manual run.' : 'Metric-based ordering. Luna runs only when you click Analyze.'}</p></div>{#if projectIntelligence}<span class={`intelligence-source ${projectIntelligence.source}`}>{projectIntelligence.source === 'luna' ? 'Luna' : 'Metrics'}</span>{/if}</div>{#if projectIntelligenceError}<div class="inline-alert error" role="alert"><span>!</span>{projectIntelligenceError}</div>{/if}{#if projectIntelligence?.workspace_insights.length}<div class="intelligence-insights">{#each projectIntelligence.workspace_insights as insight}<article><span>{insight.kind.replaceAll('_', ' ')}</span><p>{insight.summary}</p></article>{/each}</div>{:else if projectIntelligenceLoading}<div class="roadmap-live-loading"><span class="spinner"></span>Loading metric snapshot…</div>{:else}<p class="intelligence-empty">No cross-project insight yet. Smart order still uses the deterministic metrics above.</p>{/if}</section>{/if}<RoadmapLiveWork tasks={roadmapLiveTasks} {projects} columnsByProject={roadmapLiveColumnsByProject} actors={roadmapActors} now={pulseClock} loading={roadmapLiveLoading} error={roadmapLiveError} onOpen={openRoadmapTask} onViewAll={() => setView('my-work')} /><div class="roadmap-columns"><section class="roadmap-panel project-progress-panel"><div class="panel-heading"><div><h2>Project progress</h2><p>Where each project stands today.</p></div><button class="icon-button" type="button" aria-label="Refresh progress" on:click={() => loadRoadmap(roadmapProjectId)}>↻</button></div>{#if roadmapProjectRows.length}{#each roadmapProjectRows as row}<button class="project-progress-row" type="button" on:click={() => selectProject(row.project)}><span class="project-dot" style={`--project-color: ${row.project.color || '#6d5efc'}`}>{projectInitials(row.project)}</span><span class="project-progress-name"><strong>{row.project.name}</strong><small>{row.project.key}</small></span>{#if projectOrderMode === 'smart' && projectIntelligenceById.get(row.project.id)}<span class={`attention-pill ${projectIntelligenceById.get(row.project.id)?.attention}`}>{projectAttentionLabel(projectIntelligenceById.get(row.project.id))}</span>{/if}<span class="progress-track"><span style={`width: ${row.total_tasks ? (row.completed_tasks / row.total_tasks) * 100 : 0}%; --project-color: ${row.project.color || '#6d5efc'}`}></span></span><span class="progress-number">{row.total_tasks ? Math.round((row.completed_tasks / row.total_tasks) * 100) : 0}%</span><span>→</span></button>{/each}{:else}<div class="panel-empty">Create a project to see progress here.</div>{/if}</section><section class="roadmap-panel upcoming-panel"><div class="panel-heading"><div><h2>Coming up</h2><p>Tasks with the nearest due dates.</p></div></div>{#if roadmap?.upcoming_tasks?.length}{#each roadmap.upcoming_tasks.slice(0, 5) as task}<button class="upcoming-row" type="button" on:click={() => openWorkTask(task)}><span class="upcoming-key">{task.key}</span><span class="upcoming-title">{task.title}</span><span class={`upcoming-date ${taskDueClass(task)}`}>{formatDate(task.due_at)}</span></button>{/each}{:else}<div class="panel-empty">No upcoming deadlines. Nice breathing room.</div>{/if}</section></div><RoadmapActivity events={roadmapActivityEvents} tasksById={roadmapActivityTasks} {projects} actors={roadmapActors} filter={roadmapActivityFilter} loading={roadmapActivityLoading} error={roadmapActivityError} onFilterChange={(next) => roadmapActivityFilter = next} onOpen={openRoadmapActivity} /></section>{/if}
         {:else if view === 'admin'}
           {#if user?.admin}<AdminMetrics />{:else}<div class="empty-state"><div class="empty-icon">◎</div><h3>Administrator access required</h3><p>Ask a workspace administrator for access to metrics.</p></div>{/if}
         {:else}

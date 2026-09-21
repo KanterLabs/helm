@@ -53,6 +53,7 @@ func TestMetricsRequiresAuthenticationOffLoopback(t *testing.T) {
 		"helm_database_wal_bytes",
 		"helm_database_page_usage_ratio",
 		"helm_agent_mutations_total",
+		"helm_project_intelligence_runs_total",
 	} {
 		if !strings.Contains(loopbackResponse.Body.String(), metric) {
 			t.Errorf("metrics response does not contain %s", metric)
@@ -133,6 +134,7 @@ func TestMetricRegistryRendersOperationalSignals(t *testing.T) {
 	registry.recordRateLimit("mutation")
 	registry.recordAgentMutation("attempted")
 	registry.recordAgentMutation("rejected_rate_limit")
+	registry.recordProjectIntelligence("succeeded", 2*time.Second)
 	registry.recordDatabaseLock(300*time.Millisecond, errors.New("database is busy"))
 	rendered := registry.render(databaseMetricSnapshot{
 		WALBytes:       readinessStorageWALCap,
@@ -143,6 +145,8 @@ func TestMetricRegistryRendersOperationalSignals(t *testing.T) {
 		`helm_auth_failures_total{reason="invalid_token"} 1`,
 		`helm_rate_limit_failures_total{scope="mutation"} 1`,
 		`helm_agent_mutation_pressure_ratio 1`,
+		`helm_project_intelligence_runs_total{outcome="succeeded"} 1`,
+		`helm_project_intelligence_duration_seconds_sum{outcome="succeeded"} 2`,
 		`helm_database_lock_errors_total 1`,
 		`helm_database_wal_bytes 67108864`,
 		`helm_build_info{revision="revision"} 1`,

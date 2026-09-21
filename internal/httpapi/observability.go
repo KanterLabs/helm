@@ -60,6 +60,7 @@ var metricRouteTemplates = map[string]struct{}{
 	"/api/v1/export": {}, "/api/v1/import": {}, "/api/v1/import/trello": {},
 	"/api/v1/auth/status": {}, "/api/v1/auth/setup": {}, "/api/v1/auth/login": {}, "/api/v1/auth/logout": {}, "/api/v1/auth/me": {},
 	"/api/v1/codex/account": {}, "/api/v1/codex/login": {}, "/api/v1/codex/login/cancel": {}, "/api/v1/codex/logout": {},
+	"/api/v1/project-intelligence": {}, "/api/v1/project-intelligence/analyze": {},
 	"/api/v1/projects": {}, "/api/v1/projects/:project": {},
 	"/api/v1/projects/:project/export": {}, "/api/v1/projects/:project/import": {}, "/api/v1/projects/:project/boards": {},
 	"/api/v1/projects/:project/columns": {}, "/api/v1/projects/:project/tasks": {}, "/api/v1/projects/:project/task-context": {},
@@ -131,12 +132,14 @@ type requestMetricValue struct {
 type metricsRegistry struct {
 	mu sync.Mutex
 
-	requests       map[requestMetricKey]*requestMetricValue
-	httpErrors     map[requestMetricKey]uint64
-	authFailures   map[string]uint64
-	rateLimit      map[string]uint64
-	agentMutations map[string]uint64
-	readiness      map[readinessMetricKey]uint64
+	requests                    map[requestMetricKey]*requestMetricValue
+	httpErrors                  map[requestMetricKey]uint64
+	authFailures                map[string]uint64
+	rateLimit                   map[string]uint64
+	agentMutations              map[string]uint64
+	projectIntelligence         map[string]uint64
+	projectIntelligenceDuration map[string]float64
+	readiness                   map[readinessMetricKey]uint64
 
 	databaseLockCount uint64
 	databaseLockSum   float64
@@ -150,12 +153,14 @@ type readinessMetricKey struct {
 
 func newMetricsRegistry() *metricsRegistry {
 	return &metricsRegistry{
-		requests:       make(map[requestMetricKey]*requestMetricValue),
-		httpErrors:     make(map[requestMetricKey]uint64),
-		authFailures:   make(map[string]uint64),
-		rateLimit:      make(map[string]uint64),
-		agentMutations: make(map[string]uint64),
-		readiness:      make(map[readinessMetricKey]uint64),
+		requests:                    make(map[requestMetricKey]*requestMetricValue),
+		httpErrors:                  make(map[requestMetricKey]uint64),
+		authFailures:                make(map[string]uint64),
+		rateLimit:                   make(map[string]uint64),
+		agentMutations:              make(map[string]uint64),
+		projectIntelligence:         make(map[string]uint64),
+		projectIntelligenceDuration: make(map[string]float64),
+		readiness:                   make(map[readinessMetricKey]uint64),
 	}
 }
 
@@ -218,6 +223,28 @@ func (m *metricsRegistry) recordAgentMutation(outcome string) {
 	outcome = safeMetricLabel(outcome, "unknown")
 	m.mu.Lock()
 	m.agentMutations[outcome]++
+	m.mu.Unlock()
+}
+
+func (m *metricsRegistry) recordProjectIntelligence(outcome string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	switch outcome {
+	case "succeeded", "busy", "limit_reached", "canceled", "timed_out", "incomplete", "invalid_output", "unavailable":
+	default:
+		outcome = "unavailable"
+	}
+	seconds := duration.Seconds()
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		seconds = 0
+	}
+	if seconds > projectIntelligenceTimeout.Seconds() {
+		seconds = projectIntelligenceTimeout.Seconds()
+	}
+	m.mu.Lock()
+	m.projectIntelligence[outcome]++
+	m.projectIntelligenceDuration[outcome] += seconds
 	m.mu.Unlock()
 }
 
@@ -290,6 +317,18 @@ func (m *metricsRegistry) render(database databaseMetricSnapshot, revision strin
 	writeStringCounter(&output, "helm_auth_failures_total", "Authentication failures by bounded reason.", "reason", m.authFailures)
 	writeStringCounter(&output, "helm_rate_limit_failures_total", "Rate-limit rejections by bounded scope.", "scope", m.rateLimit)
 	writeStringCounter(&output, "helm_agent_mutations_total", "Agent mutation pressure by bounded outcome.", "outcome", m.agentMutations)
+	writeStringCounter(&output, "helm_project_intelligence_runs_total", "Manually requested Luna project-intelligence runs by bounded outcome.", "outcome", m.projectIntelligence)
+	output.WriteString("# HELP helm_project_intelligence_duration_seconds Duration of manually requested Luna project-intelligence runs.\n")
+	output.WriteString("# TYPE helm_project_intelligence_duration_seconds summary\n")
+	projectIntelligenceOutcomes := make([]string, 0, len(m.projectIntelligence))
+	for outcome := range m.projectIntelligence {
+		projectIntelligenceOutcomes = append(projectIntelligenceOutcomes, outcome)
+	}
+	sort.Strings(projectIntelligenceOutcomes)
+	for _, outcome := range projectIntelligenceOutcomes {
+		fmt.Fprintf(&output, "helm_project_intelligence_duration_seconds_sum{outcome=%q} %s\n", prometheusLabel(outcome), formatFloat(m.projectIntelligenceDuration[outcome]))
+		fmt.Fprintf(&output, "helm_project_intelligence_duration_seconds_count{outcome=%q} %d\n", prometheusLabel(outcome), m.projectIntelligence[outcome])
+	}
 	output.WriteString("# HELP helm_agent_mutation_pressure_ratio Fraction of observed agent mutation attempts rejected by a limit.\n")
 	output.WriteString("# TYPE helm_agent_mutation_pressure_ratio gauge\n")
 	attempts := m.agentMutations["attempted"]

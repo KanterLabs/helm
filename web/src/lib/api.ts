@@ -26,6 +26,7 @@ import {
   type IssueMetrics,
   type Label,
   type Project,
+  type ProjectIntelligenceResponse,
   type Release,
   type ReleaseCreateInput,
   type ReleaseFilterValue,
@@ -355,6 +356,11 @@ export const api = {
   listAllProjects: (params: { includeArchived?: boolean } = {}) => collectPages((cursor) =>
     request<Collection<Project>>(pathWithQuery('/projects', { cursor, limit: 200, archived: params.includeArchived ? true : undefined })).then(collectionFrom)
   ),
+  projectIntelligence: () => request<ProjectIntelligenceResponse>('/project-intelligence'),
+  analyzeProjectIntelligence: (signal?: AbortSignal) => request<ProjectIntelligenceResponse>('/project-intelligence/analyze', {
+    method: 'POST',
+    signal
+  }),
 
   /** List project-local product releases, including planned and released history. */
   listProjectReleases: (project: string, params: ReleaseListParams = {}) =>
