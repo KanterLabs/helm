@@ -72,6 +72,8 @@ tags:
     description: Named, optionally shared global-search filter views
   - name: Roadmap
     description: Progress summaries and activity
+  - name: Project intelligence
+    description: Human-only deterministic project ordering and explicitly triggered Luna analysis
   - name: Events
     description: Append-only event feed for incremental polling
   - name: Notifications
@@ -1063,6 +1065,52 @@ paths:
               schema: { $ref: '#/components/schemas/OkResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/project-intelligence:
+    get:
+      operationId: getProjectIntelligence
+      summary: Get the current project-attention order
+      description: |
+        Returns one authorization-scoped metric snapshot and either the matching
+        cached Luna result or a deterministic fallback. This read never invokes
+        Codex, retries a model call, or schedules background analysis.
+      tags: [Project intelligence]
+      responses:
+        '200':
+          description: Current project-attention order
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectIntelligenceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/project-intelligence/analyze:
+    post:
+      operationId: analyzeProjectIntelligence
+      summary: Manually analyze the current project snapshot with Luna
+      description: |
+        One explicit human click starts at most one low-effort Luna turn. The
+        route accepts no body and performs no automatic retry. Subscription,
+        timeout, connection, and invalid-output failures leave the deterministic
+        order available through the read endpoint.
+      tags: [Project intelligence]
+      responses:
+        '200':
+          description: Newly analyzed project-attention order
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectIntelligenceResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/projects:
@@ -7823,6 +7871,82 @@ components:
         status:
           type: string
           enum: [canceled, notFound]
+      additionalProperties: false
+
+    ProjectIntelligenceMetrics:
+      type: object
+      required: [open_tasks, completed_tasks, active_tasks, blocked_tasks, overdue_tasks, due_soon_tasks, urgent_tasks, high_priority_tasks, action_needed, stale_agent_work, dependency_blocked, direct_unblock_count, severe_bugs, unread_notifications, created_7d, completed_7d, net_open_change_7d, planned_focus_count, focus_due_soon]
+      properties:
+        open_tasks: { type: integer, minimum: 0 }
+        completed_tasks: { type: integer, minimum: 0 }
+        active_tasks: { type: integer, minimum: 0 }
+        blocked_tasks: { type: integer, minimum: 0 }
+        overdue_tasks: { type: integer, minimum: 0 }
+        due_soon_tasks: { type: integer, minimum: 0 }
+        urgent_tasks: { type: integer, minimum: 0 }
+        high_priority_tasks: { type: integer, minimum: 0 }
+        action_needed: { type: integer, minimum: 0 }
+        stale_agent_work: { type: integer, minimum: 0 }
+        dependency_blocked: { type: integer, minimum: 0 }
+        direct_unblock_count: { type: integer, minimum: 0 }
+        severe_bugs: { type: integer, minimum: 0 }
+        unread_notifications: { type: integer, minimum: 0 }
+        created_7d: { type: integer, minimum: 0 }
+        completed_7d: { type: integer, minimum: 0 }
+        net_open_change_7d: { type: integer }
+        planned_focus_count: { type: integer, minimum: 0 }
+        focus_due_soon: { type: integer, minimum: 0 }
+        oldest_active_days: { type: number, minimum: 0 }
+        last_activity_at: { type: string, format: date-time }
+      additionalProperties: false
+
+    ProjectIntelligenceRecommendation:
+      type: object
+      required: [project_id, attention, reason_codes, summary, confidence, metrics]
+      properties:
+        project_id: { type: string, minLength: 1, maxLength: 128 }
+        attention: { type: string, enum: [act_now, watch, steady, quiet] }
+        reason_codes:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items: { type: string, enum: [action_needed, overdue, focus_due_soon, severe_bugs, dependency_blocked, unblock_leverage, blocked_work, due_soon, urgent_work, high_priority, active_work, inbox_attention, growing_backlog, quiet] }
+        summary: { type: string, minLength: 1, maxLength: 240 }
+        confidence: { type: string, enum: [high, medium, low] }
+        metrics: { $ref: '#/components/schemas/ProjectIntelligenceMetrics' }
+      additionalProperties: false
+
+    ProjectIntelligenceInsight:
+      type: object
+      required: [kind, project_ids, summary]
+      properties:
+        kind: { type: string, enum: [attention_queue, unblock_leverage, delivery_risk, stall_detection, flow_anomaly, agent_attention, planning_hygiene, quiet_project_review] }
+        project_ids:
+          type: array
+          minItems: 1
+          maxItems: 6
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 128 }
+        summary: { type: string, minLength: 1, maxLength: 300 }
+      additionalProperties: false
+
+    ProjectIntelligenceResponse:
+      type: object
+      required: [as_of, source, stale, snapshot_hash, recommendation_version, projects, workspace_insights]
+      properties:
+        as_of: { type: string, format: date-time }
+        source: { type: string, enum: [deterministic, luna] }
+        stale: { type: boolean }
+        snapshot_hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        recommendation_version: { type: string, minLength: 1, maxLength: 100 }
+        projects:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/ProjectIntelligenceRecommendation' }
+        workspace_insights:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/ProjectIntelligenceInsight' }
       additionalProperties: false
 
     LoginRequest:

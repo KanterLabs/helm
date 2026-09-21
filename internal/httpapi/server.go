@@ -56,6 +56,9 @@ type Server struct {
 	metricsOnce                 sync.Once
 	adminActivity               *adminActivityTracker
 	adminActivityOnce           sync.Once
+	projectIntelligenceMu       sync.Mutex
+	projectIntelligenceCache    map[string]projectIntelligenceCacheEntry
+	projectIntelligenceRunning  map[string]bool
 	static                      http.Handler
 }
 
@@ -179,7 +182,7 @@ func NewWithBetaSwitch(s *store.Store, manager *auth.Manager, cfg config.Config,
 	if len(codexManagers) > 0 {
 		codexManager = codexManagers[0]
 	}
-	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry(), adminActivity: newAdminActivityTracker()}
+	return &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry(), adminActivity: newAdminActivityTracker(), projectIntelligenceCache: make(map[string]projectIntelligenceCacheEntry), projectIntelligenceRunning: make(map[string]bool)}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -638,6 +641,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.myWork(w, r, identity)
 		case "sidebar-counts":
 			s.sidebarCounts(w, r, identity)
+		case "project-intelligence":
+			s.projectIntelligence(w, r, identity, "")
 		case "search":
 			s.search(w, r, identity, "")
 		case "views":
@@ -724,6 +729,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 	}
 	if parts[0] == "codex" {
 		s.codexAccount(w, r, identity, parts[1:])
+		return
+	}
+	if parts[0] == "project-intelligence" && len(parts) == 2 && parts[1] == "analyze" {
+		s.projectIntelligence(w, r, identity, "analyze")
 		return
 	}
 	if parts[0] == "import" && len(parts) == 2 && parts[1] == "trello" {

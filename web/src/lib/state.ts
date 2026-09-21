@@ -849,8 +849,32 @@ export function displayEvent(event: { action?: string; type?: string; kind?: str
 export const helmStorageKeys = {
   theme: 'helm.theme',
   lastProject: 'helm.last-project',
-  recentProjects: 'helm.recent-projects'
+  recentProjects: 'helm.recent-projects',
+  projectOrder: 'helm.project-order'
 } as const;
+
+export type ProjectOrderMode = 'smart' | 'recent' | 'alphabetical';
+
+/** Favorites stay pinned; callers may filter them into a separate section. */
+export function orderProjects(
+  projects: readonly Project[],
+  mode: ProjectOrderMode,
+  intelligenceProjectIds: readonly string[] = [],
+  recentProjectIds: readonly string[] = []
+): Project[] {
+  const smart = new Map(intelligenceProjectIds.map((id, index) => [id, index]));
+  const recent = new Map(recentProjectIds.map((id, index) => [id, index]));
+  return [...projects].sort((left, right) => {
+    if (left.favorite !== right.favorite) return left.favorite ? -1 : 1;
+    const positions = mode === 'smart' ? smart : mode === 'recent' ? recent : undefined;
+    if (positions) {
+      const leftPosition = positions.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightPosition = positions.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      if (leftPosition !== rightPosition) return leftPosition - rightPosition;
+    }
+    return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }) || left.id.localeCompare(right.id);
+  });
+}
 
 export const legacyRoadmapStorageKeys = {
   theme: 'roadmap.theme',
