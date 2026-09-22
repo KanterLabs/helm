@@ -45,6 +45,10 @@ func TestTaskDraftReturnsValidatedPreviewWithoutMutation(t *testing.T) {
 	if len(fake.draftRequests) != 1 || fake.draftRequests[0].Model != "gpt-5.6-luna" || !strings.Contains(fake.draftRequests[0].Prompt, "untrusted quoted historical data") {
 		t.Fatalf("draft request=%+v", fake.draftRequests)
 	}
+	runs, err := data.ListLunaRuns(context.Background(), actor.ID, 10)
+	if err != nil || len(runs) != 1 || runs[0].Feature != "task_draft" || runs[0].Outcome != "succeeded" || runs[0].OutputBytes == nil || *runs[0].OutputBytes == 0 {
+		t.Fatalf("luna history=%+v err=%v", runs, err)
+	}
 }
 
 func TestTaskDraftFailureModes(t *testing.T) {
@@ -72,6 +76,15 @@ func TestTaskDraftFailureModes(t *testing.T) {
 			server.taskDraft(response, req, identity, project.ID)
 			if response.Code != test.status || !strings.Contains(response.Body.String(), test.code) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if test.name != "disconnected" {
+				runs, err := data.ListLunaRuns(context.Background(), actor.ID, 25)
+				if err != nil || len(runs) == 0 {
+					t.Fatalf("history=%+v err=%v", runs, err)
+				}
+				if test.name == "malformed" && (runs[0].Outcome != "invalid_output" || runs[0].Detail == "") {
+					t.Fatalf("malformed history=%+v", runs[0])
+				}
 			}
 		})
 	}

@@ -98,6 +98,10 @@ func TestProjectIntelligenceAnalyzeRequiresExplicitPOSTAndCachesResult(t *testin
 	if len(fake.draftRequests) != 1 || fake.draftRequests[0].Effort != "low" || fake.draftActors[0] != actor.ID {
 		t.Fatalf("drafts=%+v actors=%v", fake.draftRequests, fake.draftActors)
 	}
+	runs, err := data.ListLunaRuns(context.Background(), actor.ID, 10)
+	if err != nil || len(runs) != 1 || runs[0].Feature != "project_intelligence" || runs[0].Outcome != "succeeded" {
+		t.Fatalf("luna history=%+v err=%v", runs, err)
+	}
 }
 
 func TestProjectIntelligenceAnalyzeRejectsBodyWithoutInvokingCodex(t *testing.T) {

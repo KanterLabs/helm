@@ -254,11 +254,12 @@ The response carries `as_of`, `source`, `stale`, `snapshot_hash`,
 are out of scope for the UI recommendation endpoint; the raw aggregate store
 method still accepts an explicit project ceiling for reuse and tests.
 
-Persisting recommendations is optional for the first slice. An in-memory,
-per-actor bounded cache is sufficient if deterministic results remain the
-restart fallback. If durable cache/feedback tables are added, use an additive
-migration, cap rows per actor, exclude prompt/model text, and verify the
-migration against a populated database and retained rollback binary.
+Recommendations remain an in-memory, per-actor bounded cache; deterministic
+results are the restart fallback. Luna execution metadata is retained in the
+shared private run ledger for debugging, capped at 200 rows per actor and
+excluding prompts, model output, project/task prose, and account metadata. Any
+future durable recommendation or feedback cache must use an additive
+migration and the same populated-database and retained-rollback checks.
 
 ## Privacy-safe operational metrics
 

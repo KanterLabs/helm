@@ -17,6 +17,10 @@ func (s *Server) codexAccount(w http.ResponseWriter, r *http.Request, identity a
 		s.writeError(w, http.StatusForbidden, "human_account_required", "Codex subscriptions can only be managed by a signed-in human", nil)
 		return
 	}
+	if len(parts) == 1 && parts[0] == "runs" {
+		s.lunaRuns(w, r, identity)
+		return
+	}
 	if s.Codex == nil {
 		s.writeError(w, http.StatusServiceUnavailable, "codex_unavailable", "Codex is not available on this Helm instance", nil)
 		return

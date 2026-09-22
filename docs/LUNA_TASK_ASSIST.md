@@ -56,10 +56,14 @@ other unavailable outcomes return a retryable `503`.
 ## Privacy-safe operations
 
 Each attempted model turn writes one bounded structured log containing only
-`outcome` and `duration_ms` (capped at 300,000). Allowed outcomes include
-`succeeded`, `invalid_output`, `incomplete`, `limit_reached`, `timed_out`,
-`canceled`, and `unavailable`. Logs exclude actor and project identifiers,
-account metadata, prompts, task text, model output, and credentials.
+`outcome` and `duration_ms` (capped at 300,000). Helm also keeps the latest 200
+turns per human in a private debugging ledger shown under **Settings → Your
+Codex subscription**. The ledger records the feature, outcome, model, effort,
+duration, output byte count, project key where applicable, Codex thread/turn
+IDs, and a bounded validation diagnostic. It never stores prompts, task or
+project prose, model output, account metadata, or credentials. Allowed outcomes
+include `succeeded`, `invalid_output`, `incomplete`, `limit_reached`,
+`timed_out`, `canceled`, and `unavailable`.
 
 For an immediate kill switch, set:
 
