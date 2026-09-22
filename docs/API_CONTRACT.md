@@ -1103,7 +1103,7 @@ error, `503` temporary authentication/body admission saturation with
 
 The request body limit is 2 MiB. Agent bearer traffic is limited per actor to
 20 requests/second with burst 40; mutations have a separate 1 request/second
-bucket with burst 10. Agent mutation persistence also has a 64 MiB lifetime
+bucket with burst 10. Agent mutation persistence also has a 256 MiB lifetime
 budget; exhaustion returns `507`. Body-buffer saturation may return `503` with
 `Retry-After`.
 
