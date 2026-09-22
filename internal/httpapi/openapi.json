@@ -47,7 +47,6 @@
   },
   "x-resource-limits": {
     "request_body_bytes": 2097152,
-    "agent_lifetime_mutation_budget_bytes": 268435456,
     "bearer_requests_per_second": 20,
     "bearer_burst": 40,
     "bearer_mutations_per_second": 1,
@@ -2070,9 +2069,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -2213,9 +2209,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -2559,9 +2552,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -2664,9 +2654,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       },
@@ -2931,9 +2918,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -3098,9 +3082,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -3241,9 +3222,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       },
@@ -3303,9 +3281,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -3382,9 +3357,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -3474,9 +3446,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -3642,9 +3611,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -3995,9 +3961,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -4218,9 +4181,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -4306,9 +4266,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -4418,9 +4375,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -4803,9 +4757,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       },
@@ -4865,9 +4816,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -4944,9 +4892,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -5044,9 +4989,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -5162,9 +5104,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -5330,9 +5269,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       },
@@ -5425,9 +5361,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -5533,9 +5466,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       },
@@ -5609,9 +5539,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -5829,9 +5756,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -6208,9 +6132,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       },
@@ -6453,9 +6374,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -6548,9 +6466,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -6704,9 +6619,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -7402,9 +7314,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -7418,7 +7327,7 @@
       "post": {
         "operationId": "heartbeatTaskAgentWork",
         "summary": "Refresh an agent work heartbeat",
-        "description": "Refresh only the `updated_at` liveness timestamp of the existing\nagent-work snapshot identified by `operation_id`. The caller must\nhave `tasks:claim`, be allowed to access the task's project, own the\ntask's active unexpired claim, and match both the snapshot actor and\noperation ID. The task must remain unfinished. Heartbeats are quiet\nand inherently idempotent: they do not change the task version or\n`tasks.updated_at`, replace any snapshot content, append comments or\nevents, reserve the agent mutation budget, or persist idempotency\nrecords. `If-Match` is intentionally not required because the\nheartbeat never changes task state or its optimistic-concurrency\nversion. `Idempotency-Key` is not supported; omit it.\n",
+        "description": "Refresh only the `updated_at` liveness timestamp of the existing\nagent-work snapshot identified by `operation_id`. The caller must\nhave `tasks:claim`, be allowed to access the task's project, own the\ntask's active unexpired claim, and match both the snapshot actor and\noperation ID. The task must remain unfinished. Heartbeats are quiet\nand inherently idempotent: they do not change the task version or\n`tasks.updated_at`, replace any snapshot content, append comments or\nevents or persist idempotency\nrecords. `If-Match` is intentionally not required because the\nheartbeat never changes task state or its optimistic-concurrency\nversion. `Idempotency-Key` is not supported; omit it.\n",
         "tags": [
           "Tasks"
         ],
@@ -7629,9 +7538,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -7721,9 +7627,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -7800,9 +7703,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -7892,9 +7792,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -7984,9 +7881,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -8079,9 +7973,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -8181,9 +8072,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -8273,9 +8161,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -8428,9 +8313,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -8490,9 +8372,6 @@
           },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -11466,33 +11345,6 @@
                 "code": "request_too_large",
                 "message": "request body exceeds 2 MiB",
                 "details": {}
-              }
-            }
-          }
-        }
-      },
-      "InsufficientStorage": {
-        "description": "An agent's lifetime mutation resource budget is exhausted.",
-        "headers": {
-          "X-Request-ID": {
-            "$ref": "#/components/headers/XRequestID"
-          },
-          "X-Roadmap-Revision": {
-            "$ref": "#/components/headers/XRoadmapRevision"
-          }
-        },
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "example": {
-              "error": {
-                "code": "resource_limit",
-                "message": "agent mutation resource budget exhausted",
-                "details": {
-                  "operator_reset": "ResetAgentMutationUsage"
-                }
               }
             }
           }

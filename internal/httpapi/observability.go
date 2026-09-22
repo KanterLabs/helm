@@ -332,7 +332,7 @@ func (m *metricsRegistry) render(database databaseMetricSnapshot, revision strin
 	output.WriteString("# HELP helm_agent_mutation_pressure_ratio Fraction of observed agent mutation attempts rejected by a limit.\n")
 	output.WriteString("# TYPE helm_agent_mutation_pressure_ratio gauge\n")
 	attempts := m.agentMutations["attempted"]
-	rejections := m.agentMutations["rejected_rate_limit"] + m.agentMutations["rejected_resource_limit"]
+	rejections := m.agentMutations["rejected_rate_limit"]
 	pressure := float64(0)
 	if attempts > 0 {
 		pressure = float64(rejections) / float64(attempts)
