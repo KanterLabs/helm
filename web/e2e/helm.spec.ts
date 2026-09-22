@@ -458,8 +458,10 @@ test.describe('Helm workspace', () => {
     await drawer.getByLabel('Reopen reason').fill('The regression returned in a later preview.');
     await drawer.getByRole('button', { name: 'Reopen issue', exact: true }).click();
     await expect(drawer.getByRole('heading', { name: 'Resolve' })).toBeVisible();
+    await expect(drawer.locator('.drawer-save-status')).toContainText('All changes saved');
 
     await drawer.getByRole('button', { name: 'Close task details', exact: true }).click();
+    await expect(drawer).toBeHidden();
     await page.getByRole('button', { name: 'Search anything', exact: true }).click();
     const commandDialog = page.getByRole('dialog', { name: 'Search Helm' });
     await commandDialog.getByRole('combobox', { name: 'Search projects and views, tasks, issues, and actions' }).fill(bugTitle);

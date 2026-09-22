@@ -112,6 +112,10 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   await expect(page.locator('.task-card')).toHaveCount(boardPageSize);
   await expect(page.getByRole('button', { name: 'Retry columns', exact: true })).toHaveCount(0);
   await expect.poll(() => eventResponses, { timeout: 15_000 }).toBeGreaterThan(0);
+  // A response header is observable before pollEvents has finished consuming
+  // its body and released the in-flight slot. Wait for that whole first poll
+  // before advancing the virtual liveness interval.
+  await page.waitForLoadState('networkidle');
 
   // Background liveness reads must not replace the visible board with the
   // full-load skeleton while their task pages are still in flight.
@@ -125,7 +129,7 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   };
   const taskRoute = `**/api/v1/projects/${project.id}/tasks?**`;
   await page.route(taskRoute, holdBackgroundTaskReads);
-  await page.clock.fastForward(60_100);
+  await page.clock.runFor(60_100);
   await expect.poll(() => backgroundTaskRequests, { timeout: 15_000 }).toBeGreaterThan(0);
   await expect(board).toBeVisible();
   await expect(readyColumn.locator('.task-card')).toHaveCount(boardPageSize);
