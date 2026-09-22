@@ -949,6 +949,35 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .codex-account-row > span:nth-child(2) { display: grid; flex: 1; gap: 3px; }
 .codex-account-row small { color: var(--muted); text-transform: capitalize; }
 .codex-account-row .form-actions { margin: 0; }
+.luna-history { display: grid; gap: 12px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.luna-history-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.luna-history-heading h3 { margin: 0; font: 800 14px var(--font-display); letter-spacing: -.02em; }
+.luna-history-heading p { max-width: 520px; margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.luna-history-empty { display: flex; align-items: center; gap: 11px; padding: 14px; border: 1px dashed var(--border); border-radius: 9px; color: var(--muted); background: var(--surface-muted); }
+.luna-history-empty > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; color: var(--purple); background: var(--purple-soft); }
+.luna-history-empty strong { display: block; color: var(--ink); font-size: 11px; }
+.luna-history-empty p { margin: 3px 0 0; font-size: 11px; }
+.luna-run-list { display: grid; gap: 7px; }
+.luna-run { overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
+.luna-run-summary { display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.luna-run-summary:hover { background: color-mix(in srgb, var(--purple-soft) 32%, transparent); }
+.luna-run-mark { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 8px; color: var(--purple); background: var(--purple-soft); }
+.luna-run-main { display: grid; min-width: 0; gap: 2px; }
+.luna-run-main strong { font-size: 11px; }
+.luna-run-main small, .luna-run-duration { color: var(--muted); font-size: 10px; }
+.luna-run-outcome { padding: 4px 7px; border-radius: 999px; color: var(--muted); background: var(--surface); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.luna-run-outcome.succeeded { color: var(--green); background: var(--green-soft); }
+.luna-run-outcome.running { color: var(--purple); background: var(--purple-soft); }
+.luna-run-outcome.invalid_output, .luna-run-outcome.incomplete, .luna-run-outcome.limit_reached, .luna-run-outcome.timed_out, .luna-run-outcome.canceled, .luna-run-outcome.unavailable { color: var(--red); background: var(--red-soft); }
+.luna-run-chevron { color: var(--muted); transform: rotate(-90deg); transition: transform .15s ease; }
+.luna-run.expanded .luna-run-chevron { transform: rotate(0); }
+.luna-run-detail { display: grid; gap: 12px; padding: 12px; border-top: 1px solid var(--border); background: var(--surface); }
+.luna-run-detail dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 0; }
+.luna-run-detail dl div { display: grid; min-width: 0; gap: 3px; }
+.luna-run-detail dt { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.luna-run-detail dd { min-width: 0; margin: 0; color: var(--ink-soft); font-size: 10px; overflow-wrap: anywhere; }
+.luna-run-detail code { font-size: 10px; white-space: normal; overflow-wrap: anywhere; }
+.luna-run-diagnostic { display: grid; gap: 5px; padding: 9px; border-radius: 7px; color: var(--ink-soft); background: var(--surface-muted); font-size: 10px; }
 .settings-layout { display: grid; grid-template-columns: minmax(0, 1fr) 270px; align-items: start; gap: 18px; }
 .settings-main { display: grid; gap: 15px; }
 .settings-section { padding: 23px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); }
@@ -1291,6 +1320,11 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .settings-section, .settings-layout, .settings-main, .admin-section { min-width: 0; }
   .settings-section-heading { align-items: flex-start; flex-direction: column; }
   .settings-section-heading > .button { width: 100%; }
+  .luna-run-summary { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .luna-run-duration { display: none; }
+  .luna-run-chevron { grid-column: 3; }
+  .luna-run-outcome { grid-column: 2; justify-self: start; }
+  .luna-run-detail dl { grid-template-columns: 1fr; }
   .theme-options { grid-template-columns: 1fr; }
   .admin-project-picker select { width: 100%; min-width: 0; }
   .admin-project-form .form-row { min-width: 0; grid-template-columns: minmax(0, 1fr); }

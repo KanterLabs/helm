@@ -1066,6 +1066,33 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /api/v1/codex/runs:
+    get:
+      operationId: listLunaRuns
+      summary: List the current human user's recent Luna work
+      description: |
+        Returns private, prompt-free debugging metadata for explicitly invoked
+        Luna model turns. Results never include prompts, project/task text,
+        model output, account metadata, or credentials and remain available
+        when the Codex runtime is disconnected.
+      tags: [Authentication]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        '200':
+          description: Newest-first Luna run history
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LunaRunCollection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
   /api/v1/project-intelligence:
     get:
       operationId: getProjectIntelligence
@@ -7778,6 +7805,26 @@ components:
           enum: [canceled, notFound]
       additionalProperties: false
 
+    LunaRun:
+      type: object
+      required: [id, feature, outcome, model, effort, started_at]
+      properties:
+        id: { $ref: '#/components/schemas/Identifier' }
+        project_id: { $ref: '#/components/schemas/Identifier' }
+        project_key: { type: string, maxLength: 80 }
+        feature: { type: string, enum: [task_draft, project_intelligence] }
+        outcome: { type: string, enum: [running, succeeded, invalid_output, incomplete, limit_reached, timed_out, canceled, unavailable] }
+        model: { type: string, minLength: 1, maxLength: 120 }
+        effort: { type: string, enum: [low, medium, high, xhigh, max, ultra] }
+        thread_id: { type: string, maxLength: 200 }
+        turn_id: { type: string, maxLength: 200 }
+        duration_ms: { type: integer, minimum: 0, maximum: 300000 }
+        output_bytes: { type: integer, minimum: 0, maximum: 2097152 }
+        detail: { type: string, maxLength: 500 }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        completed_at: { $ref: '#/components/schemas/Timestamp' }
+      additionalProperties: false
+
     ProjectIntelligenceMetrics:
       type: object
       required: [open_tasks, completed_tasks, active_tasks, blocked_tasks, overdue_tasks, due_soon_tasks, urgent_tasks, high_priority_tasks, action_needed, stale_agent_work, dependency_blocked, direct_unblock_count, severe_bugs, unread_notifications, created_7d, completed_7d, net_open_change_7d, planned_focus_count, focus_due_soon]
@@ -12317,6 +12364,20 @@ components:
         next_cursor:
           type: string
           description: Empty string when there is no next page.
+      additionalProperties: false
+    LunaRunCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LunaRun'
+        next_cursor:
+          type: string
+          description: Empty because this bounded debugging view returns only the requested latest runs.
       additionalProperties: false
     AuditFindingCollection:
       type: object

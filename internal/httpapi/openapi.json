@@ -1816,6 +1816,61 @@
         }
       }
     },
+    "/api/v1/codex/runs": {
+      "get": {
+        "operationId": "listLunaRuns",
+        "summary": "List the current human user's recent Luna work",
+        "description": "Returns private, prompt-free debugging metadata for explicitly invoked\nLuna model turns. Results never include prompts, project/task text,\nmodel output, account metadata, or credentials and remain available\nwhen the Codex runtime is disconnected.\n",
+        "tags": [
+          "Authentication"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest-first Luna run history",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LunaRunCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/api/v1/project-intelligence": {
       "get": {
         "operationId": "getProjectIntelligence",
@@ -12286,6 +12341,94 @@
         },
         "additionalProperties": false
       },
+      "LunaRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "feature",
+          "outcome",
+          "model",
+          "effort",
+          "started_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_key": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "feature": {
+            "type": "string",
+            "enum": [
+              "task_draft",
+              "project_intelligence"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "invalid_output",
+              "incomplete",
+              "limit_reached",
+              "timed_out",
+              "canceled",
+              "unavailable"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "effort": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+              "ultra"
+            ]
+          },
+          "thread_id": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "turn_id": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 300000
+          },
+          "output_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2097152
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "started_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "completed_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
       "ProjectIntelligenceMetrics": {
         "type": "object",
         "required": [
@@ -19213,6 +19356,26 @@
           "next_cursor": {
             "type": "string",
             "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "LunaRunCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LunaRun"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty because this bounded debugging view returns only the requested latest runs."
           }
         },
         "additionalProperties": false

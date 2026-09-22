@@ -25,6 +25,7 @@ import {
   type AdminMetrics,
   type IssueMetrics,
   type Label,
+  type LunaRun,
   type Project,
   type ProjectIntelligenceResponse,
   type Release,
@@ -348,6 +349,7 @@ export const api = {
   startCodexLogin: () => request<CodexDeviceLogin>('/codex/login', { method: 'POST' }),
   cancelCodexLogin: (loginId: string) => request<{ status: string }>('/codex/login/cancel', { method: 'POST', body: { login_id: loginId } }),
   logoutCodex: () => request<{ ok: boolean }>('/codex/logout', { method: 'POST' }),
+  listLunaRuns: (limit = 25) => request<Collection<LunaRun>>(pathWithQuery('/codex/runs', { limit })).then(collectionFrom),
 
   listProjects: (params: { cursor?: string; limit?: number } = {}) =>
     request<Collection<Project>>(

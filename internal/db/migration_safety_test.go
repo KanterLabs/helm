@@ -872,6 +872,9 @@ func populateProductionFixture(t *testing.T, ctx context.Context, database *sql.
 	if prefix >= 15 {
 		exec(`INSERT INTO task_checklist_items(id, task_id, text, position, completed, created_at, updated_at) VALUES ('checklist-1', 'task-1', 'Preserve this acceptance criterion', 0, 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
 	}
+	if prefix >= 26 {
+		exec(`INSERT INTO luna_runs(id,actor_id,project_id,project_key,feature,outcome,model,effort,thread_id,turn_id,duration_ms,output_bytes,detail,started_at,completed_at) VALUES ('luna-run-1','owner','project','ROAD','task_draft','succeeded','gpt-5.6-luna','medium','thread-1','turn-1',120,64,'validated','2026-01-01T00:00:00Z','2026-01-01T00:00:00.120Z')`)
+	}
 }
 
 func populateAuditFixture(t *testing.T, ctx context.Context, database *sql.DB) {
@@ -934,6 +937,20 @@ func assertMigratedAdditiveValues(t *testing.T, ctx context.Context, database *s
 	}
 	if err := database.QueryRowContext(ctx, `SELECT checklist_completion_policy FROM projects WHERE id='project'`).Scan(&value); err != nil || value != "warn" {
 		t.Fatalf("checklist completion policy after migration = %q, %v; want warn", value, err)
+	}
+	var lunaRunCount int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM luna_runs WHERE actor_id='owner'`).Scan(&lunaRunCount); err != nil {
+		t.Fatalf("luna run history table after migration: %v", err)
+	}
+	if prefix >= 26 {
+		if lunaRunCount != 1 {
+			t.Fatalf("luna run rows after retained-data migration = %d, want 1", lunaRunCount)
+		}
+		if err := database.QueryRowContext(ctx, `SELECT feature || ':' || outcome || ':' || detail FROM luna_runs WHERE id='luna-run-1'`).Scan(&value); err != nil || value != "task_draft:succeeded:validated" {
+			t.Fatalf("luna run retained value = %q, %v", value, err)
+		}
+	} else if lunaRunCount != 0 {
+		t.Fatalf("new luna run table unexpectedly populated during migration = %d", lunaRunCount)
 	}
 	var collectionRevision int64
 	wantCollectionRevision := int64(0)
