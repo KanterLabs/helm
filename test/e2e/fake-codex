@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Deterministic Codex app-server fixture for full Helm E2E workflows."""
+
+import json
+import os
+import sys
+
+
+SUGGESTION = {
+    "title": "Verify persisted Luna history",
+    "description": "Exercise Helm through its real Codex runtime boundary.",
+    "acceptance_criteria": [
+        "The completed Luna run remains visible after navigating to Settings."
+    ],
+    "priority": "high",
+    "rationale": "The workflow proves the browser, HTTP API, runtime, and database together.",
+    "supporting_task_keys": [],
+}
+
+
+def send(payload):
+    sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+for line in sys.stdin:
+    try:
+        request = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    request_id = request.get("id")
+    if request_id is None:
+        continue
+    method = request.get("method")
+    if method == "initialize":
+        send({"id": request_id, "result": {"home": os.environ.get("CODEX_HOME", "")}})
+    elif method == "account/read":
+        send({
+            "id": request_id,
+            "result": {
+                "account": {
+                    "type": "chatgpt",
+                    "email": "e2e@example.test",
+                    "planType": "plus",
+                },
+                "requiresOpenaiAuth": True,
+            },
+        })
+    elif method == "thread/start":
+        send({"id": request_id, "result": {"thread": {"id": "thread-e2e"}}})
+    elif method == "turn/start":
+        send({"id": request_id, "result": {"turn": {"id": "turn-e2e"}}})
+        output = json.dumps(SUGGESTION, separators=(",", ":"))
+        send({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": output}}})
+        send({
+            "method": "turn/completed",
+            "params": {"turn": {"id": "turn-e2e", "status": "completed", "error": None}},
+        })
+    elif method in {"turn/interrupt", "account/logout", "account/login/cancel"}:
+        send({"id": request_id, "result": {}})
+    else:
+        send({"id": request_id, "error": {"code": -32601, "message": "unknown method"}})

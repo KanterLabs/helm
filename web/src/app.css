@@ -1325,6 +1325,8 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .luna-run-chevron { grid-column: 3; }
   .luna-run-outcome { grid-column: 2; justify-self: start; }
   .luna-run-detail dl { grid-template-columns: 1fr; }
+  .codex-account-row { align-items: stretch; flex-direction: column; }
+  .codex-account-row .form-actions { min-width: 0; justify-content: flex-start; flex-wrap: wrap; }
   .theme-options { grid-template-columns: 1fr; }
   .admin-project-picker select { width: 100%; min-width: 0; }
   .admin-project-form .form-row { min-width: 0; grid-template-columns: minmax(0, 1fr); }

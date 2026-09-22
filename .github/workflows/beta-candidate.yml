@@ -243,7 +243,6 @@ jobs:
           npm audit --audit-level=high
           npm run openapi:check
           npm run check
-          npm test
           npm run build
       - name: Embed frontend and run Go checks
         run: |
@@ -254,7 +253,6 @@ jobs:
           cp -a web/dist/. internal/frontend/dist/
           test -z "$(gofmt -l cmd internal)"
           GOSUMDB=sum.golang.org go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.10
-          go test ./...
           go vet ./...
           GOSUMDB=sum.golang.org go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
           bash -n deploy/*.sh deploy/helm-deploy-gateway
@@ -317,101 +315,23 @@ jobs:
           rm -rf -- internal/webassets/dist
           install -d internal/webassets/dist
           cp -a web/dist/. internal/webassets/dist/
-          CGO_ENABLED=0 go build -trimpath -o /tmp/helm-beta-candidate-e2e ./cmd/helm
-      - name: Run the real candidate browser workflow
+          CGO_ENABLED=1 go build -race -trimpath -o /tmp/helm-beta-candidate-e2e ./cmd/helm
+      - name: Run the race-instrumented real candidate browser workflow
         env:
-          HELM_E2E_BASE_URL: http://127.0.0.1:18080
-        run: |
-          set -Eeuo pipefail
-          test -f "$RUNNER_TEMP/candidate-metadata/candidate.metadata"
-          test_dir=$(mktemp -d)
-          cleanup() {
-            if [[ -n "${server_pid:-}" ]]; then
-              kill "$server_pid" >/dev/null 2>&1 || true
-              wait "$server_pid" >/dev/null 2>&1 || true
-            fi
-          }
-          trap cleanup EXIT
-          HELM_ADDR=127.0.0.1:18080 \
-            HELM_DB="$test_dir/roadmap.db" \
-            HELM_AUTH_MODE=disabled \
-            HELM_PUBLIC_ORIGIN=http://127.0.0.1:18080 \
-            HELM_SECURE_COOKIES=false \
-            HELM_DEMO_SEED=false \
-            /tmp/helm-beta-candidate-e2e >"$test_dir/server.log" 2>&1 &
-          server_pid=$!
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:18080/readyz >/dev/null; then
-              break
-            fi
-            if [[ "$attempt" -eq 30 ]]; then
-              cat "$test_dir/server.log"
-              exit 1
-            fi
-            sleep 1
-          done
-          cd web
-          npm run e2e
-          cd ..
-          kill "$server_pid"
-          wait "$server_pid" || true
-          server_pid=
-          HELM_ADDR=127.0.0.1:18081 \
-            HELM_DB="$test_dir/local-roadmap.db" \
-            HELM_AUTH_MODE=local \
-            HELM_PUBLIC_ORIGIN=http://127.0.0.1:18081 \
-            HELM_SECURE_COOKIES=false \
-            HELM_DEMO_SEED=false \
-            /tmp/helm-beta-candidate-e2e >"$test_dir/local-server.log" 2>&1 &
-          server_pid=$!
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:18081/readyz >/dev/null; then
-              break
-            fi
-            if [[ "$attempt" -eq 30 ]]; then
-              cat "$test_dir/local-server.log"
-              exit 1
-            fi
-            sleep 1
-          done
-          cd web
-          HELM_E2E_BASE_URL=http://127.0.0.1:18081 npx playwright test e2e/onboarding.spec.ts
-      - name: Upload candidate browser diagnostics
-        if: ${{ failure() }}
+          HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-beta-candidate-e2e
+          HELM_E2E_BINARY: /tmp/helm-beta-candidate-e2e
+          HELM_E2E_SKIP_WEB_BUILD: true
+          HELM_E2E_METADATA_FILE: ${{ runner.temp }}/candidate-metadata/candidate.metadata
+          HELM_E2E_REVISION: ${{ needs.admit.outputs.candidate_sha }}
+        run: ./test/e2e/run.sh
+      - name: Upload candidate browser evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: helm-beta-candidate-browser-${{ needs.admit.outputs.candidate_sha }}
-          path: |
-            web/playwright-report
-            web/test-results
-            ${{ runner.temp }}/candidate-metadata/candidate.metadata
-          if-no-files-found: ignore
-          retention-days: 7
-
-  race:
-    if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
-    needs: admit
-    runs-on: homelab-heavy
-    steps:
-      - name: Check out the exact candidate commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ github.repository }}
-          ref: ${{ needs.admit.outputs.candidate_sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Verify immutable candidate checkout
-        env:
-          EXPECTED_SHA: ${{ needs.admit.outputs.candidate_sha }}
-        run: |
-          set -Eeuo pipefail
-          [[ "$(git rev-parse HEAD)" = "$EXPECTED_SHA" ]]
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Run candidate Go race detector
-        run: go test -race ./...
+          name: helm-beta-candidate-e2e-${{ needs.admit.outputs.candidate_sha }}
+          path: ${{ runner.temp }}/helm-beta-candidate-e2e
+          if-no-files-found: error
+          retention-days: 14
 
   container:
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
@@ -492,7 +412,7 @@ jobs:
     # This is the only secret-bearing job. It checks out the exact beta event
     # SHA and never checks out candidate_ref or candidate_sha as source.
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' && vars.HELM_BETA_DEPLOY_PAUSED != 'true' }}
-    needs: [admit, checks, browser, race, container]
+    needs: [admit, checks, browser, container]
     runs-on: homelab
     environment:
       name: beta

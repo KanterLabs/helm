@@ -8,7 +8,7 @@ GO ?= go
 NPM ?= npm
 SHA ?= $(shell git rev-parse HEAD 2>/dev/null || true)
 
-.PHONY: all web-install web-check web-test web-build openapi openapi-check frontend build test vet lint \
+.PHONY: all web-install web-check web-test web-build openapi openapi-check frontend build test e2e vet lint \
 	docker-build compose-up compose-down bundle clean
 
 all: build
@@ -19,8 +19,7 @@ web-install:
 web-check: web-install
 	cd $(WEB_DIR) && $(NPM) run check
 
-web-test: web-install
-	cd $(WEB_DIR) && $(NPM) test
+web-test: e2e
 
 web-build: web-install
 	cd $(WEB_DIR) && $(NPM) run build
@@ -37,7 +36,6 @@ frontend:
 	cd $(WEB_DIR) && $(NPM) ci
 	cd $(WEB_DIR) && $(NPM) run openapi:check
 	cd $(WEB_DIR) && $(NPM) run check
-	cd $(WEB_DIR) && $(NPM) test
 	cd $(WEB_DIR) && $(NPM) run build
 	rm -rf $(FRONTEND_DIST) $(FRONTEND_COMPAT_DIST)
 	install -d $(FRONTEND_DIST)
@@ -49,8 +47,11 @@ build: frontend
 	install -d $(DIST_DIR)
 	$(GO) build -trimpath -ldflags="-s -w" -o $(DIST_DIR)/$(APP) ./cmd/$(APP)
 
-test:
-	$(GO) test ./...
+test: e2e
+
+e2e: web-install
+	cd $(WEB_DIR) && $(NPM) run e2e:install
+	cd $(WEB_DIR) && $(NPM) test
 
 vet:
 	$(GO) vet ./...

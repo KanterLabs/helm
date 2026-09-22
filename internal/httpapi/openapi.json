@@ -47,7 +47,7 @@
   },
   "x-resource-limits": {
     "request_body_bytes": 2097152,
-    "agent_lifetime_mutation_budget_bytes": 67108864,
+    "agent_lifetime_mutation_budget_bytes": 268435456,
     "bearer_requests_per_second": 20,
     "bearer_burst": 40,
     "bearer_mutations_per_second": 1,

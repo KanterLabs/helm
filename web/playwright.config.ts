@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'node:path';
 
 /**
  * The browser suite intentionally talks to an already-running Helm
@@ -11,6 +12,7 @@ if (helmBaseURL && legacyBaseURL && helmBaseURL !== legacyBaseURL) {
   throw new Error('HELM_E2E_BASE_URL and ROADMAP_E2E_BASE_URL must match when both are set');
 }
 const baseURL = helmBaseURL || legacyBaseURL || 'http://127.0.0.1:18080';
+const artifactRoot = path.resolve(process.env.HELM_E2E_ARTIFACT_DIR || 'e2e-artifacts');
 
 export default defineConfig({
   testDir: './e2e',
@@ -19,7 +21,12 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: process.env.CI ? 'line' : 'list',
+  reporter: [
+    [process.env.CI ? 'line' : 'list'],
+    ['html', { outputFolder: path.join(artifactRoot, 'playwright-report'), open: 'never' }],
+    ['json', { outputFile: path.join(artifactRoot, 'results.json') }]
+  ],
+  outputDir: path.join(artifactRoot, 'test-results'),
   use: {
     ...devices['Desktop Chrome'],
     baseURL,

@@ -13,7 +13,7 @@ import (
 // number of rows. These limits are intentionally code constants: changing the
 // allowance is an operational policy change, not client-controlled input.
 const (
-	AgentMutationBudgetBytes   int64 = 64 << 20 // 64 MiB per actor lifetime
+	AgentMutationBudgetBytes   int64 = 256 << 20 // 256 MiB per actor lifetime
 	AgentMutationOverheadBytes int64 = 8 << 10  // 8 KiB fixed per mutation
 )
 

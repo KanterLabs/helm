@@ -84,9 +84,22 @@ async function computedContrast(locator: Locator): Promise<number> {
 async function expectNoViewportOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
     documentWidth: document.documentElement.scrollWidth,
-    viewportWidth: window.innerWidth
+    viewportWidth: window.innerWidth,
+    overflowers: Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${Array.from(element.classList).map((name) => `.${name}`).join('')}`,
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth
+        };
+      })
+      .filter((item) => item.right > window.innerWidth + 1)
+      .slice(0, 12)
   }));
-  expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
+  expect(dimensions.documentWidth, JSON.stringify(dimensions.overflowers, null, 2)).toBeLessThanOrEqual(dimensions.viewportWidth);
 }
 
 async function expectDrawerContrast(drawer: Locator): Promise<void> {
