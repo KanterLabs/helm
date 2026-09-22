@@ -285,7 +285,7 @@ func (s *Server) importPortable(w http.ResponseWriter, r *http.Request, identity
 	if dryRun {
 		// A caller may still supply an idempotency key for a preview. Cache that
 		// read-only report so changing any import query option cannot replay the
-		// prior operation under the same key. No persistent mutation budget is
+		// prior operation under the same key. No persistent mutation allowance is
 		// charged because ImportPortable runs in validation-only mode.
 		if strings.TrimSpace(r.Header.Get("Idempotency-Key")) == "" {
 			report, err := s.Store.ImportPortable(r.Context(), archive, options)

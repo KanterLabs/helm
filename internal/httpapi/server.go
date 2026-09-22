@@ -1322,13 +1322,11 @@ func isBodyBearingMethod(method string) bool {
 }
 
 func (s *Server) mutation(w http.ResponseWriter, r *http.Request, identity auth.Identity, fn func() (int, []byte, string, error)) {
-	s.mutationWithAdmission(w, r, identity, s.admitMutation, fn)
+	s.mutationWithAdmission(w, r, identity, s.admitMutationRate, fn)
 }
 
-// mutationRateOnly retains ordinary idempotent replay and short-lived rate
-// limiting without charging the persistent agent storage allowance. Use it
-// only for bounded lifecycle metadata changes that do not add user-sized
-// content, events, comments, or task state.
+// mutationRateOnly is retained as an alias for lifecycle metadata callers;
+// all agent mutations now share the same short-lived rate admission.
 func (s *Server) mutationRateOnly(w http.ResponseWriter, r *http.Request, identity auth.Identity, fn func() (int, []byte, string, error)) {
 	s.mutationWithAdmission(w, r, identity, s.admitMutationRate, fn)
 }

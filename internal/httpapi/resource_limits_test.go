@@ -93,35 +93,6 @@ func TestBearerMutationLimitIsSharedAcrossTokensAndGETsRemainAvailable(t *testin
 	}
 }
 
-func TestAgentMutationBudgetRejectsBeforeHandlerWrite(t *testing.T) {
-	server, data := testServer(t, "disabled")
-	ctx := context.Background()
-	if _, err := data.EnsureDisabledActor(ctx); err != nil {
-		t.Fatal(err)
-	}
-	agent, err := data.CreateAgent(ctx, store.Actor{Kind: "agent", Name: "full budget"}, "actor-disabled-mode", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, token, err := data.CreateTokenBy(ctx, agent.ID, "actor-disabled-mode", "full", []string{"projects:write"}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := data.DB.ExecContext(ctx, `INSERT INTO actor_resource_usage(actor_id, reserved_bytes, updated_at) VALUES (?, ?, ?)`, agent.ID, store.AgentMutationBudgetBytes, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		t.Fatal(err)
-	}
-
-	response := request(t, server, http.MethodPost, "/api/v1/projects", map[string]any{
-		"key": "BUDGETBLOCKED", "name": "Must not be written",
-	}, map[string]string{"Authorization": "Bearer " + token, "Content-Type": "application/json"})
-	if response.Code != http.StatusInsufficientStorage {
-		t.Fatalf("full-budget status = %d, body=%s", response.Code, response.Body.String())
-	}
-	if _, err := data.GetProject(ctx, "BUDGETBLOCKED"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("full-budget project lookup = %v, want not found", err)
-	}
-}
-
 func TestIdempotentReplayRestoresLocationWithoutNewAdmission(t *testing.T) {
 	server, data := testServer(t, "disabled")
 	ctx := context.Background()
@@ -139,7 +110,7 @@ func TestIdempotentReplayRestoresLocationWithoutNewAdmission(t *testing.T) {
 
 	// Exhaust the short-lived bucket after the first write. A replay must be
 	// served from the idempotency record and therefore must not be rejected by
-	// the limiter or charged against the persistent budget again.
+	// the limiter.
 	server.mutationLimiter = newMutationRateLimiter(1, 1, 2, time.Hour)
 	server.agentRequestLimiter = newMutationRateLimiter(1, 2, 2, time.Hour)
 	headers := map[string]string{

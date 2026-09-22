@@ -36,14 +36,15 @@ Small pure checks may remain temporarily where no real boundary can express
 the invariant yet. They are migration debt, not the default place for new
 coverage.
 
-## Agent mutation allowance change contract
+## Agent lifetime allowance removal contract
 
-Increasing the lifetime allowance must preserve every actor's existing
-`reserved_bytes` value. The deployed workflow is successful only when an agent
-that exhausted the former 64 MiB ceiling can perform a new authenticated
-mutation after the 256 MiB binary is live, without deleting its resource-usage
-row or resetting the database. Mutations at the new ceiling must still fail
-before their handler writes domain data.
+The E2E workflow must prove these failure cases before changing admission code:
+
+| Failure | Observable proof |
+| --- | --- |
+| An existing agent has a legacy usage row at the former 256 MiB ceiling | A bearer-authenticated mutation succeeds without deleting or changing that row. |
+| Removing the lifetime ceiling accidentally removes burst protection | The same actor's eleventh immediate mutation returns 429 with `Retry-After`; a different token cannot evade it. |
+| The migration discards historical usage | The legacy row remains unchanged after the successful mutation. |
 
 ## Luna run-history failure contract
 
