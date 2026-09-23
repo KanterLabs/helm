@@ -42,7 +42,6 @@ x-common-response-headers: &commonResponseHeaders
     $ref: '#/components/headers/XRoadmapRevision'
 x-resource-limits:
   request_body_bytes: 2097152
-  agent_lifetime_mutation_budget_bytes: 268435456
   bearer_requests_per_second: 20
   bearer_burst: 40
   bearer_mutations_per_second: 1
@@ -1212,8 +1211,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -1312,8 +1309,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -1506,8 +1501,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -1583,8 +1576,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -1766,8 +1757,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -1881,8 +1870,6 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
 
   /api/v1/releases/{release}:
     parameters:
@@ -1978,8 +1965,6 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
     delete:
       operationId: deleteRelease
       summary: Delete an empty planned release
@@ -2013,8 +1998,6 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
 
   /api/v1/releases/{release}/complete:
     parameters:
@@ -2068,8 +2051,6 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
 
   /api/v1/releases/{release}/reopen:
     parameters:
@@ -2125,8 +2106,6 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
 
   /api/v1/releases/{release}/work-queue:
     parameters:
@@ -2250,8 +2229,6 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
 
   /api/v1/projects/{project}/task-context:
     parameters:
@@ -2457,8 +2434,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -2604,8 +2579,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -2659,8 +2632,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -2736,8 +2707,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -2995,8 +2964,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3030,8 +2997,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3084,8 +3049,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3158,8 +3121,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3242,8 +3203,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3354,8 +3313,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3411,8 +3368,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3479,8 +3434,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3523,8 +3476,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3658,8 +3609,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3863,8 +3812,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4035,8 +3982,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4109,8 +4054,6 @@ paths:
           $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4206,8 +4149,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4627,8 +4568,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4648,7 +4587,7 @@ paths:
         operation ID. The task must remain unfinished. Heartbeats are quiet
         and inherently idempotent: they do not change the task version or
         `tasks.updated_at`, replace any snapshot content, append comments or
-        events, reserve the agent mutation budget, or persist idempotency
+        events or persist idempotency
         records. `If-Match` is intentionally not required because the
         heartbeat never changes task state or its optimistic-concurrency
         version. `Idempotency-Key` is not supported; omit it.
@@ -4792,8 +4731,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4849,8 +4786,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4898,8 +4833,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -4958,8 +4891,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -5018,8 +4949,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -5083,8 +5012,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -5150,8 +5077,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -5211,8 +5136,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -5304,8 +5227,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -5339,8 +5260,6 @@ paths:
           $ref: '#/components/responses/RequestTooLarge'
         '429':
           $ref: '#/components/responses/TooManyRequests'
-        '507':
-          $ref: '#/components/responses/InsufficientStorage'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -7359,20 +7278,6 @@ components:
               code: request_too_large
               message: request body exceeds 2 MiB
               details: {}
-    InsufficientStorage:
-      description: An agent's lifetime mutation resource budget is exhausted.
-      headers: *commonResponseHeaders
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error:
-              code: resource_limit
-              message: agent mutation resource budget exhausted
-              details:
-                operator_reset: ResetAgentMutationUsage
-
   schemas:
     Identifier:
       type: string

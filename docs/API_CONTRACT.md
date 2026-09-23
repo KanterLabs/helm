@@ -1099,12 +1099,11 @@ runtime does not use `422`). Common statuses are `401` authentication required, 
 or CSRF/scope failure, `404` missing resource, `409` conflict/stale state,
 `413` request body too large, `429` agent rate limited, `500` internal
 error, `503` temporary authentication/body admission saturation with
-`Retry-After: 1`, and `507` exhausted agent mutation resources.
+`Retry-After: 1`.
 
 The request body limit is 2 MiB. Agent bearer traffic is limited per actor to
 20 requests/second with burst 40; mutations have a separate 1 request/second
-bucket with burst 10. Agent mutation persistence also has a 256 MiB lifetime
-budget; exhaustion returns `507`. Body-buffer saturation may return `503` with
+bucket with burst 10. There is no lifetime mutation allowance. Body-buffer saturation may return `503` with
 `Retry-After`.
 
 All accepted mutations record their actor and append an event in the same
