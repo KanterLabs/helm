@@ -236,14 +236,6 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   const removedTask = fixtureTasks[0];
   const removedCard = readyColumn.getByText(removedTask.key, { exact: true });
   await expect(removedCard).toBeVisible();
-  const deleteResponse = await request.delete(`/api/v1/tasks/${removedTask.id}`, {
-    headers: {
-      ...mutationHeaders(`board-pagination-${runID}-delete`),
-      'If-Match': `"v${removedTask.version}"`
-    }
-  });
-  expect(deleteResponse.ok(), `DELETE ${removedTask.key} returned HTTP ${deleteResponse.status()}`).toBeTruthy();
-
   let releaseDeleteRefresh = () => {};
   const deleteRefreshGate = new Promise<void>((resolve) => { releaseDeleteRefresh = resolve; });
   let deleteRefreshRequests = 0;
@@ -252,8 +244,18 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
     await deleteRefreshGate;
     await route.continue();
   };
+  // Install the gate before the external write: a slower server may deliver
+  // the delete event while the DELETE response is still being consumed.
+  await page.waitForLoadState('networkidle');
   await page.route(taskRoute, holdDeleteRefresh);
-  await page.clock.fastForward(15_100);
+  const deleteResponse = await request.delete(`/api/v1/tasks/${removedTask.id}`, {
+    headers: {
+      ...mutationHeaders(`board-pagination-${runID}-delete`),
+      'If-Match': `"v${removedTask.version}"`
+    }
+  });
+  expect(deleteResponse.ok(), `DELETE ${removedTask.key} returned HTTP ${deleteResponse.status()}`).toBeTruthy();
+  await page.clock.runFor(15_100);
   await expect.poll(() => deleteRefreshRequests, { timeout: 15_000 }).toBeGreaterThan(0);
   await expect(removedCard).toBeVisible();
   await expect(page.locator('.board-loading')).toHaveCount(0);
