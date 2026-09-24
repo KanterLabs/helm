@@ -1,13 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../api';
-  import type { LunaRun } from '../types';
+  import type { LunaRun, LunaRunDetail } from '../types';
 
   let runs: LunaRun[] = [];
   let loading = true;
   let error = '';
   let expanded = new Set<string>();
   let refreshing = false;
+  let details = new Map<string, LunaRunDetail>();
+  let detailLoading = new Set<string>();
+  let detailErrors = new Map<string, string>();
 
   const featureLabels: Record<LunaRun['feature'], string> = {
     task_draft: 'Task draft',
@@ -45,7 +48,11 @@
     refreshing = true;
     if (showLoading) loading = true;
     try {
+      const previous = new Map(runs.map((run) => [run.id, run.outcome]));
       runs = (await api.listLunaRuns(50)).data;
+      for (const run of runs) {
+        if (expanded.has(run.id) && (run.outcome === 'running' || previous.get(run.id) === 'running')) void loadDetail(run.id);
+      }
       error = '';
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Luna history could not be loaded.';
@@ -60,6 +67,26 @@
     if (next.has(id)) next.delete(id);
     else next.add(id);
     expanded = next;
+    if (next.has(id) && !details.has(id)) void loadDetail(id);
+  }
+
+  async function loadDetail(id: string): Promise<void> {
+    if (detailLoading.has(id)) return;
+    detailLoading = new Set(detailLoading).add(id);
+    try {
+      const next = new Map(details);
+      next.set(id, await api.getLunaRun(id));
+      details = next;
+      const errors = new Map(detailErrors);
+      errors.delete(id);
+      detailErrors = errors;
+    } catch (caught) {
+      detailErrors = new Map(detailErrors).set(id, caught instanceof Error ? caught.message : 'Run details could not be loaded.');
+    } finally {
+      const next = new Set(detailLoading);
+      next.delete(id);
+      detailLoading = next;
+    }
   }
 
   function timestamp(value: string): string {
@@ -104,7 +131,7 @@
   <div class="luna-history-heading">
     <div>
       <h3 id="luna-history-heading">Recent Luna work</h3>
-      <p>Private execution metadata for troubleshooting. Prompts and model responses are not stored.</p>
+      <p>Inspect Luna's steps, exact input, and response. Run details are private to your account.</p>
     </div>
     <button class="icon-button tiny" type="button" aria-label="Refresh Luna history" disabled={refreshing} on:click={() => load(true)}>↻</button>
   </div>
@@ -128,6 +155,20 @@
           </button>
           {#if expanded.has(run.id)}
             <div class="luna-run-detail">
+              <div class="luna-run-exchange">
+                <div class="luna-debug-heading"><strong>Input and output</strong><span>Only visible to you</span></div>
+                {#if detailErrors.has(run.id)}
+                  <div class="inline-alert error" role="alert"><span>!</span><span>{detailErrors.get(run.id)}</span><button class="text-button" type="button" on:click={() => loadDetail(run.id)}>Retry</button></div>
+                {:else if !details.has(run.id)}
+                  <p class="luna-debug-empty">Loading input and output…</p>
+                {:else if !details.get(run.id)?.content_available}
+                  <p class="luna-debug-empty">Input and output were not saved for this earlier run.</p>
+                {:else}
+                  {@const detail = details.get(run.id)}
+                  <div class="luna-exchange-part"><strong>Input sent to Luna</strong><pre>{detail?.input_text || 'No input recorded.'}</pre>{#if detail?.input_truncated}<small>Input was truncated for storage.</small>{/if}</div>
+                  <div class="luna-exchange-part"><strong>Output from Luna</strong><pre>{detail?.output_text || (run.outcome === 'running' ? 'Luna has not responded yet.' : 'No output was returned.')}</pre>{#if detail?.output_truncated}<small>Output was truncated for storage.</small>{/if}</div>
+                {/if}
+              </div>
               <div class="luna-debug-heading"><strong>Step by step</strong><span>{run.outcome === 'running' ? 'Updates while Luna runs' : 'Execution trace'}</span></div>
               {#if run.steps?.length}
                 <ol class="luna-debug-steps" aria-label="Luna execution steps">

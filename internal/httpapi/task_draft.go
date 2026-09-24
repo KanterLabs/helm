@@ -115,10 +115,12 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		ActorID: identity.Actor.ID, ProjectID: project.ID, ProjectKey: project.Key,
 		Feature: "task_draft", Model: model, Effort: effort,
 	})
+	s.saveLunaRunInput(run, prompt)
 	result, err := drafter.Draft(ctx, identity.Actor.ID, codexruntime.RunRequest{
 		Prompt: prompt, Model: model, Effort: effort, OutputSchema: taskDraftOutputSchema,
 		OnStep: s.lunaRunStepCallback(run),
 	})
+	s.saveLunaRunOutput(run, result.Output, result.OutputTruncated)
 	if err != nil {
 		outcome := classifyCodexDraftError(err)
 		s.finishLunaRun(run, result, outcome, "", started)

@@ -972,6 +972,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .luna-run-chevron { color: var(--muted); transform: rotate(-90deg); transition: transform .15s ease; }
 .luna-run.expanded .luna-run-chevron { transform: rotate(0); }
 .luna-run-detail { display: grid; gap: 12px; padding: 12px; border-top: 1px solid var(--border); background: var(--surface); }
+.luna-run-exchange { display: grid; gap: 8px; }
+.luna-exchange-part { display: grid; min-width: 0; gap: 5px; }
+.luna-exchange-part > strong { color: var(--ink-soft); font-size: 10px; }
+.luna-exchange-part pre { max-height: 260px; margin: 0; padding: 10px; overflow: auto; border: 1px solid var(--border); border-radius: 7px; color: var(--ink-soft); background: var(--surface-muted); font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.luna-exchange-part small { color: var(--muted); font-size: 10px; }
 .luna-debug-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; }
 .luna-debug-heading span, .luna-debug-empty { color: var(--muted); font-size: 10px; }
 .luna-debug-empty { margin: 0; }

@@ -36,6 +36,36 @@ func (s *Server) lunaRuns(w http.ResponseWriter, r *http.Request, identity auth.
 	s.writeCollection(w, runs, "")
 }
 
+type lunaRunDetailResponse struct {
+	store.LunaRun
+	InputText        string `json:"input_text"`
+	OutputText       string `json:"output_text"`
+	InputTruncated   bool   `json:"input_truncated"`
+	OutputTruncated  bool   `json:"output_truncated"`
+	ContentAvailable bool   `json:"content_available"`
+}
+
+func (s *Server) lunaRunDetail(w http.ResponseWriter, r *http.Request, identity auth.Identity, runID string) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
+	run, content, available, err := s.Store.GetLunaRunDetail(r.Context(), identity.Actor.ID, strings.TrimSpace(runID))
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	s.writeJSON(w, http.StatusOK, lunaRunDetailResponse{
+		LunaRun:          run,
+		InputText:        content.InputText,
+		OutputText:       content.OutputText,
+		InputTruncated:   content.InputTruncated,
+		OutputTruncated:  content.OutputTruncated,
+		ContentAvailable: available,
+	})
+}
+
 func (s *Server) startLunaRun(ctx context.Context, input store.LunaRunStart) *store.LunaRun {
 	run, err := s.Store.StartLunaRun(ctx, input)
 	if err != nil {
@@ -43,6 +73,28 @@ func (s *Server) startLunaRun(ctx context.Context, input store.LunaRunStart) *st
 		return nil
 	}
 	return &run
+}
+
+func (s *Server) saveLunaRunInput(run *store.LunaRun, input string) {
+	if run == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.Store.SaveLunaRunInput(ctx, run.ID, input); err != nil {
+		s.logJSON(map[string]any{"level": "error", "msg": "luna input capture failed", "error_class": classifyError(err)})
+	}
+}
+
+func (s *Server) saveLunaRunOutput(run *store.LunaRun, output string, truncated bool) {
+	if run == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.Store.SaveLunaRunOutput(ctx, run.ID, output, truncated); err != nil {
+		s.logJSON(map[string]any{"level": "error", "msg": "luna output capture failed", "error_class": classifyError(err)})
+	}
 }
 
 func (s *Server) lunaRunStepCallback(run *store.LunaRun) func(codexruntime.RunStep) {

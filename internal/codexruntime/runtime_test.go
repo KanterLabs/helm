@@ -54,6 +54,11 @@ func TestHelperProcess(t *testing.T) {
 		case "turn/start":
 			_ = encoder.Encode(map[string]any{"id": *request.ID, "result": map[string]any{"turn": map[string]any{"id": "turn-1"}}})
 			if mode != "hang" {
+				if mode == "output-oversized" {
+					_ = encoder.Encode(map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{"delta": strings.Repeat("x", 700)}})
+					_ = encoder.Encode(map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{"delta": strings.Repeat("y", 700)}})
+					return
+				}
 				_ = encoder.Encode(map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{"delta": "draft"}})
 				_ = encoder.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"item": map[string]any{"type": "agentMessage", "text": "final draft"}}})
 				_ = encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]any{"id": "turn-1", "status": "completed", "error": nil}}})
@@ -208,6 +213,22 @@ func TestRunCancellationInterruptsTurn(t *testing.T) {
 	_, err = session.Run(ctx, "actor-a", RunRequest{Prompt: "wait"})
 	if !errorsIs(err, context.DeadlineExceeded) {
 		t.Fatalf("cancellation error = %v", err)
+	}
+}
+
+func TestSessionRunMarksPartialOutputWhenBoundIsExceeded(t *testing.T) {
+	manager := NewManager(helperOptions(t, "output-oversized"))
+	t.Cleanup(func() { _ = manager.Close(context.Background()) })
+	session, err := manager.Session(context.Background(), "actor-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := session.Run(context.Background(), "actor-a", RunRequest{Prompt: "capture partial output"})
+	if err == nil || !strings.Contains(err.Error(), "output exceeds") {
+		t.Fatalf("oversized output error=%v result=%+v", err, result)
+	}
+	if !result.OutputTruncated || len(result.Output) != 700 || !strings.HasPrefix(result.Output, "xxx") {
+		t.Fatalf("partial output result=%+v", result)
 	}
 }
 

@@ -56,6 +56,9 @@ test('persists a real Luna turn and exposes private diagnostics in Settings', as
   await expect(item).toContainText('medium');
   await expect(item).toContainText('thread-e2e');
   await expect(item).toContainText('turn-e2e');
+  await expect(item.getByText('Input sent to Luna')).toBeVisible();
+  await expect(item.locator('.luna-exchange-part').first()).toContainText(roughIdea);
+  await expect(item.locator('.luna-exchange-part').last()).toContainText('Verify persisted Luna history');
   const timeline = item.getByRole('list', { name: 'Luna execution steps' });
   await expect(timeline).toBeVisible();
   await expect(timeline).toContainText('Thread started');
@@ -83,6 +86,13 @@ test('persists a real Luna turn and exposes private diagnostics in Settings', as
   expect(persisted?.steps?.map((step) => step.kind)).toEqual([
     'thread_started', 'turn_started', 'response_generated', 'validation', 'outcome'
   ]);
+  const detailResponse = await request.get(`/api/v1/codex/runs/${persisted?.id}`);
+  expect(detailResponse.ok()).toBeTruthy();
+  expect(detailResponse.headers()['cache-control']).toContain('no-store');
+  const detail = await detailResponse.json() as { content_available: boolean; input_text?: string; output_text?: string };
+  expect(detail.content_available).toBe(true);
+  expect(detail.input_text).toContain(roughIdea);
+  expect(detail.output_text).toContain('Verify persisted Luna history');
 
   const unsafeLimit = await request.get('/api/v1/codex/runs?limit=101');
   expect(unsafeLimit.status()).toBe(400);
