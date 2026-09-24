@@ -49,6 +49,15 @@ func TestTaskDraftReturnsValidatedPreviewWithoutMutation(t *testing.T) {
 	if err != nil || len(runs) != 1 || runs[0].Feature != "task_draft" || runs[0].Outcome != "succeeded" || runs[0].OutputBytes == nil || *runs[0].OutputBytes == 0 {
 		t.Fatalf("luna history=%+v err=%v", runs, err)
 	}
+	wantSteps := []string{"thread_started", "turn_started", "response_generated", "validation", "outcome"}
+	if len(runs[0].Steps) != len(wantSteps) {
+		t.Fatalf("luna steps=%+v", runs[0].Steps)
+	}
+	for index, want := range wantSteps {
+		if runs[0].Steps[index].Sequence != index+1 || runs[0].Steps[index].Kind != want || runs[0].Steps[index].At == "" {
+			t.Fatalf("luna step %d=%+v, want kind=%s", index, runs[0].Steps[index], want)
+		}
+	}
 }
 
 func TestTaskDraftFailureModes(t *testing.T) {

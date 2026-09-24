@@ -45,12 +45,39 @@ func (s *Server) startLunaRun(ctx context.Context, input store.LunaRunStart) *st
 	return &run
 }
 
+func (s *Server) lunaRunStepCallback(run *store.LunaRun) func(codexruntime.RunStep) {
+	if run == nil {
+		return nil
+	}
+	return func(step codexruntime.RunStep) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := s.Store.AppendLunaRunStep(ctx, run.ID, store.LunaRunStepInput{Kind: step.Kind}); err != nil {
+			s.logJSON(map[string]any{"level": "error", "msg": "luna history step failed", "error_class": classifyError(err)})
+		}
+	}
+}
+
+func (s *Server) appendLunaRunStep(run *store.LunaRun, kind string) {
+	if run == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.Store.AppendLunaRunStep(ctx, run.ID, store.LunaRunStepInput{Kind: kind}); err != nil {
+		s.logJSON(map[string]any{"level": "error", "msg": "luna history step failed", "error_class": classifyError(err)})
+	}
+}
+
 func (s *Server) finishLunaRun(run *store.LunaRun, result codexruntime.RunResult, outcome, detail string, started time.Time) {
 	if run == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	if err := s.Store.AppendLunaRunStep(ctx, run.ID, store.LunaRunStepInput{Kind: "outcome"}); err != nil {
+		s.logJSON(map[string]any{"level": "error", "msg": "luna history outcome step failed", "error_class": classifyError(err)})
+	}
 	err := s.Store.FinishLunaRun(ctx, run.ID, store.LunaRunFinish{
 		Outcome: outcome, ThreadID: result.ThreadID, TurnID: result.TurnID,
 		DurationMS: store.LunaRunDuration(started), OutputBytes: int64(len(result.Output)),

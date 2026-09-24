@@ -12349,6 +12349,7 @@
           "outcome",
           "model",
           "effort",
+          "steps",
           "started_at"
         ],
         "properties": {
@@ -12420,10 +12421,47 @@
             "type": "string",
             "maxLength": 500
           },
+          "steps": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Content-free execution milestones in sequence order. Older runs have an empty array.",
+            "items": {
+              "$ref": "#/components/schemas/LunaRunStep"
+            }
+          },
           "started_at": {
             "$ref": "#/components/schemas/Timestamp"
           },
           "completed_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LunaRunStep": {
+        "type": "object",
+        "required": [
+          "sequence",
+          "kind",
+          "at"
+        ],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "thread_started",
+              "turn_started",
+              "response_generated",
+              "validation",
+              "outcome"
+            ]
+          },
+          "at": {
             "$ref": "#/components/schemas/Timestamp"
           }
         },

@@ -193,6 +193,13 @@ export interface ProjectIntelligenceResponse {
 
 export type LunaRunOutcome = 'running' | 'succeeded' | 'invalid_output' | 'incomplete' | 'limit_reached' | 'timed_out' | 'canceled' | 'unavailable';
 
+/** Chronological, content-free milestones recorded for a Luna turn. */
+export interface LunaRunStep {
+  sequence: number;
+  kind: string;
+  at: string;
+}
+
 /** Private, prompt-free debugging metadata for one Luna model turn. */
 export interface LunaRun {
   id: string;
@@ -207,6 +214,7 @@ export interface LunaRun {
   duration_ms?: number;
   output_bytes?: number;
   detail?: string;
+  steps?: LunaRunStep[];
   started_at: string;
   completed_at?: string;
 }

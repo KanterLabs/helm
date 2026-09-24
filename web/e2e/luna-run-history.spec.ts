@@ -10,6 +10,7 @@ type LunaRun = {
   effort: string;
   thread_id?: string;
   turn_id?: string;
+  steps?: { sequence: number; kind: string; at: string }[];
 };
 
 test('persists a real Luna turn and exposes private diagnostics in Settings', async ({ page, request }, testInfo) => {
@@ -55,6 +56,13 @@ test('persists a real Luna turn and exposes private diagnostics in Settings', as
   await expect(item).toContainText('medium');
   await expect(item).toContainText('thread-e2e');
   await expect(item).toContainText('turn-e2e');
+  const timeline = item.getByRole('list', { name: 'Luna execution steps' });
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Thread started');
+  await expect(timeline).toContainText('Turn started');
+  await expect(timeline).toContainText('Luna generated a response');
+  await expect(timeline).toContainText('Checking result');
+  await expect(timeline).toContainText('Outcome recorded');
 
   const response = await request.get('/api/v1/codex/runs?limit=50');
   expect(response.ok()).toBeTruthy();
@@ -72,6 +80,9 @@ test('persists a real Luna turn and exposes private diagnostics in Settings', as
     thread_id: 'thread-e2e',
     turn_id: 'turn-e2e'
   });
+  expect(persisted?.steps?.map((step) => step.kind)).toEqual([
+    'thread_started', 'turn_started', 'response_generated', 'validation', 'outcome'
+  ]);
 
   const unsafeLimit = await request.get('/api/v1/codex/runs?limit=101');
   expect(unsafeLimit.status()).toBe(400);

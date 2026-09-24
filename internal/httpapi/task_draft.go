@@ -117,6 +117,7 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 	})
 	result, err := drafter.Draft(ctx, identity.Actor.ID, codexruntime.RunRequest{
 		Prompt: prompt, Model: model, Effort: effort, OutputSchema: taskDraftOutputSchema,
+		OnStep: s.lunaRunStepCallback(run),
 	})
 	if err != nil {
 		outcome := classifyCodexDraftError(err)
@@ -131,6 +132,7 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		s.writeError(w, http.StatusServiceUnavailable, "luna_incomplete", "Luna did not finish the suggestion; you can retry or create the task manually", nil)
 		return
 	}
+	s.appendLunaRunStep(run, "validation")
 	suggestion, err := decodeTaskDraftSuggestion(result.Output, contextPack)
 	if err != nil {
 		s.finishLunaRun(run, result, "invalid_output", err.Error(), started)

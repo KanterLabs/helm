@@ -972,6 +972,14 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .luna-run-chevron { color: var(--muted); transform: rotate(-90deg); transition: transform .15s ease; }
 .luna-run.expanded .luna-run-chevron { transform: rotate(0); }
 .luna-run-detail { display: grid; gap: 12px; padding: 12px; border-top: 1px solid var(--border); background: var(--surface); }
+.luna-debug-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; }
+.luna-debug-heading span, .luna-debug-empty { color: var(--muted); font-size: 10px; }
+.luna-debug-empty { margin: 0; }
+.luna-debug-steps { display: grid; gap: 0; margin: 0; padding: 0 0 0 5px; list-style: none; }
+.luna-debug-steps li { position: relative; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: baseline; gap: 8px; min-height: 27px; color: var(--ink-soft); font-size: 11px; }
+.luna-debug-steps li:not(:last-child)::before { content: ''; position: absolute; top: 13px; bottom: -2px; left: 4px; width: 1px; background: var(--border); }
+.luna-debug-dot { position: relative; z-index: 1; width: 9px; height: 9px; border: 2px solid var(--purple); border-radius: 50%; background: var(--surface); }
+.luna-debug-steps time { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .luna-run-detail dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 0; }
 .luna-run-detail dl div { display: grid; min-width: 0; gap: 3px; }
 .luna-run-detail dt { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }

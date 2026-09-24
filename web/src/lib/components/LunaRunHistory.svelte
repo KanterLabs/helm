@@ -7,6 +7,7 @@
   let loading = true;
   let error = '';
   let expanded = new Set<string>();
+  let refreshing = false;
 
   const featureLabels: Record<LunaRun['feature'], string> = {
     task_draft: 'Task draft',
@@ -24,15 +25,33 @@
     unavailable: 'Unavailable'
   };
 
-  async function load(): Promise<void> {
-    loading = true;
-    error = '';
+  const stepLabels: Record<string, string> = {
+    requested: 'Request received',
+    started: 'Run started',
+    thread_started: 'Thread started',
+    turn_started: 'Turn started',
+    response_started: 'Luna began responding',
+    response_completed: 'Luna finished responding',
+    response_generated: 'Luna generated a response',
+    validating: 'Checking result',
+    validation: 'Checking result',
+    outcome: 'Outcome recorded',
+    completed: 'Run completed',
+    failed: 'Run failed'
+  };
+
+  async function load(showLoading = false): Promise<void> {
+    if (refreshing) return;
+    refreshing = true;
+    if (showLoading) loading = true;
     try {
       runs = (await api.listLunaRuns(50)).data;
+      error = '';
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Luna history could not be loaded.';
     } finally {
       loading = false;
+      refreshing = false;
     }
   }
 
@@ -62,7 +81,23 @@
     return `${(value / 1024).toFixed(1)} KB`;
   }
 
-  onMount(load);
+  function stepLabel(kind: string): string {
+    return stepLabels[kind] ?? kind.replaceAll('_', ' ');
+  }
+
+  function elapsed(started: string, at: string): string {
+    const milliseconds = new Date(at).getTime() - new Date(started).getTime();
+    if (!Number.isFinite(milliseconds) || milliseconds < 0) return timestamp(at);
+    return `+${duration(milliseconds)}`;
+  }
+
+  onMount(() => {
+    void load(true);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load();
+    }, 2000);
+    return () => window.clearInterval(interval);
+  });
 </script>
 
 <section class="luna-history" aria-labelledby="luna-history-heading">
@@ -71,11 +106,11 @@
       <h3 id="luna-history-heading">Recent Luna work</h3>
       <p>Private execution metadata for troubleshooting. Prompts and model responses are not stored.</p>
     </div>
-    <button class="icon-button tiny" type="button" aria-label="Refresh Luna history" disabled={loading} on:click={load}>↻</button>
+    <button class="icon-button tiny" type="button" aria-label="Refresh Luna history" disabled={refreshing} on:click={() => load(true)}>↻</button>
   </div>
 
   {#if error}
-    <div class="inline-alert error" role="alert"><span>!</span><span>{error}</span><button class="text-button" type="button" on:click={load}>Retry</button></div>
+    <div class="inline-alert error" role="alert"><span>!</span><span>{error}</span><button class="text-button" type="button" on:click={() => load(true)}>Retry</button></div>
   {:else if loading && !runs.length}
     <div class="list-skeleton" aria-label="Loading Luna history"><div></div><div></div></div>
   {:else if !runs.length}
@@ -93,6 +128,16 @@
           </button>
           {#if expanded.has(run.id)}
             <div class="luna-run-detail">
+              <div class="luna-debug-heading"><strong>Step by step</strong><span>{run.outcome === 'running' ? 'Updates while Luna runs' : 'Execution trace'}</span></div>
+              {#if run.steps?.length}
+                <ol class="luna-debug-steps" aria-label="Luna execution steps">
+                  {#each run.steps as step (step.sequence)}
+                    <li><span class="luna-debug-dot" aria-hidden="true"></span><span>{stepLabel(step.kind)}</span><time datetime={step.at}>{elapsed(run.started_at, step.at)}</time></li>
+                  {/each}
+                </ol>
+              {:else}
+                <p class="luna-debug-empty">Detailed steps were not recorded for this run.</p>
+              {/if}
               <dl>
                 <div><dt>Model</dt><dd>{run.model}</dd></div>
                 <div><dt>Effort</dt><dd>{run.effort}</dd></div>
