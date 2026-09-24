@@ -21,6 +21,10 @@ func (s *Server) codexAccount(w http.ResponseWriter, r *http.Request, identity a
 		s.lunaRuns(w, r, identity)
 		return
 	}
+	if len(parts) == 2 && parts[0] == "runs" {
+		s.lunaRunDetail(w, r, identity, parts[1])
+		return
+	}
 	if s.Codex == nil {
 		s.writeError(w, http.StatusServiceUnavailable, "codex_unavailable", "Codex is not available on this Helm instance", nil)
 		return

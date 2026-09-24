@@ -200,7 +200,7 @@ export interface LunaRunStep {
   at: string;
 }
 
-/** Private, prompt-free debugging metadata for one Luna model turn. */
+/** Private, content-free list metadata for one Luna model turn. */
 export interface LunaRun {
   id: string;
   project_id?: string;
@@ -217,6 +217,15 @@ export interface LunaRun {
   steps?: LunaRunStep[];
   started_at: string;
   completed_at?: string;
+}
+
+/** Bounded model exchange, returned only for the initiating human on detail fetch. */
+export interface LunaRunDetail extends LunaRun {
+  content_available: boolean;
+  input_text?: string;
+  output_text?: string;
+  input_truncated?: boolean;
+  output_truncated?: boolean;
 }
 
 /** Product-planning release lifecycle state. This is unrelated to releasing a task claim. */

@@ -435,10 +435,11 @@ const (
 )
 
 type RunResult struct {
-	ThreadID string
-	TurnID   string
-	Status   string
-	Output   string
+	ThreadID        string
+	TurnID          string
+	Status          string
+	Output          string
+	OutputTruncated bool
 }
 
 func (s *Session) Run(ctx context.Context, actorID string, input RunRequest) (RunResult, error) {
@@ -523,6 +524,7 @@ drained:
 				}
 				if json.Unmarshal(event.Params, &delta) == nil {
 					if len(result.Output)+len(delta.Delta) > s.maxOut {
+						result.OutputTruncated = true
 						return result, fmt.Errorf("Codex output exceeds %d bytes", s.maxOut)
 					}
 					result.Output += delta.Delta
@@ -540,6 +542,7 @@ drained:
 				}
 				if json.Unmarshal(event.Params, &completed) == nil && completed.Item.Type == "agentMessage" && completed.Item.Text != "" {
 					if len(completed.Item.Text) > s.maxOut {
+						result.OutputTruncated = true
 						return result, fmt.Errorf("Codex output exceeds %d bytes", s.maxOut)
 					}
 					result.Output = completed.Item.Text
