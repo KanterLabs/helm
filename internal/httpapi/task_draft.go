@@ -111,26 +111,39 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		effort = "medium"
 	}
 	started := time.Now()
+	run := s.startLunaRun(r.Context(), store.LunaRunStart{
+		ActorID: identity.Actor.ID, ProjectID: project.ID, ProjectKey: project.Key,
+		Feature: "task_draft", Model: model, Effort: effort,
+	})
+	s.saveLunaRunInput(run, prompt)
 	result, err := drafter.Draft(ctx, identity.Actor.ID, codexruntime.RunRequest{
 		Prompt: prompt, Model: model, Effort: effort, OutputSchema: taskDraftOutputSchema,
+		OnStep: s.lunaRunStepCallback(run),
 	})
+	s.saveLunaRunOutput(run, result.Output, result.OutputTruncated)
 	if err != nil {
-		logLunaDraft(classifyCodexDraftError(err), started)
+		outcome := classifyCodexDraftError(err)
+		s.finishLunaRun(run, result, outcome, "", started)
+		logLunaDraft(outcome, started)
 		s.writeCodexDraftError(w, err)
 		return
 	}
 	if result.Status != "completed" {
+		s.finishLunaRun(run, result, "incomplete", safeLunaRunDetail(result.Status), started)
 		logLunaDraft("incomplete", started)
 		s.writeError(w, http.StatusServiceUnavailable, "luna_incomplete", "Luna did not finish the suggestion; you can retry or create the task manually", nil)
 		return
 	}
+	s.appendLunaRunStep(run, "validation")
 	suggestion, err := decodeTaskDraftSuggestion(result.Output, contextPack)
 	if err != nil {
+		s.finishLunaRun(run, result, "invalid_output", err.Error(), started)
 		logLunaDraft("invalid_output", started)
 		s.writeError(w, http.StatusServiceUnavailable, "luna_invalid_output", "Luna returned an invalid suggestion; you can retry or create the task manually", nil)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	s.finishLunaRun(run, result, "succeeded", "", started)
 	logLunaDraft("succeeded", started)
 	s.writeJSON(w, http.StatusOK, suggestion)
 }

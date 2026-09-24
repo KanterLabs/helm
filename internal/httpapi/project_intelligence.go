@@ -173,19 +173,30 @@ func (s *Server) projectIntelligence(w http.ResponseWriter, r *http.Request, ide
 	if strings.TrimSpace(model) == "" {
 		model = "gpt-5.6-luna"
 	}
-	result, err := drafter.Draft(ctx, identity.Actor.ID, codexruntime.RunRequest{Prompt: prompt, Model: model, Effort: "low", OutputSchema: projectIntelligenceOutputSchema})
+	turnStarted := time.Now()
+	run := s.startLunaRun(r.Context(), store.LunaRunStart{
+		ActorID: identity.Actor.ID, Feature: "project_intelligence", Model: model, Effort: "low",
+	})
+	s.saveLunaRunInput(run, prompt)
+	result, err := drafter.Draft(ctx, identity.Actor.ID, codexruntime.RunRequest{Prompt: prompt, Model: model, Effort: "low", OutputSchema: projectIntelligenceOutputSchema, OnStep: s.lunaRunStepCallback(run)})
+	s.saveLunaRunOutput(run, result.Output, result.OutputTruncated)
 	if err != nil {
-		s.metricsValue().recordProjectIntelligence(classifyCodexDraftError(err), time.Since(started))
+		outcome := classifyCodexDraftError(err)
+		s.finishLunaRun(run, result, outcome, "", turnStarted)
+		s.metricsValue().recordProjectIntelligence(outcome, time.Since(started))
 		s.writeProjectIntelligenceError(w, err)
 		return
 	}
 	if result.Status != "completed" {
+		s.finishLunaRun(run, result, "incomplete", safeLunaRunDetail(result.Status), turnStarted)
 		s.metricsValue().recordProjectIntelligence("incomplete", time.Since(started))
 		s.writeError(w, http.StatusServiceUnavailable, "luna_incomplete", "Luna did not finish the project analysis; retry manually if desired", nil)
 		return
 	}
+	s.appendLunaRunStep(run, "validation")
 	output, err := decodeProjectIntelligenceOutput(result.Output, projects)
 	if err != nil {
+		s.finishLunaRun(run, result, "invalid_output", err.Error(), turnStarted)
 		s.metricsValue().recordProjectIntelligence("invalid_output", time.Since(started))
 		s.writeError(w, http.StatusServiceUnavailable, "luna_invalid_output", "Luna returned an invalid project analysis; the deterministic order remains available", nil)
 		return
@@ -197,6 +208,7 @@ func (s *Server) projectIntelligence(w http.ResponseWriter, r *http.Request, ide
 	s.projectIntelligenceMu.Lock()
 	s.projectIntelligenceCache[identity.Actor.ID] = projectIntelligenceCacheEntry{SnapshotHash: hash, Response: response}
 	s.projectIntelligenceMu.Unlock()
+	s.finishLunaRun(run, result, "succeeded", "", turnStarted)
 	s.metricsValue().recordProjectIntelligence("succeeded", time.Since(started))
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(w, http.StatusOK, response)

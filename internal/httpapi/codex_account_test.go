@@ -71,6 +71,13 @@ func (f *fakeCodexAccounts) Draft(ctx context.Context, actor string, request cod
 	if status == "" {
 		status = "completed"
 	}
+	if request.OnStep != nil {
+		request.OnStep(codexruntime.RunStep{Kind: "thread_started"})
+		request.OnStep(codexruntime.RunStep{Kind: "turn_started"})
+		if status == "completed" {
+			request.OnStep(codexruntime.RunStep{Kind: "response_generated"})
+		}
+	}
 	return codexruntime.RunResult{Status: status, Output: output}, nil
 }
 

@@ -418,13 +418,28 @@ type RunRequest struct {
 	Model        string
 	Effort       string
 	OutputSchema json.RawMessage
+	OnStep       func(RunStep)
 }
 
+// RunStep is the only runtime information exposed to Luna history. Keeping
+// this a closed, kind-only value prevents protocol parameters, prompts, and
+// generated text from crossing the runtime boundary.
+type RunStep struct {
+	Kind string
+}
+
+const (
+	RunStepThreadStarted     = "thread_started"
+	RunStepTurnStarted       = "turn_started"
+	RunStepResponseGenerated = "response_generated"
+)
+
 type RunResult struct {
-	ThreadID string
-	TurnID   string
-	Status   string
-	Output   string
+	ThreadID        string
+	TurnID          string
+	Status          string
+	Output          string
+	OutputTruncated bool
 }
 
 func (s *Session) Run(ctx context.Context, actorID string, input RunRequest) (RunResult, error) {
@@ -465,6 +480,7 @@ drained:
 	if threadResponse.Thread.ID == "" {
 		return RunResult{}, fmt.Errorf("Codex returned an empty thread id")
 	}
+	emitRunStep(input, RunStepThreadStarted)
 	turnParams := map[string]any{
 		"threadId":       threadResponse.Thread.ID,
 		"input":          []map[string]string{{"type": "text", "text": input.Prompt}},
@@ -495,7 +511,9 @@ drained:
 	if turnResponse.Turn.ID == "" {
 		return RunResult{}, fmt.Errorf("Codex returned an empty turn id")
 	}
+	emitRunStep(input, RunStepTurnStarted)
 	result := RunResult{ThreadID: threadResponse.Thread.ID, TurnID: turnResponse.Turn.ID}
+	responseGenerated := false
 	for {
 		select {
 		case event := <-s.events:
@@ -506,9 +524,14 @@ drained:
 				}
 				if json.Unmarshal(event.Params, &delta) == nil {
 					if len(result.Output)+len(delta.Delta) > s.maxOut {
+						result.OutputTruncated = true
 						return result, fmt.Errorf("Codex output exceeds %d bytes", s.maxOut)
 					}
 					result.Output += delta.Delta
+					if delta.Delta != "" && !responseGenerated {
+						emitRunStep(input, RunStepResponseGenerated)
+						responseGenerated = true
+					}
 				}
 			case "item/completed":
 				var completed struct {
@@ -519,9 +542,14 @@ drained:
 				}
 				if json.Unmarshal(event.Params, &completed) == nil && completed.Item.Type == "agentMessage" && completed.Item.Text != "" {
 					if len(completed.Item.Text) > s.maxOut {
+						result.OutputTruncated = true
 						return result, fmt.Errorf("Codex output exceeds %d bytes", s.maxOut)
 					}
 					result.Output = completed.Item.Text
+					if !responseGenerated {
+						emitRunStep(input, RunStepResponseGenerated)
+						responseGenerated = true
+					}
 				}
 			case "turn/completed":
 				var completed struct {
@@ -550,6 +578,12 @@ drained:
 		case <-s.done:
 			return result, s.terminalError()
 		}
+	}
+}
+
+func emitRunStep(input RunRequest, kind string) {
+	if input.OnStep != nil {
+		input.OnStep(RunStep{Kind: kind})
 	}
 }
 

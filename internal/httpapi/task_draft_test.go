@@ -45,6 +45,19 @@ func TestTaskDraftReturnsValidatedPreviewWithoutMutation(t *testing.T) {
 	if len(fake.draftRequests) != 1 || fake.draftRequests[0].Model != "gpt-5.6-luna" || !strings.Contains(fake.draftRequests[0].Prompt, "untrusted quoted historical data") {
 		t.Fatalf("draft request=%+v", fake.draftRequests)
 	}
+	runs, err := data.ListLunaRuns(context.Background(), actor.ID, 10)
+	if err != nil || len(runs) != 1 || runs[0].Feature != "task_draft" || runs[0].Outcome != "succeeded" || runs[0].OutputBytes == nil || *runs[0].OutputBytes == 0 {
+		t.Fatalf("luna history=%+v err=%v", runs, err)
+	}
+	wantSteps := []string{"thread_started", "turn_started", "response_generated", "validation", "outcome"}
+	if len(runs[0].Steps) != len(wantSteps) {
+		t.Fatalf("luna steps=%+v", runs[0].Steps)
+	}
+	for index, want := range wantSteps {
+		if runs[0].Steps[index].Sequence != index+1 || runs[0].Steps[index].Kind != want || runs[0].Steps[index].At == "" {
+			t.Fatalf("luna step %d=%+v, want kind=%s", index, runs[0].Steps[index], want)
+		}
+	}
 }
 
 func TestTaskDraftFailureModes(t *testing.T) {
@@ -72,6 +85,15 @@ func TestTaskDraftFailureModes(t *testing.T) {
 			server.taskDraft(response, req, identity, project.ID)
 			if response.Code != test.status || !strings.Contains(response.Body.String(), test.code) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if test.name != "disconnected" {
+				runs, err := data.ListLunaRuns(context.Background(), actor.ID, 25)
+				if err != nil || len(runs) == 0 {
+					t.Fatalf("history=%+v err=%v", runs, err)
+				}
+				if test.name == "malformed" && (runs[0].Outcome != "invalid_output" || runs[0].Detail == "") {
+					t.Fatalf("malformed history=%+v", runs[0])
+				}
 			}
 		})
 	}

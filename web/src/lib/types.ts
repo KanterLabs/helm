@@ -191,6 +191,43 @@ export interface ProjectIntelligenceResponse {
   workspace_insights: ProjectIntelligenceInsight[];
 }
 
+export type LunaRunOutcome = 'running' | 'succeeded' | 'invalid_output' | 'incomplete' | 'limit_reached' | 'timed_out' | 'canceled' | 'unavailable';
+
+/** Chronological, content-free milestones recorded for a Luna turn. */
+export interface LunaRunStep {
+  sequence: number;
+  kind: string;
+  at: string;
+}
+
+/** Private, content-free list metadata for one Luna model turn. */
+export interface LunaRun {
+  id: string;
+  project_id?: string;
+  project_key?: string;
+  feature: 'task_draft' | 'project_intelligence';
+  outcome: LunaRunOutcome;
+  model: string;
+  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+  thread_id?: string;
+  turn_id?: string;
+  duration_ms?: number;
+  output_bytes?: number;
+  detail?: string;
+  steps?: LunaRunStep[];
+  started_at: string;
+  completed_at?: string;
+}
+
+/** Bounded model exchange, returned only for the initiating human on detail fetch. */
+export interface LunaRunDetail extends LunaRun {
+  content_available: boolean;
+  input_text?: string;
+  output_text?: string;
+  input_truncated?: boolean;
+  output_truncated?: boolean;
+}
+
 /** Product-planning release lifecycle state. This is unrelated to releasing a task claim. */
 export type ReleaseStatus = 'planned' | 'released';
 
