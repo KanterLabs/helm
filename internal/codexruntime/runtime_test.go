@@ -98,6 +98,35 @@ func TestSessionRunAndActorIsolation(t *testing.T) {
 	}
 }
 
+func TestSessionRunEmitsOnlySafeStepCallbacks(t *testing.T) {
+	manager := NewManager(helperOptions(t, "normal"))
+	t.Cleanup(func() { _ = manager.Close(context.Background()) })
+	session, err := manager.Session(context.Background(), "actor-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var steps []RunStep
+	result, err := session.Run(context.Background(), "actor-a", RunRequest{
+		Prompt: "private prompt that must never enter a callback",
+		OnStep: func(step RunStep) { steps = append(steps, step) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("result=%+v", result)
+	}
+	want := []RunStep{{Kind: "thread_started"}, {Kind: "turn_started"}, {Kind: "response_generated"}}
+	if len(steps) != len(want) {
+		t.Fatalf("steps=%+v, want=%+v", steps, want)
+	}
+	for index := range want {
+		if steps[index] != want[index] {
+			t.Fatalf("step %d=%+v, want=%+v", index, steps[index], want[index])
+		}
+	}
+}
+
 func TestManagerUsesDistinctProtectedActorHomes(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "must-not-leak")
 	t.Setenv("CODEX_ACCESS_TOKEN", "must-not-leak")

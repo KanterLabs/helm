@@ -13,21 +13,22 @@ const maxLunaRunsPerActor = 200
 // Luna model turn. It never contains prompts, source task text, model output,
 // account metadata, or credentials.
 type LunaRun struct {
-	ID          string  `json:"id"`
-	ActorID     string  `json:"-"`
-	ProjectID   *string `json:"project_id,omitempty"`
-	ProjectKey  string  `json:"project_key,omitempty"`
-	Feature     string  `json:"feature"`
-	Outcome     string  `json:"outcome"`
-	Model       string  `json:"model"`
-	Effort      string  `json:"effort"`
-	ThreadID    string  `json:"thread_id,omitempty"`
-	TurnID      string  `json:"turn_id,omitempty"`
-	DurationMS  *int64  `json:"duration_ms,omitempty"`
-	OutputBytes *int64  `json:"output_bytes,omitempty"`
-	Detail      string  `json:"detail,omitempty"`
-	StartedAt   string  `json:"started_at"`
-	CompletedAt *string `json:"completed_at,omitempty"`
+	ID          string        `json:"id"`
+	ActorID     string        `json:"-"`
+	ProjectID   *string       `json:"project_id,omitempty"`
+	ProjectKey  string        `json:"project_key,omitempty"`
+	Feature     string        `json:"feature"`
+	Outcome     string        `json:"outcome"`
+	Model       string        `json:"model"`
+	Effort      string        `json:"effort"`
+	ThreadID    string        `json:"thread_id,omitempty"`
+	TurnID      string        `json:"turn_id,omitempty"`
+	DurationMS  *int64        `json:"duration_ms,omitempty"`
+	OutputBytes *int64        `json:"output_bytes,omitempty"`
+	Detail      string        `json:"detail,omitempty"`
+	StartedAt   string        `json:"started_at"`
+	CompletedAt *string       `json:"completed_at,omitempty"`
+	Steps       []LunaRunStep `json:"steps"`
 }
 
 type LunaRunStart struct {
@@ -120,6 +121,7 @@ func (s *Store) ListLunaRuns(ctx context.Context, actorID string, limit int) ([]
 			return nil, err
 		}
 		run.ProjectID, run.CompletedAt = nullableString(projectID), nullableString(completedAt)
+		run.Steps = make([]LunaRunStep, 0)
 		if duration.Valid {
 			value := duration.Int64
 			run.DurationMS = &value
@@ -130,7 +132,13 @@ func (s *Store) ListLunaRuns(ctx context.Context, actorID string, limit int) ([]
 		}
 		runs = append(runs, run)
 	}
-	return runs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.populateLunaRunSteps(ctx, actorID, runs); err != nil {
+		return nil, err
+	}
+	return runs, nil
 }
 
 // LunaRunDuration returns a capped millisecond duration suitable for the

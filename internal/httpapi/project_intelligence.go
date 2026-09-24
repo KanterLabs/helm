@@ -177,7 +177,7 @@ func (s *Server) projectIntelligence(w http.ResponseWriter, r *http.Request, ide
 	run := s.startLunaRun(r.Context(), store.LunaRunStart{
 		ActorID: identity.Actor.ID, Feature: "project_intelligence", Model: model, Effort: "low",
 	})
-	result, err := drafter.Draft(ctx, identity.Actor.ID, codexruntime.RunRequest{Prompt: prompt, Model: model, Effort: "low", OutputSchema: projectIntelligenceOutputSchema})
+	result, err := drafter.Draft(ctx, identity.Actor.ID, codexruntime.RunRequest{Prompt: prompt, Model: model, Effort: "low", OutputSchema: projectIntelligenceOutputSchema, OnStep: s.lunaRunStepCallback(run)})
 	if err != nil {
 		outcome := classifyCodexDraftError(err)
 		s.finishLunaRun(run, result, outcome, "", turnStarted)
@@ -191,6 +191,7 @@ func (s *Server) projectIntelligence(w http.ResponseWriter, r *http.Request, ide
 		s.writeError(w, http.StatusServiceUnavailable, "luna_incomplete", "Luna did not finish the project analysis; retry manually if desired", nil)
 		return
 	}
+	s.appendLunaRunStep(run, "validation")
 	output, err := decodeProjectIntelligenceOutput(result.Output, projects)
 	if err != nil {
 		s.finishLunaRun(run, result, "invalid_output", err.Error(), turnStarted)
