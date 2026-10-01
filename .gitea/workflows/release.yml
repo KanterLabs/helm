@@ -1,0 +1,491 @@
+name: Helm release (Gitea)
+
+# Gitea 1.27.3 is the canonical executor. This adapter intentionally has no
+# push/tag trigger while the manual release path is being rehearsed. Imported
+# GitHub actions are disabled on the canonical instance: checkout uses the
+# runner builtin and artifact transfer uses separately pinned Gitea-compatible
+# forks below. Upload and download use independent histories.
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact 40-character commit SHA to package from protected main
+        required: true
+        type: string
+      version:
+        description: Release version; must match packaging/release.json
+        required: true
+        default: 0.1.1
+        type: string
+      publish:
+        description: Publish the already-validated bundle through canonical Gitea
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-release-${{ inputs.version || github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_CONFIG: packaging/release.json
+  SHARED_RELEASE_TOOL: ci/release-tools.py
+  SHARED_RELEASE_LOCK: ci/release-tools.lock
+  GITEA_API_URL: ${{ vars.GITEA_API_URL || 'https://gitea.home.shanekanterman.dev/api/v1' }}
+
+jobs:
+  plan:
+    name: Plan exact release source
+    if: >-
+      github.repository == 'KanterLabs/helm' &&
+      github.event.repository.full_name == 'KanterLabs/helm' &&
+      github.ref == 'refs/heads/main' &&
+      vars.CANONICAL_RELEASE_FORGE == 'gitea'
+    runs-on: homelab
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      version: ${{ steps.identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
+      publish: ${{ steps.identity.outputs.publish }}
+    steps:
+      - name: Check out requested immutable source
+        uses: builtin:checkout
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Validate repository, ref, version, tag, and vendored tool
+        id: identity
+        env:
+          RELEASE_REF_INPUT: ${{ inputs.release_ref }}
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
+          PUBLISH_INPUT: ${{ inputs.publish }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+        run: |
+          set -Eeuo pipefail
+          fail() { printf 'release plan: %s\n' "$*" >&2; exit 1; }
+          [[ "$GITHUB_REPOSITORY" = KanterLabs/helm ]] || fail 'workflow is not running in the canonical repository'
+          [[ "$EVENT_REPOSITORY" = KanterLabs/helm ]] || fail 'fork dispatches are not accepted'
+          [[ "$GITHUB_REF" = refs/heads/main ]] || fail 'release dispatch must run from protected main'
+          [[ "$RELEASE_REF_INPUT" =~ ^[0-9a-f]{40}$ ]] || fail 'release_ref must be a full lowercase commit SHA'
+          [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || fail 'release version must be semantic version text'
+          [[ "$PUBLISH_INPUT" = true || "$PUBLISH_INPUT" = false ]] || fail 'publish must be a boolean'
+          [[ "$(git rev-parse HEAD)" = "$RELEASE_REF_INPUT" ]] || fail 'checkout did not resolve release_ref'
+          git cat-file -e "${RELEASE_REF_INPUT}^{commit}" || fail 'release_ref is not a commit'
+          git merge-base --is-ancestor "$RELEASE_REF_INPUT" "$GITHUB_SHA" || fail 'release_ref is not in protected main history'
+
+          config_version=$(python3 - "$RELEASE_CONFIG" <<'PY'
+          import json
+          import sys
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              config = json.load(handle)
+          print(config["version"])
+          PY
+          ) || fail 'release configuration is not valid JSON'
+          [[ "$config_version" = "$RELEASE_VERSION_INPUT" ]] || fail 'release config version does not match dispatch input'
+          [[ -s "$SHARED_RELEASE_TOOL" ]] || fail 'vendored shared release tool is missing'
+          [[ -s "$SHARED_RELEASE_LOCK" ]] || fail 'vendored shared release lock is missing'
+          python3 - "$SHARED_RELEASE_TOOL" "$SHARED_RELEASE_LOCK" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          source = pathlib.Path(sys.argv[1])
+          lock = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+          data = source.read_bytes()
+          if lock.get("schema") != 1 or lock.get("source_file") not in {source.name, "release_tools.py"}:
+              raise SystemExit("shared release lock schema/source mismatch")
+          if lock.get("sha256") != hashlib.sha256(data).hexdigest() or lock.get("bytes") != len(data):
+              raise SystemExit("shared release tool does not match its lock")
+          PY
+
+          tag="v${RELEASE_VERSION_INPUT}"
+          tag_ref="refs/tags/${tag}"
+          existing_tag=$(git ls-remote --tags origin "$tag_ref" "$tag_ref^{}" | awk -v ref="$tag_ref" '$2 == ref"^{}" { peeled=$1 } $2 == ref { plain=$1 } END { print peeled ? peeled : plain }')
+          if [[ -n "$existing_tag" && "$existing_tag" != "$RELEASE_REF_INPUT" ]]; then
+            fail "${tag} already points at ${existing_tag}, not ${RELEASE_REF_INPUT}"
+          fi
+
+          mkdir -p "$RUNNER_TEMP/helm-release-plan"
+          python3 - "$RUNNER_TEMP/helm-release-plan/source.json" "$RELEASE_REF_INPUT" "$RELEASE_VERSION_INPUT" "$tag" "$GITHUB_REPOSITORY" "$PUBLISH_INPUT" <<'PY'
+          import json
+          import pathlib
+          import sys
+          output, commit, version, tag, repository, publish = sys.argv[1:]
+          pathlib.Path(output).write_text(
+              json.dumps(
+                  {
+                      "schema": 1,
+                      "repository": repository,
+                      "commit": commit,
+                      "version": version,
+                      "tag": tag,
+                      "publish_requested": publish == "true",
+                  },
+                  sort_keys=True,
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          {
+            printf 'source_sha=%s\n' "$RELEASE_REF_INPUT"
+            printf 'version=%s\n' "$RELEASE_VERSION_INPUT"
+            printf 'tag=%s\n' "$tag"
+            printf 'publish=%s\n' "$PUBLISH_INPUT"
+          } >> "$GITHUB_OUTPUT"
+      - name: Retain source identity receipt
+        uses: https://github.com/ChristopherHX/gitea-upload-artifact@62ac910c5d3dfa85c7cb2df15afe2e342b2407c2 # pinned Gitea upload fork (v3 API)
+        with:
+          name: helm-release-plan-${{ inputs.version }}-${{ inputs.release_ref }}
+          path: ${{ runner.temp }}/helm-release-plan/source.json
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    name: Build ${{ matrix.arch }} release bundle
+    needs: plan
+    if: needs.plan.result == 'success'
+    runs-on: homelab-heavy
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: arm64
+    steps:
+      - name: Check out planned immutable source
+        uses: builtin:checkout
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+      - name: Verify immutable checkout and shared-tool lock
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$(git rev-parse HEAD)" = "$EXPECTED_SHA" ]] || exit 1
+          command -v go >/dev/null || { echo 'Go is required on the homelab-heavy runner' >&2; exit 1; }
+          command -v node >/dev/null || { echo 'Node.js is required on the homelab-heavy runner' >&2; exit 1; }
+          command -v npm >/dev/null || { echo 'npm is required on the homelab-heavy runner' >&2; exit 1; }
+          python3 - "$SHARED_RELEASE_TOOL" "$SHARED_RELEASE_LOCK" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          source = pathlib.Path(sys.argv[1])
+          lock = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+          data = source.read_bytes()
+          assert lock["sha256"] == hashlib.sha256(data).hexdigest()
+          assert lock["bytes"] == len(data)
+          PY
+      - name: Build archives, native packages, and OCI target
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          OCI_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -Eeuo pipefail
+          release_out="$RUNNER_TEMP/helm-release/${{ matrix.arch }}"
+          release_staging="$RUNNER_TEMP/helm-staging/${{ matrix.arch }}"
+          mkdir -p "$release_out" "$release_staging"
+          make release-config-check RELEASE_VERSION="$RELEASE_VERSION"
+          make release-archives RELEASE_VERSION="$RELEASE_VERSION" RELEASE_PLATFORM="$RELEASE_PLATFORM" RELEASE_OUT="$release_out" RELEASE_STAGING="$release_staging"
+          make release-packages RELEASE_VERSION="$RELEASE_VERSION" RELEASE_PLATFORM="$RELEASE_PLATFORM" RELEASE_PACKAGE_FORMAT=all RELEASE_OUT="$release_out" RELEASE_STAGING="$release_staging"
+          make release-oci RELEASE_VERSION="$RELEASE_VERSION" OCI_PLATFORM="$OCI_PLATFORM" RELEASE_OUT="$release_out" RELEASE_STAGING="$release_staging"
+          for artifact in \
+            "helm-${RELEASE_VERSION}-linux-${{ matrix.arch }}.tar.gz" \
+            "helm_${RELEASE_VERSION}_${{ matrix.arch }}.deb"; do
+            [[ -s "$release_out/$artifact" ]] || { echo "missing required artifact: $artifact" >&2; exit 1; }
+          done
+          rpm_arch=x86_64
+          [[ "${{ matrix.arch }}" = arm64 ]] && rpm_arch=aarch64
+          rpm="helm-${RELEASE_VERSION}-1.${rpm_arch}.rpm"
+          [[ -s "$release_out/$rpm" ]] || { echo "missing required artifact: $rpm" >&2; exit 1; }
+          oci_archive="$release_out/helm-${{ matrix.arch }}-oci.tar"
+          oci_receipt="$release_out/oci-build-${{ matrix.arch }}.json"
+          [[ -s "$oci_archive" ]] || { echo "missing OCI archive for ${{ matrix.platform }}" >&2; exit 1; }
+          [[ -s "$oci_receipt" ]] || { echo "missing OCI receipt for ${{ matrix.platform }}" >&2; exit 1; }
+          python3 - "$oci_receipt" "$RELEASE_VERSION" "$RELEASE_PLATFORM" "$(basename "$oci_archive")" <<'PY'
+          import json
+          import pathlib
+          import sys
+          receipt_path, version, platform, archive_name = sys.argv[1:]
+          receipt = json.loads(pathlib.Path(receipt_path).read_text(encoding="utf-8"))
+          if receipt.get("version") != version:
+              raise SystemExit("OCI receipt version does not match release")
+          if receipt.get("platforms") != [platform]:
+              raise SystemExit("OCI receipt platform does not match matrix target")
+          if pathlib.Path(receipt.get("output", "")).name != archive_name:
+              raise SystemExit("OCI receipt output does not name the archive")
+          PY
+      - name: Upload immutable ${{ matrix.arch }} bundle
+        uses: https://github.com/ChristopherHX/gitea-upload-artifact@62ac910c5d3dfa85c7cb2df15afe2e342b2407c2 # pinned Gitea upload fork (v3 API)
+        with:
+          name: helm-release-${{ needs.plan.outputs.version }}-${{ matrix.arch }}-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release/${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 14
+
+  artifact_test:
+    name: Downloaded artifact E2E (${{ matrix.arch }} runner)
+    needs: [plan, build]
+    if: needs.build.result == 'success'
+    runs-on: homelab-heavy
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Check out planned immutable source
+        uses: builtin:checkout
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+      - name: Download amd64 bundle
+        uses: https://github.com/ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # pinned Gitea download fork (v3 API)
+        with:
+          name: helm-release-${{ needs.plan.outputs.version }}-amd64-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release-parts/amd64
+      - name: Download arm64 bundle
+        uses: https://github.com/ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # pinned Gitea download fork (v3 API)
+        with:
+          name: helm-release-${{ needs.plan.outputs.version }}-arm64-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release-parts/arm64
+      - name: Run every downloaded artifact check
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          release_dir="$RUNNER_TEMP/helm-release"
+          mkdir -p "$release_dir"
+          find "$RUNNER_TEMP/helm-release-parts" -type f -exec cp -- {} "$release_dir/" \;
+          HELM_VERSION="$RELEASE_VERSION" ./ci/test-release-artifacts.sh "$release_dir" "$RELEASE_VERSION" 2>&1 | tee "$RUNNER_TEMP/release-artifact-e2e-${{ matrix.arch }}.log"
+          for arch in amd64 arm64; do
+            oci_archive="$release_dir/helm-${arch}-oci.tar"
+            oci_receipt="$release_dir/oci-build-${arch}.json"
+            [[ -s "$oci_archive" ]] || { echo "missing OCI archive for $arch" >&2; exit 1; }
+            [[ -s "$oci_receipt" ]] || { echo "missing OCI receipt for $arch" >&2; exit 1; }
+            expected_platform="linux/$arch"
+            python3 - "$oci_receipt" "$RELEASE_VERSION" "$expected_platform" "$(basename "$oci_archive")" <<'PY'
+          import json
+          import pathlib
+          import sys
+          receipt_path, version, platform, archive_name = sys.argv[1:]
+          receipt = json.loads(pathlib.Path(receipt_path).read_text(encoding="utf-8"))
+          if receipt.get("version") != version:
+              raise SystemExit("OCI receipt version does not match release")
+          if receipt.get("platforms") != [platform]:
+              raise SystemExit("OCI receipt platform does not match target")
+          if pathlib.Path(receipt.get("output", "")).name != archive_name:
+              raise SystemExit("OCI receipt output does not name the archive")
+          PY
+          done
+      - name: Upload downloaded artifact evidence
+        if: always()
+        uses: https://github.com/ChristopherHX/gitea-upload-artifact@62ac910c5d3dfa85c7cb2df15afe2e342b2407c2 # pinned Gitea upload fork (v3 API)
+        with:
+          name: helm-release-e2e-${{ needs.plan.outputs.version }}-${{ matrix.arch }}-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/release-artifact-e2e-${{ matrix.arch }}.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release_gate:
+    name: Require complete release receipt
+    needs: [plan, build, artifact_test]
+    if: always()
+    runs-on: homelab
+    timeout-minutes: 10
+    steps:
+      - name: Require every release target and downloaded-artifact test
+        env:
+          PLAN: ${{ needs.plan.result }}
+          BUILD: ${{ needs.build.result }}
+          ARTIFACT_TEST: ${{ needs.artifact_test.result }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$PLAN" = success ]] || { echo 'release plan did not pass' >&2; exit 1; }
+          [[ "$BUILD" = success ]] || { echo 'one or more architecture builds did not pass' >&2; exit 1; }
+          [[ "$ARTIFACT_TEST" = success ]] || { echo 'one or more downloaded artifact tests did not pass' >&2; exit 1; }
+      - name: Check out planned immutable source
+        uses: builtin:checkout
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+      - name: Download both immutable build bundles
+        uses: https://github.com/ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # pinned Gitea download fork (v3 API)
+        with:
+          name: helm-release-${{ needs.plan.outputs.version }}-amd64-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release-parts/amd64
+      - name: Download arm64 immutable build bundle
+        uses: https://github.com/ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # pinned Gitea download fork (v3 API)
+        with:
+          name: helm-release-${{ needs.plan.outputs.version }}-arm64-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release-parts/arm64
+      - name: Generate and verify the shared release manifest
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          RELEASE_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          release_dir="$RUNNER_TEMP/helm-release"
+          gate_dir="$RUNNER_TEMP/helm-release-gate"
+          mkdir -p "$release_dir" "$gate_dir"
+          find "$RUNNER_TEMP/helm-release-parts" -type f -exec cp -- {} "$release_dir/" \;
+          for artifact in \
+            "helm-${RELEASE_VERSION}-linux-amd64.tar.gz" \
+            "helm-${RELEASE_VERSION}-linux-arm64.tar.gz" \
+            "helm_${RELEASE_VERSION}_amd64.deb" \
+            "helm_${RELEASE_VERSION}_arm64.deb" \
+            "helm-${RELEASE_VERSION}-1.x86_64.rpm" \
+            "helm-${RELEASE_VERSION}-1.aarch64.rpm"; do
+            [[ -s "$release_dir/$artifact" ]] || { echo "release receipt is missing $artifact" >&2; exit 1; }
+          done
+          for arch in amd64 arm64; do
+            oci_archive="$release_dir/helm-${arch}-oci.tar"
+            oci_receipt="$release_dir/oci-build-${arch}.json"
+            [[ -s "$oci_archive" ]] || { echo "release receipt is missing OCI archive for $arch" >&2; exit 1; }
+            [[ -s "$oci_receipt" ]] || { echo "release receipt is missing OCI receipt for $arch" >&2; exit 1; }
+            expected_platform="linux/$arch"
+            python3 - "$oci_receipt" "$RELEASE_VERSION" "$expected_platform" "$(basename "$oci_archive")" <<'PY'
+          import json
+          import pathlib
+          import sys
+          receipt_path, version, platform, archive_name = sys.argv[1:]
+          receipt = json.loads(pathlib.Path(receipt_path).read_text(encoding="utf-8"))
+          if receipt.get("version") != version:
+              raise SystemExit("OCI receipt version does not match release")
+          if receipt.get("platforms") != [platform]:
+              raise SystemExit("OCI receipt platform does not match target")
+          if pathlib.Path(receipt.get("output", "")).name != archive_name:
+              raise SystemExit("OCI receipt output does not name the archive")
+          PY
+          done
+          python3 - "$gate_dir/release-config.json" "$release_dir" "$GITHUB_REPOSITORY" <<'PY'
+          import json
+          import pathlib
+          import sys
+          output, root, repository = sys.argv[1:]
+          root_path = pathlib.Path(root).resolve()
+          targets = [
+              {"target": path.name, "path": path.name, "name": path.name}
+              for path in sorted(root_path.iterdir())
+              if path.is_file() and not path.is_symlink()
+          ]
+          if not targets:
+              raise SystemExit("release bundle has no regular files")
+          pathlib.Path(output).write_text(
+              json.dumps(
+                  {
+                      "schema": 1,
+                      "project": "helm",
+                      "repository": repository,
+                      "tag_format": "v{version}",
+                      "protected_assets": [],
+                      "targets": targets,
+                  },
+                  sort_keys=True,
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          python3 "$SHARED_RELEASE_TOOL" manifest \
+            --config "$gate_dir/release-config.json" \
+            --artifacts "$release_dir" \
+            --version "$RELEASE_VERSION" \
+            --commit "$RELEASE_SOURCE_SHA" \
+            --output "$gate_dir/release-manifest.json"
+          python3 "$SHARED_RELEASE_TOOL" verify \
+            --manifest "$gate_dir/release-manifest.json" \
+            --artifacts "$release_dir"
+      - name: Upload verified manifest receipt
+        uses: https://github.com/ChristopherHX/gitea-upload-artifact@62ac910c5d3dfa85c7cb2df15afe2e342b2407c2 # pinned Gitea upload fork (v3 API)
+        with:
+          name: helm-release-verified-${{ needs.plan.outputs.version }}-${{ needs.plan.outputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/helm-release-gate/release-manifest.json
+            ${{ runner.temp }}/helm-release-gate/release-config.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish verified Gitea release
+    needs: [plan, release_gate]
+    if: needs.release_gate.result == 'success' && needs.plan.outputs.publish == 'true'
+    runs-on: homelab
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact published source
+        uses: builtin:checkout
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          fetch-depth: 1
+      - name: Download both tested bundles
+        uses: https://github.com/ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # pinned Gitea download fork (v3 API)
+        with:
+          name: helm-release-${{ needs.plan.outputs.version }}-amd64-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release-parts/amd64
+      - name: Download arm64 tested bundle
+        uses: https://github.com/ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # pinned Gitea download fork (v3 API)
+        with:
+          name: helm-release-${{ needs.plan.outputs.version }}-arm64-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release-parts/arm64
+      - name: Download the verified manifest
+        uses: https://github.com/ChristopherHX/gitea-download-artifact@75635f32b4c1c41c4b3d64e8f85210112ed4c9c7 # pinned Gitea download fork (v3 API)
+        with:
+          name: helm-release-verified-${{ needs.plan.outputs.version }}-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/helm-release-gate
+      - name: Publish exact bytes through the shared idempotent adapter
+        env:
+          GITEA_RELEASE_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          RELEASE_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$GITEA_API_URL" || { echo 'GITEA_API_URL repository variable is required' >&2; exit 1; }
+          release_dir="$RUNNER_TEMP/helm-release"
+          mkdir -p "$release_dir"
+          find "$RUNNER_TEMP/helm-release-parts" -type f -exec cp -- {} "$release_dir/" \;
+          python3 "$SHARED_RELEASE_TOOL" verify \
+            --manifest "$RUNNER_TEMP/helm-release-gate/release-manifest.json" \
+            --artifacts "$release_dir"
+          python3 "$SHARED_RELEASE_TOOL" ensure-release \
+            --forge gitea \
+            --repository "$GITHUB_REPOSITORY" \
+            --api-url "$GITEA_API_URL" \
+            --manifest "$RUNNER_TEMP/helm-release-gate/release-manifest.json" \
+            --artifacts "$release_dir" \
+            --receipt-output "$RUNNER_TEMP/gitea-release-receipt.json"
+          python3 "$SHARED_RELEASE_TOOL" inspect \
+            --forge gitea \
+            --repository "$GITHUB_REPOSITORY" \
+            --api-url "$GITEA_API_URL" \
+            --manifest "$RUNNER_TEMP/helm-release-gate/release-manifest.json" > "$RUNNER_TEMP/gitea-public-inspect.json"
+          grep -Fq '"public": true' "$RUNNER_TEMP/gitea-public-inspect.json" || {
+            echo 'public Gitea release inspection did not report a public release' >&2
+            exit 1
+          }
+      - name: Retain publication receipt
+        if: always()
+        uses: https://github.com/ChristopherHX/gitea-upload-artifact@62ac910c5d3dfa85c7cb2df15afe2e342b2407c2 # pinned Gitea upload fork (v3 API)
+        with:
+          name: helm-release-publish-${{ needs.plan.outputs.version }}-${{ needs.plan.outputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/gitea-release-receipt.json
+            ${{ runner.temp }}/gitea-public-inspect.json
+          if-no-files-found: ignore
+          retention-days: 14
