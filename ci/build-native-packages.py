@@ -302,7 +302,7 @@ def build_rpm(stage: Path, output: Path, *, config: dict[str, Any], platform: di
         spec.write_text(
             f"""Name:           {name}
 Version:        {version}
-Release:        {release}%{{?dist}}
+Release:        {release}
 Summary:        {config.get('description', 'Helm project board')}
 License:        {config.get('license', 'MIT')}
 URL:            {config.get('homepage', 'https://github.com/KanterLabs/helm')}
