@@ -101,3 +101,7 @@ The publisher is retry-safe: a failed run may be re-run with the same source
 commit, while a tag or artifact name pointing at another digest remains a hard
 failure. Publishing does not deploy Helm or alter the existing CI/deployment
 workflow.
+
+Use `[skip deploy]` in the merge commit title for packaging-only changes. All
+required main checks still run, while the automatic production mutation is
+skipped. A normal manual deploy dispatch remains a separate explicit action.
