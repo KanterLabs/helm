@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "name": "helm",
+  "version": "0.1.1",
+  "release_tag": "v0.1.1",
+  "package_release": 1,
+  "description": "A small self-hosted project board for humans and software agents",
+  "homepage": "https://github.com/KanterLabs/helm",
+  "license": "MIT",
+  "maintainer": "KanterLabs",
+  "platforms": [
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "deb_arch": "amd64",
+      "rpm_arch": "x86_64"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "deb_arch": "arm64",
+      "rpm_arch": "aarch64"
+    }
+  ],
+  "artifacts": {
+    "archive": "helm-{version}-linux-{arch}.tar.gz",
+    "deb": "helm_{version}_{deb_arch}.deb",
+    "rpm": "helm-{version}-{package_release}.{rpm_arch}.rpm"
+  },
+  "build": {
+    "goos": "linux",
+    "cgo_enabled": 0,
+    "trimpath": true,
+    "frontend_embed_roots": [
+      "internal/webassets/dist",
+      "internal/frontend/dist"
+    ],
+    "binaries": [
+      {
+        "name": "helm",
+        "package_path": "/usr/bin/helm",
+        "source": "./cmd/helm"
+      }
+    ]
+  },
+  "paths": {
+    "state": "/var/lib/helm",
+    "database": "/var/lib/helm/roadmap.db",
+    "codex_home": "/var/lib/helm/codex-users",
+    "config": "/etc/helm/helm.env",
+    "unit": "/usr/lib/systemd/system/helm.service",
+    "sysusers": "/usr/lib/sysusers.d/helm.conf",
+    "tmpfiles": "/usr/lib/tmpfiles.d/helm.conf"
+  },
+  "service": {
+    "user": "helm",
+    "group": "helm",
+    "read_write_paths": [
+      "/var/lib/helm"
+    ],
+    "default_enabled": false
+  },
+  "companions": [
+    {
+      "name": "codex",
+      "feature": "luna",
+      "optional": true,
+      "required_for_start": false,
+      "binary": "/usr/lib/helm/codex",
+      "environment": "HELM_CODEX_BINARY"
+    },
+    {
+      "name": "helm-beta-switchd",
+      "feature": "beta-switch",
+      "optional": true,
+      "required_for_start": false,
+      "binary": "/usr/lib/helm/helm-beta-switchd",
+      "environment": "HELM_BETA_SWITCH_SOCKET",
+      "service": "helm-beta-switchd.service",
+      "default_enabled": false
+    }
+  ]
+}

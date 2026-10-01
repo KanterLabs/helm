@@ -1,0 +1,42 @@
+[Unit]
+Description=Helm project board
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=helm
+Group=helm
+EnvironmentFile=-/etc/helm/helm.env
+Environment=HELM_DB=/var/lib/helm/roadmap.db
+Environment=HELM_CODEX_HOME_ROOT=/var/lib/helm/codex-users
+Environment=HELM_CODEX_BINARY=/usr/lib/helm/codex
+WorkingDirectory=/var/lib/helm
+ExecStart=/usr/bin/helm
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=20s
+UMask=0027
+
+# The service owns only its persistent state. Package upgrades replace the
+# immutable binary and units; they never replace or remove /var/lib/helm.
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+MemoryMax=1536M
+TasksMax=256
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/helm
+StateDirectory=helm
+StateDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 # Build the browser bundle in the same reproducible sequence used by CI.  The
 # generated files are copied into the Go embed tree before the server build.
-FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS frontend
+FROM --platform=$BUILDPLATFORM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS frontend
 
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
@@ -17,15 +17,25 @@ RUN npm run build
 # package for each supported platform. Resolve the package selected for the
 # current build architecture and copy only that executable into the final
 # scratch image; Node itself is not needed at runtime.
-FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS codex
+FROM --platform=$BUILDPLATFORM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS codex
 
 ARG CODEX_VERSION=0.153.0
-RUN npm install --global --ignore-scripts "@openai/codex@${CODEX_VERSION}" \
-    && native="$(find /usr/local/lib/node_modules/@openai/codex -type f -path '*/vendor/*/bin/codex' -print -quit)" \
-    && test -n "$native" \
-    && install -D -m 0755 "$native" /out/codex
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+	 amd64) codex_platform=x64; codex_package_version="${CODEX_VERSION}-linux-x64" ;; \
+	 arm64) codex_platform=arm64; codex_package_version="${CODEX_VERSION}-linux-arm64" ;; \
+	 *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 64 ;; \
+esac \
+	&& npm install --global --ignore-scripts --no-audit --no-fund --force \
+		"@openai/codex-linux-${codex_platform}@npm:@openai/codex@${codex_package_version}" \
+	&& native="$(find "/usr/local/lib/node_modules/@openai/codex-linux-${codex_platform}" -type f -path "*/vendor/*/bin/codex" -print -quit)" \
+	&& test -n "$native" \
+	&& install -D -m 0755 "$native" /out/codex
 
-FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build
+FROM --platform=$BUILDPLATFORM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -36,7 +46,9 @@ COPY --from=frontend /src/web/dist ./internal/webassets/dist
 # asset loader imports internal/webassets; older build tooling expects the
 # internal/frontend path, and having both prevents a stale embedded UI.
 COPY --from=frontend /src/web/dist ./internal/frontend/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/helm ./cmd/helm \
+RUN test "$TARGETOS" = linux \
+    && case "$TARGETARCH" in amd64|arm64) ;; *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 64 ;; esac \
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/helm ./cmd/helm \
     && install -d -m 0750 -o 65532 -g 65532 /out/data \
     && install -d -m 0700 -o 65532 -g 65532 /out/data/codex-users
 
