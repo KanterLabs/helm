@@ -74,9 +74,8 @@
     if (detailLoading.has(id)) return;
     detailLoading = new Set(detailLoading).add(id);
     try {
-      const next = new Map(details);
-      next.set(id, await api.getLunaRun(id));
-      details = next;
+      const detail = await api.getLunaRun(id);
+      details = new Map(details).set(id, detail);
       const errors = new Map(detailErrors);
       errors.delete(id);
       detailErrors = errors;

@@ -42,6 +42,8 @@ __pycache__/
 /test-results/
 /web/playwright-report/
 /web/test-results/
+/.artifacts/
+/web/e2e-artifacts/
 /.DS_Store
 /.idea/
 /.vscode/

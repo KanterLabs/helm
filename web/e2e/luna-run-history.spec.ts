@@ -1,55 +1,109 @@
 import { expect, test } from '@playwright/test';
 
-test('shows live Luna steps and opens private input and output', async ({ page }, testInfo) => {
-  const startedAt = '2026-09-24T12:00:00Z';
-  let listReads = 0;
-  let detailReads = 0;
-  await page.route('**/api/v1/codex/account*', (route) => route.fulfill({
-    status: 200, contentType: 'application/json',
-    body: JSON.stringify({ connected: true, account_type: 'chatgpt', plan_type: 'plus' })
-  }));
-  await page.route('**/api/v1/codex/runs?*', (route) => {
-    listReads += 1;
-    const done = listReads > 1;
-    return route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ data: [{
-        id: 'luna-browser-run', feature: 'task_draft', outcome: done ? 'invalid_output' : 'running',
-        model: 'gpt-5.6-luna', effort: 'medium', started_at: startedAt,
-        ...(done ? { duration_ms: 3000, completed_at: '2026-09-24T12:00:03Z' } : {}),
-        steps: [
-          { sequence: 1, kind: 'requested', at: startedAt },
-          ...(done ? [{ sequence: 2, kind: 'response_completed', at: '2026-09-24T12:00:02Z' }, { sequence: 3, kind: 'validation', at: '2026-09-24T12:00:03Z' }] : [])
-        ]
-      }], next_cursor: '' })
-    });
+type Project = { id: string; key: string; slug: string };
+type LunaRun = {
+  id: string;
+  project_key?: string;
+  feature: string;
+  outcome: string;
+  model: string;
+  effort: string;
+  thread_id?: string;
+  turn_id?: string;
+  steps?: { sequence: number; kind: string; at: string }[];
+};
+
+test('persists a real Luna turn and exposes private diagnostics in Settings', async ({ page, request }, testInfo) => {
+  const auth = await request.get('/api/v1/auth/status');
+  expect(auth.ok()).toBeTruthy();
+  expect((await auth.json()).mode).toBe('disabled');
+
+  const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+  const projectKey = `LUNA${runId}`.slice(0, 16);
+  const roughIdea = `private-e2e-prompt-${runId}`;
+  const origin = new URL(testInfo.project.use.baseURL as string).origin;
+  const created = await request.post('/api/v1/projects', {
+    data: { key: projectKey, name: `Luna E2E ${runId}` },
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': `luna-history-${runId}`
+    }
   });
-  await page.route('**/api/v1/codex/runs/luna-browser-run', (route) => {
-    detailReads += 1;
-    return route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ id: 'luna-browser-run', feature: 'task_draft', outcome: 'invalid_output',
-        model: 'gpt-5.6-luna', effort: 'medium', started_at: startedAt,
-        content_available: true, input_text: 'Browser fixture input', output_text: '{"invalid":"browser fixture output"}',
-        input_truncated: false, output_truncated: false })
-    });
-  });
+  expect(created.ok()).toBeTruthy();
+  const project = await created.json() as Project;
+
+  await page.goto(`/p/${project.slug}`);
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create a task' });
+  await dialog.getByLabel('Rough idea').fill(roughIdea);
+  await dialog.getByRole('button', { name: /Assist with Luna/ }).click();
+  await expect(dialog.getByRole('heading', { name: 'Review before applying' })).toBeVisible();
+  await expect(dialog.locator('[data-luna-field="title"]')).toContainText('Verify persisted Luna history');
+  await dialog.getByRole('button', { name: 'Apply all' }).click();
+  await expect(dialog.getByLabel('Task title')).toHaveValue('Verify persisted Luna history');
+  await page.keyboard.press('Escape');
 
   await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: 'Your Codex subscription' })).toBeVisible();
   const history = page.locator('.luna-history');
   await expect(history.getByRole('heading', { name: 'Recent Luna work' })).toBeVisible();
-  await expect(history.getByText('Running', { exact: true })).toBeVisible();
-  await expect(history).not.toContainText('Browser fixture input');
-  await expect.poll(() => listReads).toBeGreaterThan(1);
-  await expect(history.getByText('Invalid output', { exact: true })).toBeVisible();
+  const item = history.locator('.luna-run').filter({ hasText: projectKey });
+  await expect(item).toContainText('Task draft');
+  await expect(item).toContainText('Succeeded');
+  await item.getByRole('button').click();
+  await expect(item).toContainText('gpt-5.6-luna');
+  await expect(item).toContainText('medium');
+  await expect(item).toContainText('thread-e2e');
+  await expect(item).toContainText('turn-e2e');
+  await expect(item.getByText('Input sent to Luna')).toBeVisible();
+  await expect(item.locator('.luna-exchange-part').first()).toContainText(roughIdea);
+  await expect(item.locator('.luna-exchange-part').last()).toContainText('Verify persisted Luna history');
+  const timeline = item.getByRole('list', { name: 'Luna execution steps' });
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Thread started');
+  await expect(timeline).toContainText('Turn started');
+  await expect(timeline).toContainText('Luna generated a response');
+  await expect(timeline).toContainText('Checking result');
+  await expect(timeline).toContainText('Outcome recorded');
 
-  await history.locator('.luna-run-summary').click();
-  await expect(history.getByText('Browser fixture input')).toBeVisible();
-  await expect(history.getByText('{"invalid":"browser fixture output"}')).toBeVisible();
-  await expect(history.getByRole('list', { name: 'Luna execution steps' }).locator('li')).toHaveCount(3);
-  expect(detailReads).toBeGreaterThan(0);
+  const response = await request.get('/api/v1/codex/runs?limit=50');
+  expect(response.ok()).toBeTruthy();
+  const responseText = await response.text();
+  expect(responseText).not.toContain('actor_id');
+  expect(responseText).not.toContain(roughIdea);
+  expect(responseText).not.toContain('Verify persisted Luna history');
+  const payload = JSON.parse(responseText) as { data: LunaRun[] };
+  const persisted = payload.data.find((run) => run.project_key === projectKey);
+  expect(persisted).toMatchObject({
+    feature: 'task_draft',
+    outcome: 'succeeded',
+    model: 'gpt-5.6-luna',
+    effort: 'medium',
+    thread_id: 'thread-e2e',
+    turn_id: 'turn-e2e'
+  });
+  expect(persisted?.steps?.map((step) => step.kind)).toEqual([
+    'thread_started', 'turn_started', 'response_generated', 'validation', 'outcome'
+  ]);
+  const detailResponse = await request.get(`/api/v1/codex/runs/${persisted?.id}`);
+  expect(detailResponse.ok()).toBeTruthy();
+  expect(detailResponse.headers()['cache-control']).toContain('no-store');
+  const detail = await detailResponse.json() as { content_available: boolean; input_text?: string; output_text?: string };
+  expect(detail.content_available).toBe(true);
+  expect(detail.input_text).toContain(roughIdea);
+  expect(detail.output_text).toContain('Verify persisted Luna history');
 
-  const screenshot = testInfo.outputPath('luna-run-history.png');
-  await history.screenshot({ path: screenshot });
-  await testInfo.attach('luna-run-history.png', { path: screenshot, contentType: 'image/png' });
+  const unsafeLimit = await request.get('/api/v1/codex/runs?limit=101');
+  expect(unsafeLimit.status()).toBe(400);
+  expect(await unsafeLimit.json()).toMatchObject({ error: { code: 'invalid_request' } });
+
+  await testInfo.attach('luna-history-response.json', {
+    body: Buffer.from(JSON.stringify(payload, null, 2)),
+    contentType: 'application/json'
+  });
+  await testInfo.attach('luna-history-settings.png', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png'
+  });
 });

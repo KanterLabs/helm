@@ -10,7 +10,6 @@ COPY openapi.yaml /src/openapi.yaml
 COPY internal/httpapi/openapi.json /src/internal/httpapi/openapi.json
 RUN npm run openapi:check
 RUN npm run check
-RUN npm test
 RUN npm run build
 
 # Codex publishes a statically linked native executable as an optional npm

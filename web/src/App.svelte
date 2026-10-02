@@ -6659,6 +6659,7 @@
   }
 
   async function saveTask(silent = false): Promise<boolean> {
+    if (drawerSaving) return false;
     if (!drawerTask || !draftTitle.trim()) {
       drawerError = 'A task needs a title.';
       return false;
@@ -6667,50 +6668,73 @@
       drawerError = 'A bug report needs actual behavior.';
       return false;
     }
+    const task = drawerTask;
+    const requestedSession = sessionGeneration;
+    const requestedDrawer = taskDetailRequest;
+    const submittedFingerprint = drawerTaskDraftFingerprint();
+    const sessionIsCurrent = () => Boolean(user && sessionGeneration === requestedSession);
+    const drawerIsCurrent = () => sessionIsCurrent()
+      && taskDetailRequest === requestedDrawer
+      && drawerTask?.id === task.id;
+    // Capture the entire submission before label creation yields. Navigation
+    // and further typing must never change the task or fields being saved.
+    const labelNames = draftLabels.split(',').map((value) => value.trim()).filter(Boolean);
+    const patch = {
+      title: draftTitle.trim(),
+      description: draftDescription,
+      priority: draftPriority,
+      due_at: dateToIso(draftDueDate),
+      assignee: draftAssignee.trim() || null,
+      release_id: draftReleaseId || null,
+      ...(task.kind === 'bug'
+        ? {
+            bug: {
+              actual_behavior: draftBugActual.trim(),
+              expected_behavior: draftBugExpected.trim(),
+              reproduction_steps: draftBugReproduction.trim(),
+              environment: draftBugEnvironment.trim(),
+              affected_version: draftBugVersion.trim()
+            }
+          }
+        : {})
+    };
     drawerSaving = true;
     drawerError = '';
     try {
-      const labelNames = draftLabels.split(',').map((value) => value.trim()).filter(Boolean);
-      const labelIds = await resolveTaskLabels(drawerTask.project_id, labelNames);
+      const labelIds = await resolveTaskLabels(task.project_id, labelNames);
+      if (!sessionIsCurrent()) return false;
       const updated = await api.patchTask(
-        drawerTask.id,
-        {
-          title: draftTitle.trim(),
-          description: draftDescription,
-          priority: draftPriority,
-          due_at: dateToIso(draftDueDate),
-          assignee: draftAssignee.trim() || null,
-          release_id: draftReleaseId || null,
-          labels: labelIds,
-          label_ids: labelIds,
-          ...(drawerTask.kind === 'bug'
-            ? {
-                bug: {
-                  actual_behavior: draftBugActual.trim(),
-                  expected_behavior: draftBugExpected.trim(),
-                  reproduction_steps: draftBugReproduction.trim(),
-                  environment: draftBugEnvironment.trim(),
-                  affected_version: draftBugVersion.trim()
-                }
-              }
-            : {})
-        },
-        drawerTask.version
+        task.id,
+        { ...patch, labels: labelIds, label_ids: labelIds },
+        task.version
       );
+      if (!sessionIsCurrent()) return false;
       replaceTask(updated, true);
-      // Keep action-only drafts (triage severity, resolution note, block
-      // reason, and comments) intact. They are not part of the PATCH body and
-      // must remain dirty until their own action commits them.
-      syncDraft(updated, false);
-      drawerSavedTaskDraftFingerprint = drawerTaskDraftFingerprint();
+      if (drawerIsCurrent() && drawerTask) {
+        // Normalize only the submitted draft. Newer edits and drafts in a
+        // reopened drawer belong to their own save; action drafts are separate.
+        if (drawerTaskDraftFingerprint() === submittedFingerprint) {
+          syncTaskDraft(drawerTask);
+          drawerSavedTaskDraftFingerprint = drawerTaskDraftFingerprint();
+        } else {
+          drawerSavedTaskDraftFingerprint = submittedFingerprint;
+        }
+      }
       if (!silent) toast('success', `${updated.key} saved.`);
-      return true;
+      // An immediate action may proceed only for the drawer whose complete
+      // draft was saved, never for a task opened while this request waited.
+      return drawerIsCurrent() && drawerTaskDraftFingerprint() === drawerSavedTaskDraftFingerprint;
     } catch (error) {
-      drawerError = friendlyError(error, 'The task changed elsewhere. Refresh and try again.');
+      if (!sessionIsCurrent()) return false;
       if (error instanceof ApiError && error.details.current) {
-        const current = error.details.current as Task;
-        replaceTask(current);
-        drawerError = 'This task changed in another session. Your draft was not overwritten.';
+        replaceTask(error.details.current as Task);
+      }
+      if (drawerIsCurrent()) {
+        drawerError = error instanceof ApiError && error.details.current
+          ? 'This task changed in another session. Your draft was not overwritten.'
+          : friendlyError(error, 'The task changed elsewhere. Refresh and try again.');
+      } else if (!silent) {
+        toast('error', `${task.key}: ${friendlyError(error, 'The task could not be saved.')}`);
       }
       return false;
     } finally {
