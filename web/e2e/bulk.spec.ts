@@ -39,16 +39,48 @@ test('selects loaded tasks, preserves filtered selections, and reviews bulk resu
   await page.goto(`/p/${project.slug}`);
   const board = page.locator('section.board');
   await expect(board).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true })).toBeVisible();
+  const search = page.getByRole('textbox', { name: 'Search tasks' });
+  const selectLoaded = page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true });
+  const firstCard = board.locator('.task-card').filter({ hasText: first.title });
+  const secondCard = board.locator('.task-card').filter({ hasText: second.title });
+  await expect(selectLoaded).toBeVisible();
+  await expect(firstCard).toBeVisible();
+  await expect(secondCard).toBeVisible();
 
   // A filtered selection remains selected when the filter changes.
-  await page.getByRole('textbox', { name: 'Search tasks' }).fill(first.title);
-  await page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true }).click();
-  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
-  await page.getByRole('textbox', { name: 'Search tasks' }).fill('');
+  const filteredTasksResponse = page.waitForResponse(
+    (response) => {
+      const responseURL = new URL(response.url());
+      return response.request().method() === 'GET'
+        && responseURL.pathname === `/api/v1/projects/${project.id}/tasks`
+        && responseURL.searchParams.get('column') === ready!.id
+        && responseURL.searchParams.get('q') === first.title;
+    },
+    { timeout: 30_000 }
+  );
+  await search.fill(first.title);
+  await filteredTasksResponse;
+  await expect(firstCard).toBeVisible();
+  await expect(secondCard).toHaveCount(0);
+  await selectLoaded.click();
   await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
 
-  const secondCard = board.locator('.task-card').filter({ hasText: second.title });
+  const unfilteredTasksResponse = page.waitForResponse(
+    (response) => {
+      const responseURL = new URL(response.url());
+      return response.request().method() === 'GET'
+        && responseURL.pathname === `/api/v1/projects/${project.id}/tasks`
+        && responseURL.searchParams.get('column') === ready!.id
+        && !responseURL.searchParams.get('q');
+    },
+    { timeout: 30_000 }
+  );
+  await search.fill('');
+  await unfilteredTasksResponse;
+  await expect(firstCard).toBeVisible();
+  await expect(secondCard).toBeVisible();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+
   await secondCard.getByRole('checkbox', { name: `Select ${second.key}` }).check();
   await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Review bulk changes', exact: true }).click();
@@ -183,13 +215,83 @@ test('reviews every selected task while a filtered board page is reloading', asy
   await expect(secondCard).toBeVisible();
 
   const search = page.getByRole('textbox', { name: 'Search tasks' });
-  await search.fill(first.title);
-  await expect(firstCard).toBeVisible();
-  await expect(secondCard).toHaveCount(0);
-  await page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true }).click();
+  const selectLoaded = page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true });
+  await expect(selectLoaded).toBeVisible();
+
+  let releaseFilteredMetadataGate!: () => void;
+  const filteredMetadataGate = new Promise<void>((resolve) => { releaseFilteredMetadataGate = resolve; });
+  let filteredMetadataReleased = false;
+  let filteredMetadataExpected = false;
+  let filteredMetadataIntercepted = false;
+  let filteredMetadataRequestSeen!: () => void;
+  const filteredMetadataRequest = new Promise<void>((resolve) => { filteredMetadataRequestSeen = resolve; });
+  let finishFilteredMetadata!: () => void;
+  const filteredMetadataFinished = new Promise<void>((resolve) => { finishFilteredMetadata = resolve; });
+  let filteredMetadataStatus = 0;
+  const filteredMetadataRoute = `**/api/v1/projects/${project.id}/columns?**`;
+  await page.route(filteredMetadataRoute, async (route) => {
+    if (route.request().method() !== 'GET' || !filteredMetadataExpected || filteredMetadataIntercepted) {
+      await route.continue();
+      return;
+    }
+    filteredMetadataIntercepted = true;
+    try {
+      const response = await route.fetch();
+      filteredMetadataStatus = response.status();
+      filteredMetadataRequestSeen();
+      await filteredMetadataGate;
+      await route.fulfill({ response });
+    } finally {
+      finishFilteredMetadata();
+    }
+  });
+
+  const releaseFilteredMetadata = () => {
+    if (filteredMetadataReleased) return;
+    filteredMetadataReleased = true;
+    releaseFilteredMetadataGate();
+  };
+
+  let selectDisabledDuringMetadata = false;
+  try {
+    // Hold the real columns response for the first filter transition. The
+    // prior task page remains rendered until metadata is accepted, so this
+    // checks that selection is unavailable throughout the transition.
+    filteredMetadataExpected = true;
+    await search.fill(first.title);
+    await filteredMetadataRequest;
+    await expect(firstCard).toBeVisible();
+    await expect(secondCard).toHaveCount(0);
+    await expect(selectLoaded).toBeDisabled();
+    selectDisabledDuringMetadata = true;
+
+    releaseFilteredMetadata();
+    await filteredMetadataFinished;
+    filteredMetadataExpected = false;
+    expect(filteredMetadataStatus).toBe(200);
+    await expect(firstCard).toBeVisible();
+    await expect(secondCard).toHaveCount(0);
+    await expect(selectLoaded).toBeEnabled();
+    await selectLoaded.click();
+  } finally {
+    releaseFilteredMetadata();
+    if (filteredMetadataIntercepted) await filteredMetadataFinished;
+    await page.unroute(filteredMetadataRoute);
+  }
   await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
 
+  const unfilteredTasksResponse = page.waitForResponse(
+    (response) => {
+      const responseURL = new URL(response.url());
+      return response.request().method() === 'GET'
+        && responseURL.pathname === `/api/v1/projects/${project.id}/tasks`
+        && responseURL.searchParams.get('column') === ready!.id
+        && !responseURL.searchParams.get('q');
+    },
+    { timeout: 30_000 }
+  );
   await search.fill('');
+  await unfilteredTasksResponse;
   await expect(firstCard).toBeVisible();
   await expect(secondCard).toBeVisible();
   await secondCard.getByRole('checkbox', { name: `Select ${second.key}` }).check();
@@ -265,6 +367,10 @@ test('reviews every selected task while a filtered board page is reloading', asy
     await testInfo.attach('bulk-selection-filtered-task-responses.json', {
       body: JSON.stringify({
         scenario: 'filtered board replacement while two tasks remain selected',
+        metadata_gate: {
+          response_status: filteredMetadataStatus,
+          select_disabled_during_transition: selectDisabledDuringMetadata
+        },
         responses: capturedTaskResponses,
         review_keys: [first.key, second.key]
       }, null, 2),
