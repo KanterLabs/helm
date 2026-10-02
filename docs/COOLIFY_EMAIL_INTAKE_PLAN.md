@@ -48,11 +48,18 @@ Beta reads these from the `beta` environment secret
 assignee is the beta admin. The failure contract and its E2E proof live in
 `docs/E2E_TESTING.md` and `web/e2e/coolify-intake.spec.ts`.
 
-Still open for real Coolify delivery (INFRA-172): the Coolify host must be
-able to reach Helm, either through an edge route that bypasses Tailnet forward
-auth for `/api/v1/intake/coolify/*` only or through a private address
-allowlisted in Coolify's webhook settings. Coolify blocks private targets by
-default.
+Real Coolify delivery to beta is live (transaction
+`helm-coolify-intake-20261002`, 2026-10-02). The Coolify container on VM123
+posts to a dedicated homelab-edge listener, `http://10.0.10.2:19610`, which
+exists on VLAN 10 only and admits only VM123. The edge forwards only `POST
+/api/v1/intake/coolify/*` to the beta origin without Tailnet forward auth.
+Coolify allowlists `10.0.10.2` as an internal webhook target and sends only
+`traefik_version_outdated`. The infrastructure registry
+(`registry/networks.yaml` listener
+`homelab-helm-beta-coolify-intake-19610`) and
+`homelab/coolify/helm-beta-intake/README.md` record the path, rollback and
+secret rotation. Production still needs its own target project and listener
+decision.
 
 ## Outcome and scope
 
