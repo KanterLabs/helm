@@ -533,6 +533,7 @@
   let filters: BoardFilters = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all', dependency: 'all' };
   let boardWorkFilter: WorkFilter = 'all';
   let selectedTaskIds = new Set<string>();
+  const selectedTaskSnapshots = new Map<string, Task>();
   let expandedBoardTaskIds = new Set<string>();
   let bulkReviewTasks: Task[] = [];
   let showBulkModal = false;
@@ -908,7 +909,7 @@
   $: visibleTasks = filterTasks(tasks, columns, filters)
     .filter((task) => taskMatchesReleaseFilter(task, boardReleaseFilter))
     .filter((task) => matchesWorkFilter(task, boardWorkFilter, pulseClock));
-  $: selectedTasks = tasks.filter((task) => selectedTaskIds.has(task.id));
+  $: selectedTasks = retainSelectedTaskSnapshots(selectedTaskIds, tasks);
   $: allVisibleTasksSelected = visibleTasks.length > 0 && visibleTasks.every((task) => selectedTaskIds.has(task.id));
   $: boardWorkCounts = agentWorkStatusCounts(tasks, pulseClock, (task) => semanticStateForTask(task));
   $: visibleIssues = filterTasks(
@@ -5342,6 +5343,22 @@
     boardReleaseFilter = 'all';
     syncBoardReleaseURL();
     scheduleBoardReload();
+  }
+
+  function retainSelectedTaskSnapshots(ids: ReadonlySet<string>, loadedTasks: readonly Task[]): Task[] {
+    // Filters and page reloads can remove a selected task from the rendered
+    // board. Keep its last loaded version until deselection, and refresh it
+    // whenever it is loaded again. The existing 100-task selection limit
+    // bounds this cache; project/session resets clear it through the ID set.
+    for (const id of selectedTaskSnapshots.keys()) {
+      if (!ids.has(id)) selectedTaskSnapshots.delete(id);
+    }
+    for (const task of loadedTasks) {
+      if (ids.has(task.id)) selectedTaskSnapshots.set(task.id, task);
+    }
+    return [...ids]
+      .map((id) => selectedTaskSnapshots.get(id))
+      .filter((task): task is Task => Boolean(task));
   }
 
   function toggleTaskSelection(task: Task) {

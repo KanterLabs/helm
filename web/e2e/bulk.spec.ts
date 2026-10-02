@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse, type TestInfo } from '@playwright/test';
 
 type Project = { id: string; key: string; slug: string };
 type Column = { id: string; semantic_state: string };
@@ -157,5 +157,133 @@ test('ignores a delayed bulk response after closing and reopening review', async
   } finally {
     if (!bulkReleased) releaseBulk();
     await page.unroute(bulkRoute);
+  }
+});
+
+test('reviews every selected task while a filtered board page is reloading', async ({ page, request }, testInfo: TestInfo) => {
+  test.setTimeout(90_000);
+  const runID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
+  const project = await json<Project>(await request.post('/api/v1/projects', {
+    data: { key: `BLK${runID}`.slice(0, 16), name: `Bulk filtered reload E2E ${runID}` },
+    headers: mutationHeaders()
+  }), 'create filtered reload bulk project');
+  const columns = await json<Column[] | { data: Column[] }>(await request.get(`/api/v1/projects/${project.id}/columns?limit=20`), 'list filtered reload bulk columns');
+  const columnList = Array.isArray(columns) ? columns : columns.data;
+  const ready = columnList.find((column) => column.semantic_state === 'ready');
+  expect(ready, 'the filtered reload bulk fixture should have a Ready column').toBeTruthy();
+  const first = await createTask(request, project, ready!.id, `Filtered first ${runID}`);
+  const second = await createTask(request, project, ready!.id, `Filtered second ${runID}`);
+
+  await page.goto(`/p/${project.slug}`);
+  const board = page.locator('section.board');
+  await expect(board).toBeVisible();
+  const firstCard = board.locator('.task-card').filter({ hasText: first.title });
+  const secondCard = board.locator('.task-card').filter({ hasText: second.title });
+  await expect(firstCard).toBeVisible();
+  await expect(secondCard).toBeVisible();
+
+  const search = page.getByRole('textbox', { name: 'Search tasks' });
+  await search.fill(first.title);
+  await expect(firstCard).toBeVisible();
+  await expect(secondCard).toHaveCount(0);
+  await page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true }).click();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+
+  await search.fill('');
+  await expect(firstCard).toBeVisible();
+  await expect(secondCard).toBeVisible();
+  await secondCard.getByRole('checkbox', { name: `Select ${second.key}` }).check();
+  await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+
+  let releaseFilteredBoardGate!: () => void;
+  const filteredBoardGate = new Promise<void>((resolve) => { releaseFilteredBoardGate = resolve; });
+  let filteredBoardReleased = false;
+  let filteredBoardRequestSeen!: () => void;
+  const filteredBoardRequest = new Promise<void>((resolve) => { filteredBoardRequestSeen = resolve; });
+  let filteredBoardResponseCount = 0;
+  const filteredBoardResponses: Promise<void>[] = [];
+  const capturedTaskResponses: Array<{
+    query: string;
+    status: number;
+    taskKeys: string[];
+    versions: number[];
+  }> = [];
+  const boardTaskRoute = `**/api/v1/projects/${project.id}/tasks**`;
+
+  await page.route(boardTaskRoute, async (route) => {
+    const requestURL = new URL(route.request().url());
+    if (route.request().method() !== 'GET' || requestURL.searchParams.get('q') !== first.title) {
+      await route.continue();
+      return;
+    }
+    const heldResponse = (async () => {
+      const response = await route.fetch();
+      const payload = await response.json() as { data?: Array<Pick<Task, 'key' | 'version'>> };
+      capturedTaskResponses.push({
+        query: requestURL.searchParams.get('q') || '',
+        status: response.status(),
+        taskKeys: (payload.data || []).map((task) => task.key),
+        versions: (payload.data || []).map((task) => task.version)
+      });
+      filteredBoardResponseCount += 1;
+      if (filteredBoardResponseCount === 1) filteredBoardRequestSeen();
+      await filteredBoardGate;
+      await route.fulfill({ response, json: payload });
+    })();
+    filteredBoardResponses.push(heldResponse);
+    await heldResponse;
+  });
+
+  const releaseFilteredBoard = () => {
+    if (filteredBoardReleased) return;
+    filteredBoardReleased = true;
+    releaseFilteredBoardGate();
+  };
+
+  try {
+    // Reapplying the first title filter starts a real board reload. Its task
+    // responses are fetched from Helm, then held after the UI has discarded
+    // the replacement page's predecessor.
+    await search.fill(first.title);
+    await filteredBoardRequest;
+    await expect(board.locator('.task-card')).toHaveCount(0);
+    await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Review bulk changes', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Review bulk changes' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(first.key, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(second.key, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Apply changes to 2 tasks', exact: true })).toBeVisible();
+
+    releaseFilteredBoard();
+    await Promise.all(filteredBoardResponses);
+    await expect(firstCard).toBeVisible();
+    await expect(secondCard).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Apply changes to 2 tasks', exact: true })).toBeVisible();
+
+    await testInfo.attach('bulk-selection-filtered-task-responses.json', {
+      body: JSON.stringify({
+        scenario: 'filtered board replacement while two tasks remain selected',
+        responses: capturedTaskResponses,
+        review_keys: [first.key, second.key]
+      }, null, 2),
+      contentType: 'application/json'
+    });
+    await testInfo.attach('bulk-selection-filtered-review.png', {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png'
+    });
+
+    await dialog.getByLabel('Bulk change', { exact: true }).selectOption('priority');
+    await dialog.getByLabel('Bulk priority', { exact: true }).selectOption('urgent');
+    await dialog.getByRole('button', { name: 'Apply changes to 2 tasks', exact: true }).click();
+    await expect(dialog.getByRole('heading', { name: 'Result summary', exact: true })).toBeVisible();
+    await expect(dialog.getByRole('status')).toContainText('2 applied · 0 conflicts · 0 skipped');
+    await expect(dialog.locator('.bulk-result-status.applied')).toHaveCount(2);
+  } finally {
+    releaseFilteredBoard();
+    await Promise.all(filteredBoardResponses);
+    await page.unroute(boardTaskRoute);
   }
 });
