@@ -64,6 +64,8 @@ type Config struct {
 	TailnetAllowedPeerIPs   []string
 	SecureCookies           bool
 	DemoSeed                bool
+	// CoolifyIntake enables the Coolify webhook alert route when configured.
+	CoolifyIntake CoolifyIntake
 }
 
 func FromEnv() (Config, error) {
@@ -387,6 +389,9 @@ func FromEnv() (Config, error) {
 			seenPeers[canonical] = struct{}{}
 			c.TailnetAllowedPeerIPs = append(c.TailnetAllowedPeerIPs, canonical)
 		}
+	}
+	if c.CoolifyIntake, err = coolifyIntakeFromEnv(); err != nil {
+		return Config{}, err
 	}
 	if c.BetaSwitchEnabled {
 		const betaOrigin = "https://beta-helm.home.shanekanterman.dev"

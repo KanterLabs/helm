@@ -328,6 +328,10 @@ func isProtectedAPIRequest(r *http.Request) bool {
 	if (r.URL.Path == "/api/v1" || r.URL.Path == "/api/v1/") && r.Method == http.MethodGet {
 		return false
 	}
+	// Webhook intake authenticates with its own path secret, never a session.
+	if isCoolifyIntakePath(splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1"))) {
+		return false
+	}
 	return !isPublicAuthRequest(r)
 }
 
@@ -522,6 +526,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 			response["revision"] = s.Cfg.ReleaseSHA
 		}
 		s.writeJSON(w, http.StatusOK, response)
+		return
+	}
+	if isCoolifyIntakePath(parts) {
+		s.coolifyIntake(w, r, parts[2])
 		return
 	}
 	// Auth endpoints status/setup/login are intentionally public. Logout can

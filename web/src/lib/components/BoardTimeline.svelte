@@ -170,6 +170,7 @@
       'task.claim_renewed': 'renewed the claim',
       'task.unblocked': 'unblocked the task',
       'bug.created': 'created the bug',
+      'alert.repeated': 'received a repeat alert',
       'bug.updated': 'updated the bug',
       'bug.triaged': 'triaged the bug',
       'bug.resolved': 'resolved the bug',

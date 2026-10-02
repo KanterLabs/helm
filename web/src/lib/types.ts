@@ -582,6 +582,21 @@ export interface Task {
   parent_id?: string | null;
   parent?: TaskHierarchyReference | null;
   hierarchy_summary?: HierarchySummary;
+  /** Read-only external alert evidence; omitted for ordinary tasks. */
+  alert_source?: AlertSource;
+}
+
+export interface AlertSource {
+  integration: string;
+  alert_type: string;
+  resource_name: string;
+  resource_id: string;
+  evidence: Record<string, string>;
+  occurrence_count: number;
+  first_received_at: string;
+  last_received_at: string;
+  previous_task_id?: string;
+  previous_task_key?: string;
 }
 
 export interface Comment {

@@ -96,13 +96,22 @@ fi
 [[ -x "$binary" ]] || { printf 'Helm E2E binary is not executable: %s\n' "$binary" >&2; exit 64; }
 [[ -x "$root/test/e2e/fake-codex" ]] || { printf 'Codex E2E fixture is not executable\n' >&2; exit 64; }
 
+# A disposable per-run Coolify intake secret. The file stays in $work_dir,
+# which is never copied into the evidence bundle.
+coolify_secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+coolify_secret_file="$work_dir/coolify-webhook-secret"
+(umask 077 && printf '%s\n' "$coolify_secret" > "$coolify_secret_file")
+
 start_server() {
   local port=$1
   local auth_mode=$2
   local name=$3
   server_log="$work_dir/$name-server.log"
   server_db="$work_dir/$name-roadmap.db"
-  HELM_ADDR="127.0.0.1:$port" \
+  HELM_COOLIFY_WEBHOOK_SECRET_FILE="$coolify_secret_file" \
+    HELM_COOLIFY_PROJECT=COOLIFYE2E \
+    HELM_COOLIFY_ASSIGNEE=actor-disabled-mode \
+    HELM_ADDR="127.0.0.1:$port" \
     HELM_DB="$server_db" \
     HELM_AUTH_MODE="$auth_mode" \
     HELM_PUBLIC_ORIGIN="http://127.0.0.1:$port" \
@@ -131,6 +140,8 @@ start_server 18080 disabled disabled
   HELM_E2E_BASE_URL=http://127.0.0.1:18080 \
     HELM_E2E_DB="$server_db" \
     HELM_E2E_ARTIFACT_DIR="$artifact_dir/disabled" \
+    HELM_E2E_COOLIFY_SECRET="$coolify_secret" \
+    HELM_E2E_COOLIFY_PROJECT=COOLIFYE2E \
     npm run e2e -- "$@"
 )
 stop_server
@@ -143,6 +154,11 @@ start_server 18081 local local
     npx playwright test e2e/onboarding.spec.ts
 )
 stop_server
+
+if grep -rlF "$coolify_secret" "$artifact_dir" "$work_dir"/*.log; then
+  printf 'Coolify intake secret leaked into logs or evidence\n' >&2
+  exit 1
+fi
 
 if rg -n 'WARNING: DATA RACE' "$work_dir"/*.log; then
   printf 'Go race detector reported a data race\n' >&2

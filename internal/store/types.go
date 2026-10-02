@@ -179,6 +179,9 @@ type Task struct {
 	// for task collections.
 	ReleaseID *string           `json:"release_id,omitempty"`
 	Release   *ReleaseReference `json:"release,omitempty"`
+	// AlertSource is read-only external alert evidence for tasks created by
+	// alert intake; omitted for all other tasks.
+	AlertSource *AlertSource `json:"alert_source,omitempty"`
 }
 
 // ReleaseReference is the compact release relation embedded on task reads.

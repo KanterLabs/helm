@@ -420,6 +420,7 @@ const roadmapActivityLabels: Record<RoadmapActivityKind, Record<string, string>>
   'task-changes': {
     'agent.created': 'created an agent',
     'actor.created': 'created an actor',
+    'alert.repeated': 'received a repeat alert',
     'bug.created': 'reported a bug',
     'bug.reopened': 'reopened the bug',
     'bug.resolved': 'resolved the bug',

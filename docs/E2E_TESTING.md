@@ -61,3 +61,25 @@ real Helm process:
 | The UI hides essential diagnostics | Expanding the run does not show model, effort, run ID, thread ID, and turn ID. |
 | The endpoint accepts an unsafe limit | `/api/v1/codex/runs?limit=101` does not return a structured `400`. |
 | Successful E2E evidence cannot be independently checked | The evidence bundle is missing or its `SHA256SUMS` verification fails. |
+
+## Coolify alert intake failure contract
+
+The Coolify webhook workflow must prove these failure cases through a real
+Helm process configured with a disposable intake secret file. Payloads are
+synthetic and use run-unique server identities so a Playwright retry against
+the same database starts from a fresh condition.
+
+| Failure | Observable proof |
+| --- | --- |
+| A wrong or missing secret can create work or reveal that intake exists | The request returns the same `404` as an unknown route and the project task count is unchanged. |
+| A Traefik notice creates work in the wrong place or for an agent | The task is `kind=task` in the configured project's Backlog column, assigned to the configured human, with no `claimed_by` and no `agent_work`. |
+| Concurrent deliveries of one notice create duplicate tasks | Parallel identical deliveries return one `created` and the rest `repeated`; exactly one task exists and its occurrence count equals the delivery count. |
+| A repeat overwrites human triage or notifies again | After a human edits title, priority and description, a repeat leaves those fields and the task version unchanged and adds no assignee notification. |
+| A repeat reopens or recreates completed work | After completion, an identical notice reports `retained`; the task stays completed and no new task appears. |
+| A new offered version is merged into old work | A different `latest_version` creates a second task whose alert source links the earlier task key. |
+| A multi-server notice partially commits | A payload with one valid and one invalid server returns `400` and creates no task; a fully valid two-server payload creates two tasks. |
+| Unsupported or test events create work | `test` reports `ignored` and `server_unreachable` reports `unsupported`, both with no task. |
+| Oversized or malformed bodies are processed | A body over the intake limit returns `413`; invalid JSON returns `400`; neither creates a task. |
+| Misconfigured routing silently drops alerts | A missing target project returns `503` with no task. |
+| The secret leaks into logs or responses | The retained server log and every intake response omit the secret. |
+| Evidence is invisible to the human | The task drawer shows the Alert source panel with server, installed and offered versions and repeat count, and Activity shows the repeat alert. |

@@ -81,6 +81,8 @@ tags:
     description: Agent identities and scoped API tokens
   - name: Administration
     description: Human-only administrative controls, including the private beta deployment switcher
+  - name: Alert intake
+    description: Operator-configured external alert webhooks that create assigned Backlog tasks
 paths:
   /api/v1/search:
     get:
@@ -2766,6 +2768,113 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/intake/coolify/{secret}:
+    post:
+      operationId: receiveCoolifyAlert
+      summary: Receive a Coolify webhook notification
+      description: |
+        Coolify webhook target. The path secret is the only credential because
+        Coolify webhooks carry no signature or custom headers; it is configured
+        through `HELM_COOLIFY_WEBHOOK_SECRET_FILE` and never logged. A disabled
+        intake and a wrong secret both return the generic `404`.
+
+        `traefik_version_outdated` records one condition per server, keyed by
+        server UUID and offered version, in a single transaction. A new
+        condition creates an assigned, unclaimed task in the configured
+        project's Backlog column and notifies the assignee once. A known
+        condition only increments its occurrence count: the task is never
+        edited, reopened or recreated (`repeated` when open, `retained` when
+        completed or deleted). `test` is `ignored`; other events are
+        `unsupported`. Both create no work. Any invalid server rejects the
+        whole delivery.
+      tags:
+        - Alert intake
+      security:
+        - {}
+      parameters:
+        - name: secret
+          in: path
+          required: true
+          description: Operator-provisioned intake secret.
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 256
+            pattern: '^[A-Za-z0-9_-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - event
+              properties:
+                event:
+                  type: string
+                  pattern: '^[a-z0-9_]{1,128}$'
+                servers:
+                  type: array
+                  minItems: 1
+                  maxItems: 25
+                  items:
+                    type: object
+                    required:
+                      - uuid
+                      - current_version
+                      - latest_version
+                    properties:
+                      name:
+                        type: string
+                      uuid:
+                        type: string
+                        pattern: '^[A-Za-z0-9_-]{1,64}$'
+                      current_version:
+                        type: string
+                        pattern: '^[A-Za-z0-9._+-]{1,32}$'
+                      latest_version:
+                        type: string
+                        pattern: '^[A-Za-z0-9._+-]{1,32}$'
+                      update_type:
+                        type: string
+                      upgrade_target:
+                        type: string
+                      newer_branch_target:
+                        type: string
+                      newer_branch_latest:
+                        type: string
+              additionalProperties: true
+            example:
+              success: false
+              message: Traefik proxy outdated
+              event: traefik_version_outdated
+              affected_servers_count: 1
+              servers:
+                - name: localhost
+                  uuid: k8s0c4w
+                  current_version: v3.1.2
+                  latest_version: v3.1.5
+                  update_type: patch_update
+      responses:
+        '200':
+          description: Delivery recorded, ignored, or unsupported
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertIntakeResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/issues/metrics:
     get:
       operationId: getIssueMetrics
@@ -7595,6 +7704,85 @@ components:
               completions: {type: integer, minimum: 0}
               last_event_at: {type: [string, 'null'], format: date-time}
               token_last_used_at: {type: [string, 'null'], format: date-time}
+    AlertIntakeResult:
+      type: object
+      required:
+        - event
+        - disposition
+        - alerts
+      properties:
+        event:
+          type: string
+        disposition:
+          type: string
+          enum: [recorded, ignored, unsupported]
+        alerts:
+          type: array
+          maxItems: 25
+          items:
+            type: object
+            required:
+              - disposition
+              - resource_name
+              - occurrence_count
+            properties:
+              disposition:
+                type: string
+                enum: [created, repeated, retained]
+              resource_name:
+                type: string
+                maxLength: 200
+              task_id:
+                $ref: '#/components/schemas/Identifier'
+              task_key:
+                type: string
+              occurrence_count:
+                type: integer
+                minimum: 1
+            additionalProperties: false
+      additionalProperties: false
+    AlertSource:
+      type: object
+      description: Read-only evidence for a task created by alert intake.
+      required:
+        - integration
+        - alert_type
+        - resource_name
+        - resource_id
+        - evidence
+        - occurrence_count
+        - first_received_at
+        - last_received_at
+      properties:
+        integration:
+          type: string
+          example: coolify
+        alert_type:
+          type: string
+          example: traefik_version_outdated
+        resource_name:
+          type: string
+          maxLength: 200
+        resource_id:
+          type: string
+          maxLength: 128
+        evidence:
+          type: object
+          description: Parsed alert facts such as installed and offered versions.
+          additionalProperties:
+            type: string
+        occurrence_count:
+          type: integer
+          minimum: 1
+        first_received_at:
+          $ref: '#/components/schemas/Timestamp'
+        last_received_at:
+          $ref: '#/components/schemas/Timestamp'
+        previous_task_id:
+          $ref: '#/components/schemas/Identifier'
+        previous_task_key:
+          type: string
+      additionalProperties: false
     IssueMetrics:
       type: object
       required:
@@ -10023,6 +10211,9 @@ components:
             - $ref: '#/components/schemas/ReleaseReference'
             - type: 'null'
           description: Compact target-release reference; omitted when the task is unassigned.
+        alert_source:
+          $ref: '#/components/schemas/AlertSource'
+          description: External alert evidence; omitted for tasks not created by alert intake.
       additionalProperties: false
 
     AgentWork:

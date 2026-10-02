@@ -60,7 +60,7 @@ var metricRouteTemplates = map[string]struct{}{
 	"/api/v1/export": {}, "/api/v1/import": {}, "/api/v1/import/trello": {},
 	"/api/v1/auth/status": {}, "/api/v1/auth/setup": {}, "/api/v1/auth/login": {}, "/api/v1/auth/logout": {}, "/api/v1/auth/me": {},
 	"/api/v1/codex/account": {}, "/api/v1/codex/login": {}, "/api/v1/codex/login/cancel": {}, "/api/v1/codex/logout": {},
-	"/api/v1/project-intelligence": {}, "/api/v1/project-intelligence/analyze": {},
+	"/api/v1/project-intelligence": {}, "/api/v1/project-intelligence/analyze": {}, "/api/v1/intake/coolify/:secret": {},
 	"/api/v1/projects": {}, "/api/v1/projects/:project": {},
 	"/api/v1/projects/:project/export": {}, "/api/v1/projects/:project/import": {}, "/api/v1/projects/:project/boards": {},
 	"/api/v1/projects/:project/columns": {}, "/api/v1/projects/:project/tasks": {}, "/api/v1/projects/:project/task-context": {},
@@ -84,6 +84,7 @@ var metricRouteTemplates = map[string]struct{}{
 
 var metricDynamicSegments = map[string]string{
 	"projects":       ":project",
+	"coolify":        ":secret",
 	"tasks":          ":task",
 	"columns":        ":column",
 	"labels":         ":label",

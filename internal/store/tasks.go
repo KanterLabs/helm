@@ -523,6 +523,9 @@ func (s *Store) enrichTaskAt(ctx context.Context, task *Task, at time.Time) erro
 		return err
 	}
 	task.AgentWork = work
+	if err := s.populateAlertSource(ctx, task); err != nil {
+		return err
+	}
 	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM comments WHERE task_id=? AND deleted_at IS NULL`, task.ID).Scan(&task.CommentCount); err != nil {
 		return err
 	}
