@@ -112,6 +112,10 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   await expect(page.locator('.task-card')).toHaveCount(boardPageSize);
   await expect(page.getByRole('button', { name: 'Retry columns', exact: true })).toHaveCount(0);
   await expect.poll(() => eventResponses, { timeout: 15_000 }).toBeGreaterThan(0);
+  // A response header is observable before pollEvents has finished consuming
+  // its body and released the in-flight slot. Wait for that whole first poll
+  // before advancing the virtual liveness interval.
+  await page.waitForLoadState('networkidle');
 
   // Background liveness reads must not replace the visible board with the
   // full-load skeleton while their task pages are still in flight.
@@ -125,7 +129,7 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   };
   const taskRoute = `**/api/v1/projects/${project.id}/tasks?**`;
   await page.route(taskRoute, holdBackgroundTaskReads);
-  await page.clock.fastForward(60_100);
+  await page.clock.runFor(60_100);
   await expect.poll(() => backgroundTaskRequests, { timeout: 15_000 }).toBeGreaterThan(0);
   await expect(board).toBeVisible();
   await expect(readyColumn.locator('.task-card')).toHaveCount(boardPageSize);
@@ -232,14 +236,6 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
   const removedTask = fixtureTasks[0];
   const removedCard = readyColumn.getByText(removedTask.key, { exact: true });
   await expect(removedCard).toBeVisible();
-  const deleteResponse = await request.delete(`/api/v1/tasks/${removedTask.id}`, {
-    headers: {
-      ...mutationHeaders(`board-pagination-${runID}-delete`),
-      'If-Match': `"v${removedTask.version}"`
-    }
-  });
-  expect(deleteResponse.ok(), `DELETE ${removedTask.key} returned HTTP ${deleteResponse.status()}`).toBeTruthy();
-
   let releaseDeleteRefresh = () => {};
   const deleteRefreshGate = new Promise<void>((resolve) => { releaseDeleteRefresh = resolve; });
   let deleteRefreshRequests = 0;
@@ -248,8 +244,18 @@ test('keeps large board pages bounded, filterable, and reconciled live', async (
     await deleteRefreshGate;
     await route.continue();
   };
+  // Install the gate before the external write: a slower server may deliver
+  // the delete event while the DELETE response is still being consumed.
+  await page.waitForLoadState('networkidle');
   await page.route(taskRoute, holdDeleteRefresh);
-  await page.clock.fastForward(15_100);
+  const deleteResponse = await request.delete(`/api/v1/tasks/${removedTask.id}`, {
+    headers: {
+      ...mutationHeaders(`board-pagination-${runID}-delete`),
+      'If-Match': `"v${removedTask.version}"`
+    }
+  });
+  expect(deleteResponse.ok(), `DELETE ${removedTask.key} returned HTTP ${deleteResponse.status()}`).toBeTruthy();
+  await page.clock.runFor(15_100);
   await expect.poll(() => deleteRefreshRequests, { timeout: 15_000 }).toBeGreaterThan(0);
   await expect(removedCard).toBeVisible();
   await expect(page.locator('.board-loading')).toHaveCount(0);

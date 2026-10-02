@@ -533,6 +533,7 @@
   let filters: BoardFilters = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all', dependency: 'all' };
   let boardWorkFilter: WorkFilter = 'all';
   let selectedTaskIds = new Set<string>();
+  const selectedTaskSnapshots = new Map<string, Task>();
   let expandedBoardTaskIds = new Set<string>();
   let bulkReviewTasks: Task[] = [];
   let showBulkModal = false;
@@ -908,7 +909,7 @@
   $: visibleTasks = filterTasks(tasks, columns, filters)
     .filter((task) => taskMatchesReleaseFilter(task, boardReleaseFilter))
     .filter((task) => matchesWorkFilter(task, boardWorkFilter, pulseClock));
-  $: selectedTasks = tasks.filter((task) => selectedTaskIds.has(task.id));
+  $: selectedTasks = retainSelectedTaskSnapshots(selectedTaskIds, tasks);
   $: allVisibleTasksSelected = visibleTasks.length > 0 && visibleTasks.every((task) => selectedTaskIds.has(task.id));
   $: boardWorkCounts = agentWorkStatusCounts(tasks, pulseClock, (task) => semanticStateForTask(task));
   $: visibleIssues = filterTasks(
@@ -5344,6 +5345,22 @@
     scheduleBoardReload();
   }
 
+  function retainSelectedTaskSnapshots(ids: ReadonlySet<string>, loadedTasks: readonly Task[]): Task[] {
+    // Filters and page reloads can remove a selected task from the rendered
+    // board. Keep its last loaded version until deselection, and refresh it
+    // whenever it is loaded again. The existing 100-task selection limit
+    // bounds this cache; project/session resets clear it through the ID set.
+    for (const id of selectedTaskSnapshots.keys()) {
+      if (!ids.has(id)) selectedTaskSnapshots.delete(id);
+    }
+    for (const task of loadedTasks) {
+      if (ids.has(task.id)) selectedTaskSnapshots.set(task.id, task);
+    }
+    return [...ids]
+      .map((id) => selectedTaskSnapshots.get(id))
+      .filter((task): task is Task => Boolean(task));
+  }
+
   function toggleTaskSelection(task: Task) {
     const next = new Set(selectedTaskIds);
     if (next.has(task.id)) {
@@ -5358,7 +5375,7 @@
   }
 
   function selectVisibleTasks() {
-    if (!visibleTasks.length) return;
+    if (boardCriteriaTransition || boardLoading || !visibleTasks.length) return;
     const next = new Set(selectedTaskIds);
     const available = Math.max(0, 100 - next.size);
     const unselected = visibleTasks.filter((task) => !next.has(task.id));
@@ -6659,6 +6676,7 @@
   }
 
   async function saveTask(silent = false): Promise<boolean> {
+    if (drawerSaving) return false;
     if (!drawerTask || !draftTitle.trim()) {
       drawerError = 'A task needs a title.';
       return false;
@@ -6667,50 +6685,73 @@
       drawerError = 'A bug report needs actual behavior.';
       return false;
     }
+    const task = drawerTask;
+    const requestedSession = sessionGeneration;
+    const requestedDrawer = taskDetailRequest;
+    const submittedFingerprint = drawerTaskDraftFingerprint();
+    const sessionIsCurrent = () => Boolean(user && sessionGeneration === requestedSession);
+    const drawerIsCurrent = () => sessionIsCurrent()
+      && taskDetailRequest === requestedDrawer
+      && drawerTask?.id === task.id;
+    // Capture the entire submission before label creation yields. Navigation
+    // and further typing must never change the task or fields being saved.
+    const labelNames = draftLabels.split(',').map((value) => value.trim()).filter(Boolean);
+    const patch = {
+      title: draftTitle.trim(),
+      description: draftDescription,
+      priority: draftPriority,
+      due_at: dateToIso(draftDueDate),
+      assignee: draftAssignee.trim() || null,
+      release_id: draftReleaseId || null,
+      ...(task.kind === 'bug'
+        ? {
+            bug: {
+              actual_behavior: draftBugActual.trim(),
+              expected_behavior: draftBugExpected.trim(),
+              reproduction_steps: draftBugReproduction.trim(),
+              environment: draftBugEnvironment.trim(),
+              affected_version: draftBugVersion.trim()
+            }
+          }
+        : {})
+    };
     drawerSaving = true;
     drawerError = '';
     try {
-      const labelNames = draftLabels.split(',').map((value) => value.trim()).filter(Boolean);
-      const labelIds = await resolveTaskLabels(drawerTask.project_id, labelNames);
+      const labelIds = await resolveTaskLabels(task.project_id, labelNames);
+      if (!sessionIsCurrent()) return false;
       const updated = await api.patchTask(
-        drawerTask.id,
-        {
-          title: draftTitle.trim(),
-          description: draftDescription,
-          priority: draftPriority,
-          due_at: dateToIso(draftDueDate),
-          assignee: draftAssignee.trim() || null,
-          release_id: draftReleaseId || null,
-          labels: labelIds,
-          label_ids: labelIds,
-          ...(drawerTask.kind === 'bug'
-            ? {
-                bug: {
-                  actual_behavior: draftBugActual.trim(),
-                  expected_behavior: draftBugExpected.trim(),
-                  reproduction_steps: draftBugReproduction.trim(),
-                  environment: draftBugEnvironment.trim(),
-                  affected_version: draftBugVersion.trim()
-                }
-              }
-            : {})
-        },
-        drawerTask.version
+        task.id,
+        { ...patch, labels: labelIds, label_ids: labelIds },
+        task.version
       );
+      if (!sessionIsCurrent()) return false;
       replaceTask(updated, true);
-      // Keep action-only drafts (triage severity, resolution note, block
-      // reason, and comments) intact. They are not part of the PATCH body and
-      // must remain dirty until their own action commits them.
-      syncDraft(updated, false);
-      drawerSavedTaskDraftFingerprint = drawerTaskDraftFingerprint();
+      if (drawerIsCurrent() && drawerTask) {
+        // Normalize only the submitted draft. Newer edits and drafts in a
+        // reopened drawer belong to their own save; action drafts are separate.
+        if (drawerTaskDraftFingerprint() === submittedFingerprint) {
+          syncTaskDraft(drawerTask);
+          drawerSavedTaskDraftFingerprint = drawerTaskDraftFingerprint();
+        } else {
+          drawerSavedTaskDraftFingerprint = submittedFingerprint;
+        }
+      }
       if (!silent) toast('success', `${updated.key} saved.`);
-      return true;
+      // An immediate action may proceed only for the drawer whose complete
+      // draft was saved, never for a task opened while this request waited.
+      return drawerIsCurrent() && drawerTaskDraftFingerprint() === drawerSavedTaskDraftFingerprint;
     } catch (error) {
-      drawerError = friendlyError(error, 'The task changed elsewhere. Refresh and try again.');
+      if (!sessionIsCurrent()) return false;
       if (error instanceof ApiError && error.details.current) {
-        const current = error.details.current as Task;
-        replaceTask(current);
-        drawerError = 'This task changed in another session. Your draft was not overwritten.';
+        replaceTask(error.details.current as Task);
+      }
+      if (drawerIsCurrent()) {
+        drawerError = error instanceof ApiError && error.details.current
+          ? 'This task changed in another session. Your draft was not overwritten.'
+          : friendlyError(error, 'The task changed elsewhere. Refresh and try again.');
+      } else if (!silent) {
+        toast('error', `${task.key}: ${friendlyError(error, 'The task could not be saved.')}`);
       }
       return false;
     } finally {
@@ -7574,7 +7615,7 @@
               <div class="filter-search"><span aria-hidden="true">⌕</span><input bind:this={boardSearchInput} aria-label="Search tasks" bind:value={filters.query} on:input={scheduleBoardReload} placeholder="Search tasks…" /><kbd>/</kbd></div>
               <div class="filter-group"><select aria-label="Filter by state" bind:value={filters.state} on:change={scheduleBoardReload}><option value="all">All states</option>{#each sortedColumns as column}<option value={column.semantic_state}>{stateLabels[column.semantic_state] || column.name}</option>{/each}</select><select aria-label="Filter by priority" bind:value={filters.priority} on:change={scheduleBoardReload}><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select><select aria-label="Filter by focus" bind:value={boardReleaseFilter} on:change={() => { syncBoardReleaseURL(); scheduleBoardReload(); }}><option value="all">All focus areas</option>{#each activeProjectReleases as release}<option value={release.id}>{release.name}{release.status === 'released' ? ' · Completed' : ''}</option>{/each}<option value="unassigned">No focus</option></select><select aria-label="Filter by agent work" bind:value={boardWorkFilter} on:change={scheduleBoardReload}><option value="all">All agent work</option><option value="action-needed">Action needed{boardWorkCounts.actionNeeded ? ` · ${boardWorkCounts.actionNeeded}` : ''}</option><option value="missing">Missing{boardWorkCounts.missing ? ` · ${boardWorkCounts.missing}` : ''}</option><option value="stale">Stale{boardWorkCounts.stale ? ` · ${boardWorkCounts.stale}` : ''}</option><option value="waiting">Waiting{boardWorkCounts.waiting ? ` · ${boardWorkCounts.waiting}` : ''}</option><option value="handoff">Handoff{boardWorkCounts.handoff ? ` · ${boardWorkCounts.handoff}` : ''}</option><option value="working">Working{boardWorkCounts.working ? ` · ${boardWorkCounts.working}` : ''}</option><option value="verifying">Verifying{boardWorkCounts.verifying ? ` · ${boardWorkCounts.verifying}` : ''}</option></select><select aria-label="Filter by dependency readiness" bind:value={filters.dependency} on:change={scheduleBoardReload}><option value="all">All dependencies</option><option value="blocked">Waiting on prerequisites</option><option value="ready">Prerequisites finished</option></select><select aria-label="Filter by label" bind:value={filters.label} on:change={scheduleBoardReload}><option value="all">All labels</option>{#each labels as label}<option value={label.id}>{label.name}</option>{/each}</select><select aria-label="Filter by assignee" bind:value={filters.assignee} on:change={scheduleBoardReload}><option value="all">All assignees</option>{#each Array.from(new Map(tasks.map((task) => [actorId(task.assignee), task.assignee])).entries()).filter(([id]) => id) as pair}<option value={pair[0]}>{actorName(pair[1]) || pair[0]}</option>{/each}</select><select aria-label="Sort tasks" bind:value={boardSort} on:change={scheduleBoardReload}><option value="position">Board order</option><option value="number">Task number</option><option value="priority">Priority</option><option value="title">Title</option><option value="created_at">Created</option><option value="updated_at">Updated</option></select><select aria-label="Sort direction" bind:value={boardOrder} on:change={scheduleBoardReload}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div>
               {#if boardFiltersActive()}<button class="clear-filters" type="button" on:click={clearFilters}>Clear filters</button>{/if}
-              <div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={!visibleTasks.length || allVisibleTasksSelected}>Select loaded tasks</button>{#if selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div>
+              <div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={boardCriteriaTransition || boardLoading || !visibleTasks.length || allVisibleTasksSelected}>Select loaded tasks</button>{#if selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div>
               <span class="toolbar-spacer"></span><span class="task-total">{visibleTasks.length}{boardPartial ? '+' : ''} {visibleTasks.length === 1 ? 'task' : 'tasks'}</span><button class="icon-button" type="button" aria-label="Refresh board" on:click={() => loadBoard()}>↻</button>
             </section>
 
