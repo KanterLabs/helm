@@ -19,6 +19,13 @@ const guidedPaths = /^\/api\/v1\/(hooks|ticket-webhooks|public-endpoints|email-i
 const operationName = /^(get|post|create|list|rotate|disable|set|send|test|start|finish|connect|disconnect|receive)[A-Z]\w+$/;
 const problems = [];
 
+// The production image's frontend stage copies only web/ and the OpenAPI
+// files; the docs are checked by CI and `make lint` on the full checkout.
+if (!existsSync(join(root, 'docs')) || !existsSync(join(root, 'internal/config'))) {
+  console.log('Documentation check skipped: repository docs are not present (frontend-only build).');
+  process.exit(0);
+}
+
 function trackedMarkdown() {
   try {
     return execFileSync('git', ['ls-files', '--', 'docs/*.md', 'deploy/**/*.md', 'README.md'], { cwd: root, encoding: 'utf8' })
