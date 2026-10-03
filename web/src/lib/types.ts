@@ -599,6 +599,31 @@ export interface TicketMembership {
 
 export type TicketCounts = Record<TicketQueue, number>;
 
+export type TicketWebhookFormat = 'generic' | 'coolify';
+
+export interface TicketWebhook {
+  id: string;
+  name: string;
+  format: TicketWebhookFormat;
+  project_id: string;
+  project_key: string;
+  project_slug: string;
+  assignee_id?: string;
+  secret_hint: string;
+  created_at: string;
+  rotated_at?: string;
+  disabled_at?: string;
+  last_delivery_at?: string;
+  delivery_count: number;
+}
+
+/** Create/rotate response: the only time the secret and URL are returned. */
+export interface TicketWebhookSecret {
+  webhook: TicketWebhook;
+  secret: string;
+  url: string;
+}
+
 export interface TicketCollection {
   data: Task[];
   next_cursor: string;

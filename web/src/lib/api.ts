@@ -62,6 +62,9 @@ import {
   type TaskReorderInput,
   type TaskPatch,
   type TicketCollection,
+  type TicketWebhook,
+  type TicketWebhookFormat,
+  type TicketWebhookSecret,
   type TicketQueue,
   type TriageInput,
   type ResolveInput,
@@ -591,6 +594,14 @@ export const api = {
     }),
   listTickets: (params: { queue?: TicketQueue; project?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
     request<TicketCollection>(pathWithQuery('/tickets', params), { signal }),
+  listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string }>('/ticket-webhooks'),
+  /** No idempotency key: the response carries a one-time secret. */
+  createTicketWebhook: (input: { name: string; project: string; format: TicketWebhookFormat; assignee?: string }) =>
+    request<TicketWebhookSecret>('/ticket-webhooks', { method: 'POST', body: input }),
+  rotateTicketWebhook: (webhook: string) =>
+    request<TicketWebhookSecret>(`/ticket-webhooks/${encodeURIComponent(webhook)}/rotate`, { method: 'POST' }),
+  disableTicketWebhook: (webhook: string) =>
+    request<void>(`/ticket-webhooks/${encodeURIComponent(webhook)}`, { method: 'DELETE' }),
   getTask: (task: string) => request<Task>(`/tasks/${encodeURIComponent(task)}`),
   patchTask: (task: string, input: TaskPatch, version: number) =>
     request<Task>(`/tasks/${encodeURIComponent(task)}`, {

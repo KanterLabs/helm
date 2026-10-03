@@ -13,8 +13,11 @@
     update_type: 'Update type',
     upgrade_target: 'Upgrade target',
     newer_branch_target: 'Newer branch',
-    newer_branch_latest: 'Newer branch latest'
+    newer_branch_latest: 'Newer branch latest',
+    link: 'Link'
   };
+
+  $: isWebhook = source.integration.startsWith('webhook-');
 
   $: evidence = Object.entries(source.evidence || {}).sort(([a], [b]) => evidenceRank(a) - evidenceRank(b) || a.localeCompare(b));
 
@@ -37,11 +40,11 @@
 <section class="drawer-section alert-source-section" aria-labelledby="alert-source-heading">
   <div class="section-heading-inline">
     <h2 id="alert-source-heading">Alert source</h2>
-    <span class="optional">{integrationLabels[source.integration] || humanize(source.integration)} · read-only</span>
+    <span class="optional">{isWebhook ? 'Webhook' : integrationLabels[source.integration] || humanize(source.integration)} · read-only</span>
   </div>
   <dl class="alert-source-facts">
-    <div><dt>Alert</dt><dd>{alertLabels[source.alert_type] || humanize(source.alert_type)}</dd></div>
-    <div><dt>Server</dt><dd>{source.resource_name}</dd></div>
+    <div><dt>{isWebhook ? 'Source' : 'Alert'}</dt><dd>{alertLabels[source.alert_type] || (source.alert_type === 'webhook' ? 'Webhook' : source.alert_type)}</dd></div>
+    <div><dt>{isWebhook ? 'Webhook' : 'Server'}</dt><dd>{source.resource_name}</dd></div>
     {#each evidence as [key, value] (key)}
       <div><dt>{evidenceLabels[key] || humanize(key)}</dt><dd>{#if key === 'update_type'}{humanize(value)}{:else}<code>{value}</code>{/if}</dd></div>
     {/each}

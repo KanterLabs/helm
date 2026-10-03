@@ -139,6 +139,7 @@ start_server 18080 disabled disabled
   cd "$root/web"
   HELM_E2E_BASE_URL=http://127.0.0.1:18080 \
     HELM_E2E_DB="$server_db" \
+    HELM_E2E_SERVER_LOG="$server_log" \
     HELM_E2E_ARTIFACT_DIR="$artifact_dir/disabled" \
     HELM_E2E_COOLIFY_SECRET="$coolify_secret" \
     HELM_E2E_COOLIFY_PROJECT=COOLIFYE2E \

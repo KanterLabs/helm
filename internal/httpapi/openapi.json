@@ -4583,6 +4583,349 @@
         }
       }
     },
+    "/api/v1/hooks/tickets/{secret}": {
+      "post": {
+        "operationId": "postTicketWebhook",
+        "summary": "Open a ticket from an outside app",
+        "description": "The URL an outside app posts to. An administrator creates it in\nTickets → Connect apps; the secret in the path is the only credential,\nso any tool that can send an HTTP POST with JSON can open tickets.\nUnknown, disabled or rotated URLs return the generic `404`.\n\nFor `generic` webhooks the body is the small JSON object below.\nUnknown fields are rejected so typos surface immediately. Without\n`dedupe_key` every post opens a new ticket. With `dedupe_key`, posts\nwhile that ticket is open only increase its repeat count\n(`repeated`), and the first post after the ticket is completed opens a\nnew ticket linked to the previous one. Tickets land in the webhook's\nproject Backlog, assigned as configured, and appear in Tickets → Needs\ntriage. Webhooks created with format `coolify` accept Coolify\nnotification payloads instead and respond like\n`/api/v1/intake/coolify/{secret}`.\n\n```sh\ncurl -X POST \"$HELM_WEBHOOK_URL\" -H 'Content-Type: application/json' \\\n  -d '{\"title\":\"Disk almost full on db-1\",\"priority\":\"high\",\"dedupe_key\":\"db-1:disk\",\"fields\":{\"host\":\"db-1\",\"usage\":\"93%\"}}'\n```\n",
+        "tags": [
+          "Tickets"
+        ],
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "secret",
+            "in": "path",
+            "required": true,
+            "description": "Webhook secret from the create or rotate response.",
+            "schema": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericTicketRequest"
+              },
+              "example": {
+                "title": "Disk almost full on db-1",
+                "description": "`/var/lib/postgresql` is at 93%. Clean old WAL or grow the volume.",
+                "priority": "high",
+                "dedupe_key": "db-1:disk",
+                "source": "grafana",
+                "url": "https://grafana.example.com/d/disk",
+                "fields": {
+                  "host": "db-1",
+                  "usage": "93%"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The post matched an existing ticket by `dedupe_key` (`repeated`), or a Coolify-format payload was recorded.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TicketHookResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AlertIntakeResult"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new ticket was opened.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketHookResult"
+                },
+                "example": {
+                  "disposition": "created",
+                  "occurrence_count": 1,
+                  "ticket": {
+                    "id": "4699bc1b6e1eaaa761e05e69a018189a",
+                    "key": "OPS-61",
+                    "url": "https://helm.example.com/p/ops/tasks/OPS-61"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not valid. `error.details.field` names the field to fix and `error.details.allowed_fields` lists accepted fields; nothing was created.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "invalid_ticket",
+                    "message": "title is required",
+                    "details": {
+                      "field": "title",
+                      "allowed_fields": [
+                        "title",
+                        "description",
+                        "priority",
+                        "dedupe_key",
+                        "source",
+                        "url",
+                        "fields"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-webhooks": {
+      "get": {
+        "operationId": "listTicketWebhooks",
+        "summary": "List ticket webhooks",
+        "description": "Human administrators only. Secrets are never returned; `secret_hint` shows the last four characters.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhooks, enabled first",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "endpoint_base"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TicketWebhook"
+                      }
+                    },
+                    "endpoint_base": {
+                      "type": "string",
+                      "description": "Public URL prefix; append the secret to form a webhook URL."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createTicketWebhook",
+        "summary": "Create a ticket webhook",
+        "description": "Human administrators only. The response is the only time the secret\nand full URL are shown (`Cache-Control: no-store`); an\n`Idempotency-Key` header is rejected because the response holds a\nsecret.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketWebhookCreateRequest"
+              },
+              "example": {
+                "name": "Grafana alerts",
+                "project": "OPS",
+                "format": "generic",
+                "assignee": "me"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Webhook created; copy the URL now.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketWebhookSecret"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-webhooks/{webhook}": {
+      "parameters": [
+        {
+          "name": "webhook",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "disableTicketWebhook",
+        "summary": "Disable a ticket webhook",
+        "description": "Human administrators only. The URL stops working immediately; tickets it created are kept.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "204": {
+            "description": "Disabled"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-webhooks/{webhook}/rotate": {
+      "parameters": [
+        {
+          "name": "webhook",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "rotateTicketWebhook",
+        "summary": "Rotate a ticket webhook secret",
+        "description": "Human administrators only. Returns the new URL once; the previous URL stops working immediately.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "New secret and URL",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketWebhookSecret"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/v1/intake/coolify/{secret}": {
       "post": {
         "operationId": "receiveCoolifyAlert",
@@ -12366,6 +12709,233 @@
             }
           }
         }
+      },
+      "GenericTicketRequest": {
+        "type": "object",
+        "description": "Body for `generic` ticket webhooks. Only `title` is required.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Ticket title shown in the queue."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 20000,
+            "description": "Markdown details shown under \"What needs attention\"."
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "urgent"
+            ],
+            "default": "normal"
+          },
+          "dedupe_key": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Stable identity of the problem (for example `db-1:disk`). Repeats while the ticket is open only count; after completion the next post opens a new linked ticket."
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 60,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]*$",
+            "description": "Name of the sending app, shown as the alert type."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 1000,
+            "description": "Link back to the sending app, shown as evidence."
+          },
+          "fields": {
+            "type": "object",
+            "maxProperties": 20,
+            "description": "Up to 20 short facts shown as evidence. Values may be text (max 300 characters), numbers or booleans.",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketHookResult": {
+        "type": "object",
+        "required": [
+          "disposition",
+          "occurrence_count",
+          "ticket"
+        ],
+        "properties": {
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "created",
+              "repeated",
+              "retained"
+            ]
+          },
+          "occurrence_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Posts received for this ticket so far."
+          },
+          "ticket": {
+            "type": "object",
+            "required": [
+              "id",
+              "key",
+              "url"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "key": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string",
+                "description": "Link to the ticket in Helm."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketWebhook": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "format",
+          "project_id",
+          "project_key",
+          "project_slug",
+          "secret_hint",
+          "created_at",
+          "delivery_count"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "generic",
+              "coolify"
+            ]
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_key": {
+            "type": "string"
+          },
+          "project_slug": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "secret_hint": {
+            "type": "string",
+            "description": "Last four characters of the secret."
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "rotated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "disabled_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "last_delivery_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "delivery_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketWebhookCreateRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "project"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "project": {
+            "type": "string",
+            "description": "Project ID, key or slug that receives tickets."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "generic",
+              "coolify"
+            ],
+            "default": "generic"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Enabled human actor ID or email, `me` for the caller, or empty for unassigned tickets."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketWebhookSecret": {
+        "type": "object",
+        "required": [
+          "webhook",
+          "secret",
+          "url"
+        ],
+        "properties": {
+          "webhook": {
+            "$ref": "#/components/schemas/TicketWebhook"
+          },
+          "secret": {
+            "type": "string",
+            "description": "Shown only in this response."
+          },
+          "url": {
+            "type": "string",
+            "description": "Full URL to configure in the outside app. Shown only in this response."
+          }
+        },
+        "additionalProperties": false
       },
       "TicketMembership": {
         "type": "object",

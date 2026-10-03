@@ -5,6 +5,7 @@
   import { actorId } from '../state';
   import { ApiError, type Actor, type Column, type Comment, type Project, type Task, type TicketCounts, type TicketQueue, type TicketStatus } from '../types';
   import AlertSourcePanel from './AlertSourcePanel.svelte';
+  import TicketIntegrations from './TicketIntegrations.svelte';
 
   export let user: Actor;
   export let projects: Project[] = [];
@@ -61,6 +62,7 @@
   let waitOpen = false;
   let waitReason = '';
   let creating = false;
+  let connectOpen = false;
   let createProject = '';
   let createTitle = '';
   let createDescription = '';
@@ -403,8 +405,13 @@
       <h1 id="tickets-heading">Tickets</h1>
       <p>Alerts and requests that need a person. Status follows each ticket's board column; assignment never claims work for an agent.</p>
     </div>
-    <button class="button primary" type="button" on:click={() => { creating = !creating; createError = ''; }} aria-expanded={creating}>＋ New ticket</button>
+    <div class="tickets-heading-actions">
+      <button class="button quiet-button" type="button" aria-expanded={connectOpen} on:click={() => { connectOpen = !connectOpen; }}>⇄ Connect apps</button>
+      <button class="button primary" type="button" on:click={() => { creating = !creating; createError = ''; }} aria-expanded={creating}>＋ New ticket</button>
+    </div>
   </header>
+
+  {#if connectOpen}<TicketIntegrations {user} {projects} />{/if}
 
   {#if creating}
     <form class="ticket-create" aria-label="New ticket" on:submit|preventDefault={createTicket}>
@@ -536,6 +543,7 @@
   .tickets-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
   .tickets-heading h1 { margin: 0; font: 800 28px var(--font-display); letter-spacing: -.045em; }
   .tickets-heading p { max-width: 650px; margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .tickets-heading-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .breadcrumbs { display: flex; gap: 6px; color: var(--muted); font-size: 11px; }
   .ticket-create, .ticket-wait { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
   .ticket-create label, .ticket-wait label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }

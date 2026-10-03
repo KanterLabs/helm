@@ -102,3 +102,19 @@ retry against the same database starts clean.
 | A delayed response for ticket A renders into selected ticket B | Switching tickets while the first detail load is delayed leaves ticket B's header and notes visible. |
 | Keyboard users cannot work the queue | Arrow keys move through rows, Enter opens a ticket, `/` focuses search outside text inputs and does nothing while typing. |
 | Notes are lost or trigger hidden side effects | An internal note posts as an ordinary task comment and shows in the ticket immediately and after reload. |
+
+## Ticket webhooks failure contract
+
+The ticket webhook workflow must prove these failure cases through a real Helm
+process, database and browser. Screenshots mask every revealed webhook URL.
+
+| Failure | Observable proof |
+| --- | --- |
+| A non-admin or bearer token can create or read webhook secrets | Webhook management returns `403` to agent tokens; list responses never include a secret or full URL. |
+| The secret is shown more than once or stored in plaintext | The create and rotate responses (`Cache-Control: no-store`) are the only place the URL appears; later lists show only a hint, and the retained server log omits it. |
+| An outside app cannot work out the format | The Connect apps panel shows the real URL, a runnable curl example and a field table; a curl-shaped JSON post creates a ticket. |
+| Invalid payloads are opaque or partially applied | A missing `title` or a bad `priority` returns `400` naming the field and creates nothing. |
+| Repeats create duplicate tickets | Posts with the same `dedupe_key` while the ticket is open return `repeated` and bump the count; after completion the next post opens a new ticket linked to the previous one. |
+| Rotation or disabling leaves old URLs working | After rotate the old URL returns the generic `404` and the new one works; a disabled webhook returns `404`. |
+| A webhook routes outside its configured project | Tickets land in the webhook's project Backlog, assigned as configured, with `ticket.origin=alert` and readable evidence fields. |
+| A Coolify-format webhook diverges from the built-in Coolify intake | A webhook created with format `coolify` accepts a Coolify `traefik_version_outdated` payload and creates the same kind of ticket. |

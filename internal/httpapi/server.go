@@ -329,7 +329,7 @@ func isProtectedAPIRequest(r *http.Request) bool {
 		return false
 	}
 	// Webhook intake authenticates with its own path secret, never a session.
-	if isCoolifyIntakePath(splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1"))) {
+	if parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1")); isCoolifyIntakePath(parts) || isTicketHookPath(parts) {
 		return false
 	}
 	return !isPublicAuthRequest(r)
@@ -532,6 +532,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.coolifyIntake(w, r, parts[2])
 		return
 	}
+	if isTicketHookPath(parts) {
+		s.ticketHook(w, r, parts[2])
+		return
+	}
 	// Auth endpoints status/setup/login are intentionally public. Logout can
 	// also be called after a session has expired.
 	if len(parts) >= 2 && parts[0] == "auth" {
@@ -649,6 +653,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.myWork(w, r, identity)
 		case "tickets":
 			s.tickets(w, r, identity)
+		case "ticket-webhooks":
+			s.ticketWebhooks(w, r, identity)
 		case "sidebar-counts":
 			s.sidebarCounts(w, r, identity)
 		case "project-intelligence":
@@ -678,6 +684,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 	}
 	if len(parts) >= 3 && parts[0] == "admin" && parts[1] == "beta" {
 		s.betaSwitchRoute(w, r, identity, parts[2:])
+		return
+	}
+	if parts[0] == "ticket-webhooks" && (len(parts) == 2 || len(parts) == 3) {
+		s.ticketWebhook(w, r, identity, parts)
 		return
 	}
 	if parts[0] == "issues" && len(parts) == 2 && parts[1] == "metrics" {

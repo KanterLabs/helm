@@ -21,9 +21,14 @@ const maxIntakeAlertsPerDelivery = 25
 type AlertIntakeRoute struct {
 	Integration string
 	// ActorName labels the dedicated intake actor in Activity.
-	ActorName   string
-	ProjectRef  string
+	ActorName  string
+	ProjectRef string
+	// AssigneeRef is an enabled human's ID or email; empty leaves new
+	// tickets unassigned.
 	AssigneeRef string
+	// WebhookID, when set, receives delivery statistics in the same
+	// transaction.
+	WebhookID string
 }
 
 // IntakeAlert is one normalized condition parsed from an external delivery.
@@ -37,6 +42,10 @@ type IntakeAlert struct {
 	Description  string
 	Priority     string
 	Evidence     map[string]string
+	// ReopenAfterCompletion opens a new linked ticket when the family's
+	// latest ticket is completed or deleted, instead of only recording the
+	// repeat. ConditionKey is then ignored in favor of a fresh episode key.
+	ReopenAfterCompletion bool
 }
 
 // AlertDisposition is the recorded outcome for one alert in a delivery.
@@ -93,9 +102,13 @@ func (s *Store) IngestAlerts(ctx context.Context, route AlertIntakeRoute, alerts
 	if err != nil {
 		return nil, err
 	}
-	assignee, err := s.resolveIntakeAssignee(ctx, route.AssigneeRef)
-	if err != nil {
-		return nil, err
+	assigneeID := ""
+	if strings.TrimSpace(route.AssigneeRef) != "" {
+		assignee, err := s.resolveIntakeAssignee(ctx, route.AssigneeRef)
+		if err != nil {
+			return nil, err
+		}
+		assigneeID = assignee.ID
 	}
 	actorID := intakeActorID(route.Integration)
 	results := make([]AlertDisposition, 0, len(alerts))
@@ -107,11 +120,16 @@ func (s *Store) IngestAlerts(ctx context.Context, route AlertIntakeRoute, alerts
 			return err
 		}
 		for _, alert := range alerts {
-			result, err := ingestAlertTx(ctx, tx, route.Integration, actorID, project, column.ID, assignee.ID, alert, created)
+			result, err := ingestAlertTx(ctx, tx, route.Integration, actorID, project, column.ID, assigneeID, alert, created)
 			if err != nil {
 				return err
 			}
 			results = append(results, result)
+		}
+		if route.WebhookID != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE ticket_webhooks SET delivery_count = delivery_count + 1, last_delivery_at = ? WHERE id = ?`, created, route.WebhookID); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -142,6 +160,24 @@ func ingestAlertTx(ctx context.Context, tx *sql.Tx, integration, actorID string,
 	evidence, err := json.Marshal(alert.Evidence)
 	if err != nil {
 		return AlertDisposition{}, err
+	}
+	if alert.ReopenAfterCompletion {
+		var openID string
+		var openTask sql.NullString
+		err := tx.QueryRowContext(ctx, `SELECT c.id, c.task_id FROM alert_conditions c JOIN tasks t ON t.id = c.task_id
+			WHERE c.integration = ? AND c.family_key = ? AND t.deleted_at IS NULL AND t.completed_at IS NULL
+			ORDER BY c.first_received_at DESC, c.rowid DESC LIMIT 1`, integration, alert.FamilyKey).Scan(&openID, &openTask)
+		if err == nil {
+			var count int
+			if err := tx.QueryRowContext(ctx, `UPDATE alert_conditions SET occurrence_count = occurrence_count + 1, last_received_at = ? WHERE id = ? RETURNING occurrence_count`, received, openID).Scan(&count); err != nil {
+				return AlertDisposition{}, err
+			}
+			return recordRepeatAlertTx(ctx, tx, integration, actorID, openTask, AlertDisposition{ResourceName: alert.ResourceName, OccurrenceCount: count})
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return AlertDisposition{}, err
+		}
+		alert.ConditionKey = alert.FamilyKey + "#" + newID()
 	}
 	var conditionID string
 	var taskID sql.NullString
