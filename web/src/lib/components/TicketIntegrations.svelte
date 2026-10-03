@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../api';
-  import type { Actor, Project, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
+  import type { Actor, EmailSummary, Project, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
+  import EmailIntakeCard from './EmailIntakeCard.svelte';
   import PublicEndpointCard from './PublicEndpointCard.svelte';
 
   export let user: Actor;
@@ -28,6 +29,8 @@
   let assignMe = true;
   let saving = false;
   let revealed: TicketWebhookSecret | null = null;
+  let revealedEmail: { webhook: TicketWebhook; email_address: string } | null = null;
+  let email: EmailSummary | null = null;
   let copied = '';
   let busyId = '';
 
@@ -53,6 +56,7 @@
       const response = await api.listTicketWebhooks();
       hooks = response.data;
       endpointBase = response.endpoint_base;
+      email = response.email;
     } catch (cause) {
       error = message(cause, 'Webhooks could not be loaded.');
     } finally {
@@ -66,6 +70,7 @@
     error = '';
     try {
       revealed = await api.createTicketWebhook({ name: name.trim(), project, format, assignee: assignMe ? 'me' : '' });
+      revealedEmail = null;
       name = '';
       await load();
     } catch (cause) {
@@ -88,12 +93,32 @@
     }
   }
 
+  async function setEmail(hook: TicketWebhook) {
+    if (hook.email_tag_hint && !window.confirm(`Replace the email address of “${hook.name}”? The current address stops working immediately.`)) return;
+    busyId = hook.id;
+    error = '';
+    try {
+      revealedEmail = await api.setTicketWebhookEmail(hook.id);
+      revealed = null;
+      await load();
+    } catch (cause) {
+      error = message(cause, 'The email address could not be created.');
+    } finally {
+      busyId = '';
+    }
+  }
+
+  function emailHint(hook: TicketWebhook): string {
+    return email && hook.email_tag_hint ? `${email.local_part}+…${hook.email_tag_hint}@${email.domain}` : '';
+  }
+
   async function disable(hook: TicketWebhook) {
     if (!window.confirm(`Disable “${hook.name}”? Apps using it will get 404. Existing tickets stay.`)) return;
     busyId = hook.id;
     try {
       await api.disableTicketWebhook(hook.id);
       if (revealed?.webhook.id === hook.id) revealed = null;
+      if (revealedEmail?.webhook.id === hook.id) revealedEmail = null;
       await load();
     } catch (cause) {
       error = message(cause, 'The webhook could not be disabled.');
@@ -123,6 +148,7 @@
   {#if error}<div class="inline-alert error" role="alert"><span>!</span>{error}</div>{/if}
 
   {#if user.admin}<PublicEndpointCard onChanged={() => { void load(); onPublicAccessChanged(); }} />{/if}
+  {#if user.admin}<EmailIntakeCard onChanged={() => { void load(); onPublicAccessChanged(); }} />{/if}
 
   {#if revealed}
     <div class="webhook-reveal" role="status" data-webhook-secret-reveal>
@@ -133,7 +159,28 @@
         <input id="webhook-url" readonly value={revealed.url} on:focus={(event) => event.currentTarget.select()} />
         <button class="button quiet-button" type="button" on:click={() => revealed && copy('url', revealed.url)}>{copied === 'url' ? 'Copied' : 'Copy URL'}</button>
       </div>
+      {#if revealed.email_address}
+        <div class="webhook-url-row">
+          <label class="sr-only" for="webhook-email">Webhook email address</label>
+          <input id="webhook-email" readonly value={revealed.email_address} data-webhook-email-reveal on:focus={(event) => event.currentTarget.select()} />
+          <button class="button quiet-button" type="button" on:click={() => revealed?.email_address && copy('email', revealed.email_address)}>{copied === 'email' ? 'Copied' : 'Copy address'}</button>
+        </div>
+        <p>Apps that can only send email can use the address instead; it opens tickets the same way.</p>
+      {/if}
       <button class="text-button" type="button" on:click={() => { revealed = null; copied = ''; }}>I saved it</button>
+    </div>
+  {/if}
+
+  {#if revealedEmail}
+    <div class="webhook-reveal" role="status" data-webhook-email-only-reveal>
+      <strong>Copy this email address now. It will not be shown again.</strong>
+      <p>Mail to it opens tickets for webhook “{revealedEmail.webhook.name}” → {revealedEmail.webhook.project_key}. Any earlier address for this webhook has stopped working.</p>
+      <div class="webhook-url-row">
+        <label class="sr-only" for="webhook-email-only">Webhook email address</label>
+        <input id="webhook-email-only" readonly value={revealedEmail.email_address} data-webhook-email-reveal on:focus={(event) => event.currentTarget.select()} />
+        <button class="button quiet-button" type="button" on:click={() => revealedEmail && copy('email', revealedEmail.email_address)}>{copied === 'email' ? 'Copied' : 'Copy address'}</button>
+      </div>
+      <button class="text-button" type="button" on:click={() => { revealedEmail = null; copied = ''; }}>I saved it</button>
     </div>
   {/if}
 
@@ -151,7 +198,7 @@
     {:else if hooks.length}
       <table class="webhook-table">
         <caption class="sr-only">Ticket webhooks</caption>
-        <thead><tr><th scope="col">Name</th><th scope="col">Project</th><th scope="col">Format</th><th scope="col">URL ends</th><th scope="col">Deliveries</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col">Project</th><th scope="col">Format</th><th scope="col">URL ends</th>{#if email}<th scope="col">Email</th>{/if}<th scope="col">Deliveries</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {#each hooks as hook (hook.id)}
             <tr class:disabled={Boolean(hook.disabled_at)} data-webhook-name={hook.name}>
@@ -159,9 +206,10 @@
               <td>{hook.project_key}</td>
               <td>{hook.format === 'coolify' ? 'Coolify' : 'Generic JSON'}</td>
               <td><code>…{hook.secret_hint}</code></td>
+              {#if email}<td data-webhook-email>{#if emailHint(hook)}<code>{emailHint(hook)}</code>{:else}<span class="optional">None</span>{/if}</td>{/if}
               <td data-webhook-deliveries>{hook.delivery_count}</td>
               <td>{when(hook.last_delivery_at)}</td>
-              <td class="webhook-actions">{#if !hook.disabled_at}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => rotate(hook)}>Rotate</button><button class="text-button danger" type="button" disabled={busyId === hook.id} on:click={() => disable(hook)}>Disable</button>{/if}</td>
+              <td class="webhook-actions">{#if !hook.disabled_at}{#if email}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => setEmail(hook)}>Email address…</button>{/if}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => rotate(hook)}>Rotate</button><button class="text-button danger" type="button" disabled={busyId === hook.id} on:click={() => disable(hook)}>Disable</button>{/if}</td>
             </tr>
           {/each}
         </tbody>
@@ -186,6 +234,12 @@
       <tbody>{#each fields as field (field.name)}<tr><td><code>{field.name}</code></td><td>{field.required ? 'Yes' : 'No'}</td><td>{field.text}</td></tr>{/each}</tbody>
     </table>
     <p><strong>Response.</strong> <code>201</code> with <code>{'{"disposition": "created", "ticket": {"key": "OPS-61", "url": "…"}}'}</code> for a new ticket, or <code>200</code> with <code>"repeated"</code> when a <code>dedupe_key</code> matched an open ticket. A bad body returns <code>400</code> and names the field to fix in <code>error.details.field</code>; unknown fields are rejected so typos are caught. An unknown, rotated or disabled URL returns <code>404</code>.</p>
+    <h3 id="webhook-email-heading">Sending by email</h3>
+    {#if email}
+      <p data-webhook-email-guide>Send mail to the webhook's address (<code>{email.local_part}+…@{email.domain}</code>). The subject becomes the title and the text part becomes the description; <code>X-Priority: 1</code> or <code>Importance: high</code> raise the priority. Mail from the same sender with the same subject repeats the open ticket instead of opening another. Attachments are listed but not stored, and messages over 1 MiB bounce.</p>
+    {:else}
+      <p data-webhook-email-guide>Apps that can only send email can get an address per webhook too. {#if user.admin}Turn on <strong>Email</strong> above.{:else}Ask a workspace administrator to turn on email.{/if}</p>
+    {/if}
     <p class="optional">Choose the <strong>Coolify notifications</strong> format to paste the URL into Coolify → Notifications → Webhook. The full reference is in the API document at <a href="/openapi.json">/openapi.json</a> (operation <code>postTicketWebhook</code>).</p>
   </section>
 </section>

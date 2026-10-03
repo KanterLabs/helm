@@ -22,6 +22,18 @@ type ticketWebhookSecretResponse struct {
 	Webhook store.TicketWebhook `json:"webhook"`
 	Secret  string              `json:"secret"`
 	URL     string              `json:"url"`
+	// EmailAddress is the webhook's new email address, shown only here.
+	EmailAddress string `json:"email_address,omitempty"`
+}
+
+// emailSummary describes the active email intake for webhook lists, so
+// clients can render masked addresses; nil when email is not set up.
+func (s *Server) emailSummary(ctx context.Context) (map[string]string, error) {
+	intake, ok, err := s.Store.ActiveEmailIntake(ctx)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return map[string]string{"address": intake.Address(), "local_part": intake.LocalPart, "domain": intake.Domain}, nil
 }
 
 type ticketHookTicket struct {
@@ -134,7 +146,12 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookBase(r.Context())})
+		email, err := s.emailSummary(r.Context())
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookBase(r.Context()), "email": email})
 	case http.MethodPost:
 		if !s.secretResponseAllowed(w, r) {
 			return
@@ -158,14 +175,28 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
-		s.writeJSON(w, http.StatusCreated, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
+		response := ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret}
+		// With email set up, every new webhook also gets an address.
+		if intake, ok, err := s.Store.ActiveEmailIntake(r.Context()); err != nil {
+			s.writeStoreError(w, err)
+			return
+		} else if ok {
+			withEmail, tag, err := s.Store.SetWebhookEmailTag(r.Context(), hook.ID, identity.Actor.ID)
+			if err != nil {
+				s.writeStoreError(w, err)
+				return
+			}
+			response.Webhook, response.EmailAddress = withEmail, intake.WebhookAddress(tag)
+		}
+		s.writeJSON(w, http.StatusCreated, response)
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
 }
 
-// ticketWebhook serves DELETE /api/v1/ticket-webhooks/{id} and
-// POST /api/v1/ticket-webhooks/{id}/rotate (human admins).
+// ticketWebhook serves DELETE /api/v1/ticket-webhooks/{id},
+// POST /api/v1/ticket-webhooks/{id}/rotate and
+// POST /api/v1/ticket-webhooks/{id}/email (human admins).
 func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity auth.Identity, parts []string) {
 	if !requireAdmin(w, identity) {
 		return
@@ -188,6 +219,25 @@ func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity 
 			return
 		}
 		s.writeJSON(w, http.StatusOK, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
+	case len(parts) == 3 && parts[2] == "email" && r.Method == http.MethodPost:
+		if !s.secretResponseAllowed(w, r) {
+			return
+		}
+		intake, ok, err := s.Store.ActiveEmailIntake(r.Context())
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		if !ok {
+			s.writeError(w, http.StatusConflict, "email_not_set_up", "set up email addresses under Connect apps first", nil)
+			return
+		}
+		hook, tag, err := s.Store.SetWebhookEmailTag(r.Context(), id, identity.Actor.ID)
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"webhook": hook, "email_address": intake.WebhookAddress(tag)})
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}

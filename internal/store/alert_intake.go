@@ -29,6 +29,10 @@ type AlertIntakeRoute struct {
 	// WebhookID, when set, receives delivery statistics in the same
 	// transaction.
 	WebhookID string
+	// Receipt, when set, makes a single-alert delivery idempotent per
+	// message: a receipt already recorded returns "duplicate" and changes
+	// nothing.
+	Receipt *IntakeReceipt
 }
 
 // IntakeAlert is one normalized condition parsed from an external delivery.
@@ -111,13 +115,30 @@ func (s *Store) IngestAlerts(ctx context.Context, route AlertIntakeRoute, alerts
 		assigneeID = assignee.ID
 	}
 	actorID := intakeActorID(route.Integration)
+	if route.Receipt != nil && len(alerts) != 1 {
+		return nil, invalid("a receipt covers exactly one alert", nil)
+	}
 	results := make([]AlertDisposition, 0, len(alerts))
 	err = s.withTx(ctx, func(tx *sql.Tx) error {
+		results = results[:0]
 		// Writing first takes SQLite's writer lock before any read, so
 		// concurrent deliveries serialize instead of racing on correlation.
 		created := now()
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO actors(id, kind, name, admin, created_at, updated_at, description) VALUES (?, 'agent', ?, 0, ?, ?, ?)`, actorID, route.ActorName, created, created, "Records external alerts. Holds no credentials and cannot sign in."); err != nil {
 			return err
+		}
+		receiptID := ""
+		if route.Receipt != nil {
+			id, prior, err := claimEmailReceiptTx(ctx, tx, *route.Receipt, route.WebhookID, created)
+			if err != nil {
+				return err
+			}
+			if prior != nil {
+				prior.ResourceName = alerts[0].ResourceName
+				results = append(results, *prior)
+				return nil
+			}
+			receiptID = id
 		}
 		for _, alert := range alerts {
 			result, err := ingestAlertTx(ctx, tx, route.Integration, actorID, project, column.ID, assigneeID, alert, created)
@@ -125,6 +146,11 @@ func (s *Store) IngestAlerts(ctx context.Context, route AlertIntakeRoute, alerts
 				return err
 			}
 			results = append(results, result)
+		}
+		if receiptID != "" {
+			if err := completeEmailReceiptTx(ctx, tx, receiptID, results[0]); err != nil {
+				return err
+			}
 		}
 		if route.WebhookID != "" {
 			if _, err := tx.ExecContext(ctx, `UPDATE ticket_webhooks SET delivery_count = delivery_count + 1, last_delivery_at = ? WHERE id = ?`, created, route.WebhookID); err != nil {

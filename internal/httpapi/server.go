@@ -333,7 +333,7 @@ func isProtectedAPIRequest(r *http.Request) bool {
 		return false
 	}
 	// Webhook intake authenticates with its own path secret, never a session.
-	if parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1")); isCoolifyIntakePath(parts) || isTicketHookPath(parts) {
+	if parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1")); isCoolifyIntakePath(parts) || isTicketHookPath(parts) || isEmailHookPath(parts) {
 		return false
 	}
 	return !isPublicAuthRequest(r)
@@ -540,6 +540,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.ticketHook(w, r, parts[2])
 		return
 	}
+	if isEmailHookPath(parts) {
+		s.emailHook(w, r, parts[3])
+		return
+	}
 	// Auth endpoints status/setup/login are intentionally public. Logout can
 	// also be called after a session has expired.
 	if len(parts) >= 2 && parts[0] == "auth" {
@@ -661,6 +665,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.ticketWebhooks(w, r, identity)
 		case "public-endpoints":
 			s.publicEndpoints(w, r, identity)
+		case "email-intake":
+			s.emailIntakes(w, r, identity)
 		case "sidebar-counts":
 			s.sidebarCounts(w, r, identity)
 		case "project-intelligence":
@@ -694,6 +700,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 	}
 	if parts[0] == "public-endpoints" && len(parts) == 2 {
 		s.publicEndpoint(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "email-intake" && len(parts) == 2 {
+		s.emailIntake(w, r, identity, parts[1])
 		return
 	}
 	if parts[0] == "public-endpoints" && len(parts) == 3 && parts[2] == "test" {

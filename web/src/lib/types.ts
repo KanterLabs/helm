@@ -615,6 +615,9 @@ export interface TicketWebhook {
   disabled_at?: string;
   last_delivery_at?: string;
   delivery_count: number;
+  /** Last characters of the email address tag, when it has an address. */
+  email_tag_hint?: string;
+  email_tag_created_at?: string;
 }
 
 /** Create/rotate response: the only time the secret and URL are returned. */
@@ -622,6 +625,60 @@ export interface TicketWebhookSecret {
   webhook: TicketWebhook;
   secret: string;
   url: string;
+  /** Present when email addresses are set up; shown only here. */
+  email_address?: string;
+}
+
+export interface EmailSummary {
+  address: string;
+  local_part: string;
+  domain: string;
+}
+
+export interface EmailIntake {
+  id: string;
+  provider: 'cloudflare';
+  domain: string;
+  local_part: string;
+  account_id: string;
+  zone_id: string;
+  worker_name: string;
+  rule_id: string;
+  fallback_address?: string;
+  subaddress_enabled_by_helm: boolean;
+  public_endpoint_id?: string;
+  status: 'active' | 'disabled';
+  cleanup_pending: boolean;
+  created_at: string;
+  created_by_name?: string;
+  disabled_at?: string;
+}
+
+export type EmailOutcome = 'created' | 'repeated' | 'retained' | 'duplicate' | 'unknown_recipient' | 'unreadable' | 'too_large';
+
+export interface EmailReceipt {
+  id: string;
+  webhook_id?: string;
+  webhook_name?: string;
+  sender: string;
+  subject: string;
+  outcome: EmailOutcome;
+  task_key?: string;
+  project_slug?: string;
+  occurrence_count: number;
+  reason?: string;
+  received_at: string;
+}
+
+export interface EmailIntakeView {
+  active?: EmailIntake;
+  history: EmailIntake[];
+  recent: EmailReceipt[];
+  required_permissions: string[];
+  public_hostname?: string;
+  suggested_domain?: string;
+  worker_version: string;
+  max_message_bytes: number;
 }
 
 export interface PublicEndpoint {

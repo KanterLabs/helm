@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
   import { formatRelative } from '../state';
-  import type { AdminMetrics, PublicEndpointView } from '../types';
+  import type { AdminMetrics, EmailIntakeView, PublicEndpointView } from '../types';
 
   const windows = [7, 30, 90];
   const chartHeight = 140;
@@ -19,6 +19,7 @@
   // administrators should not have to dig for.
   let publicAccess: PublicEndpointView | null = null;
   let publicAccessUnavailable = false;
+  let emailAccess: EmailIntakeView | null = null;
 
   function publicAccessDetail(access: PublicEndpointView): string {
     const connector = access.connector.state === 'connected' ? 'live' : access.connector.state;
@@ -28,10 +29,11 @@
 
   async function loadPublicAccess() {
     try {
-      publicAccess = await api.getPublicEndpoints();
+      [publicAccess, emailAccess] = await Promise.all([api.getPublicEndpoints(), api.getEmailIntake()]);
       publicAccessUnavailable = false;
     } catch {
       publicAccess = null;
+      emailAccess = null;
       publicAccessUnavailable = true;
     }
   }
@@ -127,6 +129,8 @@
   {#if publicAccess && !publicAccessUnavailable}
     {@const active = publicAccess.active}
     {@const pending = publicAccess.history.filter((item) => item.cleanup_pending).length}
+    {@const emailPending = emailAccess?.history.filter((item) => item.cleanup_pending).length || 0}
+    {@const email = emailAccess?.active}
     <section class="public-access" class:is-public={Boolean(active)} aria-label="Public access" data-admin-public-access>
       <div>
         <strong>Public access</strong>
@@ -135,9 +139,11 @@
         {:else}
           <span>No public URL. This Helm is reachable only at its own address.</span>
         {/if}
+        {#if email}<span data-admin-email-access>Email addresses on at <code>{email.local_part}+…@{email.domain}</code></span>{/if}
         {#if pending}<span class="public-access-warning">{pending} removed public URL{pending === 1 ? ' still has' : 's still have'} resources in Cloudflare.</span>{/if}
+        {#if emailPending}<span class="public-access-warning">{emailPending} removed email setup{emailPending === 1 ? ' still has' : 's still have'} a Worker in Cloudflare.</span>{/if}
       </div>
-      <a class="button quiet-button" href="/tickets?connect=1">{active || pending ? 'Manage' : 'Set up'}</a>
+      <a class="button quiet-button" href="/tickets?connect=1">{active || pending || emailPending ? 'Manage' : 'Set up'}</a>
     </section>
   {/if}
 

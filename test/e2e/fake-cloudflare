@@ -1,21 +1,41 @@
 #!/usr/bin/env python3
 """Deterministic Cloudflare v4 API fixture for public-endpoint E2E tests.
 
-Usage: fake-cloudflare PORT TOKEN ZONELESS_TOKEN
-TOKEN sees zone example.test (account acct-1); ZONELESS_TOKEN sees no zones.
+Usage: fake-cloudflare PORT TOKEN ZONELESS_TOKEN [NORULES_TOKEN]
+TOKEN sees zones example.test (Email Routing on, plus addressing off) and
+plain.test (Email Routing off) in account acct-1; ZONELESS_TOKEN sees no
+zones; NORULES_TOKEN sees zones and Workers but not Email Routing rules.
 GET /__state (no auth) returns everything created, for test assertions.
 """
 import json
 import secrets
 import sys
 import threading
+from email.parser import BytesParser
+from email.policy import HTTP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 PORT, TOKEN, ZONELESS = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+NORULES = sys.argv[4] if len(sys.argv) > 4 else None
 ZONE = {"id": "zone-1", "name": "example.test", "account": {"id": "acct-1"}}
+ZONE2 = {"id": "zone-2", "name": "plain.test", "account": {"id": "acct-1"}}
+ZONES = {zone["name"]: zone for zone in (ZONE, ZONE2)}
 lock = threading.Lock()
-state = {"tunnels": {}, "configs": {}, "dns": {}, "run_tokens": {}, "deleted_tunnels": [], "deleted_dns": [], "counter": 0}
+state = {
+    "tunnels": {}, "configs": {}, "dns": {}, "run_tokens": {}, "deleted_tunnels": [], "deleted_dns": [], "counter": 0,
+    "email_routing": {
+        "zone-1": {"enabled": True, "status": "ready", "support_subaddress": False, "name": "example.test"},
+        "zone-2": {"enabled": False, "status": "unconfigured", "support_subaddress": False, "name": "plain.test"},
+    },
+    # An address someone already routes, to prove Helm never takes it over.
+    "rules": {"rule-taken": {"id": "rule-taken", "zone": "zone-1", "name": "existing", "enabled": True,
+                             "matchers": [{"type": "literal", "field": "to", "value": "taken@example.test"}],
+                             "actions": [{"type": "forward", "value": ["owner@example.org"]}]}},
+    "deleted_rules": [], "workers": {}, "deleted_workers": [],
+    "addresses": [{"email": "fallback@example.org", "verified": "2026-01-01T00:00:00Z"},
+                  {"email": "unverified@example.org", "verified": None}],
+}
 
 
 def next_id(prefix):
@@ -35,9 +55,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def body(self):
+    def raw_body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(length) or b"{}") if length else {}
+        return self.rfile.read(length) if length else b""
+
+    def body(self):
+        raw = self.raw_body()
+        return json.loads(raw or b"{}") if raw else {}
+
+    def multipart(self):
+        message = BytesParser(policy=HTTP).parsebytes(
+            b"Content-Type: " + self.headers.get("Content-Type", "").encode() + b"\r\n\r\n" + self.raw_body())
+        parts = {}
+        for part in message.iter_parts():
+            content = part.get_content()
+            parts[part.get_param("name", header="content-disposition")] = content.decode() if isinstance(content, bytes) else content
+        return parts
 
     def handle_any(self, method):
         url = urlparse(self.path)
@@ -45,14 +78,33 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 return self.reply(200, state)
         token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
-        if token not in (TOKEN, ZONELESS):
+        if token not in (TOKEN, ZONELESS) and token != NORULES:
             return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
         parts = [part for part in url.path.removeprefix("/client/v4").split("/") if part]
         query = parse_qs(url.query)
         with lock:
             if parts == ["zones"] and method == "GET":
                 name = (query.get("name") or [""])[0]
-                return self.reply(200, [ZONE] if token == TOKEN and name == ZONE["name"] else [])
+                return self.reply(200, [ZONES[name]] if token != ZONELESS and name in ZONES else [])
+            if len(parts) >= 4 and parts[0] == "zones" and parts[2:4] == ["email", "routing"]:
+                return self.email_routing(method, parts[1], parts[4:], token)
+            if parts[:2] == ["accounts", "acct-1"] and parts[2:4] == ["workers", "scripts"] and len(parts) == 5:
+                name = parts[4]
+                if method == "PUT":
+                    upload = self.multipart()
+                    metadata = json.loads(upload["metadata"])
+                    state["workers"][name] = {"metadata": metadata, "source": upload[metadata["main_module"]]}
+                    return self.reply(200, {"id": name})
+                if method == "DELETE":
+                    if name not in state["workers"]:
+                        return self.reply(404, errors=[{"code": 10007, "message": "workers.api.error.script_not_found"}])
+                    state["workers"].pop(name)
+                    state["deleted_workers"].append(name)
+                    return self.reply(200, None)
+            if parts[:2] == ["accounts", "acct-1"] and parts[2:] == ["email", "routing", "addresses"] and method == "GET":
+                if token == NORULES:
+                    return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+                return self.reply(200, state["addresses"])
             if parts[:2] == ["accounts", "acct-1"] and len(parts) >= 3 and parts[2] == "cfd_tunnel":
                 if len(parts) == 3 and method == "POST":
                     tunnel = {"id": next_id("tun"), **self.body()}
@@ -94,6 +146,38 @@ class Handler(BaseHTTPRequestHandler):
                     state["deleted_dns"].append(parts[3])
                     return self.reply(200, {"id": parts[3]})
         return self.reply(404, errors=[{"code": 7003, "message": f"no route for {method} {url.path}"}])
+
+    def email_routing(self, method, zone_id, rest, token):
+        settings = state["email_routing"].get(zone_id)
+        if settings is None or token == ZONELESS:
+            return self.reply(404, errors=[{"code": 1001, "message": "zone not found"}])
+        if rest == []:
+            if method == "GET":
+                return self.reply(200, settings)
+            if method == "PATCH":
+                settings.update({key: value for key, value in self.body().items() if key == "support_subaddress"})
+                return self.reply(200, settings)
+        if token == NORULES:
+            return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+        if rest == ["rules"] and method == "GET":
+            return self.reply(200, [rule for rule in state["rules"].values() if rule["zone"] == zone_id])
+        if rest == ["rules"] and method == "POST":
+            rule = {"id": next_id("rule"), "zone": zone_id, **self.body()}
+            # Lets tests prove setup rolls back after the Worker was uploaded.
+            if any(str(matcher.get("value", "")).startswith("fail-rule") for matcher in rule.get("matchers", [])):
+                return self.reply(400, errors=[{"code": 2007, "message": "Invalid rule"}])
+            state["rules"][rule["id"]] = rule
+            return self.reply(200, rule)
+        if len(rest) == 2 and rest[0] == "rules" and method == "DELETE":
+            if rest[1] not in state["rules"]:
+                return self.reply(404, errors=[{"code": 2020, "message": "Rule not found"}])
+            state["rules"].pop(rest[1])
+            state["deleted_rules"].append(rest[1])
+            return self.reply(200, {"id": rest[1]})
+        return self.reply(404, errors=[{"code": 7003, "message": f"no route for {method} email/routing/{'/'.join(rest)}"}])
+
+    def do_PATCH(self):
+        self.handle_any("PATCH")
 
     def do_GET(self):
         self.handle_any("GET")

@@ -4737,6 +4737,312 @@
         }
       }
     },
+    "/api/v1/hooks/tickets/email/{secret}": {
+      "post": {
+        "operationId": "postTicketEmail",
+        "summary": "Deliver an email to a webhook (Cloudflare email Worker)",
+        "description": "Called only by the Cloudflare Email Worker Helm deploys (see\n`createEmailIntake`). The path secret is the Worker's intake secret.\n`X-Helm-Envelope-To` selects the webhook by its address tag\n(`<name>+<tag>@<domain>`). The decoded subject becomes the title and\nthe text part the description. A message whose `Message-ID` was\nalready processed returns `duplicate` and changes nothing; the same\nsender and subject repeat an open ticket. `400`, `404` and `413`\ncarry a reason the Worker bounces to the sender.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "secret",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "X-Helm-Envelope-To",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Helm-Envelope-From",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Helm-Authentication-Results",
+            "in": "header",
+            "required": false,
+            "description": "Cloudflare's own `Authentication-Results` value, recorded as evidence only.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Helm-Oversize",
+            "in": "header",
+            "required": false,
+            "description": "Raw size of a message the Worker refused; the request then has no body.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "message/rfc822": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "maxLength": 1048576
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The message repeated an open ticket, was recorded against a completed one, or was a duplicate.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketHookResult"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new ticket was opened.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketHookResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The message could not be read (for example, no From address).",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/email-intake": {
+      "get": {
+        "operationId": "getEmailIntake",
+        "summary": "Show email addresses for webhooks",
+        "description": "Human administrators only. The active setup, earlier setups, the 20 most recent received or refused emails, and the Cloudflare token permissions setup needs.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Email intake state",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailIntakeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createEmailIntake",
+        "summary": "Turn on email addresses for webhooks",
+        "description": "Human administrators only. Requires an active public endpoint. Uses\nthe Cloudflare API token once to deploy an Email Worker (its Helm URL\nis a `secret_text` binding) and one Email Routing rule for\n`<local_part>@<domain>`; plus addressing then gives every webhook its\nown `<local_part>+<tag>@<domain>`. If plus addressing is off for the\nzone, the first request returns `409 subaddressing_consent_required`\nand changes nothing; repeat with `enable_subaddressing: true`. Any\nfailure deletes what was created. The token is never stored.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailIntakeCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Email is on",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailIntakeView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/email-intake/{intake}": {
+      "parameters": [
+        {
+          "name": "intake",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "disableEmailIntake",
+        "summary": "Turn off email addresses",
+        "description": "Human administrators only. Helm stops accepting mail immediately.\nWith an `api_token` body it also deletes the Worker and routing\nrule; without one the setup is marked `cleanup_pending`. Repeating\nwith a token finishes cleanup. Plus addressing is left on.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "api_token": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Turned off",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "intake"
+                  ],
+                  "properties": {
+                    "intake": {
+                      "$ref": "#/components/schemas/EmailIntake"
+                    },
+                    "warning": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/v1/public-endpoints": {
       "get": {
         "operationId": "getPublicEndpoints",
@@ -4985,7 +5291,8 @@
                   "type": "object",
                   "required": [
                     "data",
-                    "endpoint_base"
+                    "endpoint_base",
+                    "email"
                   ],
                   "properties": {
                     "data": {
@@ -4997,6 +5304,34 @@
                     "endpoint_base": {
                       "type": "string",
                       "description": "Public URL prefix; append the secret to form a webhook URL."
+                    },
+                    "email": {
+                      "description": "The active email setup, used to show masked addresses; null when email is off.",
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "address",
+                            "local_part",
+                            "domain"
+                          ],
+                          "properties": {
+                            "address": {
+                              "type": "string"
+                            },
+                            "local_part": {
+                              "type": "string"
+                            },
+                            "domain": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
                     }
                   },
                   "additionalProperties": false
@@ -5145,6 +5480,72 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-webhooks/{webhook}/email": {
+      "parameters": [
+        {
+          "name": "webhook",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "setTicketWebhookEmail",
+        "summary": "Create or replace a webhook's email address",
+        "description": "Human administrators only, with email addresses turned on. Returns the address once; any earlier address for the webhook stops working immediately.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "New email address",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "webhook",
+                    "email_address"
+                  ],
+                  "properties": {
+                    "webhook": {
+                      "$ref": "#/components/schemas/TicketWebhook"
+                    },
+                    "email_address": {
+                      "type": "string",
+                      "description": "Shown only in this response."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -13232,8 +13633,10 @@
             "enum": [
               "created",
               "repeated",
-              "retained"
-            ]
+              "retained",
+              "duplicate"
+            ],
+            "description": "`duplicate` only for email: the message was already processed and nothing changed."
           },
           "occurrence_count": {
             "type": "integer",
@@ -13323,6 +13726,13 @@
           "delivery_count": {
             "type": "integer",
             "minimum": 0
+          },
+          "email_tag_hint": {
+            "type": "string",
+            "description": "Last four characters of the webhook's email address tag, when it has one."
+          },
+          "email_tag_created_at": {
+            "$ref": "#/components/schemas/Timestamp"
           }
         },
         "additionalProperties": false
@@ -13376,6 +13786,222 @@
           "url": {
             "type": "string",
             "description": "Full URL to configure in the outside app. Shown only in this response."
+          },
+          "email_address": {
+            "type": "string",
+            "description": "The webhook's email address when email is on (create only). Shown only in this response."
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmailIntake": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "domain",
+          "local_part",
+          "account_id",
+          "zone_id",
+          "worker_name",
+          "rule_id",
+          "subaddress_enabled_by_helm",
+          "status",
+          "cleanup_pending",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "cloudflare"
+            ]
+          },
+          "domain": {
+            "type": "string"
+          },
+          "local_part": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          },
+          "zone_id": {
+            "type": "string"
+          },
+          "worker_name": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "fallback_address": {
+            "type": "string"
+          },
+          "subaddress_enabled_by_helm": {
+            "type": "boolean"
+          },
+          "public_endpoint_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          },
+          "cleanup_pending": {
+            "type": "boolean",
+            "description": "The Worker and routing rule still exist in Cloudflare."
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "created_by_name": {
+            "type": "string"
+          },
+          "disabled_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmailReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "sender",
+          "subject",
+          "outcome",
+          "occurrence_count",
+          "received_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "webhook_id": {
+            "type": "string"
+          },
+          "webhook_name": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "created",
+              "repeated",
+              "retained",
+              "unknown_recipient",
+              "unreadable",
+              "too_large"
+            ]
+          },
+          "task_key": {
+            "type": "string"
+          },
+          "project_slug": {
+            "type": "string"
+          },
+          "occurrence_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why a refused message bounced."
+          },
+          "received_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmailIntakeView": {
+        "type": "object",
+        "required": [
+          "history",
+          "recent",
+          "required_permissions",
+          "worker_version",
+          "max_message_bytes"
+        ],
+        "properties": {
+          "active": {
+            "$ref": "#/components/schemas/EmailIntake"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmailIntake"
+            }
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmailReceipt"
+            }
+          },
+          "required_permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "public_hostname": {
+            "type": "string",
+            "description": "The active public endpoint the Worker posts through."
+          },
+          "suggested_domain": {
+            "type": "string"
+          },
+          "worker_version": {
+            "type": "string"
+          },
+          "max_message_bytes": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmailIntakeCreateRequest": {
+        "type": "object",
+        "required": [
+          "domain",
+          "local_part",
+          "api_token"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain (or Email Routing subdomain) on a zone with Email Routing enabled."
+          },
+          "local_part": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,30}$"
+          },
+          "fallback_address": {
+            "type": "string",
+            "description": "Verified Email Routing destination that receives mail Helm cannot accept."
+          },
+          "enable_subaddressing": {
+            "type": "boolean",
+            "default": false,
+            "description": "Consent to turn on plus addressing for the zone when it is off."
+          },
+          "api_token": {
+            "type": "string",
+            "description": "Cloudflare API token used once and never stored."
           }
         },
         "additionalProperties": false

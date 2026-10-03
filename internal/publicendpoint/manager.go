@@ -349,6 +349,13 @@ func (m *Manager) Disable(ctx context.Context, id, apiToken, actorID string) (st
 		return store.PublicEndpoint{}, err
 	}
 	apiToken = strings.TrimSpace(apiToken)
+	if endpoint.Status == "active" {
+		if _, emailActive, err := m.store.ActiveEmailIntake(ctx); err != nil {
+			return store.PublicEndpoint{}, err
+		} else if emailActive {
+			return store.PublicEndpoint{}, fmt.Errorf("%w: email addresses deliver mail through this Public URL; remove them first", ErrEmailPrerequisite)
+		}
+	}
 	// A removed endpoint only changes when a token finishes its cleanup;
 	// otherwise a tokenless retry would mark finished cleanup as pending.
 	if endpoint.Status != "active" && (!endpoint.CleanupPending || apiToken == "") {

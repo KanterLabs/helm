@@ -63,6 +63,9 @@ import {
   type TaskPatch,
   type TicketCollection,
   type PublicEndpoint,
+  type EmailIntake,
+  type EmailIntakeView,
+  type EmailSummary,
   type PublicEndpointTestResult,
   type PublicEndpointView,
   type TicketWebhook,
@@ -597,7 +600,16 @@ export const api = {
     }),
   listTickets: (params: { queue?: TicketQueue; project?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
     request<TicketCollection>(pathWithQuery('/tickets', params), { signal }),
-  listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string }>('/ticket-webhooks'),
+  listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string; email: EmailSummary | null }>('/ticket-webhooks'),
+  /** Creates or replaces a webhook's email address; shown only in this response. */
+  setTicketWebhookEmail: (webhook: string) =>
+    request<{ webhook: TicketWebhook; email_address: string }>(`/ticket-webhooks/${encodeURIComponent(webhook)}/email`, { method: 'POST' }),
+  getEmailIntake: () => request<EmailIntakeView>('/email-intake'),
+  /** The Cloudflare API token is sent once and never stored by Helm. */
+  createEmailIntake: (input: { domain: string; local_part: string; fallback_address?: string; enable_subaddressing: boolean; api_token: string }) =>
+    request<EmailIntakeView>('/email-intake', { method: 'POST', body: input }),
+  disableEmailIntake: (intake: string, apiToken = '') =>
+    request<{ intake: EmailIntake; warning?: string }>(`/email-intake/${encodeURIComponent(intake)}`, { method: 'DELETE', ...(apiToken ? { body: { api_token: apiToken } } : {}) }),
   /** No idempotency key: the response carries a one-time secret. */
   createTicketWebhook: (input: { name: string; project: string; format: TicketWebhookFormat; assignee?: string }) =>
     request<TicketWebhookSecret>('/ticket-webhooks', { method: 'POST', body: input }),

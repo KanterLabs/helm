@@ -35,6 +35,10 @@ type TicketWebhook struct {
 	DisabledAt     *string `json:"disabled_at,omitempty"`
 	LastDeliveryAt *string `json:"last_delivery_at,omitempty"`
 	DeliveryCount  int     `json:"delivery_count"`
+	// EmailTagHint is the last characters of the webhook's email address
+	// tag, when it has one; the tag itself is shown only once.
+	EmailTagHint      *string `json:"email_tag_hint,omitempty"`
+	EmailTagCreatedAt *string `json:"email_tag_created_at,omitempty"`
 }
 
 // TicketWebhookInput creates a webhook.
@@ -45,15 +49,16 @@ type TicketWebhookInput struct {
 	AssigneeID string
 }
 
-const ticketWebhookSelect = `SELECT w.id, w.name, w.format, w.project_id, p.key, p.slug, w.assignee_id, w.secret_hint, w.created_at, w.rotated_at, w.disabled_at, w.last_delivery_at, w.delivery_count FROM ticket_webhooks w JOIN projects p ON p.id = w.project_id`
+const ticketWebhookSelect = `SELECT w.id, w.name, w.format, w.project_id, p.key, p.slug, w.assignee_id, w.secret_hint, w.created_at, w.rotated_at, w.disabled_at, w.last_delivery_at, w.delivery_count, w.email_tag_hint, w.email_tag_created_at FROM ticket_webhooks w JOIN projects p ON p.id = w.project_id`
 
 func ticketWebhookFromRow(scanner interface{ Scan(...any) error }) (TicketWebhook, error) {
 	var hook TicketWebhook
-	var assignee, rotated, disabled, last sql.NullString
-	if err := scanner.Scan(&hook.ID, &hook.Name, &hook.Format, &hook.ProjectID, &hook.ProjectKey, &hook.ProjectSlug, &assignee, &hook.SecretHint, &hook.CreatedAt, &rotated, &disabled, &last, &hook.DeliveryCount); err != nil {
+	var assignee, rotated, disabled, last, emailHint, emailCreated sql.NullString
+	if err := scanner.Scan(&hook.ID, &hook.Name, &hook.Format, &hook.ProjectID, &hook.ProjectKey, &hook.ProjectSlug, &assignee, &hook.SecretHint, &hook.CreatedAt, &rotated, &disabled, &last, &hook.DeliveryCount, &emailHint, &emailCreated); err != nil {
 		return TicketWebhook{}, err
 	}
 	hook.AssigneeID, hook.RotatedAt, hook.DisabledAt, hook.LastDeliveryAt = nullableString(assignee), nullableString(rotated), nullableString(disabled), nullableString(last)
+	hook.EmailTagHint, hook.EmailTagCreatedAt = nullableString(emailHint), nullableString(emailCreated)
 	return hook, nil
 }
 

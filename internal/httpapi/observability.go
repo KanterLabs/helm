@@ -60,7 +60,7 @@ var metricRouteTemplates = map[string]struct{}{
 	"/api/v1/export": {}, "/api/v1/import": {}, "/api/v1/import/trello": {},
 	"/api/v1/auth/status": {}, "/api/v1/auth/setup": {}, "/api/v1/auth/login": {}, "/api/v1/auth/logout": {}, "/api/v1/auth/me": {},
 	"/api/v1/codex/account": {}, "/api/v1/codex/login": {}, "/api/v1/codex/login/cancel": {}, "/api/v1/codex/logout": {},
-	"/api/v1/project-intelligence": {}, "/api/v1/project-intelligence/analyze": {}, "/api/v1/intake/coolify/:secret": {}, "/api/v1/tickets": {}, "/api/v1/projects/:project/tickets": {}, "/api/v1/hooks/tickets/:secret": {}, "/api/v1/ticket-webhooks": {}, "/api/v1/ticket-webhooks/:webhook": {}, "/api/v1/ticket-webhooks/:webhook/rotate": {}, "/api/v1/public-endpoints": {}, "/api/v1/public-endpoints/:endpoint": {}, "/api/v1/public-endpoints/:endpoint/test": {},
+	"/api/v1/project-intelligence": {}, "/api/v1/project-intelligence/analyze": {}, "/api/v1/intake/coolify/:secret": {}, "/api/v1/tickets": {}, "/api/v1/projects/:project/tickets": {}, "/api/v1/hooks/tickets/:secret": {}, "/api/v1/ticket-webhooks": {}, "/api/v1/ticket-webhooks/:webhook": {}, "/api/v1/ticket-webhooks/:webhook/rotate": {}, "/api/v1/public-endpoints": {}, "/api/v1/public-endpoints/:endpoint": {}, "/api/v1/public-endpoints/:endpoint/test": {}, "/api/v1/hooks/tickets/email/:secret": {}, "/api/v1/email-intake": {}, "/api/v1/email-intake/:intake": {}, "/api/v1/ticket-webhooks/:webhook/email": {},
 	"/api/v1/projects": {}, "/api/v1/projects/:project": {},
 	"/api/v1/projects/:project/export": {}, "/api/v1/projects/:project/import": {}, "/api/v1/projects/:project/boards": {},
 	"/api/v1/projects/:project/columns": {}, "/api/v1/projects/:project/tasks": {}, "/api/v1/projects/:project/task-context": {},
@@ -105,6 +105,7 @@ var metricDynamicSegments = map[string]string{
 	"ticket-webhooks":  ":webhook",
 	"tickets":          ":secret",
 	"public-endpoints": ":endpoint",
+	"email-intake":     ":intake",
 }
 
 var proxyIdentityHeaders = [...]string{
@@ -516,6 +517,12 @@ func metricRoute(rawPath string) string {
 		// Reorder is a literal action under both checklist aliases, not an item
 		// identifier. Keep it literal before applying the generic segment map.
 		if parts[index] == "reorder" && (parts[index-1] == "checklist" || parts[index-1] == "checklists") {
+			continue
+		}
+		// The email hook keeps "email" literal and templates the secret after it.
+		if parts[index-1] == "tickets" && parts[index] == "email" && parts[index-2] == "hooks" && index+1 < len(parts) {
+			parts[index+1] = ":secret"
+			index++
 			continue
 		}
 		if replacement, ok := metricDynamicSegments[parts[index-1]]; ok {

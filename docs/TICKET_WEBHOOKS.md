@@ -3,6 +3,8 @@
 Any app that can send an HTTP POST with JSON can open Helm tickets: monitoring
 alerts, CI failures, form submissions, cron scripts, or Zapier/n8n flows. New
 tickets land in the chosen project's **Needs triage** queue on the Tickets page.
+Apps that can only send email can use the webhook's
+[email address](#email-addresses) instead.
 
 ## 1. Create a webhook URL
 
@@ -170,7 +172,87 @@ Requirements and settings:
   7844 and HTTPS 443.
 - **Disabling the feature:** set `HELM_PUBLIC_HOOKS_ADDR=off`.
 
+## Email addresses
+
+Backup tools, NAS boxes, cron and older monitoring often send alerts only by
+email. With **Tickets → Connect apps → Email** turned on, every webhook also
+has an address such as `helm-alerts+k3j9x2m4q7ab5cde@example.com`. Mail to
+it opens or repeats a ticket exactly like a POST to the webhook URL. The
+design and its trade-offs are in
+[EMAIL_ALERT_INTAKE_PLAN.md](EMAIL_ALERT_INTAKE_PLAN.md).
+
+How mail reaches Helm: Cloudflare Email Routing receives it, a small Email
+Worker that Helm deploys passes it to Helm through the
+[Public URL](#public-url-cloudflare-tunnel), and Helm turns it into a ticket.
+No mailbox password is stored, nothing polls, and no port is opened.
+
+Before you start:
+
+1. An active **Public URL** (the Worker delivers through it).
+2. **Email Routing enabled** in Cloudflare for the domain (Email › Email
+   Routing). Its MX records must be Cloudflare's.
+3. A Cloudflare API token with:
+   - Account › Workers Scripts › Edit
+   - Zone › Zone › Read, Zone › Email Routing Rules › Edit
+   - Zone › Zone Settings › Read (Edit if plus addressing is off)
+   - Account › Email Routing Addresses › Read (only with a fallback address)
+
+Setting it up:
+
+1. Enter the domain (defaults to your Public URL's domain), an address name
+   (default `helm-alerts`), an optional **fallback** address and the token.
+2. If **plus addressing** is off for the zone, Helm stops and asks first:
+   turning it on lets mail to any `name+anything@` reach `name@` across the
+   whole domain. Tick the box and submit again.
+3. Helm deploys the Worker `helm-email-…` and one routing rule for
+   `helm-alerts@domain`. If any step fails it deletes what it created and
+   restores plus addressing. The token is used once and never stored.
+
+Using it:
+
+- **New webhooks** show their email address next to the URL, once. For an
+  existing webhook use **Email address…**; using it again replaces the
+  address and the old one bounces. The table shows a masked hint.
+- **Like the URL, the address is a credential.** Anyone who knows it can
+  open tickets. Replace it if it leaks.
+- **Subject** becomes the title (an empty subject becomes `Email from
+  <sender>`), the **text part** the description (HTML-only mail is converted
+  to text), and `X-Priority: 1`/`2`, `Importance: high` or
+  `Priority: urgent` set high priority. Attachments are listed on the ticket
+  but not stored.
+- **Repeats:** mail from the same From address with the same subject
+  (ignoring case, spacing and `Re:`/`Fwd:`) repeats the open ticket; after
+  it is completed the next one opens a new linked ticket. A re-delivered
+  message (same `Message-ID`) changes nothing.
+- **Evidence** on the ticket: From, Date, Message-ID and attachment names,
+  plus SPF/DKIM/DMARC results when Cloudflare reports them. Cloudflare
+  already rejects mail that fails the sender's DMARC policy or fails both
+  SPF and DKIM.
+
+Bounces and Recent emails:
+
+| What happened | Sender sees | Recent emails shows |
+| --- | --- | --- |
+| Unknown, replaced or disabled address | Bounce: "No Helm webhook uses this address" | Bounced: unknown address |
+| No valid From header | Bounce with the reason | Bounced: unreadable |
+| Larger than 1 MiB | Bounce, or delivered to the fallback | Bounced: too large |
+| Helm or the tunnel down | Delivered to the fallback after two retries | Nothing (Helm never saw it) |
+| Email turned off | Bounce: "Helm is not accepting email at this address" | Nothing |
+
+Without a fallback address, mail that reaches the Worker while Helm is down
+is left to Cloudflare, which does not document what it does when a Worker
+fails; set a fallback if you cannot afford to lose alerts.
+
+**Turn off email** stops accepting mail immediately. With a token Helm
+deletes the Worker and rule; without one they are listed under **Earlier
+email setups** as *Needs cleanup* with **Finish cleanup…**. Plus addressing
+is left on. The Public URL cannot be removed while email is on.
+
+## API reference
+
 The machine-readable contract is `/openapi.json` (operations
 `postTicketWebhook`, `listTicketWebhooks`, `createTicketWebhook`,
-`rotateTicketWebhook`, `disableTicketWebhook`, `getPublicEndpoints`,
-`createPublicEndpoint`, `testPublicEndpoint`, `disablePublicEndpoint`).
+`rotateTicketWebhook`, `disableTicketWebhook`, `setTicketWebhookEmail`,
+`getPublicEndpoints`, `createPublicEndpoint`, `testPublicEndpoint`,
+`disablePublicEndpoint`, `getEmailIntake`, `createEmailIntake`,
+`disableEmailIntake`, `postTicketEmail`).

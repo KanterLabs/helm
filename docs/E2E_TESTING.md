@@ -138,3 +138,24 @@ and fake `cloudflared` fixtures (no real account is touched in CI).
 | The self-test passes without a real round trip, or creates a ticket | **Test public URL** succeeds only by fetching a one-time nonce through the hooks listener with the public `Host`; the ticket count is unchanged, agents get `403`, an inactive endpoint gets `409`, and a guessed nonce gets `404` from the listener and no `200` from the main origin. |
 | Resources left behind after a tokenless removal are invisible or unfixable | The removed URL appears under Earlier public URLs as *Needs cleanup* with its tunnel ID, and Admin reports it; a tokenless retry keeps it pending, **Finish cleanup…** with a token deletes both resources in the fake API, and a later tokenless retry does not re-flag it. |
 | Admins cannot tell Helm is public outside the card | While active, the Connect apps button shows **● Public**; it disappears after removal, and Admin's **Manage** link opens Connect apps. |
+
+## Email intake failure contract
+
+The email-address workflow (see `EMAIL_ALERT_INTAKE_PLAN.md`) must prove these
+failure cases through a real Helm process and browser, using the fake
+Cloudflare API and the Worker source Helm actually uploads, executed in Node
+against Helm's hooks listener.
+
+| Failure | Observable proof |
+| --- | --- |
+| Email intake runs without a public path for the Worker | With no active Public URL, setup is refused and the card says why. |
+| Setup half-provisions Cloudflare | A zone without Email Routing, an address that is already routed, and a token missing rule access each fail with a message naming the problem; the fake API then holds no Worker, no Helm rule, and plus addressing is unchanged. |
+| Plus addressing is turned on silently | With it off, setup without consent is refused; with consent it is on and the intake records that Helm enabled it. |
+| The intake secret or webhook tag leaks | Neither appears in API responses after creation, the database, the server log, ticket evidence or the Worker's plain-text bindings; the Worker holds the Helm URL only as a `secret_text` binding. |
+| Mail opens tickets for the wrong webhook | Mail to a webhook's address creates a ticket in that webhook's project with the subject as title and the text body as description; an unknown tag is bounced by the Worker with Helm's reason and listed as refused. |
+| Repeated or re-delivered mail floods the queue | The same Message-ID twice is `duplicate` with no count change; a new message with the same sender and subject repeats the open ticket; after completion it opens a new ticket. |
+| Unreadable or oversized mail is silently lost | Mail without a From header is bounced and listed; mail over 1 MiB is bounced (or forwarded to the fallback) and listed as too large. |
+| Helm being down loses mail | With Helm unreachable the Worker retries and then forwards to the fallback address with `X-Helm-Intake-Failed`. |
+| Replacing or disabling stops nothing | After **Email address…** replaces a webhook's address, the old address bounces; a disabled webhook's address bounces. |
+| Removal leaves Cloudflare resources or breaks delivery paths | The Public URL cannot be removed while email intake is active; removal with a token deletes the Worker and rule; without one the intake shows *Needs cleanup* and **Finish cleanup…** deletes them. |
+| Non-admins manage email intake | Agent tokens get `403` from every email-intake management route. |

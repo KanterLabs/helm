@@ -88,6 +88,11 @@ func TestMetricRoutesUseBoundedTemplates(t *testing.T) {
 		"/api/v1/not-a-route/credential-secret":            "/api/v1/other",
 		"/api/v1/tasks/task-secret/private-secret":         "/api/v1/other",
 		"/assets/secret.js?token=private":                  "/static",
+		"/api/v1/hooks/tickets/hk_secret":                  "/api/v1/hooks/tickets/:secret",
+		"/api/v1/hooks/tickets/email/em_secret":            "/api/v1/hooks/tickets/email/:secret",
+		"/api/v1/hooks/tickets/probe/nonce-secret":         "/api/v1/other",
+		"/api/v1/email-intake/intake-id":                   "/api/v1/email-intake/:intake",
+		"/api/v1/ticket-webhooks/hook-id/email":            "/api/v1/ticket-webhooks/:webhook/email",
 	}
 	for rawPath, want := range tests {
 		if got := metricRoute(rawPath); got != want {

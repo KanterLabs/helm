@@ -30,7 +30,7 @@ func NewPublicHooksHandler(api *Server) http.Handler {
 		}
 		if isAPIPath(r.URL.Path) {
 			parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1"))
-			if isTicketHookPath(parts) || isCoolifyIntakePath(parts) {
+			if isTicketHookPath(parts) || isCoolifyIntakePath(parts) || isEmailHookPath(parts) {
 				api.ServeHTTP(w, r)
 				return
 			}
@@ -58,6 +58,8 @@ func (s *Server) writePublicEndpointError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, publicendpoint.ErrInvalidHostname):
 		s.writeError(w, http.StatusBadRequest, "invalid_hostname", err.Error(), map[string]any{"field": "hostname"})
+	case errors.Is(err, publicendpoint.ErrEmailPrerequisite):
+		s.writeError(w, http.StatusConflict, "email_prerequisite", strings.TrimPrefix(err.Error(), publicendpoint.ErrEmailPrerequisite.Error()+": "), nil)
 	case errors.Is(err, publicendpoint.ErrCloudflare):
 		s.writeError(w, http.StatusBadRequest, "cloudflare_error", err.Error(), nil)
 	default:

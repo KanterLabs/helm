@@ -109,7 +109,8 @@ coolify_secret_file="$work_dir/coolify-webhook-secret"
 # logs live in $work_dir under names collect_evidence never copies.
 fake_cf_token="cf-e2e-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 fake_cf_zoneless="cf-e2e-zoneless-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-python3 "$root/test/e2e/fake-cloudflare" 18090 "$fake_cf_token" "$fake_cf_zoneless" &
+fake_cf_norules="cf-e2e-norules-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+python3 "$root/test/e2e/fake-cloudflare" 18090 "$fake_cf_token" "$fake_cf_zoneless" "$fake_cf_norules" &
 fake_cf_pid=$!
 cloudflared_wrapper="$work_dir/cloudflared"
 printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "$root/test/e2e/fake-cloudflared" "$work_dir/fake-cloudflared.jsonl" > "$cloudflared_wrapper"
@@ -161,6 +162,7 @@ start_server 18080 disabled disabled
     HELM_E2E_FAKE_CF_URL=http://127.0.0.1:18090 \
     HELM_E2E_FAKE_CF_TOKEN="$fake_cf_token" \
     HELM_E2E_FAKE_CF_ZONELESS_TOKEN="$fake_cf_zoneless" \
+    HELM_E2E_FAKE_CF_NORULES_TOKEN="$fake_cf_norules" \
     HELM_E2E_CLOUDFLARED_LOG="$work_dir/fake-cloudflared.jsonl" \
     HELM_E2E_ARTIFACT_DIR="$artifact_dir/disabled" \
     HELM_E2E_COOLIFY_SECRET="$coolify_secret" \

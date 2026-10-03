@@ -49,20 +49,26 @@ func newCloudflareClient(base, token string) *cloudflareClient {
 
 func (c *cloudflareClient) call(ctx context.Context, method, path string, body any, result any) error {
 	var reader io.Reader
+	contentType := ""
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		reader = bytes.NewReader(encoded)
+		reader, contentType = bytes.NewReader(encoded), "application/json"
 	}
+	return c.callRaw(ctx, method, path, contentType, reader, result)
+}
+
+// callRaw sends a pre-encoded body (e.g. a multipart Worker upload).
+func (c *cloudflareClient) callRaw(ctx context.Context, method, path, contentType string, reader io.Reader, result any) error {
 	request, err := http.NewRequestWithContext(ctx, method, c.base+path, reader)
 	if err != nil {
 		return err
 	}
 	request.Header.Set("Authorization", "Bearer "+c.token)
-	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
