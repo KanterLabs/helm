@@ -118,3 +118,19 @@ process, database and browser. Screenshots mask every revealed webhook URL.
 | Rotation or disabling leaves old URLs working | After rotate the old URL returns the generic `404` and the new one works; a disabled webhook returns `404`. |
 | A webhook routes outside its configured project | Tickets land in the webhook's project Backlog, assigned as configured, with `ticket.origin=alert` and readable evidence fields. |
 | A Coolify-format webhook diverges from the built-in Coolify intake | A webhook created with format `coolify` accepts a Coolify `traefik_version_outdated` payload and creates the same kind of ticket. |
+
+## Public endpoint failure contract
+
+The Cloudflare public-endpoint workflow must prove these failure cases through
+a real Helm process and browser, using the repository's fake Cloudflare API
+and fake `cloudflared` fixtures (no real account is touched in CI).
+
+| Failure | Observable proof |
+| --- | --- |
+| The Cloudflare API token is stored, logged or echoed | After provisioning, the token is absent from every API response, the SQLite database and the server log. |
+| The tunnel exposes more than webhooks | The provisioned ingress routes only `^/api/v1/(hooks/tickets|intake/coolify)/` to the dedicated hook listener with a terminal `http_status:404`; that listener answers dashboard and API paths with `404`. |
+| The tunnel run token leaks onto the command line | The fake `cloudflared` records the token only through `TUNNEL_TOKEN` in its environment, never in argv. |
+| Webhook URLs keep pointing at the private origin | With an endpoint active, newly created webhook URLs use `https://<public hostname>/api/v1/hooks/tickets/`. |
+| A bad token or hostname half-provisions resources | A token without zone access returns `400` naming the problem, and the fake API records no tunnel or DNS record. |
+| Disabling leaves public resources behind | Disable with a token deletes the DNS record and tunnel and stops `cloudflared`; webhook URLs fall back to the private origin. |
+| Non-admins can expose Helm | Agent tokens receive `403` from every public-endpoint route. |

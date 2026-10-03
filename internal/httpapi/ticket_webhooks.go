@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -35,8 +36,13 @@ type ticketHookResponse struct {
 	Ticket          ticketHookTicket `json:"ticket"`
 }
 
-func (s *Server) ticketHookURL(secret string) string {
-	return s.Cfg.PublicOrigin + "/api/v1/hooks/tickets/" + secret
+// ticketHookBase prefers an active public endpoint so outside apps get a
+// reachable URL; otherwise it uses the configured origin.
+func (s *Server) ticketHookBase(ctx context.Context) string {
+	if base := s.PublicEndpoints.PublicHookBase(ctx); base != "" {
+		return base
+	}
+	return s.Cfg.PublicOrigin + "/api/v1/hooks/tickets/"
 }
 
 func (s *Server) ticketHook(w http.ResponseWriter, r *http.Request, secret string) {
@@ -128,7 +134,7 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookURL("")})
+		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookBase(r.Context())})
 	case http.MethodPost:
 		if !s.secretResponseAllowed(w, r) {
 			return
@@ -152,7 +158,7 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
-		s.writeJSON(w, http.StatusCreated, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookURL(secret)})
+		s.writeJSON(w, http.StatusCreated, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
@@ -181,7 +187,7 @@ func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity 
 			s.writeStoreError(w, err)
 			return
 		}
-		s.writeJSON(w, http.StatusOK, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookURL(secret)})
+		s.writeJSON(w, http.StatusOK, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}

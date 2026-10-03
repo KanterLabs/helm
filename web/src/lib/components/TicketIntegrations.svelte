@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../api';
   import type { Actor, Project, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
+  import PublicEndpointCard from './PublicEndpointCard.svelte';
 
   export let user: Actor;
   export let projects: Project[] = [];
@@ -119,6 +120,8 @@
   </div>
 
   {#if error}<div class="inline-alert error" role="alert"><span>!</span>{error}</div>{/if}
+
+  {#if user.admin}<PublicEndpointCard onChanged={load} />{/if}
 
   {#if revealed}
     <div class="webhook-reveal" role="status" data-webhook-secret-reveal>

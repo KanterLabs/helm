@@ -99,14 +99,57 @@ private addresses unless allowlisted under Settings → Advanced. The
 operator-configured `/api/v1/intake/coolify/{secret}` route (environment
 variables, see `COOLIFY_EMAIL_INTAKE_PLAN.md`) keeps working.
 
-## Network reachability
+## Public URL (Cloudflare Tunnel)
 
-The URL must be reachable from the sending app. Private Tailnet deployments
-put an identity check in front of Helm, so an outside app needs an
-operator-approved edge route for `/api/v1/hooks/tickets/*`, like the one
-documented for Coolify in the infrastructure registry
-(`homelab-helm-beta-coolify-intake-19610`).
+Self-hosted Helm often sits behind NAT, a VPN or a private network that
+outside apps cannot reach. **Tickets → Connect apps → Public URL** publishes
+only the webhook routes on a public HTTPS hostname through a Cloudflare
+Tunnel, with no open ports, router changes or certificates.
+
+1. In Cloudflare, create an API token with:
+   - Account › Cloudflare Tunnel › Edit
+   - Zone › Zone › Read and Zone › DNS › Edit, for the zone that holds your
+     hostname
+2. Enter an unused hostname such as `hooks.example.com` and the token.
+3. Helm uses the token once to:
+   - create a Cloudflare Tunnel named `helm-<hostname>`;
+   - route **only** `^/api/v1/(hooks/tickets|intake/coolify)/` to Helm, with
+     everything else getting 404 at Cloudflare;
+   - add a proxied CNAME;
+   - start `cloudflared`.
+
+   If any step fails, Helm deletes whatever it created and nothing is left
+   behind.
+4. New webhook URLs use `https://<hostname>/api/v1/hooks/tickets/…`. A URL
+   created earlier works too: keep its path and replace the host with the
+   public hostname.
+
+Safety:
+
+- **API token:** never stored, logged or returned.
+- **Tunnel run token:** kept in an owner-only file beside the database (not
+  in it), and passed to `cloudflared` through its environment, not the
+  command line.
+- **Second gate:** `cloudflared` connects to a separate loopback listener
+  (`HELM_PUBLIC_HOOKS_ADDR`, default `127.0.0.1:8091`) that serves nothing
+  except webhook POSTs and `/healthz`. A changed tunnel configuration still
+  cannot reach the dashboard or the rest of the API.
+
+**Remove public URL** stops `cloudflared` and deletes the tunnel token
+immediately. If you also enter an API token, Helm deletes the DNS record and
+the tunnel in Cloudflare. Otherwise it marks them for manual cleanup and shows
+their IDs.
+
+Requirements and settings:
+
+- **Docker image:** includes `cloudflared` (pinned, checksum-verified).
+  Other installs need `cloudflared` on `PATH`, or set
+  `HELM_CLOUDFLARED_BINARY`.
+- **Network:** the server needs outbound access to Cloudflare on TCP/UDP
+  7844 and HTTPS 443.
+- **Disabling the feature:** set `HELM_PUBLIC_HOOKS_ADDR=off`.
 
 The machine-readable contract is `/openapi.json` (operations
 `postTicketWebhook`, `listTicketWebhooks`, `createTicketWebhook`,
-`rotateTicketWebhook`, `disableTicketWebhook`).
+`rotateTicketWebhook`, `disableTicketWebhook`, `getPublicEndpoints`,
+`createPublicEndpoint`, `disablePublicEndpoint`).

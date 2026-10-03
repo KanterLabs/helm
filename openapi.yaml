@@ -2947,6 +2947,131 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/public-endpoints:
+    get:
+      operationId: getPublicEndpoints
+      summary: Show the public webhook endpoint
+      description: |
+        Human administrators only. A public endpoint exposes only Helm's
+        webhook routes (`exposed_paths`) on a Cloudflare-proxied hostname
+        through a Cloudflare Tunnel, so self-hosted installs need no open
+        ports, DNS server or certificates. While one is active, new ticket
+        webhook URLs use its hostname.
+      tags:
+        - Tickets
+      responses:
+        '200':
+          description: Active endpoint, connector status and history
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicEndpointView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: createPublicEndpoint
+      summary: Create a Cloudflare public webhook endpoint
+      description: |
+        Human administrators only. Uses the supplied Cloudflare API token once
+        to create a remotely managed tunnel whose ingress routes only webhook
+        paths to Helm's loopback hooks listener, plus a proxied CNAME for the
+        hostname, then starts `cloudflared`. The API token is never stored or
+        returned; the tunnel run token is kept in an owner-only file beside
+        the database. Required token permissions are listed in
+        `required_permissions`. Any failure removes what was created.
+      tags:
+        - Tickets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicEndpointCreateRequest'
+            example:
+              provider: cloudflare
+              hostname: hooks.example.com
+              api_token: '<cloudflare api token>'
+      responses:
+        '201':
+          description: Endpoint provisioned and connector starting
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicEndpointView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/public-endpoints/{endpoint}:
+    parameters:
+      - name: endpoint
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Identifier'
+    delete:
+      operationId: disablePublicEndpoint
+      summary: Disable a public webhook endpoint
+      description: |
+        Human administrators only. Stops `cloudflared` and deletes the local
+        tunnel token immediately. With an `api_token` body it also deletes the
+        DNS record and tunnel in Cloudflare; without one the endpoint is marked
+        `cleanup_pending` and the response explains what to remove.
+      tags:
+        - Tickets
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                api_token:
+                  type: string
+              additionalProperties: false
+      responses:
+        '200':
+          description: Disabled
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [endpoint]
+                properties:
+                  endpoint:
+                    $ref: '#/components/schemas/PublicEndpoint'
+                  warning:
+                    type: string
+                additionalProperties: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/ticket-webhooks:
     get:
       operationId: listTicketWebhooks
@@ -8063,6 +8188,70 @@ components:
               completions: {type: integer, minimum: 0}
               last_event_at: {type: [string, 'null'], format: date-time}
               token_last_used_at: {type: [string, 'null'], format: date-time}
+    PublicEndpoint:
+      type: object
+      required: [id, provider, hostname, account_id, zone_id, tunnel_id, dns_record_id, status, cleanup_pending, created_at]
+      properties:
+        id: { type: string }
+        provider: { type: string, enum: [cloudflare] }
+        hostname: { type: string }
+        account_id: { type: string }
+        zone_id: { type: string }
+        tunnel_id: { type: string }
+        dns_record_id: { type: string }
+        status: { type: string, enum: [active, disabled] }
+        cleanup_pending:
+          type: boolean
+          description: Cloudflare resources still exist because they were not deleted with an API token.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        disabled_at:
+          $ref: '#/components/schemas/Timestamp'
+      additionalProperties: false
+    PublicEndpointView:
+      type: object
+      required: [connector, history, required_permissions, exposed_paths, connector_available]
+      properties:
+        active:
+          $ref: '#/components/schemas/PublicEndpoint'
+        connector:
+          type: object
+          required: [state, restarts]
+          properties:
+            state: { type: string, enum: [stopped, starting, connected, restarting, error] }
+            message: { type: string }
+            started_at: { type: string }
+            restarts: { type: integer, minimum: 0 }
+          additionalProperties: false
+        public_hook_base:
+          type: string
+          description: Public prefix for ticket webhook URLs while active.
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicEndpoint'
+        required_permissions:
+          type: array
+          items: { type: string }
+        exposed_paths:
+          type: string
+          description: Regular expression of the only paths routed publicly.
+        connector_available:
+          type: boolean
+          description: Whether the cloudflared binary can run on this server; creation is refused when false.
+      additionalProperties: false
+    PublicEndpointCreateRequest:
+      type: object
+      required: [hostname, api_token]
+      properties:
+        provider: { type: string, enum: [cloudflare], default: cloudflare }
+        hostname:
+          type: string
+          description: Unused subdomain of a zone the token can edit, e.g. hooks.example.com.
+        api_token:
+          type: string
+          description: Cloudflare API token used once and never stored.
+      additionalProperties: false
     GenericTicketRequest:
       type: object
       description: Body for `generic` ticket webhooks. Only `title` is required.

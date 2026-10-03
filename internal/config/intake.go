@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -90,4 +91,45 @@ func validURLSecret(value string) bool {
 		}
 	}
 	return true
+}
+
+// PublicEndpoints configures the Cloudflare-tunnel public webhook endpoint.
+type PublicEndpoints struct {
+	// HooksAddr is the loopback listener that serves only webhook routes to
+	// cloudflared. Empty disables public endpoints.
+	HooksAddr string
+	// CloudflareAPIBase overrides the Cloudflare API (tests use a loopback
+	// fixture); production uses https://api.cloudflare.com/client/v4.
+	CloudflareAPIBase string
+	// CloudflaredBinary runs the tunnel connector.
+	CloudflaredBinary string
+}
+
+func publicEndpointsFromEnv() (PublicEndpoints, error) {
+	addr, err := resolveEnv("HELM_PUBLIC_HOOKS_ADDR")
+	if err != nil {
+		return PublicEndpoints{}, err
+	}
+	base, err := resolveEnv("HELM_CLOUDFLARE_API_BASE")
+	if err != nil {
+		return PublicEndpoints{}, err
+	}
+	binary, err := resolveEnv("HELM_CLOUDFLARED_BINARY")
+	if err != nil {
+		return PublicEndpoints{}, err
+	}
+	settings := PublicEndpoints{HooksAddr: valueOr(addr, "127.0.0.1:8091"), CloudflareAPIBase: strings.TrimRight(valueOr(base, "https://api.cloudflare.com/client/v4"), "/"), CloudflaredBinary: valueOr(binary, "cloudflared")}
+	if settings.HooksAddr == "off" {
+		settings.HooksAddr = ""
+	} else if !loopbackAddr(settings.HooksAddr) {
+		return PublicEndpoints{}, fmt.Errorf("HELM_PUBLIC_HOOKS_ADDR must be a loopback host:port or off")
+	}
+	parsed, err := url.Parse(settings.CloudflareAPIBase)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && !(parsed.Scheme == "http" && loopbackAddr(parsed.Host))) {
+		return PublicEndpoints{}, fmt.Errorf("HELM_CLOUDFLARE_API_BASE must be an https URL (or loopback http for tests)")
+	}
+	if strings.ContainsAny(settings.CloudflaredBinary, "\r\n\x00") {
+		return PublicEndpoints{}, fmt.Errorf("HELM_CLOUDFLARED_BINARY contains invalid characters")
+	}
+	return settings, nil
 }

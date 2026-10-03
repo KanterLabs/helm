@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Deterministic Cloudflare v4 API fixture for public-endpoint E2E tests.
+
+Usage: fake-cloudflare PORT TOKEN ZONELESS_TOKEN
+TOKEN sees zone example.test (account acct-1); ZONELESS_TOKEN sees no zones.
+GET /__state (no auth) returns everything created, for test assertions.
+"""
+import json
+import secrets
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+PORT, TOKEN, ZONELESS = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+ZONE = {"id": "zone-1", "name": "example.test", "account": {"id": "acct-1"}}
+lock = threading.Lock()
+state = {"tunnels": {}, "configs": {}, "dns": {}, "run_tokens": {}, "deleted_tunnels": [], "deleted_dns": [], "counter": 0}
+
+
+def next_id(prefix):
+    state["counter"] += 1
+    return f"{prefix}-{state['counter']}"
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def reply(self, status, result=None, errors=None):
+        body = json.dumps({"success": not errors, "errors": errors or [], "messages": [], "result": result}).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def body(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(length) or b"{}") if length else {}
+
+    def handle_any(self, method):
+        url = urlparse(self.path)
+        if url.path == "/__state" and method == "GET":
+            with lock:
+                return self.reply(200, state)
+        token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
+        if token not in (TOKEN, ZONELESS):
+            return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+        parts = [part for part in url.path.removeprefix("/client/v4").split("/") if part]
+        query = parse_qs(url.query)
+        with lock:
+            if parts == ["zones"] and method == "GET":
+                name = (query.get("name") or [""])[0]
+                return self.reply(200, [ZONE] if token == TOKEN and name == ZONE["name"] else [])
+            if parts[:2] == ["accounts", "acct-1"] and len(parts) >= 3 and parts[2] == "cfd_tunnel":
+                if len(parts) == 3 and method == "POST":
+                    tunnel = {"id": next_id("tun"), **self.body()}
+                    state["tunnels"][tunnel["id"]] = tunnel
+                    return self.reply(200, tunnel)
+                tunnel_id = parts[3]
+                if tunnel_id not in state["tunnels"]:
+                    return self.reply(404, errors=[{"code": 1003, "message": "tunnel not found"}])
+                if parts[4:] == ["token"] and method == "GET":
+                    run_token = f"run-{tunnel_id}-{secrets.token_hex(16)}"
+                    state["run_tokens"][tunnel_id] = run_token
+                    return self.reply(200, run_token)
+                if parts[4:] == ["configurations"] and method == "PUT":
+                    state["configs"][tunnel_id] = self.body()
+                    return self.reply(200, {})
+                if parts[4:] == ["connections"] and method == "DELETE":
+                    return self.reply(200, {})
+                if parts[4:] == [] and method == "DELETE":
+                    state["tunnels"].pop(tunnel_id)
+                    state["deleted_tunnels"].append(tunnel_id)
+                    return self.reply(200, {"id": tunnel_id})
+            if parts[:2] == ["zones", "zone-1"] and len(parts) >= 3 and parts[2] == "dns_records":
+                if token != TOKEN:
+                    return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+                if len(parts) == 3 and method == "GET":
+                    name = (query.get("name") or [""])[0]
+                    return self.reply(200, [record for record in state["dns"].values() if record["name"] == name])
+                if len(parts) == 3 and method == "POST":
+                    record = {"id": next_id("dns"), **self.body()}
+                    state["dns"][record["id"]] = record
+                    return self.reply(200, record)
+                if len(parts) == 4 and method == "DELETE":
+                    if parts[3] not in state["dns"]:
+                        return self.reply(404, errors=[{"code": 81044, "message": "Record does not exist."}])
+                    state["dns"].pop(parts[3])
+                    state["deleted_dns"].append(parts[3])
+                    return self.reply(200, {"id": parts[3]})
+        return self.reply(404, errors=[{"code": 7003, "message": f"no route for {method} {url.path}"}])
+
+    def do_GET(self):
+        self.handle_any("GET")
+
+    def do_POST(self):
+        self.handle_any("POST")
+
+    def do_PUT(self):
+        self.handle_any("PUT")
+
+    def do_DELETE(self):
+        self.handle_any("DELETE")
+
+
+ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

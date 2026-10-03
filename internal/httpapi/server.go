@@ -26,6 +26,7 @@ import (
 	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
+	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 	"github.com/KanterLabs/helm/internal/webassets"
 )
@@ -38,9 +39,12 @@ type Server struct {
 	// BetaSwitch is an injected client for the root-owned beta switch broker.
 	// The HTTP layer never invokes deployment commands or accesses release
 	// paths directly.
-	BetaSwitch     betaswitch.Client
-	idemMu         sync.Mutex
-	betaSwitchIdem map[string]betaSwitchReplay
+	BetaSwitch betaswitch.Client
+	// PublicEndpoints provisions and runs the optional Cloudflare tunnel
+	// that exposes webhook routes publicly; nil when not configured.
+	PublicEndpoints *publicendpoint.Manager
+	idemMu          sync.Mutex
+	betaSwitchIdem  map[string]betaSwitchReplay
 	// mutationLimiter is initialized by New and is intentionally process-local.
 	// Persistent agent accounting lives in store so a restart cannot reset the
 	// actor's resource budget.
@@ -655,6 +659,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.tickets(w, r, identity)
 		case "ticket-webhooks":
 			s.ticketWebhooks(w, r, identity)
+		case "public-endpoints":
+			s.publicEndpoints(w, r, identity)
 		case "sidebar-counts":
 			s.sidebarCounts(w, r, identity)
 		case "project-intelligence":
@@ -684,6 +690,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 	}
 	if len(parts) >= 3 && parts[0] == "admin" && parts[1] == "beta" {
 		s.betaSwitchRoute(w, r, identity, parts[2:])
+		return
+	}
+	if parts[0] == "public-endpoints" && len(parts) == 2 {
+		s.publicEndpoint(w, r, identity, parts[1])
 		return
 	}
 	if parts[0] == "ticket-webhooks" && (len(parts) == 2 || len(parts) == 3) {

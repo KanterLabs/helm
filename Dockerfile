@@ -24,6 +24,22 @@ RUN npm install --global --ignore-scripts "@openai/codex@${CODEX_VERSION}" \
     && test -n "$native" \
     && install -D -m 0755 "$native" /out/codex
 
+# cloudflared runs the optional public webhook endpoint (Cloudflare Tunnel).
+# The release binary is static; its SHA-256 is pinned per architecture from
+# the upstream release notes.
+FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS cloudflared
+
+ARG TARGETARCH=amd64
+ARG CLOUDFLARED_VERSION=2026.9.3
+RUN case "$TARGETARCH" in \
+      amd64) sum=77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2 ;; \
+      arm64) sum=aaeb2d7d0da3614634c7e03ab13487a1522c2e79165ed2929cfe23d5e95b326d ;; \
+      *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/cloudflared "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${TARGETARCH}" \
+    && echo "${sum}  /tmp/cloudflared" | sha256sum -c - \
+    && install -D -m 0755 /tmp/cloudflared /out/cloudflared
+
 FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build
 
 WORKDIR /src
@@ -48,6 +64,7 @@ FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build --chown=65532:65532 /out/helm /usr/local/bin/helm
 COPY --from=codex --chown=65532:65532 /out/codex /usr/local/bin/codex
+COPY --from=cloudflared --chown=65532:65532 /out/cloudflared /usr/local/bin/cloudflared
 COPY --from=build --chown=65532:65532 /out/data /data
 
 WORKDIR /data
@@ -56,6 +73,7 @@ EXPOSE 8080
 ENV HELM_ADDR=0.0.0.0:8080 \
     HELM_DB=/data/roadmap.db \
     HELM_CODEX_BINARY=/usr/local/bin/codex \
+    HELM_CLOUDFLARED_BINARY=/usr/local/bin/cloudflared \
     HELM_CODEX_HOME_ROOT=/data/codex-users \
     HELM_PUBLIC_ORIGIN=http://localhost:8080 \
     HELM_ADMIN_EMAIL= \

@@ -66,6 +66,8 @@ type Config struct {
 	DemoSeed                bool
 	// CoolifyIntake enables the Coolify webhook alert route when configured.
 	CoolifyIntake CoolifyIntake
+	// PublicEndpoints configures Cloudflare-tunnel public webhook endpoints.
+	PublicEndpoints PublicEndpoints
 }
 
 func FromEnv() (Config, error) {
@@ -391,6 +393,9 @@ func FromEnv() (Config, error) {
 		}
 	}
 	if c.CoolifyIntake, err = coolifyIntakeFromEnv(); err != nil {
+		return Config{}, err
+	}
+	if c.PublicEndpoints, err = publicEndpointsFromEnv(); err != nil {
 		return Config{}, err
 	}
 	if c.BetaSwitchEnabled {

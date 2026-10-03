@@ -62,6 +62,8 @@ import {
   type TaskReorderInput,
   type TaskPatch,
   type TicketCollection,
+  type PublicEndpoint,
+  type PublicEndpointView,
   type TicketWebhook,
   type TicketWebhookFormat,
   type TicketWebhookSecret,
@@ -602,6 +604,12 @@ export const api = {
     request<TicketWebhookSecret>(`/ticket-webhooks/${encodeURIComponent(webhook)}/rotate`, { method: 'POST' }),
   disableTicketWebhook: (webhook: string) =>
     request<void>(`/ticket-webhooks/${encodeURIComponent(webhook)}`, { method: 'DELETE' }),
+  getPublicEndpoints: () => request<PublicEndpointView>('/public-endpoints'),
+  /** The Cloudflare API token is sent once and never stored by Helm. */
+  createPublicEndpoint: (input: { hostname: string; api_token: string }) =>
+    request<PublicEndpointView>('/public-endpoints', { method: 'POST', body: { provider: 'cloudflare', ...input } }),
+  disablePublicEndpoint: (endpoint: string, apiToken = '') =>
+    request<{ endpoint: PublicEndpoint; warning?: string }>(`/public-endpoints/${encodeURIComponent(endpoint)}`, { method: 'DELETE', ...(apiToken ? { body: { api_token: apiToken } } : {}) }),
   getTask: (task: string) => request<Task>(`/tasks/${encodeURIComponent(task)}`),
   patchTask: (task: string, input: TaskPatch, version: number) =>
     request<Task>(`/tasks/${encodeURIComponent(task)}`, {

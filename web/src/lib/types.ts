@@ -624,6 +624,30 @@ export interface TicketWebhookSecret {
   url: string;
 }
 
+export interface PublicEndpoint {
+  id: string;
+  provider: 'cloudflare';
+  hostname: string;
+  account_id: string;
+  zone_id: string;
+  tunnel_id: string;
+  dns_record_id: string;
+  status: 'active' | 'disabled';
+  cleanup_pending: boolean;
+  created_at: string;
+  disabled_at?: string;
+}
+
+export interface PublicEndpointView {
+  active?: PublicEndpoint;
+  connector: { state: 'stopped' | 'starting' | 'connected' | 'restarting' | 'error'; message?: string; started_at?: string; restarts: number };
+  public_hook_base?: string;
+  history: PublicEndpoint[];
+  required_permissions: string[];
+  exposed_paths: string;
+  connector_available: boolean;
+}
+
 export interface TicketCollection {
   data: Task[];
   next_cursor: string;

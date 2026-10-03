@@ -1,0 +1,137 @@
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+
+// Proves the "Public endpoint failure contract" in docs/E2E_TESTING.md
+// against a real Helm process with the fake Cloudflare API and cloudflared.
+
+type View = {
+  active?: { id: string; hostname: string; tunnel_id: string; dns_record_id: string };
+  connector: { state: string };
+  public_hook_base?: string;
+  history: { id: string; status: string }[];
+  connector_available: boolean;
+};
+type FakeState = {
+  tunnels: Record<string, { id: string; name: string }>;
+  configs: Record<string, { config: { ingress: Record<string, string>[] } }>;
+  dns: Record<string, { id: string; type: string; name: string; content: string; proxied: boolean }>;
+  run_tokens: Record<string, string>;
+  deleted_tunnels: string[];
+  deleted_dns: string[];
+};
+
+const baseURL = process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080';
+const origin = new URL(baseURL).origin;
+const fakeCF = process.env.HELM_E2E_FAKE_CF_URL || '';
+const cfToken = process.env.HELM_E2E_FAKE_CF_TOKEN || '';
+const zonelessToken = process.env.HELM_E2E_FAKE_CF_ZONELESS_TOKEN || '';
+const hooksURL = process.env.HELM_E2E_HOOKS_URL || '';
+const cloudflaredLog = process.env.HELM_E2E_CLOUDFLARED_LOG || '';
+
+const jsonHeaders = { Origin: origin, 'Content-Type': 'application/json' };
+
+async function json<T>(response: APIResponse, description: string): Promise<T> {
+  expect(response.ok(), `${description} returned HTTP ${response.status()}: ${response.ok() ? '' : await response.text()}`).toBeTruthy();
+  return await response.json() as T;
+}
+
+async function fakeState(request: APIRequestContext): Promise<FakeState> {
+  return (await json<{ result: FakeState }>(await request.get(`${fakeCF}/__state`), 'fake state')).result;
+}
+
+async function view(request: APIRequestContext): Promise<View> {
+  return json<View>(await request.get('/api/v1/public-endpoints'), 'public endpoints');
+}
+
+test('Admins publish only webhook routes through a Cloudflare tunnel without storing the token', async ({ page, request }, testInfo) => {
+  test.setTimeout(120_000);
+  for (const [name, value] of Object.entries({ fakeCF, cfToken, zonelessToken, hooksURL, cloudflaredLog })) expect(value, `run.sh must provide ${name}`).toBeTruthy();
+  const runID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const hostname = `hooks-${runID}.example.test`;
+
+  // A retry against the same server starts from no active endpoint.
+  const initial = await view(request);
+  expect(initial.connector_available, 'the cloudflared fixture must be runnable').toBe(true);
+  if (initial.active) await json(await request.delete(`/api/v1/public-endpoints/${initial.active.id}`, { headers: jsonHeaders, data: { api_token: cfToken } }), 'reset');
+
+  // Agent tokens cannot touch public endpoints.
+  const project = await json<{ id: string; key: string }>(await request.post('/api/v1/projects', { data: { key: `PE${runID}`.toUpperCase().slice(0, 16), name: `Public endpoints ${runID}` }, headers: { ...jsonHeaders, 'Idempotency-Key': crypto.randomUUID() } }), 'project');
+  const agent = await json<{ id: string }>(await request.post('/api/v1/agents', { data: { name: `Endpoint probe ${runID}`, project_ids: [project.id] }, headers: { ...jsonHeaders, 'Idempotency-Key': crypto.randomUUID() } }), 'agent');
+  const issued = await json<{ token: string }>(await request.post(`/api/v1/agents/${agent.id}/tokens`, { data: { name: 'probe', scopes: ['tasks:read', 'tasks:write'], project_ids: [project.id] }, headers: jsonHeaders }), 'token');
+  const bearer = { Authorization: `Bearer ${issued.token}`, 'Content-Type': 'application/json' };
+  expect((await request.get('/api/v1/public-endpoints', { headers: bearer })).status()).toBe(403);
+  expect((await request.post('/api/v1/public-endpoints', { headers: bearer, data: { hostname, api_token: cfToken } })).status()).toBe(403);
+  expect((await request.delete('/api/v1/public-endpoints/x', { headers: bearer })).status()).toBe(403);
+
+  await page.goto(`/tickets?project=${project.key}`);
+  await page.getByRole('button', { name: /Connect apps/ }).click();
+  const card = page.locator('.public-endpoint');
+  await expect(card.getByRole('heading', { name: 'Public URL' })).toBeVisible();
+
+  // A token without zone access and an apex hostname fail cleanly, creating nothing.
+  const tunnelsBefore = Object.keys((await fakeState(request)).tunnels).length;
+  await card.getByLabel('Public hostname').fill(hostname);
+  await card.getByLabel('Cloudflare API token').fill(zonelessToken);
+  await card.getByRole('button', { name: 'Create public URL' }).click();
+  await expect(card.getByRole('alert')).toContainText('cannot see a Cloudflare zone');
+  await card.getByLabel('Public hostname').fill('example.test');
+  await card.getByLabel('Cloudflare API token').fill(cfToken);
+  await card.getByRole('button', { name: 'Create public URL' }).click();
+  await expect(card.getByRole('alert')).toContainText('hostname must be a subdomain');
+  expect(Object.keys((await fakeState(request)).tunnels).length).toBe(tunnelsBefore);
+
+  // A valid token provisions a webhook-only tunnel and starts the connector.
+  await card.getByLabel('Public hostname').fill(hostname);
+  await card.getByLabel('Cloudflare API token').fill(cfToken);
+  await card.getByRole('button', { name: 'Create public URL' }).click();
+  await expect(card.locator('[data-public-hostname]')).toHaveText(`https://${hostname}`);
+  await expect(card.locator('[data-connector-state]')).toHaveText('Connected', { timeout: 15_000 });
+  const active = (await view(request)).active!;
+  const state = await fakeState(request);
+  expect(state.tunnels[active.tunnel_id].name).toBe(`helm-${hostname}`);
+  expect(state.configs[active.tunnel_id].config.ingress).toEqual([
+    { hostname, path: '^/api/v1/(hooks/tickets|intake/coolify)/', service: hooksURL.replace(/\/$/, '') },
+    { service: 'http_status:404' }
+  ]);
+  expect(state.dns[active.dns_record_id]).toMatchObject({ type: 'CNAME', name: hostname, content: `${active.tunnel_id}.cfargotunnel.com`, proxied: true });
+  const runToken = state.run_tokens[active.tunnel_id];
+  const launches = readFileSync(cloudflaredLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { argv: string; token_env: string; token_sha256: string });
+  const launch = launches[launches.length - 1];
+  expect(launch).toEqual({ argv: 'tunnel --no-autoupdate run', token_env: 'yes', token_sha256: createHash('sha256').update(runToken).digest('hex') });
+  await testInfo.attach('public-url-active.png', { contentType: 'image/png', body: await card.screenshot() });
+
+  // The hooks listener serves only webhook routes.
+  for (const path of ['/', '/api/v1', '/api/v1/projects', '/tickets', '/api/v1/auth/me']) {
+    expect((await request.get(`${hooksURL}${path}`)).status(), path).toBe(404);
+  }
+  expect((await request.get(`${hooksURL}/healthz`)).status()).toBe(200);
+  const webhook = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Public ${runID}`, project: project.key }, headers: jsonHeaders }), 'webhook');
+  expect(webhook.url).toMatch(new RegExp(`^https://${hostname.replace(/\./g, '\\.')}/api/v1/hooks/tickets/hk_`));
+  const viaTunnel = await request.post(`${hooksURL}${new URL(webhook.url).pathname}`, { data: { title: `Through the tunnel ${runID}` }, headers: { 'Content-Type': 'application/json' } });
+  expect(viaTunnel.status()).toBe(201);
+  expect((await request.post(`${hooksURL}/api/v1/hooks/tickets/${'x'.repeat(40)}`, { data: { title: 'x' }, headers: { 'Content-Type': 'application/json' } })).status()).toBe(404);
+
+  // The Cloudflare API token is not in responses, the database or the log.
+  expect(JSON.stringify(await view(request))).not.toContain(cfToken);
+  const dbPath = process.env.HELM_E2E_DB as string;
+  for (const file of [dbPath, `${dbPath}-wal`]) {
+    if (existsSync(file)) expect(readFileSync(file).includes(Buffer.from(cfToken))).toBe(false);
+  }
+  expect(readFileSync(process.env.HELM_E2E_SERVER_LOG as string, 'utf8')).not.toContain(cfToken);
+
+  // Disabling with the token deletes DNS and tunnel and falls back to the origin.
+  await card.getByRole('button', { name: 'Remove public URL…' }).click();
+  await card.locator('input[type="password"]').fill(cfToken);
+  await card.getByRole('button', { name: 'Remove public URL' }).click();
+  await expect(card.getByRole('status')).toContainText(`https://${hostname} removed`);
+  const after = await fakeState(request);
+  expect(after.deleted_dns).toContain(active.dns_record_id);
+  expect(after.deleted_tunnels).toContain(active.tunnel_id);
+  const finalView = await view(request);
+  expect(finalView.active).toBeUndefined();
+  expect(finalView.connector.state).toBe('stopped');
+  const fallback = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Private ${runID}`, project: project.key }, headers: jsonHeaders }), 'fallback webhook');
+  expect(fallback.url.startsWith(`${origin}/api/v1/hooks/tickets/`)).toBe(true);
+  await testInfo.attach('public-url-setup.png', { contentType: 'image/png', body: await card.screenshot() });
+});
