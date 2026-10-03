@@ -81,6 +81,8 @@ tags:
     description: Agent identities and scoped API tokens
   - name: Administration
     description: Human-only administrative controls, including the private beta deployment switcher
+  - name: Tickets
+    description: Human ticket queues over ordinary tasks with durable ticket membership
   - name: Alert intake
     description: Operator-configured external alert webhooks that create assigned Backlog tasks
 paths:
@@ -1799,6 +1801,68 @@ paths:
               examples:
                 task:
                   $ref: '#/components/examples/TaskExample'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/projects/{project}/tickets:
+    parameters:
+      - $ref: '#/components/parameters/ProjectPath'
+    post:
+      operationId: createTicket
+      summary: Create a ticket
+      description: |
+        Creates an ordinary task in the project's Backlog column together with
+        its Tickets membership (`origin=manual`) in one transaction. Accepts
+        the task create fields except `kind` (other than `task`),
+        `column_id`, `parent_task_id`, and `release_id`, which return `400`.
+        Requires `tasks:write`.
+      tags:
+        - Tickets
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreateRequest'
+            example:
+              title: Rotate the staging TLS certificate
+              description: Renewal failed twice this week.
+              priority: high
+              assignee_id: human_shane
+      responses:
+        '201':
+          description: Ticket created as a Backlog task with `ticket` membership.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestID'
+            X-Roadmap-Revision:
+              $ref: '#/components/headers/XRoadmapRevision'
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskMutationResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5475,6 +5539,61 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/tickets:
+    get:
+      operationId: listTickets
+      summary: List tickets by queue
+      description: |
+        Returns one page of Tickets workspace members (tasks with ticket
+        membership) and server-authoritative counts for every queue over the
+        same project and search scope. Queue status derives only from the
+        column semantic state: `needs_triage`=backlog, `ready`=ready,
+        `in_progress`=active, `waiting`=blocked, `completed`=completed.
+        `open` (default) is every unfinished ticket and `mine` is unfinished
+        tickets assigned to the caller; claims and agent progress never affect
+        either. Ordering is priority, then ticket creation time, then ID.
+        `q` matches title, description, or an exact task key. Scoped bearer
+        tokens must select a `project`. Requires `tasks:read`.
+      tags:
+        - Tickets
+      parameters:
+        - name: queue
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, mine, needs_triage, ready, in_progress, waiting, completed]
+        - name: project
+          in: query
+          required: false
+          description: Restrict to a permitted project ID, key, or slug.
+          schema:
+            $ref: '#/components/schemas/Identifier'
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Ticket page with queue counts
+          headers: *commonResponseHeaders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketCollection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/my-work:
     get:
       operationId: listMyWork
@@ -7704,6 +7823,48 @@ components:
               completions: {type: integer, minimum: 0}
               last_event_at: {type: [string, 'null'], format: date-time}
               token_last_used_at: {type: [string, 'null'], format: date-time}
+    TicketMembership:
+      type: object
+      description: Tickets workspace membership; present only on ticket tasks.
+      required: [origin, status, created_at]
+      properties:
+        origin:
+          type: string
+          enum: [alert, manual]
+        status:
+          type: string
+          enum: [needs_triage, ready, in_progress, waiting, completed]
+          description: Derived from the task's column semantic state.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+      additionalProperties: false
+    TicketCounts:
+      type: object
+      required: [open, mine, needs_triage, ready, in_progress, waiting, completed]
+      properties:
+        open: { type: integer, minimum: 0 }
+        mine: { type: integer, minimum: 0 }
+        needs_triage: { type: integer, minimum: 0 }
+        ready: { type: integer, minimum: 0 }
+        in_progress: { type: integer, minimum: 0 }
+        waiting: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+      additionalProperties: false
+    TicketCollection:
+      type: object
+      required: [data, next_cursor, counts]
+      properties:
+        data:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/Task'
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next page; empty when exhausted.
+        counts:
+          $ref: '#/components/schemas/TicketCounts'
+      additionalProperties: false
     AlertIntakeResult:
       type: object
       required:
@@ -10214,6 +10375,9 @@ components:
         alert_source:
           $ref: '#/components/schemas/AlertSource'
           description: External alert evidence; omitted for tasks not created by alert intake.
+        ticket:
+          $ref: '#/components/schemas/TicketMembership'
+          description: Tickets workspace membership; omitted for ordinary tasks.
       additionalProperties: false
 
     AgentWork:

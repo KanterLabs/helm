@@ -246,6 +246,9 @@ func insertIntakeTaskTx(ctx context.Context, tx *sql.Tx, integration, actorID st
 	if err := txExecTaskCreate(ctx, tx, id, project.ID, number, columnID, defaultTaskKind, alert.Title, description, alert.Priority, position, assigneeID, "", nil, created, "", ""); err != nil {
 		return "", 0, err
 	}
+	if err := insertTicketTx(ctx, tx, id, "alert", created); err != nil {
+		return "", 0, err
+	}
 	// task.created with an assignee produces exactly one assignment
 	// notification through the recipient's normal preferences.
 	if _, err := insertEvent(ctx, tx, "task.created", actorID, project.ID, id, map[string]any{"number": number, "source": integration}); err != nil {

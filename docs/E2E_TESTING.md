@@ -83,3 +83,22 @@ the same database starts from a fresh condition.
 | Misconfigured routing silently drops alerts | A missing target project returns `503` with no task. |
 | The secret leaks into logs or responses | The retained server log and every intake response omit the secret. |
 | Evidence is invisible to the human | The task drawer shows the Alert source panel with server, installed and offered versions and repeat count, and Activity shows the repeat alert. |
+
+## Tickets workspace failure contract
+
+The Tickets workflow must prove these failure cases through a real Helm
+process, real database and browser. Fixtures use run-unique projects so a
+retry against the same database starts clean.
+
+| Failure | Observable proof |
+| --- | --- |
+| Every task leaks into Tickets, or a ticket loses membership | An ordinary task in the same project never appears in `/api/v1/tickets` or the UI; a ticket stays listed after its labels change. |
+| Alert intake and manual creation produce different kinds of ticket | A Coolify alert and a `New ticket` both appear as `kind=task` tickets with origins `alert` and `manual`, in Backlog, assigned, unclaimed. |
+| Queue counts are inferred from the loaded page | With more tickets than one page, server counts for each queue match the full filtered membership while the page returns `limit` rows plus a cursor. |
+| Status comes from agent progress or claims | Each queue maps to the column semantic state only (`backlog`, `ready`, `active`, `blocked`, `completed`); `My open` uses assignee only. |
+| A triage action applies partially or over a newer edit | Accept moves to Ready; a stale version returns `409`, the UI shows a conflict, reloads the ticket, and applies nothing. |
+| Waiting loses its reason, or start/resume creates an agent claim | Waiting records the human reason in Activity; Start and Resume never set `claimed_by` or `agent_work`. |
+| Selection, filters or queue are lost on reload or Back | The URL carries queue, project, search and ticket; reload restores them, and phone Back returns from detail to the filtered list. |
+| A delayed response for ticket A renders into selected ticket B | Switching tickets while the first detail load is delayed leaves ticket B's header and notes visible. |
+| Keyboard users cannot work the queue | Arrow keys move through rows, Enter opens a ticket, `/` focuses search outside text inputs and does nothing while typing. |
+| Notes are lost or trigger hidden side effects | An internal note posts as an ordinary task comment and shows in the ticket immediately and after reload. |

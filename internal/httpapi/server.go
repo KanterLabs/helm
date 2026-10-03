@@ -647,6 +647,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.roadmap(w, r, identity, "", false)
 		case "my-work":
 			s.myWork(w, r, identity)
+		case "tickets":
+			s.tickets(w, r, identity)
 		case "sidebar-counts":
 			s.sidebarCounts(w, r, identity)
 		case "project-intelligence":
@@ -697,6 +699,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 				s.taskContext(w, r, identity, parts[1])
 			case "task-draft":
 				s.taskDraft(w, r, identity, parts[1])
+			case "tickets":
+				s.projectTickets(w, r, identity, parts[1])
 			case "timeline":
 				s.projectTimeline(w, r, identity, parts[1])
 			case "columns":

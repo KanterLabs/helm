@@ -218,6 +218,12 @@ func validPriority(value string) bool {
 }
 
 func (s *Store) CreateTask(ctx context.Context, projectID string, input TaskInput, actorID string) (Task, error) {
+	return s.createTask(ctx, projectID, input, actorID, nil)
+}
+
+// createTask runs afterInsert inside the creation transaction so dependent
+// rows (such as ticket membership) commit atomically with the task.
+func (s *Store) createTask(ctx context.Context, projectID string, input TaskInput, actorID string, afterInsert func(*sql.Tx, string) error) (Task, error) {
 	validated, err := validateTaskInput(input, true)
 	if err != nil {
 		return Task{}, err
@@ -355,6 +361,11 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, input TaskInpu
 		}
 		if kind == bugKind {
 			if err := insertBugDetailsTx(ctx, tx, id, actorID, *validated.Bug); err != nil {
+				return err
+			}
+		}
+		if afterInsert != nil {
+			if err := afterInsert(tx, id); err != nil {
 				return err
 			}
 		}
@@ -524,6 +535,9 @@ func (s *Store) enrichTaskAt(ctx context.Context, task *Task, at time.Time) erro
 	}
 	task.AgentWork = work
 	if err := s.populateAlertSource(ctx, task); err != nil {
+		return err
+	}
+	if err := s.populateTicket(ctx, task); err != nil {
 		return err
 	}
 	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM comments WHERE task_id=? AND deleted_at IS NULL`, task.ID).Scan(&task.CommentCount); err != nil {

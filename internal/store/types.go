@@ -182,6 +182,8 @@ type Task struct {
 	// AlertSource is read-only external alert evidence for tasks created by
 	// alert intake; omitted for all other tasks.
 	AlertSource *AlertSource `json:"alert_source,omitempty"`
+	// Ticket is present only for Tickets workspace members.
+	Ticket *TicketMembership `json:"ticket,omitempty"`
 }
 
 // ReleaseReference is the compact release relation embedded on task reads.

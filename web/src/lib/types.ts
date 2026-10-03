@@ -584,6 +584,25 @@ export interface Task {
   hierarchy_summary?: HierarchySummary;
   /** Read-only external alert evidence; omitted for ordinary tasks. */
   alert_source?: AlertSource;
+  /** Tickets workspace membership; omitted for ordinary tasks. */
+  ticket?: TicketMembership;
+}
+
+export type TicketStatus = 'needs_triage' | 'ready' | 'in_progress' | 'waiting' | 'completed';
+export type TicketQueue = 'open' | 'mine' | TicketStatus;
+
+export interface TicketMembership {
+  origin: 'alert' | 'manual';
+  status: TicketStatus;
+  created_at: string;
+}
+
+export type TicketCounts = Record<TicketQueue, number>;
+
+export interface TicketCollection {
+  data: Task[];
+  next_cursor: string;
+  counts: TicketCounts;
 }
 
 export interface AlertSource {

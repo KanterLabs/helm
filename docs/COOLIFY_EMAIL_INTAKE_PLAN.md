@@ -1,9 +1,39 @@
 # Coolify email intake for Helm
 
-Status: v1 implemented as a Coolify **webhook** intake, 2026-10-02. Tracking:
-TC-255. The mailbox connector, Tickets workspace, intake settings card, mutes
-and backfill below remain proposed and are deferred until real alert volume
-justifies them.
+Status: v1 implemented as a Coolify **webhook** intake (2026-10-02) plus the
+Tickets workspace (2026-10-03). Tracking: TC-255. The mailbox connector,
+intake settings card, mutes and backfill below remain proposed and are
+deferred until real alert volume justifies them.
+
+## Implemented: Tickets workspace
+
+`/tickets` is a dedicated triage view. A desktop list/detail split becomes
+separate list and detail screens on phones.
+
+- Membership is the `tickets` table (task ID, origin `alert` or `manual`).
+  It is separate from labels and kind, and is written in the same transaction
+  as the task, both by alert intake and by **New ticket**
+  (`POST /api/v1/projects/{project}/tickets`). Existing alert tasks were
+  backfilled.
+- `GET /api/v1/tickets` returns one page in priority-then-oldest order,
+  together with server counts for every queue over the same project and
+  search scope:
+
+  | Queue | Contents |
+  | --- | --- |
+  | All open | Every unfinished ticket. |
+  | My open | Unfinished tickets assigned to the caller (assignee only). |
+  | Needs triage, Ready, In progress, Waiting, Completed | Derived from the column semantic state only. |
+
+- Triage actions (Accept, Start, Waiting with a reason, Resume, Complete,
+  Reopen, priority, assign/unassign) use the existing guarded task APIs with
+  the task version. A stale version shows a conflict, reloads the ticket and
+  applies nothing. No action claims work or creates agent progress.
+- Queue, project, search and selected ticket live in the URL. Arrow keys,
+  Enter and `/` drive the queue. Notes are ordinary task comments. **Open
+  full task** opens the shared board drawer.
+- Not yet: a human assignee picker (needs a people endpoint) and
+  intake-review items for unknown alert formats.
 
 ## Implemented v1: webhook intake
 

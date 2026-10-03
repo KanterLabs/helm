@@ -268,6 +268,7 @@
   import TaskDependencies from './lib/components/TaskDependencies.svelte';
   import TaskDependencyStatus from './lib/components/TaskDependencyStatus.svelte';
   import AlertSourcePanel from './lib/components/AlertSourcePanel.svelte';
+  import TicketsWorkspace from './lib/components/TicketsWorkspace.svelte';
   import TaskHierarchy from './lib/components/TaskHierarchy.svelte';
   import TaskShareActions from './lib/components/TaskShareActions.svelte';
   import TaskWatchToggle from './lib/components/TaskWatchToggle.svelte';
@@ -316,7 +317,8 @@
   } from './lib/boardOrdering';
   import { buildTaskShareUrl } from './lib/taskShare';
 
-  type View = CommandView | 'releases' | 'admin';
+  type View = CommandView | 'releases' | 'admin' | 'tickets';
+  let ticketsWorkspace: TicketsWorkspace | null = null;
   type AuthView = 'login' | 'setup' | 'tailnet';
   type ToastKind = 'success' | 'error' | 'info';
   type ToastAction = {
@@ -2783,6 +2785,9 @@
       } else if (/^\/admin\/?$/.test(path)) {
         roadmapProjectId = undefined;
         view = 'admin';
+      } else if (/^\/tickets\/?$/.test(path)) {
+        roadmapProjectId = undefined;
+        view = 'tickets';
       } else if (/^\/settings\/?$/.test(path)) {
         roadmapProjectId = undefined;
         view = 'settings';
@@ -4445,6 +4450,9 @@
       await loadIssues();
     } else if (next === 'admin') {
       if (push) navigate('/admin');
+    } else if (next === 'tickets') {
+      roadmapProjectId = undefined;
+      if (push) navigate('/tickets');
     } else if (next === 'roadmap') {
       roadmapProjectId = undefined;
       if (push) navigate('/roadmap');
@@ -4607,6 +4615,7 @@
     else if (/^\/roadmap\/?$/.test(window.location.pathname)) void setView('roadmap', false);
     else if (/^\/settings\/?$/.test(window.location.pathname)) void setView('settings', false);
     else if (/^\/admin\/?$/.test(window.location.pathname)) void setView('admin', false);
+    else if (/^\/tickets\/?$/.test(window.location.pathname)) void setView('tickets', false);
     else if (/^\/?$/.test(window.location.pathname)) handleRootRoute();
   }
 
@@ -4813,7 +4822,7 @@
       && !revealedToken
       && !drawerTask
     ) {
-      const searchInput = view === 'issues' ? issueSearchInput : view === 'board' ? boardSearchInput : null;
+      const searchInput = view === 'issues' ? issueSearchInput : view === 'board' ? boardSearchInput : view === 'tickets' ? ticketsWorkspace?.searchElement() || null : null;
       if (searchInput) {
         event.preventDefault();
         searchInput.focus();
@@ -6497,6 +6506,8 @@
       }
     } else if (/^\/admin\/?$/.test(path)) {
       view = 'admin';
+    } else if (/^\/tickets\/?$/.test(path)) {
+      view = 'tickets';
     } else if (/^\/settings\/?$/.test(path)) {
       view = 'settings';
     } else if (/^\/p\/[^/]+\/timeline\/?$/.test(path)) {
@@ -7401,6 +7412,7 @@
 
       <nav class="nav-links" aria-label="Workspace views">
         <button class:active={view === 'issues'} type="button" aria-label="Issues" on:click={() => setView('issues')}><span class="nav-icon">⚠</span><span>Issues</span>{#if sidebarCountsStatus === 'known' && sidebarCounts}<span class="nav-count">{sidebarCounts.issues}</span>{/if}</button>
+        <button class:active={view === 'tickets'} type="button" aria-label="Tickets" on:click={() => setView('tickets')}><span class="nav-icon">✉</span><span>Tickets</span></button>
         <button class:active={view === 'my-work'} type="button" aria-label="My work" on:click={() => setView('my-work')}><span class="nav-icon">◌</span><span>My work</span>{#if sidebarCountsStatus === 'known' && sidebarCounts}<span class="nav-count">{sidebarCounts.my_work}</span>{/if}</button>
         <button class:active={view === 'roadmap'} type="button" aria-label="Roadmap" on:click={() => setView('roadmap')}><span class="nav-icon">◒</span><span>Roadmap</span></button>
       </nav>
@@ -7542,6 +7554,7 @@
       <nav class="mobile-nav" aria-label="Primary navigation">
         <button class:active={view === 'board' || view === 'timeline'} type="button" aria-label="Board" aria-current={view === 'board' || view === 'timeline' ? 'page' : undefined} on:click={() => setView('board')}><span class="mobile-nav-icon" aria-hidden="true">▦</span><span>Board</span></button>
         <button class:active={view === 'issues'} type="button" aria-label="Issues" aria-current={view === 'issues' ? 'page' : undefined} on:click={() => setView('issues')}><span class="mobile-nav-icon" aria-hidden="true">⚠</span><span>Issues</span></button>
+        <button class:active={view === 'tickets'} type="button" aria-label="Tickets" aria-current={view === 'tickets' ? 'page' : undefined} on:click={() => setView('tickets')}><span class="mobile-nav-icon" aria-hidden="true">✉</span><span>Tickets</span></button>
         <button class:active={view === 'my-work'} type="button" aria-label="My work" aria-current={view === 'my-work' ? 'page' : undefined} on:click={() => setView('my-work')}><span class="mobile-nav-icon" aria-hidden="true">◌</span><span>My Work</span></button>
         <button class:active={view === 'roadmap'} type="button" aria-label="Roadmap" aria-current={view === 'roadmap' ? 'page' : undefined} on:click={() => setView('roadmap')}><span class="mobile-nav-icon" aria-hidden="true">◒</span><span>Roadmap</span></button>
         <button class:active={view === 'settings'} type="button" aria-label="Settings" aria-current={view === 'settings' ? 'page' : undefined} on:click={() => setView('settings')}><span class="mobile-nav-icon" aria-hidden="true">⚙</span><span>Settings</span></button>
@@ -7857,6 +7870,8 @@
           <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>{roadmapProject ? roadmapProject.key : 'Overview'}</span></div><h1>{roadmapProject ? `${roadmapProject.name} progress` : 'Roadmap overview'}</h1><p>{roadmapProject ? 'A focused view of delivery, deadlines, and recent activity for this project.' : 'A high-level pulse on every project and what needs attention next.'}</p></div><div class="heading-actions">{#if roadmapProject}<button class="button quiet-button" type="button" on:click={() => setView('roadmap')}>All projects</button>{:else if projectIntelligenceAnalyzing}<button class="button quiet-button" type="button" on:click={cancelProjectIntelligence}>Cancel Luna</button>{:else}<button class="button primary" type="button" on:click={analyzeProjectIntelligence}>Analyze with Luna</button>{/if}<button class="button quiet-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>↻ Refresh</button></div></section>
           {#if roadmapError}<div class="inline-alert error content-alert" role="alert"><span>!</span>{roadmapError}<button class="text-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>Retry</button></div>{/if}
           {#if roadmapLoading}<div class="roadmap-skeleton"><div></div><div></div><div></div></div>{:else}<section class="roadmap-content"><div class="roadmap-hero"><div class="hero-copy"><span class="eyebrow">Workspace pulse</span><h2>Momentum, at a glance.</h2><p>Progress is calculated from each project's semantic board state.</p></div><div class="hero-progress"><div class="progress-ring" style={`--progress: ${roadmapCompletion}%`}><span>{Math.round(roadmapCompletion)}<small>%</small></span></div><div><strong>{roadmapTotal} total tasks</strong><span>{roadmap?.completed_count ?? Math.round(roadmapTotal * roadmapCompletion / 100)} completed</span></div></div></div><div class="metric-grid"><div class="metric-card"><span class="metric-icon purple">◒</span><span class="metric-label">Completion</span><strong>{Math.round(roadmapCompletion)}%</strong><span class="metric-note">Across all projects</span></div><div class="metric-card"><span class="metric-icon red">!</span><span class="metric-label">Overdue</span><strong>{roadmap?.overdue_count ?? 0}</strong><span class="metric-note">Need attention</span></div><div class="metric-card"><span class="metric-icon amber">◷</span><span class="metric-label">Due soon</span><strong>{roadmap?.due_soon_count ?? 0}</strong><span class="metric-note">Next 7 days</span></div><div class="metric-card"><span class="metric-icon green">✓</span><span class="metric-label">Completed</span><strong>{roadmap?.completed_count ?? 0}</strong><span class="metric-note">Shipped so far</span></div></div>{#if !roadmapProject}<section class="project-intelligence-panel" aria-labelledby="project-intelligence-heading"><div class="roadmap-panel-heading"><div><h2 id="project-intelligence-heading">Smart project attention</h2><p>{projectIntelligence?.source === 'luna' ? 'Luna analysis from your last manual run.' : 'Metric-based ordering. Luna runs only when you click Analyze.'}</p></div>{#if projectIntelligence}<span class={`intelligence-source ${projectIntelligence.source}`}>{projectIntelligence.source === 'luna' ? 'Luna' : 'Metrics'}</span>{/if}</div>{#if projectIntelligenceError}<div class="inline-alert error" role="alert"><span>!</span>{projectIntelligenceError}</div>{/if}{#if projectIntelligence?.workspace_insights.length}<div class="intelligence-insights">{#each projectIntelligence.workspace_insights as insight}<article><span>{insight.kind.replaceAll('_', ' ')}</span><p>{insight.summary}</p></article>{/each}</div>{:else if projectIntelligenceLoading}<div class="roadmap-live-loading"><span class="spinner"></span>Loading metric snapshot…</div>{:else}<p class="intelligence-empty">No cross-project insight yet. Smart order still uses the deterministic metrics above.</p>{/if}</section>{/if}<RoadmapLiveWork tasks={roadmapLiveTasks} {projects} columnsByProject={roadmapLiveColumnsByProject} actors={roadmapActors} now={pulseClock} loading={roadmapLiveLoading} error={roadmapLiveError} onOpen={openRoadmapTask} onViewAll={() => setView('my-work')} /><div class="roadmap-columns"><section class="roadmap-panel project-progress-panel"><div class="panel-heading"><div><h2>Project progress</h2><p>Where each project stands today.</p></div><button class="icon-button" type="button" aria-label="Refresh progress" on:click={() => loadRoadmap(roadmapProjectId)}>↻</button></div>{#if roadmapProjectRows.length}{#each roadmapProjectRows as row}<button class="project-progress-row" type="button" on:click={() => selectProject(row.project)}><span class="project-dot" style={`--project-color: ${row.project.color || '#6d5efc'}`}>{projectInitials(row.project)}</span><span class="project-progress-name"><strong>{row.project.name}</strong><small>{row.project.key}</small></span>{#if projectOrderMode === 'smart' && projectIntelligenceById.get(row.project.id)}<span class={`attention-pill ${projectIntelligenceById.get(row.project.id)?.attention}`}>{projectAttentionLabel(projectIntelligenceById.get(row.project.id))}</span>{/if}<span class="progress-track"><span style={`width: ${row.total_tasks ? (row.completed_tasks / row.total_tasks) * 100 : 0}%; --project-color: ${row.project.color || '#6d5efc'}`}></span></span><span class="progress-number">{row.total_tasks ? Math.round((row.completed_tasks / row.total_tasks) * 100) : 0}%</span><span>→</span></button>{/each}{:else}<div class="panel-empty">Create a project to see progress here.</div>{/if}</section><section class="roadmap-panel upcoming-panel"><div class="panel-heading"><div><h2>Coming up</h2><p>Tasks with the nearest due dates.</p></div></div>{#if roadmap?.upcoming_tasks?.length}{#each roadmap.upcoming_tasks.slice(0, 5) as task}<button class="upcoming-row" type="button" on:click={() => openWorkTask(task)}><span class="upcoming-key">{task.key}</span><span class="upcoming-title">{task.title}</span><span class={`upcoming-date ${taskDueClass(task)}`}>{formatDate(task.due_at)}</span></button>{/each}{:else}<div class="panel-empty">No upcoming deadlines. Nice breathing room.</div>{/if}</section></div><RoadmapActivity events={roadmapActivityEvents} tasksById={roadmapActivityTasks} {projects} actors={roadmapActors} filter={roadmapActivityFilter} loading={roadmapActivityLoading} error={roadmapActivityError} onFilterChange={(next) => roadmapActivityFilter = next} onOpen={openRoadmapActivity} /></section>{/if}
+        {:else if view === 'tickets'}
+          <TicketsWorkspace bind:this={ticketsWorkspace} {user} {projects} actorNames={Object.fromEntries(agents.map((agent) => [agent.id, agent.name]))} onOpenTask={(task) => openWorkTask(task)} onChanged={() => { void loadSidebarCounts(); }} />
         {:else if view === 'admin'}
           {#if user?.admin}<AdminMetrics />{:else}<div class="empty-state"><div class="empty-icon">◎</div><h3>Administrator access required</h3><p>Ask a workspace administrator for access to metrics.</p></div>{/if}
         {:else}

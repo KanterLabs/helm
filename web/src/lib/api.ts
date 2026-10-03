@@ -61,6 +61,8 @@ import {
   type TaskMoveInput,
   type TaskReorderInput,
   type TaskPatch,
+  type TicketCollection,
+  type TicketQueue,
   type TriageInput,
   type ResolveInput,
   type ReopenInput,
@@ -581,6 +583,14 @@ export const api = {
       body: input,
       idempotencyKey: key()
     }),
+  createTicket: (project: string, input: { title: string; description?: string; priority?: Task['priority']; assignee?: string | null }) =>
+    request<Task>(`/projects/${encodeURIComponent(project)}/tickets`, {
+      method: 'POST',
+      body: input,
+      idempotencyKey: key()
+    }),
+  listTickets: (params: { queue?: TicketQueue; project?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
+    request<TicketCollection>(pathWithQuery('/tickets', params), { signal }),
   getTask: (task: string) => request<Task>(`/tasks/${encodeURIComponent(task)}`),
   patchTask: (task: string, input: TaskPatch, version: number) =>
     request<Task>(`/tasks/${encodeURIComponent(task)}`, {
