@@ -31,7 +31,10 @@ never create or mutate the Portfolio hostname or tunnel record.
 The beta guest intentionally retains the in-guest compatibility paths and
 service names (`/var/lib/roadmap`, `/etc/roadmap`, and `helm.service`). The
 private profile masks any old `cloudflared.service` and never bundles, starts,
-or restarts it. Beta must start with a fresh database; production databases,
+or restarts it. The installer separately fetches the pinned, checksum-verified
+`cloudflared` binary to `/usr/local/bin` so `helm.service` can supervise an
+admin-created public webhook URL (see [TICKET_WEBHOOKS.md](TICKET_WEBHOOKS.md));
+a failed fetch only leaves that feature unavailable. Beta must start with a fresh database; production databases,
 releases, backups, tunnel tokens, deploy keys, signing keys, and Access
 credentials are never copied into it.
 
