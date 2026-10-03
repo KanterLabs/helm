@@ -186,5 +186,11 @@ func (c *cloudflareClient) deleteDNS(ctx context.Context, zoneID, recordID strin
 func (c *cloudflareClient) deleteTunnel(ctx context.Context, accountID, tunnelID string) error {
 	// Connections linger briefly after cloudflared stops; clear them first.
 	_ = c.call(ctx, http.MethodDelete, "/accounts/"+accountID+"/cfd_tunnel/"+tunnelID+"/connections", nil, nil)
-	return c.call(ctx, http.MethodDelete, "/accounts/"+accountID+"/cfd_tunnel/"+tunnelID, nil, nil)
+	err := c.call(ctx, http.MethodDelete, "/accounts/"+accountID+"/cfd_tunnel/"+tunnelID, nil, nil)
+	// Cloudflare soft-deletes tunnels and accepts repeat deletes; code 1002
+	// means the tunnel is already gone, which is what cleanup wants.
+	if err != nil && strings.Contains(err.Error(), "(code 1002)") {
+		return nil
+	}
+	return err
 }

@@ -103,6 +103,9 @@ type PublicEndpoints struct {
 	CloudflareAPIBase string
 	// CloudflaredBinary runs the tunnel connector.
 	CloudflaredBinary string
+	// ProbeOrigin sends the public URL self-test to a loopback origin with
+	// the public Host header instead of resolving the hostname (tests only).
+	ProbeOrigin string
 }
 
 func publicEndpointsFromEnv() (PublicEndpoints, error) {
@@ -118,7 +121,11 @@ func publicEndpointsFromEnv() (PublicEndpoints, error) {
 	if err != nil {
 		return PublicEndpoints{}, err
 	}
-	settings := PublicEndpoints{HooksAddr: valueOr(addr, "127.0.0.1:8091"), CloudflareAPIBase: strings.TrimRight(valueOr(base, "https://api.cloudflare.com/client/v4"), "/"), CloudflaredBinary: valueOr(binary, "cloudflared")}
+	probe, err := resolveEnv("HELM_PUBLIC_PROBE_ORIGIN")
+	if err != nil {
+		return PublicEndpoints{}, err
+	}
+	settings := PublicEndpoints{HooksAddr: valueOr(addr, "127.0.0.1:8091"), CloudflareAPIBase: strings.TrimRight(valueOr(base, "https://api.cloudflare.com/client/v4"), "/"), CloudflaredBinary: valueOr(binary, "cloudflared"), ProbeOrigin: strings.TrimRight(probe.value, "/")}
 	if settings.HooksAddr == "off" {
 		settings.HooksAddr = ""
 	} else if !loopbackAddr(settings.HooksAddr) {
@@ -127,6 +134,11 @@ func publicEndpointsFromEnv() (PublicEndpoints, error) {
 	parsed, err := url.Parse(settings.CloudflareAPIBase)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && !(parsed.Scheme == "http" && loopbackAddr(parsed.Host))) {
 		return PublicEndpoints{}, fmt.Errorf("HELM_CLOUDFLARE_API_BASE must be an https URL (or loopback http for tests)")
+	}
+	if settings.ProbeOrigin != "" {
+		if parsed, err := url.Parse(settings.ProbeOrigin); err != nil || parsed.Scheme != "http" || !loopbackAddr(parsed.Host) || parsed.Path != "" {
+			return PublicEndpoints{}, fmt.Errorf("HELM_PUBLIC_PROBE_ORIGIN must be a loopback http origin (tests only)")
+		}
 	}
 	if strings.ContainsAny(settings.CloudflaredBinary, "\r\n\x00") {
 		return PublicEndpoints{}, fmt.Errorf("HELM_CLOUDFLARED_BINARY contains invalid characters")

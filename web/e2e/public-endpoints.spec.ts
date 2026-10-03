@@ -6,10 +6,11 @@ import { expect, test, type APIRequestContext, type APIResponse } from '@playwri
 // against a real Helm process with the fake Cloudflare API and cloudflared.
 
 type View = {
-  active?: { id: string; hostname: string; tunnel_id: string; dns_record_id: string };
-  connector: { state: string };
+  active?: { id: string; hostname: string; tunnel_id: string; dns_record_id: string; created_by_name?: string };
+  connector: { state: string; connections: number; locations?: string[]; connected_at?: string };
+  last_test?: { endpoint_id: string; ok: boolean };
   public_hook_base?: string;
-  history: { id: string; status: string }[];
+  history: { id: string; hostname: string; status: string; cleanup_pending: boolean; tunnel_id: string; dns_record_id: string }[];
   connector_available: boolean;
 };
 type FakeState = {
@@ -88,6 +89,37 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   await expect(card.locator('[data-public-hostname]')).toHaveText(`https://${hostname}`);
   await expect(card.locator('[data-connector-state]')).toHaveText('Connected', { timeout: 15_000 });
   const active = (await view(request)).active!;
+
+  // The live view shows the edge connections, who created it and the
+  // Cloudflare resource IDs, and keeps the Connect apps button flagged.
+  await expect(card.locator('[data-public-badge]')).toHaveText('Live');
+  await expect(card.locator('[data-connector-edges]')).toHaveText('2 edge connections · e2e01, e2e02');
+  const live = await view(request);
+  expect(live.connector).toMatchObject({ state: 'connected', connections: 2, locations: ['e2e01', 'e2e02'] });
+  expect(live.connector.connected_at).toBeTruthy();
+  expect(live.active!.created_by_name).toBeTruthy();
+  await expect(card).toContainText(`by ${live.active!.created_by_name}`);
+  await expect(card.locator('[data-public-hook-base]')).toHaveText(`https://${hostname}/api/v1/hooks/tickets/…`);
+  await card.getByText('Cloudflare resources and exposed paths').click();
+  await expect(card.locator('[data-tunnel-id]')).toHaveText(active.tunnel_id);
+  await expect(page.locator('[data-public-pill]')).toHaveText('● Public');
+
+  // The self-test round-trips a one-time nonce through the hooks listener
+  // without creating a ticket. Agents cannot run it; guessed or reused
+  // nonces are not answered, and the main origin never answers probes.
+  const ticketsBefore = (await json<{ data: unknown[] }>(await request.get(`/api/v1/tickets?project=${project.key}`), 'tickets before test')).data.length;
+  await expect(card.getByText('Not tested yet')).toBeVisible();
+  await card.getByRole('button', { name: 'Test public URL' }).click();
+  await expect(card.locator('[data-test-result]')).toHaveAttribute('data-test-result', 'ok');
+  await expect(card.locator('[data-test-detail]')).toContainText('ms round trip');
+  expect((await view(request)).last_test).toMatchObject({ endpoint_id: active.id, ok: true });
+  expect((await json<{ data: unknown[] }>(await request.get(`/api/v1/tickets?project=${project.key}`), 'tickets after test')).data.length).toBe(ticketsBefore);
+  expect((await request.post(`/api/v1/public-endpoints/${active.id}/test`, { headers: bearer })).status()).toBe(403);
+  expect((await request.post(`/api/v1/public-endpoints/${'0'.repeat(32)}/test`, { headers: jsonHeaders })).status()).toBe(409);
+  const guess = `/api/v1/hooks/tickets/probe/${'a'.repeat(32)}`;
+  expect((await request.get(`${hooksURL}${guess}`)).status()).toBe(404);
+  expect((await request.get(guess)).status()).not.toBe(200);
+  await testInfo.attach('public-url-live.png', { contentType: 'image/png', body: await card.screenshot() });
   const state = await fakeState(request);
   expect(state.tunnels[active.tunnel_id].name).toBe(`helm-${hostname}`);
   expect(state.configs[active.tunnel_id].config.ingress).toEqual([
@@ -131,6 +163,46 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   const finalView = await view(request);
   expect(finalView.active).toBeUndefined();
   expect(finalView.connector.state).toBe('stopped');
+  await expect(card.locator(`[data-history-row="${hostname}"]`)).toContainText('Removed');
+
+  // Removing without a token leaves Cloudflare resources behind; the history
+  // flags them, a tokenless retry changes nothing, and "Finish cleanup"
+  // deletes them with a token. A finished cleanup is never re-flagged.
+  const orphanHost = `orphan-${runID}.example.test`;
+  await card.getByLabel('Public hostname').fill(orphanHost);
+  await card.getByLabel('Cloudflare API token').fill(cfToken);
+  await card.getByRole('button', { name: 'Create public URL' }).click();
+  await expect(card.locator('[data-connector-state]')).toHaveText('Connected', { timeout: 15_000 });
+  const orphan = (await view(request)).active!;
+  await card.getByRole('button', { name: 'Remove public URL…' }).click();
+  await card.getByRole('button', { name: 'Remove public URL' }).click();
+  await expect(card.getByRole('status')).toContainText(`Delete DNS record ${orphan.dns_record_id} and tunnel ${orphan.tunnel_id}`);
+  const orphanRow = card.locator(`[data-history-row="${orphanHost}"]`);
+  await expect(orphanRow).toContainText('Needs cleanup');
+  await expect(orphanRow).toContainText(orphan.tunnel_id);
+  await expect(card).toContainText('1 needs Cloudflare cleanup');
+  await testInfo.attach('public-url-needs-cleanup.png', { contentType: 'image/png', body: await card.screenshot() });
+  expect((await fakeState(request)).tunnels[orphan.tunnel_id]).toBeTruthy();
+  const tokenless = await json<{ endpoint: { cleanup_pending: boolean } }>(await request.delete(`/api/v1/public-endpoints/${orphan.id}`, { headers: jsonHeaders }), 'tokenless retry');
+  expect(tokenless.endpoint.cleanup_pending).toBe(true);
+  await page.goto('/admin');
+  await expect(page.locator('[data-admin-public-access]')).toContainText('1 removed public URL still has resources in Cloudflare.');
+  await testInfo.attach('admin-public-access.png', { contentType: 'image/png', body: await page.locator('[data-admin-public-access]').screenshot() });
+  await page.locator('[data-admin-public-access]').getByRole('link', { name: 'Manage' }).click();
+  await expect(page).toHaveURL(/\/tickets$/);
+  await expect(card.locator(`[data-history-row="${orphanHost}"]`)).toContainText('Needs cleanup');
+  await orphanRow.getByRole('button', { name: 'Finish cleanup…' }).click();
+  await orphanRow.getByLabel(`Cloudflare API token for ${orphanHost}`).fill(cfToken);
+  await orphanRow.getByRole('button', { name: 'Delete in Cloudflare' }).click();
+  await expect(card.getByRole('status')).toContainText(`Deleted the tunnel and DNS record for ${orphanHost} in Cloudflare.`);
+  await expect(orphanRow).toContainText('Removed');
+  const cleaned = await fakeState(request);
+  expect(cleaned.deleted_tunnels).toContain(orphan.tunnel_id);
+  expect(cleaned.deleted_dns).toContain(orphan.dns_record_id);
+  const settled = await json<{ endpoint: { cleanup_pending: boolean } }>(await request.delete(`/api/v1/public-endpoints/${orphan.id}`, { headers: jsonHeaders }), 'tokenless after cleanup');
+  expect(settled.endpoint.cleanup_pending).toBe(false);
+  await expect(page.locator('[data-public-pill]')).toHaveCount(0);
+  await testInfo.attach('public-url-history.png', { contentType: 'image/png', body: await card.screenshot() });
   const fallback = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Private ${runID}`, project: project.key }, headers: jsonHeaders }), 'fallback webhook');
   expect(fallback.url.startsWith(`${origin}/api/v1/hooks/tickets/`)).toBe(true);
   await testInfo.attach('public-url-setup.png', { contentType: 'image/png', body: await card.screenshot() });

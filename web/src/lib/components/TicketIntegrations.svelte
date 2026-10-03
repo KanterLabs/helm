@@ -6,6 +6,7 @@
 
   export let user: Actor;
   export let projects: Project[] = [];
+  export let onPublicAccessChanged: () => void = () => undefined;
 
   const fields: { name: string; required: boolean; text: string }[] = [
     { name: 'title', required: true, text: 'Ticket title shown in the queue (max 300 characters).' },
@@ -121,7 +122,7 @@
 
   {#if error}<div class="inline-alert error" role="alert"><span>!</span>{error}</div>{/if}
 
-  {#if user.admin}<PublicEndpointCard onChanged={load} />{/if}
+  {#if user.admin}<PublicEndpointCard onChanged={() => { void load(); onPublicAccessChanged(); }} />{/if}
 
   {#if revealed}
     <div class="webhook-reveal" role="status" data-webhook-secret-reveal>

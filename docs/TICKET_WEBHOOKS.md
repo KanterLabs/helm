@@ -132,13 +132,34 @@ Safety:
   command line.
 - **Second gate:** `cloudflared` connects to a separate loopback listener
   (`HELM_PUBLIC_HOOKS_ADDR`, default `127.0.0.1:8091`) that serves nothing
-  except webhook POSTs and `/healthz`. A changed tunnel configuration still
-  cannot reach the dashboard or the rest of the API.
+  except webhook POSTs, self-test probes and `/healthz`. A changed tunnel
+  configuration still cannot reach the dashboard or the rest of the API.
+
+Watching it:
+
+- **Status:** the card shows a Live / Connecting / Reconnecting badge, how
+  many Cloudflare edge connections are up and in which data centres, when it
+  connected, restarts and the last connector error. It keeps refreshing, so
+  a dropped tunnel shows as Reconnecting without reloading the page.
+- **Test public URL:** Helm requests its own public hostname and expects
+  the hooks listener to echo a one-time, 30-second nonce
+  (`/api/v1/hooks/tickets/probe/<nonce>`). Success proves DNS, Cloudflare,
+  the tunnel and its routing all reach this Helm; no ticket is created. A
+  failure explains the likely cause (DNS not resolving yet, Cloudflare 530
+  when the connector is down, 404 when the tunnel's routing was changed).
+  Only the hooks listener answers probes, and only for a nonce it issued.
+- **Details:** the tunnel, DNS record, zone and account IDs, and the exact
+  public paths, under *Cloudflare resources and exposed paths*.
+- **Elsewhere:** the **Connect apps** button shows a **● Public** pill while
+  a public URL is active, and the Admin page shows whether this Helm is
+  reachable from the internet, with a **Manage** link.
 
 **Remove public URL** stops `cloudflared` and deletes the tunnel token
 immediately. If you also enter an API token, Helm deletes the DNS record and
-the tunnel in Cloudflare. Otherwise it marks them for manual cleanup and shows
-their IDs.
+the tunnel in Cloudflare. Otherwise the URL is listed under **Earlier public
+URLs** as *Needs cleanup* with the tunnel and DNS record IDs; **Finish
+cleanup…** deletes them later with a token. Retrying without a token changes
+nothing.
 
 Requirements and settings:
 
@@ -152,4 +173,4 @@ Requirements and settings:
 The machine-readable contract is `/openapi.json` (operations
 `postTicketWebhook`, `listTicketWebhooks`, `createTicketWebhook`,
 `rotateTicketWebhook`, `disableTicketWebhook`, `getPublicEndpoints`,
-`createPublicEndpoint`, `disablePublicEndpoint`).
+`createPublicEndpoint`, `testPublicEndpoint`, `disablePublicEndpoint`).

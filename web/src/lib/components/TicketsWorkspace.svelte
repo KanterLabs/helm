@@ -3,7 +3,7 @@
   import { api } from '../api';
   import { renderMarkdown } from '../markdown';
   import { actorId } from '../state';
-  import { ApiError, type Actor, type Column, type Comment, type Project, type Task, type TicketCounts, type TicketQueue, type TicketStatus } from '../types';
+  import { ApiError, type Actor, type Column, type Comment, type Project, type PublicEndpointView, type Task, type TicketCounts, type TicketQueue, type TicketStatus } from '../types';
   import AlertSourcePanel from './AlertSourcePanel.svelte';
   import TicketIntegrations from './TicketIntegrations.svelte';
 
@@ -63,6 +63,8 @@
   let waitReason = '';
   let creating = false;
   let connectOpen = false;
+  // Admins see at a glance whether this Helm is reachable from the internet.
+  let publicAccess: PublicEndpointView | null = null;
   let createProject = '';
   let createTitle = '';
   let createDescription = '';
@@ -381,8 +383,30 @@
     if (selectedKey !== previousKey) void loadDetail(selectedKey);
   }
 
+  async function loadPublicAccess() {
+    if (!user.admin) return;
+    try {
+      publicAccess = await api.getPublicEndpoints();
+    } catch {
+      publicAccess = null;
+    }
+  }
+
+  function toggleConnect() {
+    connectOpen = !connectOpen;
+    if (!connectOpen) void loadPublicAccess();
+  }
+
   onMount(() => {
     readURL();
+    // ?connect=1 deep-links straight to Connect apps (e.g. from Admin).
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('connect') === '1') {
+      connectOpen = true;
+      url.searchParams.delete('connect');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+    void loadPublicAccess();
     void loadList();
     if (selectedKey) void loadDetail(selectedKey);
     window.addEventListener('popstate', handlePopState);
@@ -406,12 +430,12 @@
       <p>Alerts and requests that need a person. Status follows each ticket's board column; assignment never claims work for an agent.</p>
     </div>
     <div class="tickets-heading-actions">
-      <button class="button quiet-button" type="button" aria-expanded={connectOpen} on:click={() => { connectOpen = !connectOpen; }}>⇄ Connect apps</button>
+      <button class="button quiet-button" type="button" aria-expanded={connectOpen} on:click={toggleConnect}>⇄ Connect apps{#if publicAccess?.active}<span class={`public-pill pill-${publicAccess.connector.state}`} title={`Public URL https://${publicAccess.active.hostname} is ${publicAccess.connector.state === 'connected' ? 'live' : publicAccess.connector.state}`} data-public-pill>● Public</span>{/if}</button>
       <button class="button primary" type="button" on:click={() => { creating = !creating; createError = ''; }} aria-expanded={creating}>＋ New ticket</button>
     </div>
   </header>
 
-  {#if connectOpen}<TicketIntegrations {user} {projects} />{/if}
+  {#if connectOpen}<TicketIntegrations {user} {projects} onPublicAccessChanged={loadPublicAccess} />{/if}
 
   {#if creating}
     <form class="ticket-create" aria-label="New ticket" on:submit|preventDefault={createTicket}>
@@ -544,6 +568,9 @@
   .tickets-heading h1 { margin: 0; font: 800 28px var(--font-display); letter-spacing: -.045em; }
   .tickets-heading p { max-width: 650px; margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
   .tickets-heading-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .public-pill { margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 800; color: var(--semantic-amber); background: var(--amber-soft); }
+  .public-pill.pill-connected { color: var(--semantic-green); background: var(--green-soft); }
+  .public-pill.pill-restarting, .public-pill.pill-error { color: var(--semantic-red); background: var(--red-soft); }
   .breadcrumbs { display: flex; gap: 6px; color: var(--muted); font-size: 11px; }
   .ticket-create, .ticket-wait { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
   .ticket-create label, .ticket-wait label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }

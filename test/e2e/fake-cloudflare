@@ -59,6 +59,9 @@ class Handler(BaseHTTPRequestHandler):
                     state["tunnels"][tunnel["id"]] = tunnel
                     return self.reply(200, tunnel)
                 tunnel_id = parts[3]
+                # Like Cloudflare, a soft-deleted tunnel accepts repeat deletes.
+                if tunnel_id in state["deleted_tunnels"] and method == "DELETE":
+                    return self.reply(200, None if parts[4:] == [] else {})
                 if tunnel_id not in state["tunnels"]:
                     return self.reply(404, errors=[{"code": 1003, "message": "tunnel not found"}])
                 if parts[4:] == ["token"] and method == "GET":

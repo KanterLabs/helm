@@ -635,12 +635,36 @@ export interface PublicEndpoint {
   status: 'active' | 'disabled';
   cleanup_pending: boolean;
   created_at: string;
+  created_by_name?: string;
   disabled_at?: string;
+}
+
+export interface PublicEndpointTestResult {
+  endpoint_id: string;
+  ok: boolean;
+  checked_at: string;
+  latency_ms: number;
+  status_code?: number;
+  via_cloudflare: boolean;
+  cf_ray?: string;
+  message: string;
+}
+
+export interface PublicEndpointConnector {
+  state: 'stopped' | 'starting' | 'connected' | 'restarting' | 'error';
+  message?: string;
+  started_at?: string;
+  restarts: number;
+  connected_at?: string;
+  connections: number;
+  locations?: string[];
+  last_error_at?: string;
 }
 
 export interface PublicEndpointView {
   active?: PublicEndpoint;
-  connector: { state: 'stopped' | 'starting' | 'connected' | 'restarting' | 'error'; message?: string; started_at?: string; restarts: number };
+  connector: PublicEndpointConnector;
+  last_test?: PublicEndpointTestResult;
   public_hook_base?: string;
   history: PublicEndpoint[];
   required_permissions: string[];

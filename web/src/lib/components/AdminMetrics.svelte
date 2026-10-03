@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
   import { formatRelative } from '../state';
-  import type { AdminMetrics } from '../types';
+  import type { AdminMetrics, PublicEndpointView } from '../types';
 
   const windows = [7, 30, 90];
   const chartHeight = 140;
@@ -15,6 +15,26 @@
   let dailyHover = -1;
   let hourlyHover = -1;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
+  // Whether this Helm is reachable from the internet is a security fact
+  // administrators should not have to dig for.
+  let publicAccess: PublicEndpointView | null = null;
+  let publicAccessUnavailable = false;
+
+  function publicAccessDetail(access: PublicEndpointView): string {
+    const connector = access.connector.state === 'connected' ? 'live' : access.connector.state;
+    const test = access.last_test ? ` · last test ${access.last_test.ok ? 'passed' : 'failed'} ${formatRelative(access.last_test.checked_at)}` : '';
+    return `· connector ${connector}${test}`;
+  }
+
+  async function loadPublicAccess() {
+    try {
+      publicAccess = await api.getPublicEndpoints();
+      publicAccessUnavailable = false;
+    } catch {
+      publicAccess = null;
+      publicAccessUnavailable = true;
+    }
+  }
 
   async function load(showSpinner = true) {
     const current = ++requestId;
@@ -39,8 +59,12 @@
 
   onMount(() => {
     void load();
+    void loadPublicAccess();
     refreshTimer = setInterval(() => {
-      if (document.visibilityState === 'visible') void load(false);
+      if (document.visibilityState === 'visible') {
+        void load(false);
+        void loadPublicAccess();
+      }
     }, 30_000);
   });
   onDestroy(() => clearInterval(refreshTimer));
@@ -99,6 +123,23 @@
       <button class="button quiet-button" type="button" on:click={() => load()}>↻ Refresh</button>
     </div>
   </section>
+
+  {#if publicAccess && !publicAccessUnavailable}
+    {@const active = publicAccess.active}
+    {@const pending = publicAccess.history.filter((item) => item.cleanup_pending).length}
+    <section class="public-access" class:is-public={Boolean(active)} aria-label="Public access" data-admin-public-access>
+      <div>
+        <strong>Public access</strong>
+        {#if active}
+          <span>Webhook paths are public at <code>https://{active.hostname}</code>{' '}{publicAccessDetail(publicAccess)}</span>
+        {:else}
+          <span>No public URL. This Helm is reachable only at its own address.</span>
+        {/if}
+        {#if pending}<span class="public-access-warning">{pending} removed public URL{pending === 1 ? ' still has' : 's still have'} resources in Cloudflare.</span>{/if}
+      </div>
+      <a class="button quiet-button" href="/tickets?connect=1">{active || pending ? 'Manage' : 'Set up'}</a>
+    </section>
+  {/if}
 
   {#if error}
     <div class="inline-alert error content-alert" role="alert"><span>!</span>{error}<button class="text-button" type="button" on:click={() => load()}>Retry</button></div>
@@ -253,6 +294,12 @@
   .window-picker button { padding: 5px 11px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
   .window-picker button.active { background: var(--purple-soft); color: var(--purple); font-weight: 600; }
   .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .public-access { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); font-size: 13px; }
+  .public-access > div { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; min-width: 0; }
+  .public-access.is-public { border-color: color-mix(in srgb, var(--semantic-amber), var(--border) 60%); background: var(--amber-soft); }
+  .public-access code { overflow-wrap: anywhere; }
+  .public-access-warning { color: var(--semantic-red); font-weight: 700; }
+  .public-access a.button { text-decoration: none; }
   .stat { display: grid; gap: 3px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
   .stat-label { color: var(--muted); font-size: 12.5px; font-weight: 600; }
   .stat strong { color: var(--ink); font-size: 26px; font-variant-numeric: tabular-nums; }

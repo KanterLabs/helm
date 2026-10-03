@@ -126,6 +126,7 @@ func main() {
 			Binary:      cfg.PublicEndpoints.CloudflaredBinary,
 			HookService: "http://" + cfg.PublicEndpoints.HooksAddr,
 			TokenDir:    filepath.Join(filepath.Dir(cfg.DB), "public-endpoints"),
+			ProbeOrigin: cfg.PublicEndpoints.ProbeOrigin,
 		}, data)
 		hooksServer = &http.Server{Addr: cfg.PublicEndpoints.HooksAddr, Handler: httpapi.NewPublicHooksHandler(api), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
 		go func() {

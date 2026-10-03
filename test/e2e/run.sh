@@ -124,6 +124,7 @@ start_server() {
   HELM_PUBLIC_HOOKS_ADDR="127.0.0.1:$((port + 20))" \
     HELM_CLOUDFLARE_API_BASE=http://127.0.0.1:18090/client/v4 \
     HELM_CLOUDFLARED_BINARY="$cloudflared_wrapper" \
+    HELM_PUBLIC_PROBE_ORIGIN="http://127.0.0.1:$((port + 20))" \
     HELM_COOLIFY_WEBHOOK_SECRET_FILE="$coolify_secret_file" \
     HELM_COOLIFY_PROJECT=COOLIFYE2E \
     HELM_COOLIFY_ASSIGNEE=actor-disabled-mode \

@@ -20,16 +20,17 @@ type PublicEndpoint struct {
 	Status         string  `json:"status"`
 	CleanupPending bool    `json:"cleanup_pending"`
 	CreatedAt      string  `json:"created_at"`
+	CreatedByName  string  `json:"created_by_name,omitempty"`
 	DisabledAt     *string `json:"disabled_at,omitempty"`
 }
 
-const publicEndpointSelect = `SELECT id, provider, hostname, account_id, zone_id, tunnel_id, dns_record_id, status, cleanup_pending, created_at, disabled_at FROM public_endpoints`
+const publicEndpointSelect = `SELECT pe.id, pe.provider, pe.hostname, pe.account_id, pe.zone_id, pe.tunnel_id, pe.dns_record_id, pe.status, pe.cleanup_pending, pe.created_at, COALESCE(a.name, ''), pe.disabled_at FROM public_endpoints pe LEFT JOIN actors a ON a.id = pe.created_by`
 
 func publicEndpointFromRow(scanner interface{ Scan(...any) error }) (PublicEndpoint, error) {
 	var endpoint PublicEndpoint
 	var cleanup int
 	var disabled sql.NullString
-	if err := scanner.Scan(&endpoint.ID, &endpoint.Provider, &endpoint.Hostname, &endpoint.AccountID, &endpoint.ZoneID, &endpoint.TunnelID, &endpoint.DNSRecordID, &endpoint.Status, &cleanup, &endpoint.CreatedAt, &disabled); err != nil {
+	if err := scanner.Scan(&endpoint.ID, &endpoint.Provider, &endpoint.Hostname, &endpoint.AccountID, &endpoint.ZoneID, &endpoint.TunnelID, &endpoint.DNSRecordID, &endpoint.Status, &cleanup, &endpoint.CreatedAt, &endpoint.CreatedByName, &disabled); err != nil {
 		return PublicEndpoint{}, err
 	}
 	endpoint.CleanupPending, endpoint.DisabledAt = cleanup == 1, nullableString(disabled)
@@ -38,7 +39,7 @@ func publicEndpointFromRow(scanner interface{ Scan(...any) error }) (PublicEndpo
 
 // ActivePublicEndpoint returns the single active endpoint, if any.
 func (s *Store) ActivePublicEndpoint(ctx context.Context) (PublicEndpoint, bool, error) {
-	endpoint, err := publicEndpointFromRow(s.DB.QueryRowContext(ctx, publicEndpointSelect+` WHERE status = 'active'`))
+	endpoint, err := publicEndpointFromRow(s.DB.QueryRowContext(ctx, publicEndpointSelect+` WHERE pe.status = 'active'`))
 	if errors.Is(err, sql.ErrNoRows) {
 		return PublicEndpoint{}, false, nil
 	}
@@ -46,7 +47,7 @@ func (s *Store) ActivePublicEndpoint(ctx context.Context) (PublicEndpoint, bool,
 }
 
 func (s *Store) ListPublicEndpoints(ctx context.Context) ([]PublicEndpoint, error) {
-	rows, err := s.DB.QueryContext(ctx, publicEndpointSelect+` ORDER BY status = 'active' DESC, created_at DESC LIMIT 50`)
+	rows, err := s.DB.QueryContext(ctx, publicEndpointSelect+` ORDER BY pe.status = 'active' DESC, pe.created_at DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +64,7 @@ func (s *Store) ListPublicEndpoints(ctx context.Context) ([]PublicEndpoint, erro
 }
 
 func (s *Store) GetPublicEndpoint(ctx context.Context, id string) (PublicEndpoint, error) {
-	endpoint, err := publicEndpointFromRow(s.DB.QueryRowContext(ctx, publicEndpointSelect+` WHERE id = ?`, id))
+	endpoint, err := publicEndpointFromRow(s.DB.QueryRowContext(ctx, publicEndpointSelect+` WHERE pe.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return PublicEndpoint{}, notFound("public endpoint not found")
 	}

@@ -20,6 +20,14 @@ func NewPublicHooksHandler(api *Server) http.Handler {
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
 			return
 		}
+		// Self-test nonces are answered only here, never on the main origin,
+		// so a successful probe proves the request came through the tunnel.
+		if nonce, ok := strings.CutPrefix(r.URL.Path, publicendpoint.ProbePath); ok && r.Method == http.MethodGet && api.PublicEndpoints.AnswerProbe(nonce) {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"probe":"` + nonce + `"}`))
+			return
+		}
 		if isAPIPath(r.URL.Path) {
 			parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1"))
 			if isTicketHookPath(parts) || isCoolifyIntakePath(parts) {
@@ -97,6 +105,29 @@ func (s *Server) publicEndpoints(w http.ResponseWriter, r *http.Request, identit
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
+}
+
+// testPublicEndpoint serves POST /api/v1/public-endpoints/{id}/test: one
+// round trip from Helm through its public hostname back to the hooks listener.
+func (s *Server) testPublicEndpoint(w http.ResponseWriter, r *http.Request, identity auth.Identity, id string) {
+	if !requireAdmin(w, identity) || s.publicEndpointsUnavailable(w) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	result, err := s.PublicEndpoints.Test(r.Context(), id)
+	if errors.Is(err, publicendpoint.ErrNoActiveEndpoint) {
+		s.writeError(w, http.StatusConflict, "public_endpoint_inactive", "only the active public URL can be tested", nil)
+		return
+	}
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, result)
 }
 
 // publicEndpoint serves DELETE /api/v1/public-endpoints/{id}. An optional

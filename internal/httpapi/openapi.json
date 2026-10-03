@@ -4908,6 +4908,58 @@
         }
       }
     },
+    "/api/v1/public-endpoints/{endpoint}/test": {
+      "parameters": [
+        {
+          "name": "endpoint",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "testPublicEndpoint",
+        "summary": "Test the active public URL",
+        "description": "Human administrators only. Helm sends one GET from the server to\n`https://{hostname}/api/v1/hooks/tickets/probe/{nonce}` and expects\nits hooks listener to echo the one-time nonce. Success proves DNS,\nCloudflare's edge, the tunnel and its routing reach this Helm. No\nticket is created. A failed round trip is still HTTP 200 with\n`ok: false` and a `message` explaining the likely cause.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Test completed",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicEndpointTestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
     "/api/v1/ticket-webhooks": {
       "get": {
         "operationId": "listTicketWebhooks",
@@ -12934,8 +12986,52 @@
           "created_at": {
             "$ref": "#/components/schemas/Timestamp"
           },
+          "created_by_name": {
+            "type": "string",
+            "description": "Name of the administrator who created it, when known."
+          },
           "disabled_at": {
             "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PublicEndpointTestResult": {
+        "type": "object",
+        "required": [
+          "endpoint_id",
+          "ok",
+          "checked_at",
+          "latency_ms",
+          "via_cloudflare",
+          "message"
+        ],
+        "properties": {
+          "endpoint_id": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "checked_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status_code": {
+            "type": "integer"
+          },
+          "via_cloudflare": {
+            "type": "boolean",
+            "description": "The response carried Cloudflare's `CF-Ray` or `Server` header."
+          },
+          "cf_ray": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -12979,9 +13075,31 @@
               "restarts": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "connected_at": {
+                "type": "string",
+                "description": "When the current run first registered an edge connection."
+              },
+              "connections": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Registered Cloudflare edge connections."
+              },
+              "locations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Cloudflare data centres serving the connections, e.g. ord08."
+              },
+              "last_error_at": {
+                "type": "string"
               }
             },
             "additionalProperties": false
+          },
+          "last_test": {
+            "$ref": "#/components/schemas/PublicEndpointTestResult"
           },
           "public_hook_base": {
             "type": "string",
