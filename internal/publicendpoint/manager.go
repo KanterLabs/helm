@@ -1,9 +1,11 @@
 package publicendpoint
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -80,31 +82,42 @@ const ProbePath = "/api/v1/hooks/tickets/probe/"
 
 type probeRegistry struct {
 	mu      sync.Mutex
-	pending map[string]time.Time
+	pending map[string]probeEntry
 }
 
-func (p *probeRegistry) add(nonce string, ttl time.Duration) {
+// probeEntry is one pending self-test. A non-empty webhookID makes it a
+// test-ticket probe for that webhook; otherwise it is a reachability probe.
+type probeEntry struct {
+	expires   time.Time
+	webhookID string
+}
+
+func (p *probeRegistry) add(nonce string, ttl time.Duration, webhookID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.pending == nil {
-		p.pending = map[string]time.Time{}
+		p.pending = map[string]probeEntry{}
 	}
 	now := time.Now()
-	for key, expires := range p.pending {
-		if now.After(expires) {
+	for key, entry := range p.pending {
+		if now.After(entry.expires) {
 			delete(p.pending, key)
 		}
 	}
-	p.pending[nonce] = now.Add(ttl)
+	p.pending[nonce] = probeEntry{expires: now.Add(ttl), webhookID: webhookID}
 }
 
-// take consumes a nonce once; unknown or expired nonces are refused.
-func (p *probeRegistry) take(nonce string) bool {
+// take consumes a nonce of the requested kind once and returns its webhook.
+// Unknown, expired or other-kind nonces are refused (and not consumed).
+func (p *probeRegistry) take(nonce string, ticket bool) (string, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	expires, ok := p.pending[nonce]
+	entry, ok := p.pending[nonce]
+	if !ok || (entry.webhookID != "") != ticket {
+		return "", false
+	}
 	delete(p.pending, nonce)
-	return ok && time.Now().Before(expires)
+	return entry.webhookID, time.Now().Before(entry.expires)
 }
 
 func (p *probeRegistry) drop(nonce string) {
@@ -194,9 +207,78 @@ func (m *Manager) View(ctx context.Context) (View, error) {
 	return view, nil
 }
 
-// AnswerProbe reports whether nonce is a pending self-test, consuming it.
+// AnswerProbe reports whether nonce is a pending reachability self-test,
+// consuming it.
 func (m *Manager) AnswerProbe(nonce string) bool {
-	return m != nil && len(nonce) == 32 && m.probes.take(nonce)
+	if m == nil || len(nonce) != 32 {
+		return false
+	}
+	_, ok := m.probes.take(nonce, false)
+	return ok
+}
+
+// TakeTicketProbe consumes a pending test-ticket nonce and returns the
+// webhook the test ticket belongs to.
+func (m *Manager) TakeTicketProbe(nonce string) (string, bool) {
+	if m == nil || len(nonce) != 32 {
+		return "", false
+	}
+	return m.probes.take(nonce, true)
+}
+
+// probeResponse is one request from Helm to its own public hostname.
+type probeResponse struct {
+	status        int
+	body          []byte
+	cfRay         string
+	viaCloudflare bool
+	latencyMS     int64
+}
+
+// roundTrip sends method to the public hostname's probe path for nonce.
+func (m *Manager) roundTrip(ctx context.Context, hostname, method, nonce string, body []byte, contentType string) (probeResponse, error) {
+	target := "https://" + hostname + ProbePath + nonce
+	if m.cfg.ProbeOrigin != "" {
+		target = m.cfg.ProbeOrigin + ProbePath + nonce
+	}
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, target, reader)
+	if err != nil {
+		return probeResponse{}, err
+	}
+	request.Host = hostname
+	request.Header.Set("User-Agent", "Helm public URL self-test")
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
+	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	started := time.Now()
+	response, err := client.Do(request)
+	result := probeResponse{latencyMS: time.Since(started).Milliseconds()}
+	if err != nil {
+		return result, err
+	}
+	defer response.Body.Close()
+	result.body, _ = io.ReadAll(io.LimitReader(response.Body, 8192))
+	result.status = response.StatusCode
+	result.cfRay = response.Header.Get("Cf-Ray")
+	result.viaCloudflare = result.cfRay != "" || strings.EqualFold(response.Header.Get("Server"), "cloudflare")
+	return result, nil
+}
+
+// failureMessage explains a non-success probe status.
+func failureMessage(status int) string {
+	switch {
+	case status == 530 || status == 502 || status == 503:
+		return fmt.Sprintf("Cloudflare answered HTTP %d: it cannot reach the connector. Check that the connector is connected.", status)
+	case status == http.StatusNotFound:
+		return "HTTP 404: the request did not reach this Helm's hooks listener. The tunnel's routing may have been changed in Cloudflare."
+	default:
+		return fmt.Sprintf("Unexpected HTTP %d from the public URL.", status)
+	}
 }
 
 // Test sends one request from Helm to its own public hostname and expects
@@ -211,44 +293,103 @@ func (m *Manager) Test(ctx context.Context, id string) (TestResult, error) {
 		return TestResult{}, ErrNoActiveEndpoint
 	}
 	nonce := randomID()
-	m.probes.add(nonce, 30*time.Second)
+	m.probes.add(nonce, 30*time.Second, "")
 	defer m.probes.drop(nonce)
-	target := "https://" + endpoint.Hostname + ProbePath + nonce
-	if m.cfg.ProbeOrigin != "" {
-		target = m.cfg.ProbeOrigin + ProbePath + nonce
-	}
 	result := TestResult{EndpointID: endpoint.ID, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return TestResult{}, err
-	}
-	request.Host = endpoint.Hostname
-	request.Header.Set("User-Agent", "Helm public URL self-test")
-	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	started := time.Now()
-	response, err := client.Do(request)
-	result.LatencyMS = time.Since(started).Milliseconds()
+	response, err := m.roundTrip(ctx, endpoint.Hostname, http.MethodGet, nonce, nil, "")
+	result.LatencyMS = response.latencyMS
 	if err != nil {
 		result.Message = probeTransportMessage(endpoint.Hostname, err)
 		return m.recordTest(result), nil
 	}
-	defer response.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-	result.StatusCode = response.StatusCode
-	result.CFRay = response.Header.Get("Cf-Ray")
-	result.ViaCloudflare = result.CFRay != "" || strings.EqualFold(response.Header.Get("Server"), "cloudflare")
-	switch {
-	case response.StatusCode == http.StatusOK && strings.Contains(string(body), nonce):
-		result.OK = true
-		result.Message = "Reached this Helm through the public URL."
-	case response.StatusCode == 530 || response.StatusCode == 502 || response.StatusCode == 503:
-		result.Message = fmt.Sprintf("Cloudflare answered HTTP %d: it cannot reach the connector. Check that the connector is connected.", response.StatusCode)
-	case response.StatusCode == http.StatusNotFound:
-		result.Message = "HTTP 404: the request did not reach this Helm's hooks listener. The tunnel's routing may have been changed in Cloudflare."
-	default:
-		result.Message = fmt.Sprintf("Unexpected HTTP %d from the public URL.", response.StatusCode)
+	result.StatusCode, result.CFRay, result.ViaCloudflare = response.status, response.cfRay, response.viaCloudflare
+	if response.status == http.StatusOK && strings.Contains(string(response.body), nonce) {
+		result.OK, result.Message = true, "Reached this Helm through the public URL."
+	} else {
+		result.Message = failureMessage(response.status)
 	}
 	return m.recordTest(result), nil
+}
+
+// TestTicketDedupeKey keeps repeated test tickets on one open ticket.
+const TestTicketDedupeKey = "helm-public-url-test"
+
+// TicketTestResult reports a test ticket sent through the public URL.
+type TicketTestResult struct {
+	OK              bool   `json:"ok"`
+	Hostname        string `json:"hostname"`
+	CheckedAt       string `json:"checked_at"`
+	LatencyMS       int64  `json:"latency_ms"`
+	StatusCode      int    `json:"status_code,omitempty"`
+	ViaCloudflare   bool   `json:"via_cloudflare"`
+	CFRay           string `json:"cf_ray,omitempty"`
+	Disposition     string `json:"disposition,omitempty"`
+	TicketKey       string `json:"ticket_key,omitempty"`
+	TicketURL       string `json:"ticket_url,omitempty"`
+	OccurrenceCount int    `json:"occurrence_count,omitempty"`
+	Message         string `json:"message"`
+}
+
+// SendTestTicket posts a generic test ticket for webhookID from Helm to its
+// own public hostname. The hooks listener files it under that webhook with
+// the same code real deliveries use, so success proves an outside app can
+// open tickets through Cloudflare, the tunnel and the ingress rules.
+func (m *Manager) SendTestTicket(ctx context.Context, webhookID string) (TicketTestResult, error) {
+	endpoint, active, err := m.store.ActivePublicEndpoint(ctx)
+	if err != nil {
+		return TicketTestResult{}, err
+	}
+	if !active {
+		return TicketTestResult{}, ErrNoActiveEndpoint
+	}
+	payload, err := json.Marshal(map[string]any{
+		"title":       "Test ticket via public URL",
+		"description": "Helm sent this through https://" + endpoint.Hostname + " to check that outside apps can open tickets with this webhook. Repeated tests count on this ticket; complete it when you are done.",
+		"priority":    "low",
+		"dedupe_key":  TestTicketDedupeKey,
+		"source":      "helm-test",
+		"fields":      map[string]string{"public_url": "https://" + endpoint.Hostname},
+	})
+	if err != nil {
+		return TicketTestResult{}, err
+	}
+	nonce := randomID()
+	m.probes.add(nonce, 30*time.Second, webhookID)
+	defer m.probes.drop(nonce)
+	result := TicketTestResult{Hostname: endpoint.Hostname, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	response, err := m.roundTrip(ctx, endpoint.Hostname, http.MethodPost, nonce, payload, "application/json")
+	result.LatencyMS = response.latencyMS
+	if err != nil {
+		result.Message = probeTransportMessage(endpoint.Hostname, err)
+		return result, nil
+	}
+	result.StatusCode, result.CFRay, result.ViaCloudflare = response.status, response.cfRay, response.viaCloudflare
+	var hook struct {
+		Disposition     string `json:"disposition"`
+		OccurrenceCount int    `json:"occurrence_count"`
+		Ticket          struct {
+			Key string `json:"key"`
+			URL string `json:"url"`
+		} `json:"ticket"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(response.body, &hook)
+	switch {
+	case (response.status == http.StatusCreated || response.status == http.StatusOK) && hook.Ticket.Key != "":
+		result.OK, result.Disposition, result.OccurrenceCount = true, hook.Disposition, hook.OccurrenceCount
+		result.TicketKey, result.TicketURL = hook.Ticket.Key, hook.Ticket.URL
+		result.Message = "Opened " + hook.Ticket.Key + " through the public URL."
+		if hook.Disposition == "repeated" {
+			result.Message = fmt.Sprintf("Counted repeat %d on %s through the public URL.", hook.OccurrenceCount, hook.Ticket.Key)
+		}
+	case response.status == http.StatusServiceUnavailable && hook.Error.Message != "":
+		result.Message = "The request reached Helm, but the webhook cannot file tickets: " + hook.Error.Message
+	default:
+		result.Message = failureMessage(response.status)
+	}
+	return result, nil
 }
 
 func (m *Manager) recordTest(result TestResult) TestResult {

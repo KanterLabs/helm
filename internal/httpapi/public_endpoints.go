@@ -22,11 +22,19 @@ func NewPublicHooksHandler(api *Server) http.Handler {
 		}
 		// Self-test nonces are answered only here, never on the main origin,
 		// so a successful probe proves the request came through the tunnel.
-		if nonce, ok := strings.CutPrefix(r.URL.Path, publicendpoint.ProbePath); ok && r.Method == http.MethodGet && api.PublicEndpoints.AnswerProbe(nonce) {
-			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"probe":"` + nonce + `"}`))
-			return
+		if nonce, ok := strings.CutPrefix(r.URL.Path, publicendpoint.ProbePath); ok {
+			if r.Method == http.MethodGet && api.PublicEndpoints.AnswerProbe(nonce) {
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"probe":"` + nonce + `"}`))
+				return
+			}
+			if r.Method == http.MethodPost {
+				if webhookID, ok := api.PublicEndpoints.TakeTicketProbe(nonce); ok {
+					api.testTicketHook(w, r, webhookID)
+					return
+				}
+			}
 		}
 		if isAPIPath(r.URL.Path) {
 			parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1"))

@@ -138,6 +138,7 @@ and fake `cloudflared` fixtures (no real account is touched in CI).
 | The self-test passes without a real round trip, or creates a ticket | **Test public URL** succeeds only by fetching a one-time nonce through the hooks listener with the public `Host`; the ticket count is unchanged, agents get `403`, an inactive endpoint gets `409`, and a guessed nonce gets `404` from the listener and no `200` from the main origin. |
 | Resources left behind after a tokenless removal are invisible or unfixable | The removed URL appears under Earlier public URLs as *Needs cleanup* with its tunnel ID, and Admin reports it; a tokenless retry keeps it pending, **Finish cleanup…** with a token deletes both resources in the fake API, and a later tokenless retry does not re-flag it. |
 | Admins cannot tell Helm is public outside the card | While active, the Connect apps button shows **● Public**; it disappears after removal, and Admin's **Manage** link opens Connect apps. |
+| No way to prove an outside app can open a ticket through the public URL | **Send test** on a webhook files a low-priority ticket through the public path with a nonce bound to that webhook; a second test is a repeat on the same ticket; agents get `403`, a guessed nonce files nothing, and without an active public URL the route returns `409`. |
 
 ## Email intake failure contract
 

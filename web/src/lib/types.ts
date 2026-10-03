@@ -629,6 +629,22 @@ export interface TicketWebhookSecret {
   email_address?: string;
 }
 
+/** A test ticket Helm sent for a webhook through its own public URL. */
+export interface TicketTestResult {
+  ok: boolean;
+  hostname: string;
+  checked_at: string;
+  latency_ms: number;
+  status_code?: number;
+  via_cloudflare: boolean;
+  cf_ray?: string;
+  disposition?: 'created' | 'repeated' | 'retained';
+  ticket_key?: string;
+  ticket_url?: string;
+  occurrence_count?: number;
+  message: string;
+}
+
 export interface EmailSummary {
   address: string;
   local_part: string;

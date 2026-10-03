@@ -8,6 +8,7 @@ import (
 
 	"github.com/KanterLabs/helm/internal/auth"
 	"github.com/KanterLabs/helm/internal/intake"
+	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 )
 
@@ -75,21 +76,31 @@ func (s *Server) ticketHook(w http.ResponseWriter, r *http.Request, secret strin
 	if !ok {
 		return
 	}
+	if hook.Format == store.TicketWebhookCoolify {
+		s.ingestCoolify(w, r, body, webhookRoute(hook))
+		return
+	}
+	s.ingestGenericTicket(w, r, hook, body)
+}
+
+func webhookRoute(hook store.TicketWebhook) store.AlertIntakeRoute {
 	assignee := ""
 	if hook.AssigneeID != nil {
 		assignee = *hook.AssigneeID
 	}
-	route := store.AlertIntakeRoute{
+	return store.AlertIntakeRoute{
 		Integration: "webhook-" + hook.ID,
 		ActorName:   hook.Name,
 		ProjectRef:  hook.ProjectID,
 		AssigneeRef: assignee,
 		WebhookID:   hook.ID,
 	}
-	if hook.Format == store.TicketWebhookCoolify {
-		s.ingestCoolify(w, r, body, route)
-		return
-	}
+}
+
+// ingestGenericTicket files one generic JSON ticket for hook. Real webhook
+// deliveries and test tickets sent through the public URL share it.
+func (s *Server) ingestGenericTicket(w http.ResponseWriter, r *http.Request, hook store.TicketWebhook, body []byte) {
+	route := webhookRoute(hook)
 	alert, err := intake.ParseGenericTicket(body, hook.ID, hook.Name)
 	if err != nil {
 		details := map[string]any{"allowed_fields": intake.GenericTicketFields}
@@ -151,7 +162,14 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookBase(r.Context()), "email": email})
+		publicHostname := ""
+		if endpoint, ok, err := s.Store.ActivePublicEndpoint(r.Context()); err != nil {
+			s.writeStoreError(w, err)
+			return
+		} else if ok && s.PublicEndpoints != nil {
+			publicHostname = endpoint.Hostname
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookBase(r.Context()), "email": email, "public_hostname": publicHostname})
 	case http.MethodPost:
 		if !s.secretResponseAllowed(w, r) {
 			return
@@ -219,6 +237,8 @@ func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity 
 			return
 		}
 		s.writeJSON(w, http.StatusOK, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
+	case len(parts) == 3 && parts[2] == "test" && r.Method == http.MethodPost:
+		s.sendTestTicket(w, r, id)
 	case len(parts) == 3 && parts[2] == "email" && r.Method == http.MethodPost:
 		if !s.secretResponseAllowed(w, r) {
 			return
@@ -241,6 +261,49 @@ func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity 
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
+}
+
+// sendTestTicket serves POST /api/v1/ticket-webhooks/{id}/test: Helm posts
+// a test ticket for the webhook through its own public URL.
+func (s *Server) sendTestTicket(w http.ResponseWriter, r *http.Request, id string) {
+	w.Header().Set("Cache-Control", "no-store")
+	if s.publicEndpointsUnavailable(w) {
+		return
+	}
+	hook, err := s.Store.GetTicketWebhook(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if hook.DisabledAt != nil {
+		s.writeError(w, http.StatusConflict, "webhook_disabled", "a disabled webhook cannot open tickets", nil)
+		return
+	}
+	result, err := s.PublicEndpoints.SendTestTicket(r.Context(), hook.ID)
+	if errors.Is(err, publicendpoint.ErrNoActiveEndpoint) {
+		s.writeError(w, http.StatusConflict, "public_endpoint_inactive", "create a Public URL first; the test ticket travels through it", nil)
+		return
+	}
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, result)
+}
+
+// testTicketHook files a test ticket that arrived through the public URL
+// with a one-time nonce bound to webhookID (hooks listener only).
+func (s *Server) testTicketHook(w http.ResponseWriter, r *http.Request, webhookID string) {
+	hook, err := s.Store.GetTicketWebhook(r.Context(), webhookID)
+	if err != nil || hook.DisabledAt != nil {
+		s.writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
+		return
+	}
+	body, ok := s.readIntakeBody(w, r)
+	if !ok {
+		return
+	}
+	s.ingestGenericTicket(w, r, hook, body)
 }
 
 // secretResponseAllowed mirrors API token issue: the plaintext exists only in

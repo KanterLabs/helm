@@ -150,6 +150,13 @@ Watching it:
   failure explains the likely cause (DNS not resolving yet, Cloudflare 530
   when the connector is down, 404 when the tunnel's routing was changed).
   Only the hooks listener answers probes, and only for a nonce it issued.
+- **Send test** (on each webhook in the table, while a public URL is
+  active): Helm posts a real test ticket for that webhook to its own public
+  hostname, through Cloudflare and the tunnel, exactly as an outside app
+  would, and shows the ticket it opened or why it failed. The request uses
+  a one-time nonce bound to that webhook instead of the webhook's secret
+  (which Helm does not keep). Test tickets are low priority and share one
+  `dedupe_key`, so repeated tests count on a single open ticket.
 - **Details:** the tunnel, DNS record, zone and account IDs, and the exact
   public paths, under *Cloudflare resources and exposed paths*.
 - **Elsewhere:** the **Connect apps** button shows a **● Public** pill while
@@ -253,6 +260,7 @@ is left on. The Public URL cannot be removed while email is on.
 The machine-readable contract is `/openapi.json` (operations
 `postTicketWebhook`, `listTicketWebhooks`, `createTicketWebhook`,
 `rotateTicketWebhook`, `disableTicketWebhook`, `setTicketWebhookEmail`,
+`sendTestTicket`,
 `getPublicEndpoints`, `createPublicEndpoint`, `testPublicEndpoint`,
 `disablePublicEndpoint`, `getEmailIntake`, `createEmailIntake`,
 `disableEmailIntake`, `postTicketEmail`).

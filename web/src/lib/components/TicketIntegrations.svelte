@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../api';
-  import type { Actor, EmailSummary, Project, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
+  import type { Actor, EmailSummary, Project, TicketTestResult, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
   import EmailIntakeCard from './EmailIntakeCard.svelte';
   import PublicEndpointCard from './PublicEndpointCard.svelte';
 
@@ -31,6 +31,8 @@
   let revealed: TicketWebhookSecret | null = null;
   let revealedEmail: { webhook: TicketWebhook; email_address: string } | null = null;
   let email: EmailSummary | null = null;
+  let publicHostname = '';
+  let testResults: Record<string, TicketTestResult> = {};
   let copied = '';
   let busyId = '';
 
@@ -57,6 +59,7 @@
       hooks = response.data;
       endpointBase = response.endpoint_base;
       email = response.email;
+      publicHostname = response.public_hostname;
     } catch (cause) {
       error = message(cause, 'Webhooks could not be loaded.');
     } finally {
@@ -106,6 +109,24 @@
     } finally {
       busyId = '';
     }
+  }
+
+  async function sendTest(hook: TicketWebhook) {
+    busyId = hook.id;
+    error = '';
+    try {
+      testResults = { ...testResults, [hook.id]: await api.sendTestTicket(hook.id) };
+      await load();
+    } catch (cause) {
+      error = message(cause, 'The test ticket could not be sent.');
+    } finally {
+      busyId = '';
+    }
+  }
+
+  function testSummary(result: TicketTestResult): string {
+    const timing = `${result.latency_ms < 1 ? '<1' : result.latency_ms} ms${result.via_cloudflare ? ' via Cloudflare' : ''}`;
+    return result.ok ? `${result.message} · ${timing}` : result.message;
   }
 
   function emailHint(hook: TicketWebhook): string {
@@ -202,15 +223,26 @@
         <tbody>
           {#each hooks as hook (hook.id)}
             <tr class:disabled={Boolean(hook.disabled_at)} data-webhook-name={hook.name}>
-              <td>{hook.name}{#if hook.disabled_at}<span class="optional"> · disabled</span>{/if}</td>
+              <td>{hook.name}{#if hook.disabled_at}{' '}<span class="optional">· disabled</span>{/if}</td>
               <td>{hook.project_key}</td>
               <td>{hook.format === 'coolify' ? 'Coolify' : 'Generic JSON'}</td>
               <td><code>…{hook.secret_hint}</code></td>
               {#if email}<td data-webhook-email>{#if emailHint(hook)}<code>{emailHint(hook)}</code>{:else}<span class="optional">None</span>{/if}</td>{/if}
               <td data-webhook-deliveries>{hook.delivery_count}</td>
               <td>{when(hook.last_delivery_at)}</td>
-              <td class="webhook-actions">{#if !hook.disabled_at}{#if email}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => setEmail(hook)}>Email address…</button>{/if}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => rotate(hook)}>Rotate</button><button class="text-button danger" type="button" disabled={busyId === hook.id} on:click={() => disable(hook)}>Disable</button>{/if}</td>
+              <td class="webhook-actions">{#if !hook.disabled_at}{#if publicHostname}<button class="text-button" type="button" disabled={busyId === hook.id} title={`Send a test ticket through https://${publicHostname}`} on:click={() => sendTest(hook)}>{busyId === hook.id && !testResults[hook.id] ? 'Sending…' : 'Send test'}</button>{/if}{#if email}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => setEmail(hook)}>Email address…</button>{/if}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => rotate(hook)}>Rotate</button><button class="text-button danger" type="button" disabled={busyId === hook.id} on:click={() => disable(hook)}>Disable</button>{/if}</td>
             </tr>
+            {#if testResults[hook.id]}
+              {@const result = testResults[hook.id]}
+              <tr class="webhook-test-row" data-webhook-test-result={hook.name}>
+                <td colspan={email ? 8 : 7}>
+                  <span class={result.ok ? 'test-ok' : 'test-failed'} data-webhook-test-status={result.ok ? 'ok' : 'failed'}>{result.ok ? '✓' : '✕'}</span>
+                  {testSummary(result)}
+                  {#if result.ok && result.ticket_url}<a href={result.ticket_url}>Open {result.ticket_key}</a>{/if}
+                  {#if result.cf_ray}<span class="optional">· Ray {result.cf_ray}</span>{/if}
+                </td>
+              </tr>
+            {/if}
           {/each}
         </tbody>
       </table>
@@ -234,6 +266,7 @@
       <tbody>{#each fields as field (field.name)}<tr><td><code>{field.name}</code></td><td>{field.required ? 'Yes' : 'No'}</td><td>{field.text}</td></tr>{/each}</tbody>
     </table>
     <p><strong>Response.</strong> <code>201</code> with <code>{'{"disposition": "created", "ticket": {"key": "OPS-61", "url": "…"}}'}</code> for a new ticket, or <code>200</code> with <code>"repeated"</code> when a <code>dedupe_key</code> matched an open ticket. A bad body returns <code>400</code> and names the field to fix in <code>error.details.field</code>; unknown fields are rejected so typos are caught. An unknown, rotated or disabled URL returns <code>404</code>.</p>
+    {#if publicHostname}<p data-webhook-test-guide><strong>Check it end to end.</strong> <strong>Send test</strong> on a webhook makes Helm post a test ticket to <code>https://{publicHostname}</code>, through Cloudflare and the tunnel, exactly as an outside app would. Repeated tests count on one low-priority test ticket.</p>{/if}
     <h3 id="webhook-email-heading">Sending by email</h3>
     {#if email}
       <p data-webhook-email-guide>Send mail to the webhook's address (<code>{email.local_part}+…@{email.domain}</code>). The subject becomes the title and the text part becomes the description; <code>X-Priority: 1</code> or <code>Importance: high</code> raise the priority. Mail from the same sender with the same subject repeats the open ticket instead of opening another. Attachments are listed but not stored, and messages over 1 MiB bounce.</p>
@@ -262,6 +295,10 @@
   .webhook-table tr.disabled { color: var(--muted); }
   .webhook-actions { display: flex; gap: 10px; justify-content: flex-end; }
   .danger { color: var(--semantic-red); }
+  .webhook-test-row td { font-size: 12px; color: var(--ink-soft); }
+  .webhook-test-row a { margin-left: 6px; font-weight: 700; }
+  .test-ok { color: var(--semantic-green); font-weight: 800; }
+  .test-failed { color: var(--semantic-red); font-weight: 800; }
   .webhook-guide { display: grid; gap: 10px; }
   .webhook-guide h3 { margin: 0; font-size: 14px; }
   .webhook-code { display: grid; gap: 6px; justify-items: start; }

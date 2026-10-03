@@ -138,11 +138,37 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
     expect((await request.get(`${hooksURL}${path}`)).status(), path).toBe(404);
   }
   expect((await request.get(`${hooksURL}/healthz`)).status()).toBe(200);
-  const webhook = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Public ${runID}`, project: project.key }, headers: jsonHeaders }), 'webhook');
+  const webhook = await json<{ url: string; webhook: { id: string } }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Public ${runID}`, project: project.key }, headers: jsonHeaders }), 'webhook');
   expect(webhook.url).toMatch(new RegExp(`^https://${hostname.replace(/\./g, '\\.')}/api/v1/hooks/tickets/hk_`));
   const viaTunnel = await request.post(`${hooksURL}${new URL(webhook.url).pathname}`, { data: { title: `Through the tunnel ${runID}` }, headers: { 'Content-Type': 'application/json' } });
   expect(viaTunnel.status()).toBe(201);
   expect((await request.post(`${hooksURL}/api/v1/hooks/tickets/${'x'.repeat(40)}`, { data: { title: 'x' }, headers: { 'Content-Type': 'application/json' } })).status()).toBe(404);
+
+  // "Send test" makes Helm post a real ticket for the webhook to its own
+  // public hostname (here routed to the hooks listener with the public Host)
+  // with a one-time nonce bound to that webhook. Repeats count on one
+  // ticket; agents cannot send tests and a guessed nonce files nothing.
+  const testTitle = 'Test ticket via public URL';
+  const testTickets = async () => (await json<{ data: { key: string; title: string; priority: string }[] }>(await request.get(`/api/v1/tickets?project=${project.key}&q=${encodeURIComponent(testTitle)}`), 'test tickets')).data.filter((item) => item.title === testTitle);
+  await page.reload();
+  await page.getByRole('button', { name: /Connect apps/ }).click();
+  const panel = page.locator('.ticket-integrations');
+  await expect(panel.locator('[data-webhook-test-guide]')).toContainText(`https://${hostname}`);
+  await panel.locator(`[data-webhook-name="Public ${runID}"]`).getByRole('button', { name: 'Send test' }).click();
+  const testRow = panel.locator(`[data-webhook-test-result="Public ${runID}"]`);
+  await expect(testRow.locator('[data-webhook-test-status]')).toHaveAttribute('data-webhook-test-status', 'ok');
+  const [testTicket] = await testTickets();
+  expect(testTicket).toMatchObject({ title: testTitle, priority: 'low' });
+  await expect(testRow).toContainText(`Opened ${testTicket.key} through the public URL.`);
+  await expect(testRow.getByRole('link', { name: `Open ${testTicket.key}` })).toBeVisible();
+  await testInfo.attach('webhook-send-test.png', { contentType: 'image/png', body: await panel.locator('.webhook-table').first().screenshot() });
+  const again = await json<{ ok: boolean; disposition: string; occurrence_count: number; ticket_key: string; hostname: string }>(await request.post(`/api/v1/ticket-webhooks/${webhook.webhook.id}/test`, { headers: jsonHeaders }), 'second test');
+  expect(again).toMatchObject({ ok: true, disposition: 'repeated', occurrence_count: 2, ticket_key: testTicket.key, hostname });
+  expect(await testTickets()).toHaveLength(1);
+  expect((await request.post(`/api/v1/ticket-webhooks/${webhook.webhook.id}/test`, { headers: bearer })).status()).toBe(403);
+  expect((await request.post(`${hooksURL}/api/v1/hooks/tickets/probe/${'b'.repeat(32)}`, { data: { title: 'guessed' }, headers: { 'Content-Type': 'application/json' } })).status()).toBe(404);
+  expect((await request.post(`/api/v1/hooks/tickets/probe/${'b'.repeat(32)}`, { data: { title: 'guessed' }, headers: { 'Content-Type': 'application/json' } })).status()).not.toBe(201);
+  expect(await testTickets()).toHaveLength(1);
 
   // The Cloudflare API token is not in responses, the database or the log.
   expect(JSON.stringify(await view(request))).not.toContain(cfToken);
@@ -163,6 +189,7 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   const finalView = await view(request);
   expect(finalView.active).toBeUndefined();
   expect(finalView.connector.state).toBe('stopped');
+  expect((await request.post(`/api/v1/ticket-webhooks/${webhook.webhook.id}/test`, { headers: jsonHeaders })).status()).toBe(409);
   await expect(card.locator(`[data-history-row="${hostname}"]`)).toContainText('Removed');
 
   // Removing without a token leaves Cloudflare resources behind; the history

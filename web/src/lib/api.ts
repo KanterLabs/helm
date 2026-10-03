@@ -66,6 +66,7 @@ import {
   type EmailIntake,
   type EmailIntakeView,
   type EmailSummary,
+  type TicketTestResult,
   type PublicEndpointTestResult,
   type PublicEndpointView,
   type TicketWebhook,
@@ -600,7 +601,10 @@ export const api = {
     }),
   listTickets: (params: { queue?: TicketQueue; project?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
     request<TicketCollection>(pathWithQuery('/tickets', params), { signal }),
-  listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string; email: EmailSummary | null }>('/ticket-webhooks'),
+  listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string; email: EmailSummary | null; public_hostname: string }>('/ticket-webhooks'),
+  /** Helm posts a test ticket for the webhook through its own public URL. */
+  sendTestTicket: (webhook: string) =>
+    request<TicketTestResult>(`/ticket-webhooks/${encodeURIComponent(webhook)}/test`, { method: 'POST' }),
   /** Creates or replaces a webhook's email address; shown only in this response. */
   setTicketWebhookEmail: (webhook: string) =>
     request<{ webhook: TicketWebhook; email_address: string }>(`/ticket-webhooks/${encodeURIComponent(webhook)}/email`, { method: 'POST' }),

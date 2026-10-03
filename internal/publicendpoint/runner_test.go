@@ -49,40 +49,58 @@ func TestStatusLocationsAreCopied(t *testing.T) {
 
 func TestProbeNoncesAreOneTimeAndExpire(t *testing.T) {
 	var probes probeRegistry
-	probes.add("a", time.Minute)
-	if !probes.take("a") {
+	probes.add("a", time.Minute, "")
+	if _, ok := probes.take("a", false); !ok {
 		t.Fatal("pending nonce was refused")
 	}
-	if probes.take("a") {
+	if _, ok := probes.take("a", false); ok {
 		t.Fatal("nonce was accepted twice")
 	}
-	if probes.take("never-issued") {
+	if _, ok := probes.take("never-issued", false); ok {
 		t.Fatal("unknown nonce was accepted")
 	}
-	probes.add("b", -time.Second)
-	if probes.take("b") {
+	probes.add("b", -time.Second, "")
+	if _, ok := probes.take("b", false); ok {
 		t.Fatal("expired nonce was accepted")
 	}
-	probes.add("c", time.Minute)
+	probes.add("c", time.Minute, "")
 	probes.drop("c")
-	if probes.take("c") {
+	if _, ok := probes.take("c", false); ok {
 		t.Fatal("dropped nonce was accepted")
+	}
+}
+
+func TestTicketProbesAreBoundToTheirKindAndWebhook(t *testing.T) {
+	var probes probeRegistry
+	probes.add("ticket", time.Minute, "hook-1")
+	if _, ok := probes.take("ticket", false); ok {
+		t.Fatal("a ticket nonce answered a reachability probe")
+	}
+	if webhook, ok := probes.take("ticket", true); !ok || webhook != "hook-1" {
+		t.Fatalf("ticket nonce = %q %v; a wrong-kind attempt must not consume it", webhook, ok)
+	}
+	probes.add("plain", time.Minute, "")
+	if _, ok := probes.take("plain", true); ok {
+		t.Fatal("a reachability nonce filed a test ticket")
 	}
 }
 
 func TestAnswerProbeRequiresFullNonce(t *testing.T) {
 	m := &Manager{}
-	m.probes.add("short", time.Minute)
+	m.probes.add("short", time.Minute, "")
 	if m.AnswerProbe("short") {
 		t.Fatal("a nonce that is not 32 hex characters must be refused")
 	}
 	nonce := randomID()
-	m.probes.add(nonce, time.Minute)
+	m.probes.add(nonce, time.Minute, "")
 	if !m.AnswerProbe(nonce) || m.AnswerProbe(nonce) {
 		t.Fatal("a pending nonce must be answered exactly once")
 	}
 	var missing *Manager
 	if missing.AnswerProbe(nonce) {
 		t.Fatal("a nil manager must refuse probes")
+	}
+	if _, ok := missing.TakeTicketProbe(nonce); ok {
+		t.Fatal("a nil manager must refuse ticket probes")
 	}
 }

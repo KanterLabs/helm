@@ -5292,7 +5292,8 @@
                   "required": [
                     "data",
                     "endpoint_base",
-                    "email"
+                    "email",
+                    "public_hostname"
                   ],
                   "properties": {
                     "data": {
@@ -5304,6 +5305,10 @@
                     "endpoint_base": {
                       "type": "string",
                       "description": "Public URL prefix; append the secret to form a webhook URL."
+                    },
+                    "public_hostname": {
+                      "type": "string",
+                      "description": "The active public endpoint's hostname, or empty; enables `sendTestTicket`."
                     },
                     "email": {
                       "description": "The active email setup, used to show masked addresses; null when email is off.",
@@ -5480,6 +5485,58 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-webhooks/{webhook}/test": {
+      "parameters": [
+        {
+          "name": "webhook",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "sendTestTicket",
+        "summary": "Send a test ticket through the public URL",
+        "description": "Human administrators only, with an active public endpoint. Helm POSTs\na low-priority generic ticket (`dedupe_key: helm-public-url-test`) to\n`https://{hostname}/api/v1/hooks/tickets/probe/{nonce}`; the nonce is\none-time, expires in 30 seconds and is bound to this webhook, so the\nhooks listener files the ticket under it with the code real\ndeliveries use. Success proves an outside app can open tickets\nthrough Cloudflare and the tunnel. A failed round trip is still HTTP\n200 with `ok: false` and a `message` explaining the likely cause.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Test completed",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketTestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -13790,6 +13847,63 @@
           "email_address": {
             "type": "string",
             "description": "The webhook's email address when email is on (create only). Shown only in this response."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketTestResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "hostname",
+          "checked_at",
+          "latency_ms",
+          "via_cloudflare",
+          "message"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "checked_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status_code": {
+            "type": "integer"
+          },
+          "via_cloudflare": {
+            "type": "boolean",
+            "description": "The response carried Cloudflare's `CF-Ray` or `Server` header."
+          },
+          "cf_ray": {
+            "type": "string"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "created",
+              "repeated",
+              "retained"
+            ]
+          },
+          "ticket_key": {
+            "type": "string"
+          },
+          "ticket_url": {
+            "type": "string"
+          },
+          "occurrence_count": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
           }
         },
         "additionalProperties": false
