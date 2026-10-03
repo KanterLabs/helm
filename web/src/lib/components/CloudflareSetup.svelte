@@ -31,7 +31,7 @@
   $: zone = zones.find((item) => item.id === zoneId);
   $: emailPossible = zone?.email_routing === 'ready';
   $: needsConsent = Boolean(zone && emailPossible && withEmail && !zone.plus_addressing);
-  $: canStart = Boolean(zone && hostname.trim() && (!withEmail || !emailPossible || !needsConsent || consent) && !busy);
+  $: canStart = Boolean(zone && (hostname.trim() || status?.active_public_hostname) && (!withEmail || !emailPossible || !needsConsent || consent) && !busy);
 
   function message(value: unknown, fallbackText: string): string {
     return value instanceof Error && value.message ? value.message : fallbackText;
@@ -53,7 +53,8 @@
     busy = 'zones';
     try {
       zones = (await api.listCloudflareZones()).data;
-      const preferred = zones.find((item) => item.id === zoneId) || zones.find((item) => item.email_routing === 'ready') || zones[0];
+      const usable = zones.filter((item) => item.usable);
+      const preferred = usable.find((item) => item.id === zoneId) || usable.find((item) => item.email_routing === 'ready') || usable[0];
       if (preferred) pick(preferred);
     } catch (cause) {
       error = message(cause, 'Your domains could not be listed.');
@@ -238,17 +239,25 @@
           {:else if zones.length}
             <div class="cf-zones" role="radiogroup" aria-label="Domain">
               {#each zones as item (item.id)}
-                <label class="cf-zone" class:selected={item.id === zoneId} data-zone={item.name}>
-                  <input type="radio" name="cf-zone" checked={item.id === zoneId} on:change={() => pick(item)} />
+                <label class="cf-zone" class:selected={item.id === zoneId} class:unusable={!item.usable} data-zone={item.name} title={item.reason || ''}>
+                  <input type="radio" name="cf-zone" checked={item.id === zoneId} disabled={!item.usable} on:change={() => pick(item)} />
                   <span class="zone-name">{item.name}</span>
                   {#if item.account_name}<span class="optional">{item.account_name}</span>{/if}
-                  <span class={`zone-badge email-${item.email_routing}`}>{item.email_routing === 'ready' ? 'Email Routing on' : item.email_routing === 'off' ? 'Email Routing off' : 'Email Routing unknown'}</span>
+                  {#if item.usable}
+                    <span class={`zone-badge email-${item.email_routing}`}>{item.email_routing === 'ready' ? 'Email Routing on' : item.email_routing === 'off' ? 'Email Routing off' : 'Email Routing unknown'}</span>
+                  {:else}
+                    <span class="zone-badge" data-zone-unusable>No DNS access</span>
+                  {/if}
                 </label>
               {/each}
             </div>
             {#if zone}
-              <label class="cf-field">Public hostname<input aria-label="Guided public hostname" bind:value={hostname} autocomplete="off" /></label>
-              <p class="optional">A new name Helm creates in {zone.name}. Only webhook paths become public on it.</p>
+              {#if status.active_public_hostname}
+                <p class="cf-existing" data-setup-existing>Your public URL <strong>https://{status.active_public_hostname}</strong> is already working; setup keeps it as is.</p>
+              {:else}
+                <label class="cf-field">Public hostname<input aria-label="Guided public hostname" bind:value={hostname} autocomplete="off" /></label>
+                <p class="optional">A new name Helm creates in {zone.name}. Only webhook paths become public on it.</p>
+              {/if}
               <label class="cf-check"><input type="checkbox" bind:checked={withEmail} disabled={!emailPossible} data-setup-email /> Also give webhooks email addresses</label>
               {#if !emailPossible}
                 <p class="optional">Turn on Email Routing for {zone.name} in Cloudflare (Email › Email Routing) to add email; you can run setup again later.</p>
@@ -295,13 +304,15 @@
   .cf-zones { display: grid; gap: 6px; }
   .cf-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: 13px; }
   .cf-zone.selected { border-color: var(--purple); }
+  .cf-zone.unusable { cursor: not-allowed; opacity: 0.6; }
+  .cf-existing { padding: 8px 10px; border-radius: 8px; background: var(--green-soft); }
   .zone-name { font-weight: 800; }
   .zone-badge { margin-left: auto; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-muted); }
   .zone-badge.email-ready { color: var(--semantic-green); background: var(--green-soft); }
   .cf-field { display: grid; gap: 4px; font-size: 12px; font-weight: 700; }
   .cf-email { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .cf-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
-  .cf-check input, .cf-zone input { width: auto; flex: 0 0 auto; margin: 3px 0 0; }
+  .cf-check input, .cf-zone input { width: auto; height: auto; padding: 0; flex: 0 0 auto; margin: 3px 0 0; }
   [data-cloudflare-signin] { justify-self: start; }
   .cf-check.consent { padding: 8px 10px; border-radius: 8px; background: var(--amber-soft); }
   .cf-steps li { display: flex; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); font-size: 13px; }

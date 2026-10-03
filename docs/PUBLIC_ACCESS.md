@@ -36,9 +36,11 @@ Cloudflare account with your domain on it.
      choose your account, and under **Zone resources** your domain, then
      **Continue to summary → Create token**. Copy the token, paste it into
      Helm and select **Connect**.
-2. **Choose a domain.** Helm lists the domains the connection can use and
-   whether Email Routing is on for each. It proposes a free hostname such as
-   `hooks.example.com` (change it if you like).
+2. **Choose a domain.** Helm lists your domains and whether Email Routing is
+   on for each. Domains the connection cannot manage DNS for are marked
+   **No DNS access** and cannot be chosen. Helm proposes a free hostname such
+   as `hooks.example.com` (change it if you like); if a public URL is already
+   working, setup keeps it and the hostname field is replaced by a note.
 3. **Choose email.** "Also give webhooks email addresses" is on when Email
    Routing is ready. If plus addressing is off for the domain, Helm explains
    what turning it on changes and needs your tick. Optionally set a
@@ -237,6 +239,7 @@ is left on. The Public URL cannot be removed while email is on.
 | "hostname must be a subdomain…" | Enter a new subdomain such as `hooks.example.com`, not `example.com`. Guided setup picks one for you. |
 | "this credential is not allowed to …" | Create the token with **Create token on Cloudflare** (it selects every permission), and on Cloudflare's page include your domain under **Zone resources**. With sign-in, keep the requested permissions. |
 | "the credential is not allowed to see any domains" | Same as above: the token was created without a zone. |
+| Your domain shows **No DNS access** | Create the token again and include that domain under **Zone resources** (or approve the DNS permission when signing in). |
 | "The tunnel did not connect within 45 seconds" | The server needs outbound access to Cloudflare on port 7844 (TCP and UDP) and 443. |
 | "DNS for … does not resolve yet" | Wait a minute and select **Test public URL**. |
 | "Cloudflare answered HTTP 530" | The connector is down; check the Connector status on the Public URL card. |

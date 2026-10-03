@@ -88,51 +88,46 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     await expect(panel.getByRole('alert')).toContainText('not allowed to see any domains');
     expect((await status(request)).connected).toBe(false);
 
-    // A token that cannot create DNS records stops at the first step and
-    // leaves nothing behind in Cloudflare.
+    // A token without DNS access cannot pick a domain, and the API refuses
+    // setup too; nothing is created in Cloudflare.
     const before = await fakeState(request);
     await panel.locator('#cf-token').fill(noRulesToken);
     await panel.getByRole('button', { name: 'Connect', exact: true }).click();
     await expect(panel.locator('[data-cloudflare-connected="token"]')).toBeVisible();
-    await expect(panel.locator('[data-zone="example.test"]')).toContainText('Email Routing on');
-    await expect(panel.locator('[data-zone="plain.test"]')).toContainText('Email Routing off');
+    await expect(panel.locator('[data-zone="example.test"] [data-zone-unusable]')).toHaveText('No DNS access');
+    await expect(panel.locator('[data-zone="example.test"] input')).toBeDisabled();
+    await expect(panel.locator('[data-setup-start]')).toHaveCount(0);
+    const refused = await request.post('/api/v1/cloudflare/setup', { headers: jsonHeaders, data: { zone: 'zone-1' } });
+    expect(refused.status()).toBe(400);
+    expect(await refused.text()).toContain('cannot manage DNS here');
+    expect(Object.keys((await fakeState(request)).tunnels)).toEqual(Object.keys(before.tunnels));
+    await panel.getByRole('button', { name: 'Disconnect' }).click();
+    await expect(panel.getByRole('status')).toContainText('Helm no longer holds the Cloudflare credential');
+
+    // When only email fails, the working public URL stays, the step says
+    // why, and the half-created Worker and plus addressing are rolled back.
+    await panel.locator('#cf-token').fill(cfToken);
+    await panel.getByRole('button', { name: 'Connect', exact: true }).click();
     await panel.locator('[data-zone="example.test"] input').check();
     await expect(panel.getByLabel('Guided public hostname')).toHaveValue('hooks.example.test');
     await expect(panel.locator('[data-setup-start]')).toBeDisabled();
     await panel.locator('[data-setup-consent] input').check();
-    await panel.locator('[data-setup-start]').click();
-    await expect(panel.locator('[data-setup-run]')).toHaveAttribute('data-setup-run', 'failed', { timeout: 30_000 });
-    await expect(panel.locator('[data-setup-step="public_url"]')).toHaveAttribute('data-setup-status', 'failed');
-    await expect(panel.locator('[data-setup-step="public_url"]')).toContainText('not allowed to create a tunnel and DNS record');
-    for (const step of ['connector', 'reachable', 'email']) await expect(panel.locator(`[data-setup-step="${step}"]`)).toHaveAttribute('data-setup-status', 'skipped');
-    await expect(panel.locator('[data-setup-step="forget"]')).toHaveAttribute('data-setup-status', 'done');
-    const afterFailure = await fakeState(request);
-    expect(Object.keys(afterFailure.tunnels)).toEqual(Object.keys(before.tunnels));
-    expect(Object.keys(afterFailure.workers)).toEqual(Object.keys(before.workers));
-    expect(afterFailure.email_routing['zone-1'].support_subaddress).toBe(false);
-    expect((await status(request)).connected).toBe(false);
-    await testInfo.attach('connect-failed.png', { contentType: 'image/png', body: await panel.screenshot() });
-
-    // A full token sets everything up, then Helm forgets it.
-    await panel.getByRole('button', { name: 'Try again' }).click();
-    await panel.locator('#cf-token').fill(cfToken);
-    await panel.getByRole('button', { name: 'Connect', exact: true }).click();
-    await panel.locator('[data-zone="example.test"] input').check();
-    await panel.locator('[data-setup-consent] input').check();
+    await panel.getByLabel('Guided email address name').fill(`fail-rule-${runID}`);
     await testInfo.attach('connect-choose.png', { contentType: 'image/png', body: await panel.screenshot() });
     await panel.locator('[data-setup-start]').click();
-    await expect(panel.locator('[data-setup-run]')).toHaveAttribute('data-setup-run', 'done', { timeout: 60_000 });
-    for (const step of ['public_url', 'connector', 'reachable', 'email', 'forget']) await expect(panel.locator(`[data-setup-step="${step}"]`)).toHaveAttribute('data-setup-status', 'done');
+    await expect(panel.locator('[data-setup-run]')).toHaveAttribute('data-setup-run', 'failed', { timeout: 60_000 });
+    for (const step of ['public_url', 'connector', 'reachable', 'forget']) await expect(panel.locator(`[data-setup-step="${step}"]`)).toHaveAttribute('data-setup-status', 'done');
+    await expect(panel.locator('[data-setup-step="email"]')).toHaveAttribute('data-setup-status', 'failed');
+    await expect(panel.locator('[data-setup-step="email"]')).toContainText('only email was not set up');
     await expect(panel.locator('[data-setup-result]')).toContainText('https://hooks.example.test');
-    await expect(panel.locator('[data-setup-result]')).toContainText('helm-alerts+…@example.test');
-    await testInfo.attach('connect-done.png', { contentType: 'image/png', body: await panel.screenshot() });
-    const done = await fakeState(request);
-    expect(Object.values(done.tunnels).map((tunnel) => tunnel.name)).toContain('helm-hooks.example.test');
-    expect(Object.values(done.rules).some((rule) => rule.matchers[0]?.value === 'helm-alerts@example.test')).toBe(true);
-    expect(done.email_routing['zone-1'].support_subaddress).toBe(true);
+    await testInfo.attach('connect-email-failed.png', { contentType: 'image/png', body: await panel.screenshot() });
+    const partial = await fakeState(request);
+    expect(Object.values(partial.tunnels).map((tunnel) => tunnel.name)).toContain('helm-hooks.example.test');
+    expect(Object.keys(partial.workers)).toEqual(Object.keys(before.workers));
+    expect(partial.email_routing['zone-1'].support_subaddress).toBe(false);
     expect((await status(request)).connected).toBe(false);
     await expect(page.locator('.public-endpoint [data-public-badge]')).toHaveText('Live');
-    await expect(page.locator('.email-intake [data-email-badge]')).toHaveText('On');
+    await expect(page.locator('.email-intake [data-email-badge]')).toHaveText('Off');
 
     // The token is never stored, logged or returned.
     expect(JSON.stringify(await status(request))).not.toContain(cfToken);
@@ -143,9 +138,10 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     }
 
     // Sign in with Cloudflare: consent at Cloudflare, the real relay shows
-    // where the browser returns, and Helm redeems the code with PKCE. A
-    // rerun reuses what already works and revokes the sign-in afterwards.
-    await panel.getByRole('button', { name: 'Done' }).click();
+    // where the browser returns, and Helm redeems the code with PKCE. The
+    // rerun keeps the working public URL, adds email, and revokes the
+    // sign-in afterwards.
+    await panel.getByRole('button', { name: 'Try again' }).click();
     await panel.locator('[data-cloudflare-signin]').click();
     await expect(page.getByRole('heading', { name: 'Finish connecting Cloudflare' })).toBeVisible();
     await expect(page.locator('[data-helm-origin]')).toHaveText(origin);
@@ -156,12 +152,22 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     await expect(panel.locator('[data-cloudflare-connected="cloudflare"]')).toBeVisible();
     const revokedBefore = (await fakeState(request)).oauth_revoked;
     await panel.locator('[data-zone="example.test"] input').check();
+    await expect(panel.locator('[data-setup-existing]')).toContainText('https://hooks.example.test');
+    await panel.locator('[data-setup-consent] input').check();
     await panel.locator('[data-setup-start]').click();
     await expect(panel.locator('[data-setup-run]')).toHaveAttribute('data-setup-run', 'done', { timeout: 60_000 });
+    for (const step of ['public_url', 'connector', 'reachable', 'email', 'forget']) await expect(panel.locator(`[data-setup-step="${step}"]`)).toHaveAttribute('data-setup-status', 'done');
     await expect(panel.locator('[data-setup-step="public_url"]')).toContainText('Already set up: https://hooks.example.test');
-    await expect(panel.locator('[data-setup-step="email"]')).toContainText('Already on');
-    expect((await fakeState(request)).oauth_revoked).toBe(revokedBefore + 1);
-    expect(Object.values((await fakeState(request)).tunnels).filter((tunnel) => tunnel.name === 'helm-hooks.example.test')).toHaveLength(1);
+    await expect(panel.locator('[data-setup-result]')).toContainText('helm-alerts+…@example.test');
+    await testInfo.attach('connect-done.png', { contentType: 'image/png', body: await panel.screenshot() });
+    const done = await fakeState(request);
+    expect(done.oauth_revoked).toBe(revokedBefore + 1);
+    expect(Object.values(done.tunnels).filter((tunnel) => tunnel.name === 'helm-hooks.example.test')).toHaveLength(1);
+    expect(Object.values(done.rules).some((rule) => rule.matchers[0]?.value === 'helm-alerts@example.test')).toBe(true);
+    expect(done.email_routing['zone-1'].support_subaddress).toBe(true);
+    expect((await status(request)).connected).toBe(false);
+    await expect(page.locator('.public-endpoint [data-public-badge]')).toHaveText('Live');
+    await expect(page.locator('.email-intake [data-email-badge]')).toHaveText('On');
 
     // A declined sign-in and a forged callback are both refused.
     await panel.getByRole('button', { name: 'Done' }).click();

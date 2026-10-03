@@ -657,6 +657,7 @@ export interface CloudflareConnectStatus {
   connected_via?: 'cloudflare' | 'token';
   expires_at?: string;
   run?: CloudflareSetupRun;
+  active_public_hostname?: string;
 }
 
 export interface CloudflareZoneOption {
@@ -666,6 +667,8 @@ export interface CloudflareZoneOption {
   email_routing: 'ready' | 'off' | 'unknown';
   plus_addressing: boolean;
   suggested_hostname?: string;
+  usable: boolean;
+  reason?: string;
 }
 
 /** A test ticket Helm sent for a webhook through its own public URL. */

@@ -43,27 +43,36 @@ function table(rows: string[]): string {
     .join('')}</tbody></table></div>`;
 }
 
-type Item = { indent: number; ordered: boolean; text: string[]; children: Item[] };
+type Item = { indent: number; ordered: boolean; text: string[]; table: string[]; children: Item[] };
 
 function list(lines: string[]): string {
-  const root: Item = { indent: -1, ordered: false, text: [], children: [] };
+  const root: Item = { indent: -1, ordered: false, text: [], table: [], children: [] };
   const stack: Item[] = [root];
   for (const line of lines) {
     const marker = /^(\s*)([-*]|\d+\.)\s+(.*)$/.exec(line);
     if (marker) {
       const indent = marker[1].length;
       while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
-      const item: Item = { indent, ordered: /\d/.test(marker[2]), text: [marker[3]], children: [] };
+      const item: Item = { indent, ordered: /\d/.test(marker[2]), text: [marker[3]], table: [], children: [] };
       stack[stack.length - 1].children.push(item);
       stack.push(item);
+    } else if (stack.length > 1 && line.trim().startsWith('|')) {
+      stack[stack.length - 1].table.push(line.trim());
     } else if (stack.length > 1) {
-      stack[stack.length - 1].text.push(line.trim());
+      const item = stack[stack.length - 1];
+      // Text after an item's table is a new paragraph in that item.
+      item.text.push(item.table.length && line.trim() ? `\n${line.trim()}` : line.trim());
     }
   }
   const render = (items: Item[]): string => {
     if (!items.length) return '';
     const tag = items[0].ordered ? 'ol' : 'ul';
-    return `<${tag}>${items.map((item) => `<li>${inline(item.text.filter(Boolean).join(' '))}${render(item.children)}</li>`).join('')}</${tag}>`;
+    return `<${tag}>${items.map((item) => {
+      const [lead, ...after] = item.text.filter(Boolean).join(' ').split(' \n');
+      const table_ = item.table.length >= 2 ? table(item.table) : '';
+      const rest = after.length ? `<p>${inline(after.join(' ').replace(/^\n/, ''))}</p>` : '';
+      return `<li>${inline(lead.replace(/^\n/, ''))}${table_}${rest}${render(item.children)}</li>`;
+    }).join('')}</${tag}>`;
   };
   return render(root.children);
 }
@@ -112,10 +121,11 @@ export function renderHelpMarkdown(source: string): string {
         if (!/^\s/.test(lines[index]) && !/^([-*]|\d+\.)\s+/.test(lines[index])) break;
         block.push(lines[index++]);
       }
-      // A blank line followed by an indented line continues the list.
-      while (index + 1 < lines.length && lines[index].trim() === '' && /^\s{2,}\S/.test(lines[index + 1]) && !lines[index + 1].trim().startsWith('```')) {
+      // A blank line followed by an indented line or another item of the
+      // same list continues the list.
+      while (index + 1 < lines.length && lines[index].trim() === '' && !lines[index + 1].trim().startsWith('```') && (/^\s{2,}\S/.test(lines[index + 1]) || /^([-*]|\d+\.)\s+/.test(lines[index + 1]))) {
         index++;
-        while (index < lines.length && lines[index].trim() !== '' && /^\s/.test(lines[index])) block.push(lines[index++]);
+        while (index < lines.length && lines[index].trim() !== '' && (/^\s/.test(lines[index]) || /^([-*]|\d+\.)\s+/.test(lines[index]))) block.push(lines[index++]);
       }
       out.push(list(block));
       continue;

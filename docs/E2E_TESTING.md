@@ -151,12 +151,13 @@ its OAuth endpoints) and the real sign-in relay Worker served by
 | --- | --- |
 | The token link asks for the wrong permissions | The link opens Cloudflare's account-token page and its `permissionGroupKeys` are exactly zone, dns, zone_settings, email_routing_rule, argotunnel, workers_scripts and email_routing_address; a unit test pins them to the permissions the cards list. |
 | A token that sees no domains is accepted | Connecting with it fails with "not allowed to see any domains" and the panel stays disconnected. |
-| A weak token half-configures Cloudflare | With a token that cannot write DNS, the first step fails with the fix, later steps are skipped, the credential is forgotten, and the fake API holds no new tunnel, Worker or plus-addressing change. |
+| A weak token half-configures Cloudflare | With a token that cannot manage DNS, every domain shows "No DNS access" and cannot be chosen, the setup API refuses with the fix, and the fake API holds no new tunnel. |
+| A failed email step breaks the working URL | When the email rule cannot be created, the public URL, connector and reachability steps are done, the email step says only email was not set up, the Worker is removed and plus addressing restored, and the Public URL card stays Live. |
 | The admin has to invent a hostname | Choosing a domain fills `hooks.<domain>`; plus-addressing consent is required before setup can start. |
 | Setup claims success without a working path | The run is `done` only after the tunnel, connector, reachability and email steps are done; the Public URL card is Live and Email is On. |
 | The credential outlives setup or leaks | After the run Helm reports not connected; neither token appears in status responses, the database or the server log. |
 | Sign-in bypasses consent or the relay | Sign-in goes through Cloudflare's authorize endpoint and the relay page, which shows this Helm's origin before continuing; the code is redeemed with PKCE and revoked after setup. |
-| A rerun duplicates resources | Running setup again after sign-in reports the public URL and email as already set up, with one tunnel. |
+| A rerun duplicates resources | Running setup again after sign-in shows the existing public URL instead of a hostname field, reports it as already set up, adds email, and leaves one tunnel. |
 | A declined or forged sign-in connects anyway | A denied consent returns "Cloudflare sign-in was not completed"; a callback with an unknown state is refused and Cloudflare issues no token. |
 | Agents reach setup | Agent tokens get `403` from every guided-setup route. |
 | Help is missing or wrong | **Learn more** opens the embedded guide at the guided-setup section; links to other guides open inside the drawer. |

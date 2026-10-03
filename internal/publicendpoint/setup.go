@@ -127,17 +127,26 @@ func (m *Manager) StartSetup(ctx context.Context, actorID string, request SetupR
 	if zone == nil {
 		return SetupRun{}, fmt.Errorf("%w: choose one of the listed domains", ErrCloudflare)
 	}
+	if !zone.Usable {
+		return SetupRun{}, fmt.Errorf("%w: %s", ErrCloudflare, zone.Reason)
+	}
+	// An active public URL is kept as is, whatever hostname was proposed.
+	if endpoint, active, err := m.store.ActivePublicEndpoint(ctx); err != nil {
+		return SetupRun{}, err
+	} else if active {
+		request.Hostname = endpoint.Hostname
+	}
 	request.Hostname = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(request.Hostname)), ".")
 	if request.Hostname == "" {
 		request.Hostname = zone.SuggestedHostname
 	}
-	if !strings.HasSuffix(request.Hostname, "."+zone.Name) || !hostnamePattern.MatchString(request.Hostname) {
+	if _, active, _ := m.store.ActivePublicEndpoint(ctx); !active && (!strings.HasSuffix(request.Hostname, "."+zone.Name) || !hostnamePattern.MatchString(request.Hostname)) {
 		return SetupRun{}, fmt.Errorf("%w (try hooks.%s)", ErrInvalidHostname, zone.Name)
 	}
 	run := &SetupRun{ID: randomID(), Status: "running", Zone: zone.Name, Hostname: request.Hostname, actorID: actorID, startedTime: time.Now()}
 	run.StartedAt = run.startedTime.UTC().Format(time.RFC3339)
 	run.Steps = []SetupStep{
-		{ID: "public_url", Label: "Create the public URL " + request.Hostname, Status: StepPending},
+		{ID: "public_url", Label: "Public URL " + request.Hostname, Status: StepPending},
 		{ID: "connector", Label: "Connect the tunnel to Cloudflare", Status: StepPending},
 		{ID: "reachable", Label: "Reach Helm from the internet", Status: StepPending},
 		{ID: "email", Label: "Give webhooks email addresses", Status: StepPending},

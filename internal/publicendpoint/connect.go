@@ -96,6 +96,8 @@ type ConnectStatus struct {
 	ConnectedVia     string            `json:"connected_via,omitempty"`
 	ExpiresAt        string            `json:"expires_at,omitempty"`
 	Run              *SetupRun         `json:"run,omitempty"`
+	// ActivePublicHostname is the public URL setup will keep, if any.
+	ActivePublicHostname string `json:"active_public_hostname,omitempty"`
 }
 
 // OAuthAvailable reports whether "Sign in with Cloudflare" can be offered.
@@ -125,6 +127,9 @@ func (m *Manager) ConnectStatus(actorID string) ConnectStatus {
 		}
 	}
 	status.Run = m.latestRun(actorID)
+	if endpoint, active, err := m.store.ActivePublicEndpoint(context.Background()); err == nil && active {
+		status.ActivePublicHostname = endpoint.Hostname
+	}
 	return status
 }
 
@@ -284,6 +289,10 @@ type ZoneOption struct {
 	EmailRouting      string `json:"email_routing"` // ready, off or unknown
 	PlusAddressing    bool   `json:"plus_addressing"`
 	SuggestedHostname string `json:"suggested_hostname,omitempty"`
+	// Usable is false when the credential cannot manage DNS in the zone
+	// (Cloudflare may still list it); Reason says why.
+	Usable bool   `json:"usable"`
+	Reason string `json:"reason,omitempty"`
 }
 
 func listZones(ctx context.Context, client *cloudflareClient) ([]cfZone, error) {
@@ -297,8 +306,9 @@ func listZones(ctx context.Context, client *cloudflareClient) ([]cfZone, error) 
 	return zones, nil
 }
 
-// suggestHostname picks the first unused name for the public URL.
-func suggestHostname(ctx context.Context, client *cloudflareClient, zone cfZone) string {
+// suggestHostname picks the first unused name for the public URL. An error
+// means the credential cannot read DNS in the zone.
+func suggestHostname(ctx context.Context, client *cloudflareClient, zone cfZone) (string, error) {
 	candidates := []string{"hooks." + zone.Name, "helm-hooks." + zone.Name}
 	for index := 0; index < 3; index++ {
 		candidates = append(candidates, "hooks-"+randomID()[:6]+"."+zone.Name)
@@ -306,13 +316,13 @@ func suggestHostname(ctx context.Context, client *cloudflareClient, zone cfZone)
 	for _, candidate := range candidates {
 		var existing []cfRecord
 		if err := client.call(ctx, http.MethodGet, "/zones/"+zone.ID+"/dns_records?name="+url.QueryEscape(candidate), nil, &existing); err != nil {
-			return ""
+			return "", err
 		}
 		if len(existing) == 0 {
-			return candidate
+			return candidate, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // CloudflareZones lists the domains the session can configure, with Email
@@ -329,7 +339,7 @@ func (m *Manager) CloudflareZones(ctx context.Context, actorID string) ([]ZoneOp
 	}
 	options := make([]ZoneOption, 0, len(zones))
 	for index, zone := range zones {
-		option := ZoneOption{ID: zone.ID, Name: zone.Name, AccountName: zone.Account.Name, EmailRouting: "unknown"}
+		option := ZoneOption{ID: zone.ID, Name: zone.Name, AccountName: zone.Account.Name, EmailRouting: "unknown", Usable: true}
 		if settings, err := client.emailRouting(ctx, zone.ID); err == nil {
 			option.EmailRouting, option.PlusAddressing = "off", settings.SupportSubaddress
 			if settings.Enabled {
@@ -337,7 +347,11 @@ func (m *Manager) CloudflareZones(ctx context.Context, actorID string) ([]ZoneOp
 			}
 		}
 		if index < 20 {
-			option.SuggestedHostname = suggestHostname(ctx, client, zone)
+			suggested, err := suggestHostname(ctx, client, zone)
+			if err != nil {
+				option.Usable, option.Reason = false, "This credential cannot manage DNS here. Include this domain under Zone resources when creating the token."
+			}
+			option.SuggestedHostname = suggested
 		}
 		options = append(options, option)
 	}

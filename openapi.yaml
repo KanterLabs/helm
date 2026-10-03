@@ -9081,10 +9081,13 @@ components:
         expires_at: { type: string }
         run:
           $ref: '#/components/schemas/CloudflareSetupRun'
+        active_public_hostname:
+          type: string
+          description: The public URL guided setup will keep as is, if one is active.
       additionalProperties: false
     CloudflareZoneOption:
       type: object
-      required: [id, name, email_routing, plus_addressing]
+      required: [id, name, email_routing, plus_addressing, usable]
       properties:
         id: { type: string }
         name: { type: string }
@@ -9092,6 +9095,10 @@ components:
         email_routing: { type: string, enum: [ready, off, unknown] }
         plus_addressing: { type: boolean }
         suggested_hostname: { type: string }
+        usable:
+          type: boolean
+          description: False when the credential cannot manage DNS in this zone; `reason` explains.
+        reason: { type: string }
       additionalProperties: false
     CloudflareSetupRun:
       type: object
