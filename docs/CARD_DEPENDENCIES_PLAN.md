@@ -1,5 +1,7 @@
 # Card dependencies feature plan
 
+Status: implemented (migration `012_task_dependencies.sql`, dependency drawer and board readiness). Kept as the design record.
+
 ## Goal
 
 Let a task declare that one or more other tasks must finish first. Helm

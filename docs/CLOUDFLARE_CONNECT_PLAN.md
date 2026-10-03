@@ -1,9 +1,10 @@
 # Connect Cloudflare: guided, automatic public access
 
-Status: proposed (2026-10-03). Phase 1 is ready to build; Phase 2 is gated on
-the open questions below. Owner docs once built:
-[PUBLIC_ACCESS.md](PUBLIC_ACCESS.md) (user guide, new) and
-[E2E_TESTING.md](E2E_TESTING.md) (failure contracts).
+Status: implemented on `beta` (2026-10-03), both phases. User guide:
+[PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#connect-cloudflare-guided-setup); failure
+contract: [E2E_TESTING.md](E2E_TESTING.md#connect-cloudflare-failure-contract);
+relay: [deploy/cloudflare-connect-relay](../deploy/cloudflare-connect-relay/README.md).
+See [As built](#as-built) for what changed from this plan.
 
 ## Problem
 
@@ -180,7 +181,7 @@ Strong documentation is part of "done", enforced by review and CI.
    entries; screenshots of each UI state attached by the E2E test.
 3. **In-app help mirrors the docs.** Every setup card has a short numbered
    procedure and a "Learn more" link to its `PUBLIC_ACCESS.md` anchor
-   (rendered by Helm at `/docs/…` so links work on private installs).
+   (served by Helm from the binary so links work on private installs).
 4. **`scripts/check-docs.mjs` in `make lint`** (new, blocking):
    - every `operationId` named in a doc exists in `openapi.yaml`, and every
      operation tagged `Tickets` is named in a user guide;
@@ -188,7 +189,8 @@ Strong documentation is part of "done", enforced by review and CI.
    - every `docs/*_PLAN.md` has a `Status:` line;
    - every Helm env var read in `internal/config` appears in a doc.
 5. **Release notes:** each beta push that changes user-visible behaviour
-   adds a dated entry under `docs/releases/`.
+   adds a dated entry to `docs/releases/unreleased.md`; at release its entries
+   move into `docs/releases/vX.Y.Z.md`.
 
 ## Tests (failure contract to add before code)
 
@@ -213,3 +215,31 @@ Cloudflare.
    `check-docs.mjs` land in the same change.
 2. Collect one real setup from a non-author self-hoster if possible.
 3. Phase 2 after its gate, as an extra button above the token link.
+
+## As built
+
+Recorded 2026-10-03 after implementation and verification.
+
+- **Phase 2 gate answered.** Cloudflare accepted any redirect URL at
+  registration but matched only exact ones at `/oauth2/auth`: wildcard
+  hosts and paths were rejected and `localhost` had to match its port. The
+  relay is therefore required. It runs on
+  `helm-connect.shanekanterman04.workers.dev`, shows the destination and
+  requires a click (no silent redirect).
+- **OAuth client** `f05395c32033f7b61981048f5e523cec` is registered as a
+  PKCE client with no secret. It is **private** until a publisher domain is
+  verified (see the relay README), so only members of the KanterLabs
+  Cloudflare account can approve it today; everyone else uses the token
+  link, which runs the same setup.
+- **Checklist steps** are: public URL, connector, reachability, email,
+  forget the credential. The planned "test ticket" step was dropped because
+  setup may run before any webhook exists; the reachability step already
+  proves the path, and **Send test** on a webhook opens a real ticket
+  afterwards.
+- **Sessions:** a pasted token and an OAuth sign-in both become a
+  30-minute in-memory session for one administrator, ended (and revoked
+  for OAuth) when setup finishes.
+- **Help** is served by Helm at `/api/v1/docs/{page}` from guides embedded in
+  the binary and rendered in a drawer, instead of `/docs/…` pages.
+- **Release notes** for beta changes collect in
+  [releases/unreleased.md](releases/unreleased.md) until the next version.

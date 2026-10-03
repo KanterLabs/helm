@@ -106,6 +106,70 @@ type PublicEndpoints struct {
 	// ProbeOrigin sends the public URL self-test to a loopback origin with
 	// the public Host header instead of resolving the hostname (tests only).
 	ProbeOrigin string
+	// OAuth configures "Sign in with Cloudflare" for guided setup.
+	OAuth CloudflareOAuth
+}
+
+// Helm's published Cloudflare OAuth client (public PKCE client, no secret)
+// and the KanterLabs relay registered as its only redirect URL. See
+// docs/CLOUDFLARE_CONNECT_PLAN.md and deploy/cloudflare-connect-relay.
+const (
+	DefaultCloudflareOAuthClientID = "f05395c32033f7b61981048f5e523cec"
+	DefaultCloudflareOAuthRelayURL = "https://helm-connect.shanekanterman04.workers.dev/cloudflare/callback"
+	DefaultCloudflareDashboardURL  = "https://dash.cloudflare.com"
+)
+
+// CloudflareOAuth configures the OAuth client used by guided setup. Empty
+// ClientID disables the button; the token link always remains.
+type CloudflareOAuth struct {
+	ClientID string
+	// RelayURL is the client's registered redirect URL, which bounces the
+	// browser back to this Helm's callback.
+	RelayURL string
+	// DashboardURL hosts /oauth2/auth, /oauth2/token and /oauth2/revoke
+	// (tests point it at a loopback fixture).
+	DashboardURL string
+}
+
+func cloudflareOAuthFromEnv() (CloudflareOAuth, error) {
+	mode, err := resolveEnv("HELM_CLOUDFLARE_OAUTH")
+	if err != nil {
+		return CloudflareOAuth{}, err
+	}
+	switch mode.value {
+	case "", "on":
+	case "off":
+		return CloudflareOAuth{}, nil
+	default:
+		return CloudflareOAuth{}, fmt.Errorf("HELM_CLOUDFLARE_OAUTH must be on or off")
+	}
+	clientID, err := resolveEnv("HELM_CLOUDFLARE_OAUTH_CLIENT_ID")
+	if err != nil {
+		return CloudflareOAuth{}, err
+	}
+	relay, err := resolveEnv("HELM_CLOUDFLARE_OAUTH_RELAY_URL")
+	if err != nil {
+		return CloudflareOAuth{}, err
+	}
+	dashboard, err := resolveEnv("HELM_CLOUDFLARE_DASHBOARD_URL")
+	if err != nil {
+		return CloudflareOAuth{}, err
+	}
+	settings := CloudflareOAuth{
+		ClientID:     valueOr(clientID, DefaultCloudflareOAuthClientID),
+		RelayURL:     valueOr(relay, DefaultCloudflareOAuthRelayURL),
+		DashboardURL: strings.TrimRight(valueOr(dashboard, DefaultCloudflareDashboardURL), "/"),
+	}
+	for name, value := range map[string]string{"HELM_CLOUDFLARE_OAUTH_RELAY_URL": settings.RelayURL, "HELM_CLOUDFLARE_DASHBOARD_URL": settings.DashboardURL} {
+		parsed, err := url.Parse(value)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && !(parsed.Scheme == "http" && loopbackAddr(parsed.Host))) {
+			return CloudflareOAuth{}, fmt.Errorf("%s must be an https URL (or loopback http for tests)", name)
+		}
+	}
+	if strings.ContainsAny(settings.ClientID, " /?#&") {
+		return CloudflareOAuth{}, fmt.Errorf("HELM_CLOUDFLARE_OAUTH_CLIENT_ID is not a valid client ID")
+	}
+	return settings, nil
 }
 
 func publicEndpointsFromEnv() (PublicEndpoints, error) {
@@ -125,7 +189,11 @@ func publicEndpointsFromEnv() (PublicEndpoints, error) {
 	if err != nil {
 		return PublicEndpoints{}, err
 	}
-	settings := PublicEndpoints{HooksAddr: valueOr(addr, "127.0.0.1:8091"), CloudflareAPIBase: strings.TrimRight(valueOr(base, "https://api.cloudflare.com/client/v4"), "/"), CloudflaredBinary: valueOr(binary, "cloudflared"), ProbeOrigin: strings.TrimRight(probe.value, "/")}
+	oauth, err := cloudflareOAuthFromEnv()
+	if err != nil {
+		return PublicEndpoints{}, err
+	}
+	settings := PublicEndpoints{HooksAddr: valueOr(addr, "127.0.0.1:8091"), CloudflareAPIBase: strings.TrimRight(valueOr(base, "https://api.cloudflare.com/client/v4"), "/"), CloudflaredBinary: valueOr(binary, "cloudflared"), ProbeOrigin: strings.TrimRight(probe.value, "/"), OAuth: oauth}
 	if settings.HooksAddr == "off" {
 		settings.HooksAddr = ""
 	} else if !loopbackAddr(settings.HooksAddr) {

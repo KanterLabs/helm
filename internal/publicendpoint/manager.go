@@ -32,7 +32,7 @@ var RequiredPermissions = []string{
 var hostnamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){2,}$`)
 
 // ErrInvalidHostname rejects names that are not a subdomain of a zone.
-var ErrInvalidHostname = errors.New("hostname must be a subdomain such as hooks.example.com")
+var ErrInvalidHostname = errors.New("hostname must be a subdomain such as hooks.example.com; Helm creates a new DNS record for it, so the bare domain cannot be used")
 
 // Config pins where the manager talks to Cloudflare and what it exposes.
 type Config struct {
@@ -45,6 +45,14 @@ type Config struct {
 	// ProbeOrigin, when set, receives the self-test request with the public
 	// Host header instead of resolving the hostname (tests only).
 	ProbeOrigin string
+	// OAuthClientID enables "Sign in with Cloudflare"; OAuthRelayURL is its
+	// registered redirect and DashboardURL hosts the OAuth endpoints.
+	OAuthClientID string
+	OAuthRelayURL string
+	DashboardURL  string
+	// PublicOrigin is this Helm's own address, where the relay returns the
+	// browser after sign-in.
+	PublicOrigin string
 }
 
 // Manager provisions, runs and tears down the single public endpoint.
@@ -54,6 +62,8 @@ type Manager struct {
 	runner *runner
 	mu     sync.Mutex
 	probes probeRegistry
+	// connect holds Cloudflare sign-ins and guided setup runs (memory only).
+	connect connectState
 	// lastTest is the most recent self-test of the active endpoint.
 	testMu   sync.Mutex
 	lastTest *TestResult

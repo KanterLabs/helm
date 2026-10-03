@@ -5043,6 +5043,473 @@
         }
       }
     },
+    "/api/v1/cloudflare": {
+      "get": {
+        "operationId": "getCloudflareConnect",
+        "summary": "Guided Cloudflare setup status",
+        "description": "Human administrators only. Whether \"Sign in with Cloudflare\" is\navailable, the pre-filled token link and the permissions it selects,\nwhether this administrator is connected (never the credential), and\ntheir latest setup run. See docs/PUBLIC_ACCESS.md.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudflareConnectStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/cloudflare/session": {
+      "post": {
+        "operationId": "connectCloudflareToken",
+        "summary": "Connect Cloudflare with a pasted API token",
+        "description": "Human administrators only. Checks the token by listing its domains and keeps it in memory for at most 30 minutes, bound to this administrator. Never stored, logged or returned.",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "api_token"
+                ],
+                "properties": {
+                  "api_token": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connected",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudflareConnectStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "disconnectCloudflare",
+        "summary": "Forget the Cloudflare connection",
+        "description": "Human administrators only. Drops the in-memory credential; a sign-in token is also revoked at Cloudflare.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Disconnected",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudflareConnectStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/cloudflare/oauth/start": {
+      "post": {
+        "operationId": "startCloudflareOAuth",
+        "summary": "Begin \"Sign in with Cloudflare\"",
+        "description": "Human administrators only. Returns Cloudflare's consent URL for Helm's\npublic OAuth client (authorization code + PKCE). The redirect is the\nsign-in relay, which returns the browser to this Helm's callback; the\nPKCE verifier and one-time state nonce stay on this server.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Consent URL",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "authorize_url"
+                  ],
+                  "properties": {
+                    "authorize_url": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/cloudflare/oauth/callback": {
+      "get": {
+        "operationId": "finishCloudflareOAuth",
+        "summary": "Browser return from Cloudflare sign-in",
+        "description": "Reached through the sign-in relay. Redeems the code for the\nadministrator who started sign-in (unknown, reused, expired or\nforeign `state` is refused), then redirects to\n`/tickets?connect=1&cloudflare=connected` or with `cloudflare_error`.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error_description",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to Connect apps with the outcome in the query string."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/cloudflare/zones": {
+      "get": {
+        "operationId": "listCloudflareZones",
+        "summary": "Domains the connection can set up",
+        "description": "Human administrators only. Each domain with Email Routing status and a free hostname suggestion. `409` when not connected.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Domains",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CloudflareZoneOption"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/cloudflare/setup": {
+      "post": {
+        "operationId": "startCloudflareSetup",
+        "summary": "Run guided setup",
+        "description": "Human administrators only. Starts the checklist in the background:\ncreate (or reuse) the public URL, wait for the connector, verify the\nURL from the internet, optionally turn on email, then forget the\ncredential. A public URL created by the run is removed again if the\nconnector or reachability step fails. Poll `getCloudflareSetup`.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "zone"
+                ],
+                "properties": {
+                  "zone": {
+                    "type": "string",
+                    "description": "Zone ID from listCloudflareZones."
+                  },
+                  "hostname": {
+                    "type": "string",
+                    "description": "Defaults to the zone's suggested hostname."
+                  },
+                  "email": {
+                    "type": "object",
+                    "required": [
+                      "local_part"
+                    ],
+                    "properties": {
+                      "local_part": {
+                        "type": "string"
+                      },
+                      "fallback_address": {
+                        "type": "string"
+                      },
+                      "enable_subaddressing": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Setup started",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudflareSetupRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/cloudflare/setup/{run}": {
+      "parameters": [
+        {
+          "name": "run",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getCloudflareSetup",
+        "summary": "Guided setup progress",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Run",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudflareSetupRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/docs/{page}": {
+      "parameters": [
+        {
+          "name": "page",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "public-access",
+              "ticket-webhooks"
+            ]
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getHelpDocument",
+        "summary": "In-app help page",
+        "description": "An embedded user guide as Markdown, for the \"Learn more\" help drawer. Any signed-in user.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Markdown",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/v1/public-endpoints": {
       "get": {
         "operationId": "getPublicEndpoints",
@@ -13847,6 +14314,186 @@
           "email_address": {
             "type": "string",
             "description": "The webhook's email address when email is on (create only). Shown only in this response."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudflareConnectStatus": {
+        "type": "object",
+        "required": [
+          "oauth_available",
+          "token_link",
+          "token_permissions",
+          "connected"
+        ],
+        "properties": {
+          "oauth_available": {
+            "type": "boolean"
+          },
+          "token_link": {
+            "type": "string",
+            "description": "Cloudflare's account-token page with every needed permission pre-selected."
+          },
+          "token_permissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "key",
+                "type",
+                "label"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "edit"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "connected_via": {
+            "type": "string",
+            "enum": [
+              "cloudflare",
+              "token"
+            ]
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "run": {
+            "$ref": "#/components/schemas/CloudflareSetupRun"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudflareZoneOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "email_routing",
+          "plus_addressing"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "account_name": {
+            "type": "string"
+          },
+          "email_routing": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "off",
+              "unknown"
+            ]
+          },
+          "plus_addressing": {
+            "type": "boolean"
+          },
+          "suggested_hostname": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CloudflareSetupRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "zone",
+          "hostname",
+          "steps",
+          "started_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "failed"
+            ]
+          },
+          "zone": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "label",
+                "status"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "enum": [
+                    "public_url",
+                    "connector",
+                    "reachable",
+                    "email",
+                    "forget"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "running",
+                    "done",
+                    "skipped",
+                    "failed"
+                  ]
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "public_url": {
+            "type": "string"
+          },
+          "email_base": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "finished_at": {
+            "type": "string"
           }
         },
         "additionalProperties": false

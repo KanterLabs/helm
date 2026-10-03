@@ -1,5 +1,7 @@
 # Beta branch and deployment plan
 
+Status: implemented and in use. Pushes to `beta` deploy to the private beta (CT 106); this page is its runbook.
+
 ## Goal
 
 Give Helm a permanent `beta` branch whose successful pushes deploy to an

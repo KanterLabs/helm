@@ -7,19 +7,25 @@ plain.test (Email Routing off) in account acct-1; ZONELESS_TOKEN sees no
 zones; NORULES_TOKEN sees zones and Workers but not Email Routing rules.
 GET /__state (no auth) returns everything created, for test assertions.
 """
+import base64
+import hashlib
 import json
+import os
 import secrets
 import sys
 import threading
 from email.parser import BytesParser
 from email.policy import HTTP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 PORT, TOKEN, ZONELESS = int(sys.argv[1]), sys.argv[2], sys.argv[3]
 NORULES = sys.argv[4] if len(sys.argv) > 4 else None
-ZONE = {"id": "zone-1", "name": "example.test", "account": {"id": "acct-1"}}
-ZONE2 = {"id": "zone-2", "name": "plain.test", "account": {"id": "acct-1"}}
+ZONE = {"id": "zone-1", "name": "example.test", "account": {"id": "acct-1", "name": "E2E account"}}
+ZONE2 = {"id": "zone-2", "name": "plain.test", "account": {"id": "acct-1", "name": "E2E account"}}
+# OAuth (dash.cloudflare.com/oauth2/*) for the guided-setup sign-in flow.
+OAUTH_CLIENT = os.environ.get("FAKE_OAUTH_CLIENT_ID", "e2e-client")
+OAUTH_REDIRECT = os.environ.get("FAKE_OAUTH_REDIRECT", "")
 ZONES = {zone["name"]: zone for zone in (ZONE, ZONE2)}
 lock = threading.Lock()
 state = {
@@ -33,6 +39,7 @@ state = {
                              "matchers": [{"type": "literal", "field": "to", "value": "taken@example.test"}],
                              "actions": [{"type": "forward", "value": ["owner@example.org"]}]}},
     "deleted_rules": [], "workers": {}, "deleted_workers": [],
+    "oauth_codes": {}, "oauth_tokens_issued": 0, "oauth_revoked": 0, "oauth_deny_next": False,
     "addresses": [{"email": "fallback@example.org", "verified": "2026-01-01T00:00:00Z"},
                   {"email": "unverified@example.org", "verified": None}],
 }
@@ -72,11 +79,65 @@ class Handler(BaseHTTPRequestHandler):
             parts[part.get_param("name", header="content-disposition")] = content.decode() if isinstance(content, bytes) else content
         return parts
 
+    def oauth(self, method, url):
+        query = parse_qs(url.query)
+        one = lambda key: (query.get(key) or [""])[0]
+        if url.path == "/oauth2/auth" and method == "GET":
+            # Real Cloudflare validates the client and exact redirect first.
+            if one("client_id") != OAUTH_CLIENT or one("redirect_uri") != OAUTH_REDIRECT or one("code_challenge_method") != "S256" or not one("code_challenge"):
+                self.send_response(302)
+                self.send_header("Location", "/oauth/error?error=invalid_request")
+                self.end_headers()
+                return
+            if state["oauth_deny_next"]:
+                state["oauth_deny_next"] = False
+                params = {"error": "access_denied", "error_description": "The user denied access", "state": one("state")}
+            else:
+                code = secrets.token_urlsafe(16)
+                state["oauth_codes"][code] = {"challenge": one("code_challenge"), "redirect": one("redirect_uri")}
+                params = {"code": code, "state": one("state")}
+            self.send_response(302)
+            self.send_header("Location", OAUTH_REDIRECT + "?" + urlencode(params))
+            self.end_headers()
+            return
+        form = {key: values[0] for key, values in parse_qs(self.raw_body().decode()).items()}
+        if url.path == "/oauth2/token" and method == "POST":
+            grant = state["oauth_codes"].pop(form.get("code", ""), None)
+            verifier = form.get("code_verifier", "")
+            challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            if not grant or grant["challenge"] != challenge or form.get("client_id") != OAUTH_CLIENT or form.get("redirect_uri") != grant["redirect"]:
+                body = json.dumps({"error": "invalid_grant", "error_description": "The authorization code is invalid"}).encode()
+                self.send_response(400)
+            else:
+                state["oauth_tokens_issued"] += 1
+                body = json.dumps({"access_token": TOKEN, "token_type": "bearer", "expires_in": 3600, "scope": "zone.read"}).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if url.path == "/oauth2/revoke" and method == "POST":
+            if form.get("token") == TOKEN and form.get("client_id") == OAUTH_CLIENT:
+                state["oauth_revoked"] += 1
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.reply(404, errors=[{"code": 7003, "message": "no oauth route"}])
+
     def handle_any(self, method):
         url = urlparse(self.path)
         if url.path == "/__state" and method == "GET":
             with lock:
                 return self.reply(200, state)
+        if url.path == "/__oauth_deny_next" and method == "POST":
+            with lock:
+                state["oauth_deny_next"] = True
+                return self.reply(200, {})
+        if url.path.startswith("/oauth2/"):
+            with lock:
+                return self.oauth(method, url)
         token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
         if token not in (TOKEN, ZONELESS) and token != NORULES:
             return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
@@ -85,7 +146,11 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             if parts == ["zones"] and method == "GET":
                 name = (query.get("name") or [""])[0]
-                return self.reply(200, [ZONES[name]] if token != ZONELESS and name in ZONES else [])
+                if token == ZONELESS:
+                    return self.reply(200, [])
+                if not name:
+                    return self.reply(200, list(ZONES.values()))
+                return self.reply(200, [ZONES[name]] if name in ZONES else [])
             if len(parts) >= 4 and parts[0] == "zones" and parts[2:4] == ["email", "routing"]:
                 return self.email_routing(method, parts[1], parts[4:], token)
             if parts[:2] == ["accounts", "acct-1"] and parts[2:4] == ["workers", "scripts"] and len(parts) == 5:

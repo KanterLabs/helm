@@ -108,7 +108,8 @@ type cfZone struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Account struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	} `json:"account"`
 }
 

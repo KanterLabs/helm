@@ -66,6 +66,9 @@ import {
   type EmailIntake,
   type EmailIntakeView,
   type EmailSummary,
+  type CloudflareConnectStatus,
+  type CloudflareSetupRun,
+  type CloudflareZoneOption,
   type TicketTestResult,
   type PublicEndpointTestResult,
   type PublicEndpointView,
@@ -609,6 +612,18 @@ export const api = {
   setTicketWebhookEmail: (webhook: string) =>
     request<{ webhook: TicketWebhook; email_address: string }>(`/ticket-webhooks/${encodeURIComponent(webhook)}/email`, { method: 'POST' }),
   getEmailIntake: () => request<EmailIntakeView>('/email-intake'),
+  /** An embedded user guide (Markdown) for the in-app help drawer. */
+  getHelpDocument: (page: string) => request<string>(`/docs/${encodeURIComponent(page)}`),
+  getCloudflareConnect: () => request<CloudflareConnectStatus>('/cloudflare'),
+  /** The token is held in server memory only, never stored or returned. */
+  connectCloudflareToken: (apiToken: string) =>
+    request<CloudflareConnectStatus>('/cloudflare/session', { method: 'POST', body: { api_token: apiToken } }),
+  disconnectCloudflare: () => request<CloudflareConnectStatus>('/cloudflare/session', { method: 'DELETE' }),
+  startCloudflareOAuth: () => request<{ authorize_url: string }>('/cloudflare/oauth/start', { method: 'POST' }),
+  listCloudflareZones: () => request<{ data: CloudflareZoneOption[] }>('/cloudflare/zones'),
+  startCloudflareSetup: (input: { zone: string; hostname?: string; email?: { local_part: string; fallback_address?: string; enable_subaddressing: boolean } }) =>
+    request<CloudflareSetupRun>('/cloudflare/setup', { method: 'POST', body: input }),
+  getCloudflareSetup: (run: string) => request<CloudflareSetupRun>(`/cloudflare/setup/${encodeURIComponent(run)}`),
   /** The Cloudflare API token is sent once and never stored by Helm. */
   createEmailIntake: (input: { domain: string; local_part: string; fallback_address?: string; enable_subaddressing: boolean; api_token: string }) =>
     request<EmailIntakeView>('/email-intake', { method: 'POST', body: input }),

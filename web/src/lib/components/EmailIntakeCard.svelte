@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
+  import { openHelp } from '../help';
   import { formatRelative } from '../state';
   import { ApiError, type EmailIntake, type EmailIntakeView, type EmailReceipt } from '../types';
 
@@ -128,6 +129,7 @@
   <div class="email-heading">
     <h3 id="email-intake-heading">Email</h3>
     {#if view && !unavailable}<span class={`status-badge ${active ? 'badge-on' : 'badge-off'}`} data-email-badge>{active ? 'On' : 'Off'}</span>{/if}
+    <button class="text-button learn-more" type="button" on:click={() => openHelp('public-access', 'email-addresses')}>Learn more</button>
   </div>
 
   {#if unavailable}
@@ -175,7 +177,10 @@
   {:else if view && !view.public_hostname}
     <p class="optional" data-email-needs-public>Email needs a Public URL first: Cloudflare's email Worker delivers each message to Helm through it. Create one above, then come back here.</p>
   {:else if view}
-    <p>Give every webhook an email address, for apps that can only send alerts by email. Cloudflare Email Routing receives the mail and a small Worker passes it to Helm through your Public URL. No mailbox password is stored and no port is opened. The token is used once and never stored.</p>
+    <p>Give every webhook an email address, for apps that can only send alerts by email. <strong>Connect Cloudflare</strong> above can turn this on for you; experts can set it up by hand.</p>
+    <details class="manual-setup" data-manual-email>
+    <summary>Set up manually</summary>
+    <p class="optional">Cloudflare Email Routing receives the mail and a small Worker passes it to Helm through your Public URL. No mailbox password is stored and no port is opened. The token is used once and never stored.</p>
     <form class="email-form email-setup" on:submit|preventDefault={create}>
       <label>Domain<input aria-label="Email domain" bind:value={domain} placeholder="example.com" autocomplete="off" required /></label>
       <label>Address name<input aria-label="Email address name" bind:value={localPart} autocomplete="off" required /></label>
@@ -191,6 +196,7 @@
       <summary>Token permissions</summary>
       <ul>{#each view.required_permissions as permission}<li>{permission}</li>{/each}</ul>
       <p class="optional">Email Routing must already be enabled for the domain in Cloudflare (Email › Email Routing).</p>
+    </details>
     </details>
   {/if}
 
@@ -228,6 +234,8 @@
 <style>
   .email-intake { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
   .email-heading { display: flex; align-items: center; gap: 8px; }
+  .learn-more { margin-left: auto; }
+  .manual-setup { display: grid; gap: 8px; }
   .email-intake h3 { margin: 0; font-size: 14px; }
   .email-intake h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
   .email-intake p { margin: 0; font-size: 13px; line-height: 1.5; }

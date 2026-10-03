@@ -629,6 +629,45 @@ export interface TicketWebhookSecret {
   email_address?: string;
 }
 
+export interface CloudflareTokenPermission {
+  key: string;
+  type: 'read' | 'edit';
+  label: string;
+}
+
+export type SetupStepStatus = 'pending' | 'running' | 'done' | 'skipped' | 'failed';
+
+export interface CloudflareSetupRun {
+  id: string;
+  status: 'running' | 'done' | 'failed';
+  zone: string;
+  hostname: string;
+  steps: { id: 'public_url' | 'connector' | 'reachable' | 'email' | 'forget'; label: string; status: SetupStepStatus; detail?: string }[];
+  public_url?: string;
+  email_base?: string;
+  started_at: string;
+  finished_at?: string;
+}
+
+export interface CloudflareConnectStatus {
+  oauth_available: boolean;
+  token_link: string;
+  token_permissions: CloudflareTokenPermission[];
+  connected: boolean;
+  connected_via?: 'cloudflare' | 'token';
+  expires_at?: string;
+  run?: CloudflareSetupRun;
+}
+
+export interface CloudflareZoneOption {
+  id: string;
+  name: string;
+  account_name?: string;
+  email_routing: 'ready' | 'off' | 'unknown';
+  plus_addressing: boolean;
+  suggested_hostname?: string;
+}
+
 /** A test ticket Helm sent for a webhook through its own public URL. */
 export interface TicketTestResult {
   ok: boolean;

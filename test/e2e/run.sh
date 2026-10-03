@@ -29,6 +29,7 @@ if [[ -d "$embedded_dist" ]]; then
 fi
 
 fake_cf_pid=
+relay_pid=
 
 stop_server() {
   if [[ -n "$server_pid" ]]; then
@@ -43,6 +44,7 @@ collect_evidence() {
   trap - EXIT
   stop_server
   [[ -n "$fake_cf_pid" ]] && kill "$fake_cf_pid" >/dev/null 2>&1 || true
+  [[ -n "$relay_pid" ]] && kill "$relay_pid" >/dev/null 2>&1 || true
   for file in "$work_dir"/*.log "$work_dir"/*.db; do
     [[ -f "$file" ]] && cp -a "$file" "$artifact_dir/"
   done
@@ -110,8 +112,12 @@ coolify_secret_file="$work_dir/coolify-webhook-secret"
 fake_cf_token="cf-e2e-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 fake_cf_zoneless="cf-e2e-zoneless-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 fake_cf_norules="cf-e2e-norules-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-python3 "$root/test/e2e/fake-cloudflare" 18090 "$fake_cf_token" "$fake_cf_zoneless" "$fake_cf_norules" &
+FAKE_OAUTH_CLIENT_ID=e2e-client FAKE_OAUTH_REDIRECT=http://127.0.0.1:18110/cloudflare/callback \
+  python3 "$root/test/e2e/fake-cloudflare" 18090 "$fake_cf_token" "$fake_cf_zoneless" "$fake_cf_norules" &
 fake_cf_pid=$!
+# The real sign-in relay Worker, served locally for the guided-setup flow.
+node "$root/test/e2e/relay-server.mjs" 18110 &
+relay_pid=$!
 cloudflared_wrapper="$work_dir/cloudflared"
 printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "$root/test/e2e/fake-cloudflared" "$work_dir/fake-cloudflared.jsonl" > "$cloudflared_wrapper"
 chmod +x "$cloudflared_wrapper"
@@ -126,6 +132,9 @@ start_server() {
     HELM_CLOUDFLARE_API_BASE=http://127.0.0.1:18090/client/v4 \
     HELM_CLOUDFLARED_BINARY="$cloudflared_wrapper" \
     HELM_PUBLIC_PROBE_ORIGIN="http://127.0.0.1:$((port + 20))" \
+    HELM_CLOUDFLARE_OAUTH_CLIENT_ID=e2e-client \
+    HELM_CLOUDFLARE_OAUTH_RELAY_URL=http://127.0.0.1:18110/cloudflare/callback \
+    HELM_CLOUDFLARE_DASHBOARD_URL=http://127.0.0.1:18090 \
     HELM_COOLIFY_WEBHOOK_SECRET_FILE="$coolify_secret_file" \
     HELM_COOLIFY_PROJECT=COOLIFYE2E \
     HELM_COOLIFY_ASSIGNEE=actor-disabled-mode \

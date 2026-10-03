@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { expect, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse, type Locator, type Page } from '@playwright/test';
 
 // Proves the "Email intake failure contract" in docs/E2E_TESTING.md against a
 // real Helm process and browser. The Worker Helm uploads to the fake
@@ -37,6 +37,8 @@ const fakeState = async (request: APIRequestContext) => (await json<{ result: Fa
 const emailView = async (request: APIRequestContext) => json<EmailView>(await request.get('/api/v1/email-intake'), 'email view');
 
 async function resetPublicAccess(request: APIRequestContext) {
+  // Specs share the fake Cloudflare: start with plus addressing off again.
+  await request.patch(`${fakeCF}/client/v4/zones/zone-1/email/routing`, { headers: { Authorization: `Bearer ${cfToken}` }, data: { support_subaddress: false } });
   const email = await emailView(request);
   if (email.active) await json(await request.delete(`/api/v1/email-intake/${email.active.id}`, { headers: jsonHeaders, data: { api_token: cfToken } }), 'reset email');
   const publicView = await json<{ active?: { id: string } }>(await request.get('/api/v1/public-endpoints'), 'public view');
@@ -79,6 +81,11 @@ async function ticketsTitled(request: APIRequestContext, projectKey: string, tit
   return page.data.filter((ticket) => ticket.title === title);
 }
 
+// Manual setup forms sit in a collapsed "Set up manually" section.
+async function openManual(details: Locator) {
+  if (await details.evaluate((element) => !(element as HTMLDetailsElement).open)) await details.locator('summary').first().click();
+}
+
 async function openConnectApps(page: Page, projectKey: string) {
   await page.goto(`/tickets?project=${projectKey}`);
   await page.getByRole('button', { name: /Connect apps/ }).click();
@@ -114,6 +121,7 @@ test('Admins give webhooks email addresses that open tickets through the Cloudfl
     const publicHost = `mail-${runID}.example.test`;
     await json(await request.post('/api/v1/public-endpoints', { headers: jsonHeaders, data: { hostname: publicHost, api_token: cfToken } }), 'public URL');
     card = await openConnectApps(page, project.key);
+    await openManual(card.locator('[data-manual-email]'));
     await expect(card.getByLabel('Email domain')).toHaveValue('example.test');
     await expect(card.locator('[data-email-preview]')).toHaveText('helm-alerts+<tag>@example.test');
     const before = await fakeState(request);
@@ -126,6 +134,7 @@ test('Admins give webhooks email addresses that open tickets through the Cloudfl
       expect(state.email_routing['zone-1'].support_subaddress).toBe(false);
     };
     const submit = async (domain: string, name: string, token: string, fallback = '') => {
+      await openManual(card.locator('[data-manual-email]'));
       await card.getByLabel('Email domain').fill(domain);
       await card.getByLabel('Email address name').fill(name);
       await card.getByLabel('Fallback email address').fill(fallback);

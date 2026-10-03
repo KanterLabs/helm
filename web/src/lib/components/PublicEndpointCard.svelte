@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
+  import { openHelp } from '../help';
   import { formatRelative } from '../state';
   import { ApiError, type PublicEndpoint, type PublicEndpointView } from '../types';
 
@@ -35,6 +36,7 @@
   let cleanupId = '';
   let cleanupToken = '';
   let copied = '';
+  let hostnameSuggestion = '';
   let poll: ReturnType<typeof setTimeout> | undefined;
   let destroyed = false;
 
@@ -91,6 +93,8 @@
       schedule();
     } catch (cause) {
       error = message(cause, 'The public endpoint could not be created.');
+      // A bare domain is the most common mistake: offer the subdomain.
+      hostnameSuggestion = /^[a-z0-9-]+\.[a-z0-9-]+$/i.test(hostname.trim()) ? `hooks.${hostname.trim().toLowerCase()}` : '';
     } finally {
       token = '';
       saving = false;
@@ -191,6 +195,7 @@
     {:else if view && !unavailable}
       <span class="status-badge badge-off">Off</span>
     {/if}
+    <button class="text-button learn-more" type="button" on:click={() => openHelp('public-access', 'public-url-cloudflare-tunnel')}>Learn more</button>
   </div>
 
   {#if unavailable}
@@ -254,17 +259,26 @@
       </div>
     {/if}
   {:else if view}
-    <p>Self-hosting behind NAT or a private network? Paste a Cloudflare API token and pick an unused hostname. Helm creates a Cloudflare Tunnel that publishes <strong>only</strong> webhook paths, with no open ports or certificates. The token is used once and never stored.</p>
+    <p>Not set up. <strong>Connect Cloudflare</strong> above does it for you; experts can set it up by hand.</p>
     {#if !view.connector_available}<div class="inline-alert warning" role="note"><span>!</span>cloudflared is not installed on this server, so a public URL cannot run here. The Docker image includes it; other installs need it on PATH or HELM_CLOUDFLARED_BINARY.</div>{/if}
-    <form class="public-form" on:submit|preventDefault={create}>
-      <label>Hostname<input aria-label="Public hostname" bind:value={hostname} placeholder="hooks.example.com" autocomplete="off" required /></label>
-      <label>Cloudflare API token<input aria-label="Cloudflare API token" type="password" bind:value={token} autocomplete="off" required /></label>
-      <button class="button primary" type="submit" disabled={!hostname.trim() || !token.trim() || saving}>{saving ? 'Creating tunnel…' : 'Create public URL'}</button>
-    </form>
-    <details>
-      <summary>Token permissions</summary>
-      <ul>{#each view.required_permissions as permission}<li>{permission}</li>{/each}</ul>
-      <p class="optional">Exposed paths: {exposedPaths(view.exposed_paths).join(' and ')}. The server needs outbound access to Cloudflare (port 7844) and the <code>cloudflared</code> binary.</p>
+    <details class="manual-setup" data-manual-public>
+      <summary>Set up manually</summary>
+      <ol class="manual-steps">
+        <li>Create a Cloudflare API token with the permissions below (the <strong>Create token on Cloudflare</strong> button in Connect Cloudflare pre-selects them).</li>
+        <li>Enter a <strong>new subdomain</strong> such as <code>hooks.example.com</code>, not the domain itself: Helm creates a DNS record for it.</li>
+        <li>Paste the token and select <strong>Create public URL</strong>. The token is used once and never stored.</li>
+      </ol>
+      <form class="public-form" on:submit|preventDefault={create}>
+        <label>Hostname<input aria-label="Public hostname" bind:value={hostname} placeholder="hooks.example.com" autocomplete="off" required /></label>
+        <label>Cloudflare API token<input aria-label="Cloudflare API token" type="password" bind:value={token} autocomplete="off" required /></label>
+        <button class="button primary" type="submit" disabled={!hostname.trim() || !token.trim() || saving}>{saving ? 'Creating tunnel…' : 'Create public URL'}</button>
+      </form>
+      {#if hostnameSuggestion}<button class="text-button" type="button" data-hostname-suggestion on:click={() => { hostname = hostnameSuggestion; hostnameSuggestion = ''; error = ''; }}>Use {hostnameSuggestion} instead</button>{/if}
+      <details>
+        <summary>Token permissions</summary>
+        <ul>{#each view.required_permissions as permission}<li>{permission}</li>{/each}</ul>
+        <p class="optional">Exposed paths: {exposedPaths(view.exposed_paths).join(' and ')}. The server needs outbound access to Cloudflare (port 7844) and the <code>cloudflared</code> binary.</p>
+      </details>
     </details>
   {/if}
 
@@ -304,6 +318,10 @@
 <style>
   .public-endpoint { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
   .public-heading { display: flex; align-items: center; gap: 8px; }
+  .learn-more { margin-left: auto; }
+  .manual-setup { display: grid; gap: 8px; }
+  .manual-setup[open] > summary { margin-bottom: 8px; }
+  .manual-steps { margin: 0 0 8px; padding-left: 20px; font-size: 13px; line-height: 1.5; }
   .public-endpoint h3 { margin: 0; font-size: 14px; }
   .public-endpoint p { margin: 0; font-size: 13px; line-height: 1.5; }
   .status-badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; }

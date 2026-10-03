@@ -122,11 +122,15 @@ func main() {
 	var hooksServer *http.Server
 	if cfg.PublicEndpoints.HooksAddr != "" {
 		api.PublicEndpoints = publicendpoint.NewManager(publicendpoint.Config{
-			APIBase:     cfg.PublicEndpoints.CloudflareAPIBase,
-			Binary:      cfg.PublicEndpoints.CloudflaredBinary,
-			HookService: "http://" + cfg.PublicEndpoints.HooksAddr,
-			TokenDir:    filepath.Join(filepath.Dir(cfg.DB), "public-endpoints"),
-			ProbeOrigin: cfg.PublicEndpoints.ProbeOrigin,
+			APIBase:       cfg.PublicEndpoints.CloudflareAPIBase,
+			Binary:        cfg.PublicEndpoints.CloudflaredBinary,
+			HookService:   "http://" + cfg.PublicEndpoints.HooksAddr,
+			TokenDir:      filepath.Join(filepath.Dir(cfg.DB), "public-endpoints"),
+			ProbeOrigin:   cfg.PublicEndpoints.ProbeOrigin,
+			OAuthClientID: cfg.PublicEndpoints.OAuth.ClientID,
+			OAuthRelayURL: cfg.PublicEndpoints.OAuth.RelayURL,
+			DashboardURL:  cfg.PublicEndpoints.OAuth.DashboardURL,
+			PublicOrigin:  cfg.PublicOrigin,
 		}, data)
 		hooksServer = &http.Server{Addr: cfg.PublicEndpoints.HooksAddr, Handler: httpapi.NewPublicHooksHandler(api), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
 		go func() {

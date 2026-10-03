@@ -140,6 +140,27 @@ and fake `cloudflared` fixtures (no real account is touched in CI).
 | Admins cannot tell Helm is public outside the card | While active, the Connect apps button shows **● Public**; it disappears after removal, and Admin's **Manage** link opens Connect apps. |
 | No way to prove an outside app can open a ticket through the public URL | **Send test** on a webhook files a low-priority ticket through the public path with a nonce bound to that webhook; a second test is a repeat on the same ticket; agents get `403`, a guessed nonce files nothing, and without an active public URL the route returns `409`. |
 
+## Connect Cloudflare failure contract
+
+Guided setup (`CLOUDFLARE_CONNECT_PLAN.md`) must prove these failure cases
+through a real Helm process and browser, the fake Cloudflare API (including
+its OAuth endpoints) and the real sign-in relay Worker served by
+`test/e2e/relay-server.mjs`.
+
+| Failure | Observable proof |
+| --- | --- |
+| The token link asks for the wrong permissions | The link opens Cloudflare's account-token page and its `permissionGroupKeys` are exactly zone, dns, zone_settings, email_routing_rule, argotunnel, workers_scripts and email_routing_address; a unit test pins them to the permissions the cards list. |
+| A token that sees no domains is accepted | Connecting with it fails with "not allowed to see any domains" and the panel stays disconnected. |
+| A weak token half-configures Cloudflare | With a token that cannot write DNS, the first step fails with the fix, later steps are skipped, the credential is forgotten, and the fake API holds no new tunnel, Worker or plus-addressing change. |
+| The admin has to invent a hostname | Choosing a domain fills `hooks.<domain>`; plus-addressing consent is required before setup can start. |
+| Setup claims success without a working path | The run is `done` only after the tunnel, connector, reachability and email steps are done; the Public URL card is Live and Email is On. |
+| The credential outlives setup or leaks | After the run Helm reports not connected; neither token appears in status responses, the database or the server log. |
+| Sign-in bypasses consent or the relay | Sign-in goes through Cloudflare's authorize endpoint and the relay page, which shows this Helm's origin before continuing; the code is redeemed with PKCE and revoked after setup. |
+| A rerun duplicates resources | Running setup again after sign-in reports the public URL and email as already set up, with one tunnel. |
+| A declined or forged sign-in connects anyway | A denied consent returns "Cloudflare sign-in was not completed"; a callback with an unknown state is refused and Cloudflare issues no token. |
+| Agents reach setup | Agent tokens get `403` from every guided-setup route. |
+| Help is missing or wrong | **Learn more** opens the embedded guide at the guided-setup section; links to other guides open inside the drawer. |
+
 ## Email intake failure contract
 
 The email-address workflow (see `EMAIL_ALERT_INTAKE_PLAN.md`) must prove these

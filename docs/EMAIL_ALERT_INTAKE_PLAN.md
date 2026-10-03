@@ -1,7 +1,7 @@
 # Email addresses for ticket webhooks
 
 Status: implemented on `beta` (2026-10-03). User guide:
-[TICKET_WEBHOOKS.md § Email addresses](TICKET_WEBHOOKS.md#email-addresses).
+[PUBLIC_ACCESS.md § Email addresses](PUBLIC_ACCESS.md#email-addresses).
 Failure contract: [E2E_TESTING.md § Email intake failure contract](E2E_TESTING.md#email-intake-failure-contract).
 This supersedes the mailbox-connector part of
 [COOLIFY_EMAIL_INTAKE_PLAN.md](COOLIFY_EMAIL_INTAKE_PLAN.md).

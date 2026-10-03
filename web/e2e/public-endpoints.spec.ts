@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse, type Locator } from '@playwright/test';
 
 // Proves the "Public endpoint failure contract" in docs/E2E_TESTING.md
 // against a real Helm process with the fake Cloudflare API and cloudflared.
@@ -41,6 +41,11 @@ async function fakeState(request: APIRequestContext): Promise<FakeState> {
   return (await json<{ result: FakeState }>(await request.get(`${fakeCF}/__state`), 'fake state')).result;
 }
 
+// Manual setup forms sit in a collapsed "Set up manually" section.
+async function openManual(details: Locator) {
+  if (await details.evaluate((element) => !(element as HTMLDetailsElement).open)) await details.locator('summary').first().click();
+}
+
 async function view(request: APIRequestContext): Promise<View> {
   return json<View>(await request.get('/api/v1/public-endpoints'), 'public endpoints');
 }
@@ -72,6 +77,7 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
 
   // A token without zone access and an apex hostname fail cleanly, creating nothing.
   const tunnelsBefore = Object.keys((await fakeState(request)).tunnels).length;
+  await openManual(card.locator('[data-manual-public]'));
   await card.getByLabel('Public hostname').fill(hostname);
   await card.getByLabel('Cloudflare API token').fill(zonelessToken);
   await card.getByRole('button', { name: 'Create public URL' }).click();
@@ -80,9 +86,11 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   await card.getByLabel('Cloudflare API token').fill(cfToken);
   await card.getByRole('button', { name: 'Create public URL' }).click();
   await expect(card.getByRole('alert')).toContainText('hostname must be a subdomain');
+  await expect(card.locator('[data-hostname-suggestion]')).toHaveText('Use hooks.example.test instead');
   expect(Object.keys((await fakeState(request)).tunnels).length).toBe(tunnelsBefore);
 
   // A valid token provisions a webhook-only tunnel and starts the connector.
+  await openManual(card.locator('[data-manual-public]'));
   await card.getByLabel('Public hostname').fill(hostname);
   await card.getByLabel('Cloudflare API token').fill(cfToken);
   await card.getByRole('button', { name: 'Create public URL' }).click();
@@ -196,6 +204,7 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   // flags them, a tokenless retry changes nothing, and "Finish cleanup"
   // deletes them with a token. A finished cleanup is never re-flagged.
   const orphanHost = `orphan-${runID}.example.test`;
+  await openManual(card.locator('[data-manual-public]'));
   await card.getByLabel('Public hostname').fill(orphanHost);
   await card.getByLabel('Cloudflare API token').fill(cfToken);
   await card.getByRole('button', { name: 'Create public URL' }).click();

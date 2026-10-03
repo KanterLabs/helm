@@ -667,6 +667,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.publicEndpoints(w, r, identity)
 		case "email-intake":
 			s.emailIntakes(w, r, identity)
+		case "cloudflare":
+			s.cloudflareConnect(w, r, identity, parts)
 		case "sidebar-counts":
 			s.sidebarCounts(w, r, identity)
 		case "project-intelligence":
@@ -700,6 +702,14 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 	}
 	if parts[0] == "public-endpoints" && len(parts) == 2 {
 		s.publicEndpoint(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "docs" && len(parts) == 2 {
+		s.helpDocument(w, r, parts[1])
+		return
+	}
+	if parts[0] == "cloudflare" {
+		s.cloudflareConnect(w, r, identity, parts)
 		return
 	}
 	if parts[0] == "email-intake" && len(parts) == 2 {

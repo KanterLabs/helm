@@ -2,7 +2,10 @@
   import { onMount } from 'svelte';
   import { api } from '../api';
   import type { Actor, EmailSummary, Project, TicketTestResult, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
+  import { openHelp } from '../help';
+  import CloudflareSetup from './CloudflareSetup.svelte';
   import EmailIntakeCard from './EmailIntakeCard.svelte';
+  import HelpDrawer from './HelpDrawer.svelte';
   import PublicEndpointCard from './PublicEndpointCard.svelte';
 
   export let user: Actor;
@@ -33,6 +36,8 @@
   let email: EmailSummary | null = null;
   let publicHostname = '';
   let testResults: Record<string, TicketTestResult> = {};
+  // Remounts the status cards after guided setup changes what exists.
+  let cardsKey = 0;
   let copied = '';
   let busyId = '';
 
@@ -168,8 +173,14 @@
 
   {#if error}<div class="inline-alert error" role="alert"><span>!</span>{error}</div>{/if}
 
-  {#if user.admin}<PublicEndpointCard onChanged={() => { void load(); onPublicAccessChanged(); }} />{/if}
-  {#if user.admin}<EmailIntakeCard onChanged={() => { void load(); onPublicAccessChanged(); }} />{/if}
+  {#if user.admin}
+    <CloudflareSetup onChanged={() => { cardsKey += 1; void load(); onPublicAccessChanged(); }} />
+    {#key cardsKey}
+      <PublicEndpointCard onChanged={() => { void load(); onPublicAccessChanged(); }} />
+      <EmailIntakeCard onChanged={() => { void load(); onPublicAccessChanged(); }} />
+    {/key}
+  {/if}
+  <HelpDrawer />
 
   {#if revealed}
     <div class="webhook-reveal" role="status" data-webhook-secret-reveal>
@@ -254,7 +265,7 @@
   {/if}
 
   <section class="webhook-guide" aria-labelledby="webhook-guide-heading">
-    <h3 id="webhook-guide-heading">How to send a ticket</h3>
+    <h3 id="webhook-guide-heading">How to send a ticket <button class="text-button" type="button" on:click={() => openHelp('ticket-webhooks')}>Full guide</button></h3>
     <p>POST a JSON object to the webhook URL with <code>Content-Type: application/json</code>. No other authentication is needed: keep the URL private, and rotate it if it leaks.</p>
     <div class="webhook-code">
       <pre data-webhook-curl><code>{curlExample}</code></pre>

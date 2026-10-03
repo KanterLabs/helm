@@ -93,6 +93,10 @@ func TestMetricRoutesUseBoundedTemplates(t *testing.T) {
 		"/api/v1/hooks/tickets/probe/nonce-secret":         "/api/v1/other",
 		"/api/v1/email-intake/intake-id":                   "/api/v1/email-intake/:intake",
 		"/api/v1/ticket-webhooks/hook-id/email":            "/api/v1/ticket-webhooks/:webhook/email",
+		"/api/v1/cloudflare/setup/run-id":                  "/api/v1/cloudflare/setup/:run",
+		"/api/v1/cloudflare/oauth/callback?code=secret":    "/api/v1/cloudflare/oauth/callback",
+		"/api/v1/docs/public-access":                       "/api/v1/docs/:doc",
+		"/api/v1/auth/setup":                               "/api/v1/auth/setup",
 	}
 	for rawPath, want := range tests {
 		if got := metricRoute(rawPath); got != want {

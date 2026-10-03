@@ -1,5 +1,7 @@
 # Luna project intelligence plan
 
+Status: implemented (manual project intelligence 2026-09-21, run history 2026-09-22). Kept as the design record.
+
 ## Product outcome
 
 Use the existing actor-isolated Codex integration with `gpt-5.6-luna` at low
