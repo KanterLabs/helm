@@ -59,16 +59,11 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 		AuthResults: r.Header.Get("X-Helm-Authentication-Results"),
 		ReceivedAt:  time.Now().UTC(),
 	}
-	webhookID, testID := "", ""
-	var hook store.TicketWebhook
+	inboxID := ""
+	var inbox store.EmailInbox
 	if tag, ok := intake.ParseEmailRecipient(envelope.To, emailIntake.LocalPart, emailIntake.Domain); ok {
-		// A one-time test address (Test email) maps to its webhook first.
-		if id, testWebhook, isTest := s.PublicEndpoints.MatchEmailTest(tag); isTest {
-			if found, err := s.Store.GetTicketWebhook(r.Context(), testWebhook); err == nil && found.DisabledAt == nil {
-				hook, webhookID, testID = found, found.ID, id
-			}
-		} else if found, err := s.Store.ResolveWebhookByEmailTag(r.Context(), tag); err == nil {
-			hook, webhookID = found, found.ID
+		if found, err := s.Store.ResolveEmailInbox(r.Context(), tag); err == nil {
+			inbox, inboxID = found, found.ID
 		} else if !errors.Is(err, store.ErrNotFound) {
 			s.writeStoreError(w, err)
 			return
@@ -77,7 +72,7 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 	sender := boundedText(envelope.From, 200)
 	refuse := func(status int, outcome, code, message, key, subject string) {
 		receipt := store.IntakeReceipt{IntakeID: emailIntake.ID, Key: key, Sender: sender, Subject: boundedText(subject, 300)}
-		if err := s.Store.RecordEmailRefusal(r.Context(), receipt, webhookID, outcome, message); err != nil {
+		if err := s.Store.RecordEmailRefusal(r.Context(), receipt, inboxID, outcome, message); err != nil {
 			s.writeStoreError(w, err)
 			return
 		}
@@ -107,12 +102,12 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 		// senders are bounce addresses.
 		sender = boundedText(parsed.FromDisplay, 200)
 	}
-	if webhookID == "" {
+	if inboxID == "" {
 		subject, key := parsed.Subject, parsed.ReceiptKey
 		if parseErr != nil {
 			key = "unknown:" + envelope.To + "\n" + string(body[:min(len(body), 4096)])
 		}
-		refuse(http.StatusNotFound, store.EmailOutcomeUnknownRecipient, "unknown_recipient", "No Helm webhook uses this address", key, subject)
+		refuse(http.StatusNotFound, store.EmailOutcomeUnknownRecipient, "unknown_recipient", "No Helm inbox uses this address", key, subject)
 		return
 	}
 	if parseErr != nil {
@@ -120,37 +115,23 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 		return
 	}
 	assignee := ""
-	if hook.AssigneeID != nil {
-		assignee = *hook.AssigneeID
+	if inbox.AssigneeID != nil {
+		assignee = *inbox.AssigneeID
 	}
 	route := store.AlertIntakeRoute{
-		Integration: "webhook-" + hook.ID,
-		ActorName:   hook.Name,
-		ProjectRef:  hook.ProjectID,
+		Integration: "inbox-" + inbox.ID,
+		ActorName:   inbox.Name,
+		ProjectRef:  inbox.ProjectID,
 		AssigneeRef: assignee,
-		WebhookID:   hook.ID,
+		InboxID:     inbox.ID,
 		Receipt:     &store.IntakeReceipt{IntakeID: emailIntake.ID, Key: parsed.ReceiptKey, Sender: boundedText(parsed.FromDisplay, 200), Subject: parsed.Subject},
 	}
-	alert := parsed.Alert(hook.ID, hook.Name)
-	if testID != "" {
-		// Test emails share one low-priority ticket per webhook.
-		subject := parsed.Subject
-		if subject == "" {
-			subject = "(no subject)"
-		}
-		alert.Title, alert.Priority = "Test email via Cloudflare", "low"
-		alert.FamilyKey, alert.ConditionKey = "email:"+publicendpoint.EmailTestDedupeKey, "email:"+publicendpoint.EmailTestDedupeKey
-		alert.Description = "Helm received this test email from " + parsed.FromDisplay + " (subject “" + subject + "”) through Cloudflare Email Routing, so mail to this webhook's address works. Repeated tests count on this ticket; complete it when you are done."
-	}
-	results, err := s.Store.IngestAlerts(r.Context(), route, []store.IntakeAlert{alert})
+	results, err := s.Store.IngestAlerts(r.Context(), route, []store.IntakeAlert{parsed.Alert(inbox.ID, inbox.Name)})
 	if !s.writeIngestError(w, route.Integration, "email", err) {
 		return
 	}
 	s.logAlertIntake(route.Integration, "email", "recorded", results)
 	result := results[0]
-	if testID != "" {
-		s.PublicEndpoints.RecordEmailTest(testID, boundedText(parsed.FromDisplay, 200), result.Disposition, result.TaskKey, s.Cfg.PublicOrigin+"/p/"+hook.ProjectSlug+"/tasks/"+result.TaskKey)
-	}
 	status := http.StatusOK
 	if result.Disposition == "created" {
 		status = http.StatusCreated
@@ -161,7 +142,7 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 		Ticket: ticketHookTicket{
 			ID:  result.TaskID,
 			Key: result.TaskKey,
-			URL: s.Cfg.PublicOrigin + "/p/" + hook.ProjectSlug + "/tasks/" + result.TaskKey,
+			URL: s.Cfg.PublicOrigin + "/p/" + inbox.ProjectSlug + "/tasks/" + result.TaskKey,
 		},
 	})
 }

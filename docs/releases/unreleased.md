@@ -5,12 +5,16 @@ next release these entries move into `docs/releases/vX.Y.Z.md`.
 
 ## 2026-10-04
 
+- **Email inboxes.** Create inboxes in Helm (**Connect apps → Email
+  inboxes**); each has an address that is always shown, with **Copy** and
+  **Email it**. Point your apps' alert emails at it and every email becomes
+  a ticket in the inbox's project. Sign in with Cloudflare creates the first
+  inbox. Replaces per-webhook email addresses and **Test email**; webhooks
+  are HTTP-only again.
 - **Simpler Connect apps.** One **Reach Helm from outside** panel centred on
   **Sign in with Cloudflare**; after setup it shows a short summary, with
-  details and manual setup folded away. Webhook rows show **Send test** and
-  **Test email**, other actions under **More**.
-- **Test email.** A one-time address per webhook to send any email to from
-  your own mailbox; Helm shows when it arrived and the test ticket it filed.
+  details and manual setup folded away. Webhook rows show **Send test**,
+  other actions under **More**.
 
 ## 2026-10-03
 

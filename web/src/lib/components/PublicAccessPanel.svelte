@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
   import { openHelp } from '../help';
-  import type { EmailIntakeView, PublicEndpointView } from '../types';
+  import type { EmailInbox, EmailIntakeView, Project, PublicEndpointView } from '../types';
   import CloudflareSetup from './CloudflareSetup.svelte';
   import EmailIntakeCard from './EmailIntakeCard.svelte';
   import PublicEndpointCard from './PublicEndpointCard.svelte';
@@ -11,11 +11,13 @@
   // guided setup (Sign in with Cloudflare). Set up → a short summary.
   // Detailed status, history and manual setup sit in one collapsed section.
   export let onChanged: () => void = () => undefined;
+  export let projects: Project[] = [];
 
   const detailsKey = 'helm.publicAccess.detailsOpen';
 
   let endpoints: PublicEndpointView | null = null;
   let email: EmailIntakeView | null = null;
+  let inboxes: EmailInbox[] = [];
   let unavailable = false;
   let showSetup: boolean | null = null;
   let addingEmail = false;
@@ -31,6 +33,7 @@
   async function load() {
     try {
       [endpoints, email] = await Promise.all([api.getPublicEndpoints(), api.getEmailIntake()]);
+      inboxes = email.active ? (await api.listEmailInboxes()).data.filter((inbox) => !inbox.disabled_at) : [];
       unavailable = false;
     } catch {
       unavailable = true;
@@ -88,7 +91,7 @@
     <header>
       <div>
         <h3 id="public-access-heading">Reach Helm from outside</h3>
-        <p>Outside apps can send tickets only if they can reach Helm. Sign in with Cloudflare and Helm sets up a public URL that exposes just the webhooks, plus optional email addresses. No ports to open.</p>
+        <p>Let your apps reach Helm: sign in with Cloudflare and Helm sets up a public URL for webhooks and an email inbox your apps can send alerts to. No ports to open, nothing else becomes public.</p>
       </div>
       <div class="public-access-actions">
         {#if endpoints}
@@ -105,17 +108,17 @@
           <dd><strong data-summary-url>https://{active.hostname}</strong> <span class="optional">· {live ? 'live' : endpoints.connector.state}</span></dd>
         </div>
         <div>
-          <dt>Email addresses</dt>
+          <dt>Email inboxes</dt>
           {#if emailOn && email?.active}
-            <dd data-summary-email><strong>{email.active.local_part}+…@{email.active.domain}</strong> <span class="optional">· each webhook gets its own</span></dd>
+            <dd data-summary-email>{#if inboxes.length}<strong>{inboxes[0].address}</strong>{#if inboxes.length > 1}{' '}<span class="optional">+ {inboxes.length - 1} more</span>{/if}{:else}On · <span class="optional">create an inbox below</span>{/if}</dd>
           {:else}
-            <dd data-summary-email>Off <button class="text-button" type="button" on:click={() => { addingEmail = true; showSetup = true; }} data-add-email>Add email addresses</button></dd>
+            <dd data-summary-email>Off <button class="text-button" type="button" on:click={() => { addingEmail = true; showSetup = true; }} data-add-email>Turn on email</button></dd>
           {/if}
         </div>
       </dl>
-      <p class="optional">Test it with <strong>Send test</strong>{#if emailOn}{' '}and <strong>Test email</strong>{/if} on a webhook below. <button class="text-button" type="button" on:click={() => { showSetup = true; }} data-rerun-setup>Run setup again</button></p>
+      <p class="optional">{#if emailOn}Try it: email an inbox below and watch the ticket appear.{:else}Try it: use <strong>Send test</strong> on a webhook below.{/if} <button class="text-button" type="button" on:click={() => { showSetup = true; }} data-rerun-setup>Run setup again</button></p>
     {:else if showSetup}
-      <CloudflareSetup preferEmail={true} onChanged={setupChanged} onFinished={finished} />
+      <CloudflareSetup preferEmail={true} {projects} onChanged={setupChanged} onFinished={finished} />
       {#if active}
         <button class="text-button cancel-setup" type="button" on:click={() => { showSetup = false; addingEmail = false; }}>Back to summary</button>
       {/if}

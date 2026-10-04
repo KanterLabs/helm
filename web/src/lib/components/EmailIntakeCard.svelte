@@ -61,7 +61,7 @@
     notice = '';
     try {
       view = await api.createEmailIntake({ domain: domain.trim(), local_part: localPart.trim(), fallback_address: fallback.trim() || undefined, enable_subaddressing: consent, api_token: token.trim() });
-      notice = `Email is on. Each webhook now gets an address like ${view.active?.local_part}+…@${view.active?.domain}.`;
+      notice = `Email is on. Create inboxes under Email inboxes; their addresses look like ${view.active?.local_part}+…@${view.active?.domain}.`;
       noticeKind = 'success';
       consentNeeded = '';
       consent = false;
@@ -107,7 +107,7 @@
 
   function receiptMeta(receipt: EmailReceipt): string {
     const parts = [formatRelative(receipt.received_at), receipt.sender];
-    if (receipt.webhook_name) parts.push(`→ ${receipt.webhook_name}`);
+    if (receipt.inbox_name) parts.push(`→ ${receipt.inbox_name}`);
     return parts.filter(Boolean).join(' · ');
   }
 
@@ -135,11 +135,7 @@
   {#if unavailable}
     <p class="optional">{unavailable}</p>
   {:else if active}
-    <p>Every webhook has its own address. Mail to it opens or repeats a ticket like a webhook POST: the subject becomes the title and the text becomes the description.</p>
-    <div class="address-row">
-      <code data-email-base>{active.local_part}+&lt;tag&gt;@{active.domain}</code>
-      <span class="optional">Use <strong>Email address…</strong> on a webhook below to get its address.</span>
-    </div>
+    <p>Email is on for <strong>{active.domain}</strong>. Each inbox under <strong>Email inboxes</strong> gets an address like <code data-email-base>{active.local_part}+&lt;inbox&gt;@{active.domain}</code>; the subject becomes the ticket title and the text the description.</p>
     <dl class="email-facts">
       <div><dt>Cloudflare Worker</dt><dd><code data-email-worker>{active.worker_name}</code></dd><dd class="optional">Version {view?.worker_version}</dd></div>
       <div><dt>Routing rule</dt><dd><code>{active.local_part}@{active.domain}</code></dd><dd class="optional">Rule <code>{active.rule_id}</code>{active.subaddress_enabled_by_helm ? ' · plus addressing turned on by Helm' : ''}</dd></div>
@@ -161,7 +157,7 @@
           {/each}
         </ul>
       {:else}
-        <p class="optional">No email yet. Send a message to a webhook's address to test it; it appears here within seconds.</p>
+        <p class="optional">No email yet. Send a message to an inbox address to try it; it appears here within seconds.</p>
       {/if}
     </div>
 
@@ -177,7 +173,7 @@
   {:else if view && !view.public_hostname}
     <p class="optional" data-email-needs-public>Email needs a Public URL first: Cloudflare's email Worker delivers each message to Helm through it. Create one above, then come back here.</p>
   {:else if view}
-    <p>Give every webhook an email address, for apps that can only send alerts by email. <strong>Connect Cloudflare</strong> above can turn this on for you; experts can set it up by hand.</p>
+    <p>Lets apps email their alerts to Helm inboxes. <strong>Sign in with Cloudflare</strong> above turns this on for you; experts can set it up by hand.</p>
     <details class="manual-setup" data-manual-email>
     <summary>Set up manually</summary>
     <p class="optional">Cloudflare Email Routing receives the mail and a small Worker passes it to Helm through your Public URL. No mailbox password is stored and no port is opened. The token is used once and never stored.</p>
@@ -243,8 +239,6 @@
   .badge-on, .outcome-created, .outcome-repeated, .outcome-retained { color: var(--semantic-green); background: var(--green-soft); }
   .badge-off { color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
   .badge-pending, .outcome-unknown_recipient, .outcome-unreadable, .outcome-too_large { color: var(--semantic-red); background: var(--red-soft); }
-  .address-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
-  .address-row code { font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
   .email-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
   .email-facts > div { display: grid; align-content: start; gap: 3px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   dt { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }

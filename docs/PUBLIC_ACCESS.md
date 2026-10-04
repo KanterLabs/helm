@@ -3,8 +3,9 @@
 Self-hosted Helm usually sits behind NAT, a VPN or a private network that
 outside apps cannot reach. Public access fixes that with Cloudflare, without
 opening ports: outside apps get a **public URL** for
-[ticket webhooks](TICKET_WEBHOOKS.md) and, optionally, an **email address**
-per webhook. Nothing else about Helm becomes public.
+[ticket webhooks](TICKET_WEBHOOKS.md), and apps that send alerts by email
+get **email inboxes** whose mail becomes tickets. Nothing else about Helm
+becomes public.
 
 Everything here lives in **Tickets → ⇄ Connect apps → Reach Helm from
 outside** and is for administrators. **Learn more** opens this guide inside
@@ -35,12 +36,13 @@ outside**:
    for are marked **No DNS access**). Helm shows the public URL it will
    create, such as `https://hooks.example.com` (**Change** to pick another
    unused name); a public URL that already works is kept.
-3. **Email (optional).** "Give webhooks email addresses too" is ticked when
-   the domain has Email Routing on. If plus addressing is off, tick the box
-   that turns it on; it also lets mail to any `name+anything@` reach
-   `name@` across the domain. **Email options** set the address name
-   (default `helm-alerts`) and an optional **fallback** address for mail
-   Helm cannot accept.
+3. **Email (optional).** "Turn on email and create an inbox" is ticked when
+   the domain has Email Routing on. Name the first inbox (default
+   **Alerts**) and choose the project its tickets go to. If plus addressing
+   is off, tick the box that turns it on; it also lets mail to any
+   `name+anything@` reach `name@` across the domain. **Email options** set
+   the address name (default `helm-alerts`) and an optional **fallback**
+   address for mail Helm cannot accept.
 4. **Select Set up** and watch the checklist:
 
    | Step | What happens |
@@ -48,16 +50,17 @@ outside**:
    | Public URL | Tunnel + DNS record, webhook paths only. An already active public URL is kept as is. |
    | Connect the tunnel | `cloudflared` registers with Cloudflare's edge. |
    | Reach Helm from the internet | Helm calls its own public URL through Cloudflare (DNS can take a minute). |
-   | Give webhooks email addresses | Email Worker + routing rule, when requested. Already-on email is kept. |
+   | Turn on email and create an inbox | Email Worker + routing rule, then your first inbox, when requested. Already-on email is kept. |
    | Forget the Cloudflare credential | The sign-in or token is dropped (sign-ins are revoked at Cloudflare). |
 
    If the tunnel never connects or the URL never answers, Helm removes the
    public URL it just created, so nothing is left half-built. If only email
    fails, the working public URL stays and the step says why.
-5. **Select Done.** The panel now shows a short summary: the public URL and
-   the email address pattern. Then [test it](#test-it).
+5. **Note your inbox address,** shown in the result (for example
+   `helm-alerts+alerts-x7k2qm@example.com`), then select **Done**. The panel
+   now shows a short summary. [Try it](#test-it).
 
-**Later:** **Add email addresses** (when email is off) or **Run setup again**
+**Later:** **Turn on email** (when it is off) or **Run setup again**
 signs in again and reuses what already works. Everything else, such as
 connector status, recent emails, removal, history and the manual forms, is
 under **Details, history and manual setup**.
@@ -82,20 +85,17 @@ or point Helm at their own Cloudflare app (see [Settings](#settings)).
 
 ## Test it
 
-Both tests run from the webhook table (Tickets → ⇄ Connect apps) and travel
-the same path outside apps use. Each files one low-priority test ticket per
-webhook; repeated tests only add to its count.
+Both checks travel the same path real apps use.
 
-| Test | What you do | What it proves |
+| Check | What you do | What it proves |
 | --- | --- | --- |
+| **Email an inbox** | Send any email to an inbox's address from any mailbox (**Email it** opens your mail app), for example from your phone. | Your mail provider → Cloudflare's MX → the routing rule → the email Worker → Helm. A ticket appears in the inbox's project within seconds, and the inbox shows "1 email". |
 | **Send test** | Select it on a webhook. | Helm posts a ticket to its own public URL through Cloudflare and the tunnel, and shows the ticket it opened (or why it failed). |
-| **Test email** | Select it, then send any email to the one-time address it shows (or use **Open in mail app**) from any mailbox, for example your phone. | Your mail provider → Cloudflare's MX → the routing rule → the email Worker → Helm. The row turns to "Email arrived from … through Cloudflare" with the ticket. |
 
-The **Test email** address works for 15 minutes and only for that webhook;
-it is not the webhook's real address, so nothing needs to be replaced. If
-nothing arrives, check that the domain's MX records point to Cloudflare
-(Email Routing shows them), that plus addressing is on, and the sender's
-outbox; refused mail appears under **Recent emails** in the Email details.
+If an email does not turn into a ticket, look under **Details, history and
+manual setup → Email → Recent emails** (refused mail is listed with the
+reason), check that the domain's MX records point to Cloudflare (Email
+Routing shows them) and that plus addressing is on.
 
 ## Public URL (Cloudflare Tunnel)
 
@@ -177,68 +177,76 @@ Requirements and settings:
 - **Disabling the feature:** set `HELM_PUBLIC_HOOKS_ADDR=off`.
 
 
-## Email addresses
+## Email inboxes
 
-Backup tools, NAS boxes, cron and older monitoring often send alerts only by
-email. With email turned on (by [Set up with Cloudflare](#set-up-with-cloudflare)
-or the **Email** card), every webhook also has an address such as `helm-alerts+k3j9x2m4q7ab5cde@example.com`. Mail to
-it opens or repeats a ticket exactly like a POST to the webhook URL. The
-design and its trade-offs are in
+Your apps already email you their alerts: backups, NAS boxes, Proxmox,
+Coolify, cron. Point them at a Helm **inbox** instead and every email
+becomes a ticket, with no mailbox for Helm to read and no password stored.
+
+```
+your apps ──email──▶ helm-alerts+homelab-ops-x7k2qm@example.com
+                         │ Cloudflare Email Routing (your domain)
+                         ▼
+                     Helm ──▶ ticket in the inbox's project
+```
+
+**Create an inbox:** **Email inboxes → Inbox name, Tickets go to, Assign to
+me → Create inbox.** (Guided setup creates the first one for you.) The
+address appears at once and stays visible, with **Copy** and **Email it**.
+Put it in your apps' notification settings in place of your own address.
+
+**What an email becomes:**
+
+- **Subject** → ticket title (an empty subject becomes `Email from
+  <sender>`); **text part** → description (HTML-only mail is converted to
+  text). `X-Priority: 1`/`2`, `Importance: high` or `Priority: urgent` set
+  high priority. Attachments are listed on the ticket but not stored.
+- **Repeats:** mail from the same From address with the same subject
+  (ignoring case, spacing and `Re:`/`Fwd:`) adds to the open ticket's
+  repeat count instead of opening another; after it is completed the next
+  one opens a new linked ticket. A re-delivered message (same `Message-ID`)
+  changes nothing.
+- **Evidence** on the ticket: From, Date, Message-ID and attachment names,
+  plus SPF/DKIM/DMARC results when Cloudflare reports them.
+
+**Who can send:** anyone who knows the address, like any email address.
+Cloudflare already rejects mail that fails the sender's DMARC policy or
+fails both SPF and DKIM, and the random part of the address keeps it from
+being guessed. If an address attracts spam, **More → Replace address**
+issues a new one (the old one bounces at once); **More → Turn off** stops an
+inbox. Tickets always stay.
+
+**Each inbox row** shows how many emails arrived and when the last one came.
+
+### How mail reaches Helm
+
+Cloudflare Email Routing receives the mail for one rule,
+`helm-alerts@your-domain`; with plus addressing every
+`helm-alerts+<inbox>@` address reaches it. A small Email Worker that Helm
+deploys passes each message to Helm through the
+[public URL](#public-url-cloudflare-tunnel). Design and trade-offs:
 [EMAIL_ALERT_INTAKE_PLAN.md](EMAIL_ALERT_INTAKE_PLAN.md).
 
-How mail reaches Helm: Cloudflare Email Routing receives it, a small Email
-Worker that Helm deploys passes it to Helm through the
-[public URL](#public-url-cloudflare-tunnel), and Helm turns it into a ticket.
-No mailbox password is stored, nothing polls, and no port is opened.
+Turning email on by hand (instead of guided setup) is under **Details,
+history and manual setup → Email → Set up manually** and needs:
 
-Before you start:
-
-1. An active **Public URL** (the Worker delivers through it).
+1. An active **public URL** (the Worker delivers through it).
 2. **Email Routing enabled** in Cloudflare for the domain (Email › Email
-   Routing). Its MX records must be Cloudflare's.
-3. A Cloudflare API token with:
-   - Account › Workers Scripts › Edit
-   - Zone › Zone › Read, Zone › Email Routing Rules › Edit
-   - Zone › Zone Settings › Read (Edit if plus addressing is off)
-   - Account › Email Routing Addresses › Read (only with a fallback address)
+   Routing), with Cloudflare's MX records.
+3. A Cloudflare API token with Account › Workers Scripts › Edit; Zone ›
+   Zone › Read and Email Routing Rules › Edit; Zone › Zone Settings › Read
+   (Edit if plus addressing is off); Account › Email Routing Addresses ›
+   Read (only with a fallback address).
 
-Setting it up:
+Helm deploys the Worker `helm-email-…` and the routing rule; if any step
+fails it deletes what it created and restores plus addressing. The token is
+used once and never stored.
 
-1. Enter the domain (defaults to your Public URL's domain), an address name
-   (default `helm-alerts`), an optional **fallback** address and the token.
-2. If **plus addressing** is off for the zone, Helm stops and asks first:
-   turning it on lets mail to any `name+anything@` reach `name@` across the
-   whole domain. Tick the box and submit again.
-3. Helm deploys the Worker `helm-email-…` and one routing rule for
-   `helm-alerts@domain`. If any step fails it deletes what it created and
-   restores plus addressing. The token is used once and never stored.
-
-Using it:
-
-- **New webhooks** show their email address next to the URL, once. For an
-  existing webhook use **Email address…**; using it again replaces the
-  address and the old one bounces. The table shows a masked hint.
-- **Like the URL, the address is a credential.** Anyone who knows it can
-  open tickets. Replace it if it leaks.
-- **Subject** becomes the title (an empty subject becomes `Email from
-  <sender>`), the **text part** the description (HTML-only mail is converted
-  to text), and `X-Priority: 1`/`2`, `Importance: high` or
-  `Priority: urgent` set high priority. Attachments are listed on the ticket
-  but not stored.
-- **Repeats:** mail from the same From address with the same subject
-  (ignoring case, spacing and `Re:`/`Fwd:`) repeats the open ticket; after
-  it is completed the next one opens a new linked ticket. A re-delivered
-  message (same `Message-ID`) changes nothing.
-- **Evidence** on the ticket: From, Date, Message-ID and attachment names,
-  plus SPF/DKIM/DMARC results when Cloudflare reports them. Cloudflare
-  already rejects mail that fails the sender's DMARC policy or fails both
-  SPF and DKIM.
-
-Bounces and Recent emails:
+### Bounces and Recent emails
 
 | What happened | Sender sees | Recent emails shows |
 | --- | --- | --- |
-| Unknown, replaced or disabled address | Bounce: "No Helm webhook uses this address" | Bounced: unknown address |
+| Unknown, replaced or turned-off inbox address | Bounce: "No Helm inbox uses this address" | Bounced: unknown address |
 | No valid From header | Bounce with the reason | Bounced: unreadable |
 | Larger than 1 MiB | Bounce, or delivered to the fallback | Bounced: too large |
 | Helm or the tunnel down | Delivered to the fallback after two retries | Nothing (Helm never saw it) |
@@ -248,10 +256,11 @@ Without a fallback address, mail that reaches the Worker while Helm is down
 is left to Cloudflare, which does not document what it does when a Worker
 fails; set a fallback if you cannot afford to lose alerts.
 
-**Turn off email** stops accepting mail immediately. With a token Helm
-deletes the Worker and rule; without one they are listed under **Earlier
-email setups** as *Needs cleanup* with **Finish cleanup…**. Plus addressing
-is left on. The Public URL cannot be removed while email is on.
+**Turning email off** (Email card → **Turn off email**) stops all inboxes at
+once. With a token Helm deletes the Worker and rule; without one they are
+listed under **Earlier email setups** as *Needs cleanup* with **Finish
+cleanup…**. Plus addressing is left on. The public URL cannot be removed
+while email is on.
 
 ## Troubleshooting
 
@@ -288,5 +297,5 @@ Operations in `/openapi.json`: `getCloudflareConnect`,
 `getCloudflareSetup`, `getPublicEndpoints`, `createPublicEndpoint`,
 `testPublicEndpoint`, `disablePublicEndpoint`, `getEmailIntake`,
 `createEmailIntake`, `disableEmailIntake`, `postTicketEmail`,
-`setTicketWebhookEmail`, `sendTestTicket`, `startEmailTest`,
-`getEmailTest`, `getHelpDocument`.
+`listEmailInboxes`, `createEmailInbox`, `disableEmailInbox`,
+`replaceEmailInboxAddress`, `sendTestTicket`, `getHelpDocument`.

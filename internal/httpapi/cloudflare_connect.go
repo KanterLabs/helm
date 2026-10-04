@@ -70,6 +70,9 @@ func (s *Server) cloudflareConnect(w http.ResponseWriter, r *http.Request, ident
 				LocalPart           string `json:"local_part"`
 				FallbackAddress     string `json:"fallback_address"`
 				EnableSubaddressing bool   `json:"enable_subaddressing"`
+				Project             string `json:"project"`
+				InboxName           string `json:"inbox_name"`
+				AssignToMe          bool   `json:"assign_to_me"`
 			} `json:"email"`
 		}
 		if err := decodeJSON(r, &payload); err != nil {
@@ -78,7 +81,10 @@ func (s *Server) cloudflareConnect(w http.ResponseWriter, r *http.Request, ident
 		}
 		request := publicendpoint.SetupRequest{ZoneID: payload.Zone, Hostname: payload.Hostname}
 		if payload.Email != nil {
-			request.Email = &publicendpoint.SetupEmail{LocalPart: payload.Email.LocalPart, FallbackAddress: payload.Email.FallbackAddress, EnableSubaddressing: payload.Email.EnableSubaddressing}
+			request.Email = &publicendpoint.SetupEmail{LocalPart: payload.Email.LocalPart, FallbackAddress: payload.Email.FallbackAddress, EnableSubaddressing: payload.Email.EnableSubaddressing, ProjectRef: payload.Email.Project, InboxName: payload.Email.InboxName}
+			if payload.Email.AssignToMe {
+				request.Email.AssigneeID = actor
+			}
 		}
 		run, err := manager.StartSetup(r.Context(), actor, request)
 		if err != nil {

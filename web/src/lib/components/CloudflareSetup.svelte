@@ -3,7 +3,7 @@
   import { api } from '../api';
   import { openHelp } from '../help';
   import { formatRelative } from '../state';
-  import type { CloudflareConnectStatus, CloudflareSetupRun, CloudflareZoneOption } from '../types';
+  import type { CloudflareConnectStatus, CloudflareSetupRun, CloudflareZoneOption, Project } from '../types';
 
   // Guided setup: sign in with Cloudflare (or use a token), confirm the
   // domain, and Helm creates the public URL and email addresses with a live
@@ -13,6 +13,8 @@
   export let onFinished: () => void = () => undefined;
   /** Pre-ticks email (e.g. "Add email addresses"). */
   export let preferEmail = true;
+  /** Projects the first inbox can file tickets into. */
+  export let projects: Project[] = [];
 
   const stepIcons: Record<string, string> = { pending: '○', running: '◌', done: '✓', skipped: '–', failed: '✕' };
 
@@ -25,6 +27,8 @@
   let localPart = 'helm-alerts';
   let fallback = '';
   let consent = false;
+  let inboxProject = '';
+  let inboxName = 'Alerts';
   let token = '';
   let tokenOpen = false;
   let busy = '';
@@ -37,6 +41,7 @@
   $: otherZones = zones.filter((item) => !item.usable);
   $: zone = zones.find((item) => item.id === zoneId);
   $: emailPossible = zone?.email_routing === 'ready';
+  $: if (!inboxProject && projects.length) inboxProject = projects[0].key;
   $: needsConsent = Boolean(zone && emailPossible && withEmail && !zone.plus_addressing);
   $: canStart = Boolean(zone && zone.usable && (hostname.trim() || status?.active_public_hostname) && (!withEmail || !emailPossible || !needsConsent || consent) && !busy);
   $: if (status && !status.oauth_available) tokenOpen = true;
@@ -126,7 +131,7 @@
       run = await api.startCloudflareSetup({
         zone: zone.id,
         hostname: hostname.trim(),
-        email: withEmail && emailPossible ? { local_part: localPart.trim() || 'helm-alerts', fallback_address: fallback.trim() || undefined, enable_subaddressing: consent } : undefined
+        email: withEmail && emailPossible ? { local_part: localPart.trim() || 'helm-alerts', fallback_address: fallback.trim() || undefined, enable_subaddressing: consent, project: inboxProject || undefined, inbox_name: inboxName.trim() || 'Alerts', assign_to_me: true } : undefined
       });
       schedule();
     } catch (cause) {
@@ -196,7 +201,12 @@
       </ol>
       {#if run.status !== 'running'}
         {#if run.public_url}
-          <p class="cf-result" data-setup-result>Outside apps can reach this Helm at <strong>{run.public_url}</strong>{#if run.email_base}{' '}and webhooks can have addresses like <strong>{run.email_base}</strong>{/if}. Next: create a webhook below and use <strong>Send test</strong>{#if run.email_base}{' '}and <strong>Test email</strong>{/if} on it.</p>
+          <div class="cf-result" data-setup-result>
+            <p>Outside apps can reach this Helm at <strong>{run.public_url}</strong>.</p>
+            {#if run.inbox_address}
+              <p>Your inbox <strong>{run.inbox_name}</strong>: <code data-setup-inbox>{run.inbox_address}</code>. Point your apps' alert emails at it; each email becomes a ticket. Send one now to try it.</p>
+            {/if}
+          </div>
         {/if}
         <button class="button quiet-button" type="button" on:click={finish}>{run.status === 'done' ? 'Done' : 'Try again'}</button>
       {/if}
@@ -264,10 +274,14 @@
             <p class="cf-line" data-setup-hostname>Public URL <strong>https://{hostname}</strong> <button class="text-button" type="button" on:click={() => { editingHostname = true; }}>Change</button></p>
           {/if}
 
-          <label class="cf-check"><input type="checkbox" bind:checked={withEmail} disabled={!emailPossible} data-setup-email /> Give webhooks email addresses too</label>
+          <label class="cf-check"><input type="checkbox" bind:checked={withEmail} disabled={!emailPossible} data-setup-email /> Turn on email and create an inbox</label>
           {#if !emailPossible}
             <p class="optional">Turn on Email Routing for {zone.name} in Cloudflare (Email › Email Routing) to add email later.</p>
           {:else if withEmail}
+            <div class="cf-inbox">
+              <label class="cf-field">Inbox name<input aria-label="Guided inbox name" bind:value={inboxName} autocomplete="off" /></label>
+              <label class="cf-field">Tickets go to<select aria-label="Guided inbox project" bind:value={inboxProject}>{#each projects as item (item.id)}<option value={item.key}>{item.key} · {item.name}</option>{/each}</select></label>
+            </div>
             {#if needsConsent}
               <label class="cf-check consent" data-setup-consent><input type="checkbox" bind:checked={consent} /> Turn on plus addressing for {zone.name}, so <code>name+anything@{zone.name}</code> also reaches <code>name@{zone.name}</code>.</label>
             {/if}
@@ -313,7 +327,8 @@
   .cf-line { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
   .cf-existing { padding: 8px 10px; border-radius: 8px; background: var(--green-soft); }
   .cf-field { display: grid; gap: 4px; font-size: 12px; font-weight: 700; }
-  .cf-email { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  .cf-email, .cf-inbox { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  .cf-result p { margin: 0 0 4px; }
   .cf-email-options { font-size: 12px; }
   .cf-email-options summary { cursor: pointer; color: var(--ink-soft); }
   .cf-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
@@ -333,5 +348,5 @@
   .notice-success > span:first-child { background: var(--semantic-green); }
   .optional { color: var(--muted); font-size: 12px; font-weight: 400; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  @media (max-width: 760px) { .cf-email { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 760px) { .cf-email, .cf-inbox { grid-template-columns: minmax(0, 1fr); } }
 </style>

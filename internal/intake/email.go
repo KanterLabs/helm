@@ -65,8 +65,8 @@ func unreadable(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrUnreadableEmail, fmt.Sprintf(format, args...))
 }
 
-// ParseEmailRecipient returns the webhook tag from an envelope recipient
-// of the form <localPart>+<tag>@<domain>, case-insensitively.
+// ParseEmailRecipient returns the inbox tag from an envelope recipient of
+// the form <localPart>+<tag>@<domain>, case-insensitively.
 func ParseEmailRecipient(to, localPart, domain string) (string, bool) {
 	to = strings.ToLower(strings.Trim(strings.TrimSpace(to), "<>"))
 	at := strings.LastIndexByte(to, '@')
@@ -74,13 +74,8 @@ func ParseEmailRecipient(to, localPart, domain string) (string, bool) {
 		return "", false
 	}
 	tag, ok := strings.CutPrefix(to[:at], strings.ToLower(localPart)+"+")
-	if !ok || len(tag) != store.EmailTagLength {
+	if !ok || !store.EmailInboxTagPattern.MatchString(tag) {
 		return "", false
-	}
-	for _, char := range tag {
-		if !(char >= 'a' && char <= 'z' || char >= '2' && char <= '7') {
-			return "", false
-		}
 	}
 	return tag, true
 }

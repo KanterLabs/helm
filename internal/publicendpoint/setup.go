@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/KanterLabs/helm/internal/store"
 )
 
 // Setup step statuses.
@@ -27,22 +29,29 @@ type SetupStep struct {
 
 // SetupRun is one guided setup. It never contains a credential.
 type SetupRun struct {
-	ID          string      `json:"id"`
-	Status      string      `json:"status"` // running, done or failed
-	Zone        string      `json:"zone"`
-	Hostname    string      `json:"hostname"`
-	Steps       []SetupStep `json:"steps"`
-	PublicURL   string      `json:"public_url,omitempty"`
-	EmailBase   string      `json:"email_base,omitempty"`
-	StartedAt   string      `json:"started_at"`
-	FinishedAt  string      `json:"finished_at,omitempty"`
-	actorID     string
-	createdURL  string
-	startedTime time.Time
+	ID        string      `json:"id"`
+	Status    string      `json:"status"` // running, done or failed
+	Zone      string      `json:"zone"`
+	Hostname  string      `json:"hostname"`
+	Steps     []SetupStep `json:"steps"`
+	PublicURL string      `json:"public_url,omitempty"`
+	EmailBase string      `json:"email_base,omitempty"`
+	// InboxAddress is the first inbox setup created (or found), if any.
+	InboxAddress string `json:"inbox_address,omitempty"`
+	InboxName    string `json:"inbox_name,omitempty"`
+	StartedAt    string `json:"started_at"`
+	FinishedAt   string `json:"finished_at,omitempty"`
+	actorID      string
+	createdURL   string
+	startedTime  time.Time
 }
 
-// SetupEmail requests email addresses as part of guided setup.
+// SetupEmail requests email as part of guided setup. With ProjectRef, a
+// first inbox (InboxName, default "Alerts") is created when none exists.
 type SetupEmail struct {
+	ProjectRef          string
+	InboxName           string
+	AssigneeID          string
 	LocalPart           string
 	FallbackAddress     string
 	EnableSubaddressing bool
@@ -149,7 +158,7 @@ func (m *Manager) StartSetup(ctx context.Context, actorID string, request SetupR
 		{ID: "public_url", Label: "Public URL " + request.Hostname, Status: StepPending},
 		{ID: "connector", Label: "Connect the tunnel to Cloudflare", Status: StepPending},
 		{ID: "reachable", Label: "Reach Helm from the internet", Status: StepPending},
-		{ID: "email", Label: "Give webhooks email addresses", Status: StepPending},
+		{ID: "email", Label: "Turn on email and create an inbox", Status: StepPending},
 		{ID: "forget", Label: "Forget the Cloudflare credential", Status: StepPending},
 	}
 	m.connect.mu.Lock()
@@ -303,7 +312,7 @@ func (m *Manager) executeSetup(run *SetupRun, token string, zone ZoneOption, req
 		time.Sleep(setupPollInterval)
 	}
 
-	// 4. Email addresses, when asked for.
+	// 4. Email, when asked for: the Worker and rule, then a first inbox.
 	switch intake, emailActive, err := m.store.ActiveEmailIntake(ctx); {
 	case err != nil:
 		m.setStep(run, "email", StepFailed, err.Error())
@@ -311,10 +320,7 @@ func (m *Manager) executeSetup(run *SetupRun, token string, zone ZoneOption, req
 	case request.Email == nil:
 		m.setStep(run, "email", StepSkipped, "Not requested. Run setup again any time to add it.")
 	case emailActive:
-		m.setStep(run, "email", StepDone, "Already on: "+intake.LocalPart+"+…@"+intake.Domain+".")
-		m.connect.mu.Lock()
-		run.EmailBase = intake.LocalPart + "+…@" + intake.Domain
-		m.connect.mu.Unlock()
+		m.finishEmailStep(ctx, run, intake, request.Email, "Email was already on. ")
 	case zone.EmailRouting != "ready":
 		m.setStep(run, "email", StepSkipped, "Email Routing is not turned on for "+zone.Name+". Turn it on in Cloudflare (Email › Email Routing), then run setup again.")
 	default:
@@ -328,11 +334,49 @@ func (m *Manager) executeSetup(run *SetupRun, token string, zone ZoneOption, req
 			m.setStep(run, "email", StepFailed, cleanMessage(friendly(err, "deploy the email Worker and routing rule"))+" The public URL is working; only email was not set up.")
 			return
 		}
-		m.connect.mu.Lock()
-		run.EmailBase = created.LocalPart + "+…@" + created.Domain
-		m.connect.mu.Unlock()
-		m.setStep(run, "email", StepDone, "Every webhook can now get an address like "+created.LocalPart+"+…@"+created.Domain+".")
+		m.finishEmailStep(ctx, run, created, request.Email, "")
 	}
+}
+
+// finishEmailStep makes sure an inbox exists so setup ends with an address
+// to send mail to.
+func (m *Manager) finishEmailStep(ctx context.Context, run *SetupRun, intake store.EmailIntake, request *SetupEmail, prefix string) {
+	m.connect.mu.Lock()
+	run.EmailBase = intake.LocalPart + "+…@" + intake.Domain
+	m.connect.mu.Unlock()
+	inboxes, err := m.store.ListEmailInboxes(ctx)
+	if err != nil {
+		m.setStep(run, "email", StepFailed, err.Error())
+		return
+	}
+	var inbox *store.EmailInbox
+	for index := range inboxes {
+		if inboxes[index].DisabledAt == nil {
+			inbox = &inboxes[index]
+			break
+		}
+	}
+	if inbox == nil && request.ProjectRef != "" {
+		name := strings.TrimSpace(request.InboxName)
+		if name == "" {
+			name = "Alerts"
+		}
+		created, err := m.store.CreateEmailInbox(ctx, store.EmailInboxInput{Name: name, ProjectRef: request.ProjectRef, AssigneeID: request.AssigneeID}, run.actorID)
+		if err != nil {
+			m.setStep(run, "email", StepFailed, prefix+"Email is on, but the inbox could not be created: "+cleanMessage(err)+" Create one under Email inboxes.")
+			return
+		}
+		inbox = &created
+	}
+	if inbox == nil {
+		m.setStep(run, "email", StepDone, prefix+"Create an inbox under Email inboxes to get an address.")
+		return
+	}
+	address := intake.InboxAddress(inbox.Tag)
+	m.connect.mu.Lock()
+	run.InboxAddress, run.InboxName = address, inbox.Name
+	m.connect.mu.Unlock()
+	m.setStep(run, "email", StepDone, prefix+"Inbox “"+inbox.Name+"” ("+inbox.ProjectKey+"): mail to "+address+" becomes tickets.")
 }
 
 // cleanMessage drops the internal error prefixes from an error.

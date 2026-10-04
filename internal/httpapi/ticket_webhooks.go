@@ -23,18 +23,6 @@ type ticketWebhookSecretResponse struct {
 	Webhook store.TicketWebhook `json:"webhook"`
 	Secret  string              `json:"secret"`
 	URL     string              `json:"url"`
-	// EmailAddress is the webhook's new email address, shown only here.
-	EmailAddress string `json:"email_address,omitempty"`
-}
-
-// emailSummary describes the active email intake for webhook lists, so
-// clients can render masked addresses; nil when email is not set up.
-func (s *Server) emailSummary(ctx context.Context) (map[string]string, error) {
-	intake, ok, err := s.Store.ActiveEmailIntake(ctx)
-	if err != nil || !ok {
-		return nil, err
-	}
-	return map[string]string{"address": intake.Address(), "local_part": intake.LocalPart, "domain": intake.Domain}, nil
 }
 
 type ticketHookTicket struct {
@@ -157,11 +145,6 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
-		email, err := s.emailSummary(r.Context())
-		if err != nil {
-			s.writeStoreError(w, err)
-			return
-		}
 		publicHostname := ""
 		if endpoint, ok, err := s.Store.ActivePublicEndpoint(r.Context()); err != nil {
 			s.writeStoreError(w, err)
@@ -169,7 +152,7 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 		} else if ok && s.PublicEndpoints != nil {
 			publicHostname = endpoint.Hostname
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookBase(r.Context()), "email": email, "public_hostname": publicHostname})
+		s.writeJSON(w, http.StatusOK, map[string]any{"data": hooks, "endpoint_base": s.ticketHookBase(r.Context()), "public_hostname": publicHostname})
 	case http.MethodPost:
 		if !s.secretResponseAllowed(w, r) {
 			return
@@ -193,28 +176,14 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
-		response := ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret}
-		// With email set up, every new webhook also gets an address.
-		if intake, ok, err := s.Store.ActiveEmailIntake(r.Context()); err != nil {
-			s.writeStoreError(w, err)
-			return
-		} else if ok {
-			withEmail, tag, err := s.Store.SetWebhookEmailTag(r.Context(), hook.ID, identity.Actor.ID)
-			if err != nil {
-				s.writeStoreError(w, err)
-				return
-			}
-			response.Webhook, response.EmailAddress = withEmail, intake.WebhookAddress(tag)
-		}
-		s.writeJSON(w, http.StatusCreated, response)
+		s.writeJSON(w, http.StatusCreated, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
 }
 
-// ticketWebhook serves DELETE /api/v1/ticket-webhooks/{id},
-// POST /api/v1/ticket-webhooks/{id}/rotate and
-// POST /api/v1/ticket-webhooks/{id}/email (human admins).
+// ticketWebhook serves DELETE /api/v1/ticket-webhooks/{id} and
+// POST /api/v1/ticket-webhooks/{id}/rotate|test (human admins).
 func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity auth.Identity, parts []string) {
 	if !requireAdmin(w, identity) {
 		return
@@ -239,38 +208,6 @@ func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity 
 		s.writeJSON(w, http.StatusOK, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
 	case len(parts) == 3 && parts[2] == "test" && r.Method == http.MethodPost:
 		s.sendTestTicket(w, r, id)
-	case len(parts) == 3 && parts[2] == "test-email" && r.Method == http.MethodPost:
-		s.startEmailTest(w, r, identity, id)
-	case len(parts) == 4 && parts[2] == "test-email" && r.Method == http.MethodGet:
-		w.Header().Set("Cache-Control", "no-store")
-		if s.publicEndpointsUnavailable(w) {
-			return
-		}
-		test, ok := s.PublicEndpoints.EmailTestStatus(identity.Actor.ID, id, parts[3])
-		if !ok {
-			s.writeError(w, http.StatusNotFound, "not_found", "email test not found", nil)
-			return
-		}
-		s.writeJSON(w, http.StatusOK, test)
-	case len(parts) == 3 && parts[2] == "email" && r.Method == http.MethodPost:
-		if !s.secretResponseAllowed(w, r) {
-			return
-		}
-		intake, ok, err := s.Store.ActiveEmailIntake(r.Context())
-		if err != nil {
-			s.writeStoreError(w, err)
-			return
-		}
-		if !ok {
-			s.writeError(w, http.StatusConflict, "email_not_set_up", "set up email addresses under Connect apps first", nil)
-			return
-		}
-		hook, tag, err := s.Store.SetWebhookEmailTag(r.Context(), id, identity.Actor.ID)
-		if err != nil {
-			s.writeStoreError(w, err)
-			return
-		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"webhook": hook, "email_address": intake.WebhookAddress(tag)})
 	default:
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
@@ -302,35 +239,6 @@ func (s *Server) sendTestTicket(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	s.writeJSON(w, http.StatusOK, result)
-}
-
-// startEmailTest serves POST /api/v1/ticket-webhooks/{id}/test-email: a
-// one-time address, valid for 15 minutes, that files a test ticket for the
-// webhook when mail sent to it arrives through Cloudflare.
-func (s *Server) startEmailTest(w http.ResponseWriter, r *http.Request, identity auth.Identity, id string) {
-	w.Header().Set("Cache-Control", "no-store")
-	if s.publicEndpointsUnavailable(w) {
-		return
-	}
-	hook, err := s.Store.GetTicketWebhook(r.Context(), id)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
-	if hook.DisabledAt != nil {
-		s.writeError(w, http.StatusConflict, "webhook_disabled", "a disabled webhook cannot open tickets", nil)
-		return
-	}
-	intake, ok, err := s.Store.ActiveEmailIntake(r.Context())
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
-	if !ok {
-		s.writeError(w, http.StatusConflict, "email_not_set_up", "turn on email addresses first", nil)
-		return
-	}
-	s.writeJSON(w, http.StatusCreated, s.PublicEndpoints.StartEmailTest(identity.Actor.ID, hook.ID, intake))
 }
 
 // testTicketHook files a test ticket that arrived through the public URL

@@ -249,7 +249,10 @@ Recorded 2026-10-03 after implementation and verification.
   picked automatically, the hostname is a line with **Change**, and email
   options are folded away. After setup the panel shows a two-line summary;
   the detailed cards and manual forms moved under **Details, history and
-  manual setup**. Webhook rows show the two tests (**Send test**, **Test
-  email**) with rarer actions under **More**.
-- **Test email** gives self-hosters an end-to-end check of the real mail
-  path with a one-time, webhook-bound address (memory only, 15 minutes).
+  manual setup**.
+- **Inboxes (2026-10-04).** Setup's email step now also creates the first
+  email inbox (**Alerts** by default, in the chosen project) and shows its
+  address, so "send email to the inbox → ticket" works right after sign-in.
+  Webhook rows show **Send test** with rarer actions under **More**; the
+  short-lived Test email feature was replaced by emailing an inbox. See
+  [EMAIL_ALERT_INTAKE_PLAN.md](EMAIL_ALERT_INTAKE_PLAN.md).

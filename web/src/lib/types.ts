@@ -615,9 +615,6 @@ export interface TicketWebhook {
   disabled_at?: string;
   last_delivery_at?: string;
   delivery_count: number;
-  /** Last characters of the email address tag, when it has an address. */
-  email_tag_hint?: string;
-  email_tag_created_at?: string;
 }
 
 /** Create/rotate response: the only time the secret and URL are returned. */
@@ -625,8 +622,6 @@ export interface TicketWebhookSecret {
   webhook: TicketWebhook;
   secret: string;
   url: string;
-  /** Present when email addresses are set up; shown only here. */
-  email_address?: string;
 }
 
 export interface CloudflareTokenPermission {
@@ -645,6 +640,8 @@ export interface CloudflareSetupRun {
   steps: { id: 'public_url' | 'connector' | 'reachable' | 'email' | 'forget'; label: string; status: SetupStepStatus; detail?: string }[];
   public_url?: string;
   email_base?: string;
+  inbox_address?: string;
+  inbox_name?: string;
   started_at: string;
   finished_at?: string;
 }
@@ -687,27 +684,23 @@ export interface TicketTestResult {
   message: string;
 }
 
-/** A one-time test address for a webhook (Test email). */
-export interface EmailTest {
+/** An address created in Helm whose mail becomes tickets in a project. */
+export interface EmailInbox {
   id: string;
-  webhook_id: string;
+  name: string;
+  project_id: string;
+  project_key: string;
+  project_slug: string;
+  assignee_id?: string;
+  assignee_name?: string;
+  tag: string;
+  /** Full address; empty while email is turned off. */
   address: string;
-  subject: string;
-  status: 'waiting' | 'received' | 'expired';
   created_at: string;
-  expires_at: string;
-  received_at?: string;
-  seconds?: number;
-  sender?: string;
-  disposition?: string;
-  ticket_key?: string;
-  ticket_url?: string;
-}
-
-export interface EmailSummary {
-  address: string;
-  local_part: string;
-  domain: string;
+  replaced_at?: string;
+  disabled_at?: string;
+  last_received_at?: string;
+  received_count: number;
 }
 
 export interface EmailIntake {
@@ -733,8 +726,8 @@ export type EmailOutcome = 'created' | 'repeated' | 'retained' | 'duplicate' | '
 
 export interface EmailReceipt {
   id: string;
-  webhook_id?: string;
-  webhook_name?: string;
+  inbox_id?: string;
+  inbox_name?: string;
   sender: string;
   subject: string;
   outcome: EmailOutcome;

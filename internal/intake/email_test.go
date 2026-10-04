@@ -153,13 +153,14 @@ func TestParseEmailRecipient(t *testing.T) {
 		tag  string
 		want bool
 	}{
-		{"helm-alerts+abcdefghijklmn23@example.com", "abcdefghijklmn23", true},
-		{"<Helm-Alerts+ABCDEFGHIJKLMN23@Example.COM>", "abcdefghijklmn23", true},
+		{"helm-alerts+backups-k3j9x2@example.com", "backups-k3j9x2", true},
+		{"<Helm-Alerts+Backups-K3J9X2@Example.COM>", "backups-k3j9x2", true},
 		{"helm-alerts@example.com", "", false},
-		{"helm-alerts+short@example.com", "", false},
-		{"helm-alerts+abcdefghijklmn01@example.com", "", false},
-		{"other+abcdefghijklmn23@example.com", "", false},
-		{"helm-alerts+abcdefghijklmn23@example.org", "", false},
+		{"helm-alerts+ab@example.com", "", false},
+		{"helm-alerts+-bad-tag@example.com", "", false},
+		{"helm-alerts+has.dot@example.com", "", false},
+		{"other+backups-k3j9x2@example.com", "", false},
+		{"helm-alerts+backups-k3j9x2@example.org", "", false},
 	}
 	for _, item := range cases {
 		tag, ok := ParseEmailRecipient(item.to, "helm-alerts", "example.com")

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -35,22 +34,17 @@ type EmailIntake struct {
 // Address is the base address the Cloudflare rule matches.
 func (e EmailIntake) Address() string { return e.LocalPart + "@" + e.Domain }
 
-// WebhookAddress is the full address for a webhook tag.
-func (e EmailIntake) WebhookAddress(tag string) string {
+// InboxAddress is the full address for an inbox tag.
+func (e EmailIntake) InboxAddress(tag string) string {
 	return e.LocalPart + "+" + tag + "@" + e.Domain
-}
-
-// WebhookAddressHint masks all but the tag's last characters.
-func (e EmailIntake) WebhookAddressHint(hint string) string {
-	return e.LocalPart + "+…" + hint + "@" + e.Domain
 }
 
 // EmailReceipt is one received message (or refusal) shown under Recent
 // emails. Sender and subject are display copies, already bounded.
 type EmailReceipt struct {
 	ID              string `json:"id"`
-	WebhookID       string `json:"webhook_id,omitempty"`
-	WebhookName     string `json:"webhook_name,omitempty"`
+	InboxID         string `json:"inbox_id,omitempty"`
+	InboxName       string `json:"inbox_name,omitempty"`
 	Sender          string `json:"sender"`
 	Subject         string `json:"subject"`
 	Outcome         string `json:"outcome"`
@@ -188,59 +182,14 @@ func (s *Store) DisableEmailIntake(ctx context.Context, id, actorID string, clea
 // immune to case folding by mail servers.
 const emailTagAlphabet = "abcdefghijklmnopqrstuvwxyz234567"
 
-// EmailTagLength gives 80 bits per webhook address.
-const EmailTagLength = 16
-
-func newEmailTag() string {
-	buf := make([]byte, EmailTagLength)
-	if _, err := rand.Read(buf); err != nil {
-		panic("crypto/rand unavailable")
-	}
-	for index, value := range buf {
-		buf[index] = emailTagAlphabet[int(value)%len(emailTagAlphabet)]
-	}
-	return string(buf)
-}
-
-// SetWebhookEmailTag creates or replaces an enabled webhook's address tag
-// and returns the plaintext tag once. A replaced address stops working.
-func (s *Store) SetWebhookEmailTag(ctx context.Context, webhookID, actorID string) (TicketWebhook, string, error) {
-	tag := newEmailTag()
-	err := s.withTx(ctx, func(tx *sql.Tx) error {
-		var projectID string
-		if err := tx.QueryRowContext(ctx, `UPDATE ticket_webhooks SET email_tag_sha256 = ?, email_tag_hint = ?, email_tag_created_at = ? WHERE id = ? AND disabled_at IS NULL RETURNING project_id`, secretDigest(tag), tag[len(tag)-4:], now(), webhookID).Scan(&projectID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return notFound("webhook not found")
-			}
-			return err
-		}
-		_, err := insertEvent(ctx, tx, "ticket_webhook.email_address_set", actorID, projectID, "", map[string]any{"webhook_id": webhookID})
-		return err
-	})
-	if err != nil {
-		return TicketWebhook{}, "", err
-	}
-	hook, err := s.GetTicketWebhook(ctx, webhookID)
-	return hook, tag, err
-}
-
-// ResolveWebhookByEmailTag finds the enabled webhook owning an address tag.
-func (s *Store) ResolveWebhookByEmailTag(ctx context.Context, tag string) (TicketWebhook, error) {
-	hook, err := ticketWebhookFromRow(s.DB.QueryRowContext(ctx, ticketWebhookSelect+` WHERE w.email_tag_sha256 = ? AND w.disabled_at IS NULL`, secretDigest(strings.ToLower(tag))))
-	if errors.Is(err, sql.ErrNoRows) {
-		return TicketWebhook{}, notFound("webhook not found")
-	}
-	return hook, err
-}
-
 // RecordEmailRefusal lists a refused message under Recent emails. A refusal
 // already recorded for the same message is kept as is. Refusals use their
 // own receipt namespace, so a message refused once (say, sent to a replaced
 // address) is still accepted if it later arrives at a valid one.
-func (s *Store) RecordEmailRefusal(ctx context.Context, receipt IntakeReceipt, webhookID, outcome, reason string) error {
+func (s *Store) RecordEmailRefusal(ctx context.Context, receipt IntakeReceipt, inboxID, outcome, reason string) error {
 	return s.withTx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO email_receipts(id, intake_id, receipt_sha256, webhook_id, sender, subject, outcome, reason, received_at) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?) ON CONFLICT(intake_id, receipt_sha256) DO NOTHING`,
-			newID(), receipt.IntakeID, secretDigest("refused:"+outcome+":"+receipt.Key), webhookID, receipt.Sender, receipt.Subject, outcome, reason, now()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO email_receipts(id, intake_id, receipt_sha256, inbox_id, sender, subject, outcome, reason, received_at) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?) ON CONFLICT(intake_id, receipt_sha256) DO NOTHING`,
+			newID(), receipt.IntakeID, secretDigest("refused:"+outcome+":"+receipt.Key), inboxID, receipt.Sender, receipt.Subject, outcome, reason, now()); err != nil {
 			return err
 		}
 		return pruneEmailReceiptsTx(ctx, tx, receipt.IntakeID)
@@ -254,8 +203,8 @@ func pruneEmailReceiptsTx(ctx context.Context, tx *sql.Tx, intakeID string) erro
 
 // RecentEmailReceipts lists the newest receipts for an intake.
 func (s *Store) RecentEmailReceipts(ctx context.Context, intakeID string, limit int) ([]EmailReceipt, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT r.id, COALESCE(r.webhook_id, ''), COALESCE(w.name, ''), r.sender, r.subject, r.outcome, COALESCE(r.task_key, ''), COALESCE(p.slug, ''), r.occurrence_count, COALESCE(r.reason, ''), r.received_at
-		FROM email_receipts r LEFT JOIN ticket_webhooks w ON w.id = r.webhook_id LEFT JOIN projects p ON p.id = w.project_id
+	rows, err := s.DB.QueryContext(ctx, `SELECT r.id, COALESCE(r.inbox_id, ''), COALESCE(i.name, ''), r.sender, r.subject, r.outcome, COALESCE(r.task_key, ''), COALESCE(p.slug, ''), r.occurrence_count, COALESCE(r.reason, ''), r.received_at
+		FROM email_receipts r LEFT JOIN email_inboxes i ON i.id = r.inbox_id LEFT JOIN projects p ON p.id = i.project_id
 		WHERE r.intake_id = ? AND r.outcome <> 'processing' ORDER BY r.received_at DESC, r.rowid DESC LIMIT ?`, intakeID, limit)
 	if err != nil {
 		return nil, err
@@ -264,7 +213,7 @@ func (s *Store) RecentEmailReceipts(ctx context.Context, intakeID string, limit 
 	receipts := []EmailReceipt{}
 	for rows.Next() {
 		var receipt EmailReceipt
-		if err := rows.Scan(&receipt.ID, &receipt.WebhookID, &receipt.WebhookName, &receipt.Sender, &receipt.Subject, &receipt.Outcome, &receipt.TaskKey, &receipt.ProjectSlug, &receipt.OccurrenceCount, &receipt.Reason, &receipt.ReceivedAt); err != nil {
+		if err := rows.Scan(&receipt.ID, &receipt.InboxID, &receipt.InboxName, &receipt.Sender, &receipt.Subject, &receipt.Outcome, &receipt.TaskKey, &receipt.ProjectSlug, &receipt.OccurrenceCount, &receipt.Reason, &receipt.ReceivedAt); err != nil {
 			return nil, err
 		}
 		receipts = append(receipts, receipt)
@@ -274,10 +223,10 @@ func (s *Store) RecentEmailReceipts(ctx context.Context, intakeID string, limit 
 
 // claimEmailReceiptTx records a receipt before its alert is ingested. When
 // the message was already processed it returns the earlier outcome instead.
-func claimEmailReceiptTx(ctx context.Context, tx *sql.Tx, receipt IntakeReceipt, webhookID, received string) (string, *AlertDisposition, error) {
+func claimEmailReceiptTx(ctx context.Context, tx *sql.Tx, receipt IntakeReceipt, inboxID, received string) (string, *AlertDisposition, error) {
 	id := newID()
-	result, err := tx.ExecContext(ctx, `INSERT INTO email_receipts(id, intake_id, receipt_sha256, webhook_id, sender, subject, outcome, received_at) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, 'processing', ?) ON CONFLICT(intake_id, receipt_sha256) DO NOTHING`,
-		id, receipt.IntakeID, secretDigest(receipt.Key), webhookID, receipt.Sender, receipt.Subject, received)
+	result, err := tx.ExecContext(ctx, `INSERT INTO email_receipts(id, intake_id, receipt_sha256, inbox_id, sender, subject, outcome, received_at) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, 'processing', ?) ON CONFLICT(intake_id, receipt_sha256) DO NOTHING`,
+		id, receipt.IntakeID, secretDigest(receipt.Key), inboxID, receipt.Sender, receipt.Subject, received)
 	if err != nil {
 		return "", nil, err
 	}

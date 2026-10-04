@@ -168,7 +168,10 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     await expect(panel.locator('[data-setup-run]')).toHaveAttribute('data-setup-run', 'done', { timeout: 60_000 });
     for (const step of ['public_url', 'connector', 'reachable', 'email', 'forget']) await expect(panel.locator(`[data-setup-step="${step}"]`)).toHaveAttribute('data-setup-status', 'done');
     await expect(panel.locator('[data-setup-step="public_url"]')).toContainText('Already set up: https://hooks.example.test');
-    await expect(panel.locator('[data-setup-result]')).toContainText('helm-alerts+…@example.test');
+    // Setup ends with a working inbox: its address is shown right away.
+    await expect(panel.locator('[data-setup-step="email"]')).toContainText('Inbox “Alerts”');
+    const inboxAddress = (await panel.locator('[data-setup-inbox]').innerText()).trim();
+    expect(inboxAddress).toMatch(/^helm-alerts\+alerts-[a-z2-7]{6}@example\.test$/);
     await testInfo.attach('connect-done.png', { contentType: 'image/png', body: await panel.screenshot() });
     const done = await fakeState(request);
     expect(done.oauth_revoked).toBe(revokedBefore + 1);
@@ -179,7 +182,8 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     // Done shows the short summary; setup can be run again from it.
     await panel.getByRole('button', { name: 'Done' }).click();
     await expect(page.locator('[data-summary-url]')).toHaveText('https://hooks.example.test');
-    await expect(page.locator('[data-summary-email]')).toContainText('helm-alerts+…@example.test');
+    await expect(page.locator('[data-summary-email]')).toContainText(inboxAddress);
+    await expect(page.locator('[data-inbox="Alerts"] [data-inbox-address]')).toHaveText(inboxAddress);
     await expect(page.locator('[data-public-access-status]')).toHaveText('Live');
     await testInfo.attach('summary.png', { contentType: 'image/png', body: await page.locator('[data-public-access]').screenshot() });
 

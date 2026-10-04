@@ -65,12 +65,11 @@ import {
   type PublicEndpoint,
   type EmailIntake,
   type EmailIntakeView,
-  type EmailSummary,
   type CloudflareConnectStatus,
   type CloudflareSetupRun,
   type CloudflareZoneOption,
   type TicketTestResult,
-  type EmailTest,
+  type EmailInbox,
   type PublicEndpointTestResult,
   type PublicEndpointView,
   type TicketWebhook,
@@ -605,18 +604,17 @@ export const api = {
     }),
   listTickets: (params: { queue?: TicketQueue; project?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
     request<TicketCollection>(pathWithQuery('/tickets', params), { signal }),
-  listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string; email: EmailSummary | null; public_hostname: string }>('/ticket-webhooks'),
-  /** A one-time address that files a test ticket when mail reaches it. */
-  startEmailTest: (webhook: string) =>
-    request<EmailTest>(`/ticket-webhooks/${encodeURIComponent(webhook)}/test-email`, { method: 'POST' }),
-  getEmailTest: (webhook: string, test: string) =>
-    request<EmailTest>(`/ticket-webhooks/${encodeURIComponent(webhook)}/test-email/${encodeURIComponent(test)}`),
+  listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string; public_hostname: string }>('/ticket-webhooks'),
+  listEmailInboxes: () => request<{ data: EmailInbox[]; email_on: boolean; domain?: string }>('/email-inboxes'),
+  createEmailInbox: (input: { name: string; project: string; assignee?: string }) =>
+    request<EmailInbox>('/email-inboxes', { method: 'POST', body: input }),
+  disableEmailInbox: (inbox: string) => request<void>(`/email-inboxes/${encodeURIComponent(inbox)}`, { method: 'DELETE' }),
+  /** The old address stops working at once. */
+  replaceEmailInboxAddress: (inbox: string) =>
+    request<EmailInbox>(`/email-inboxes/${encodeURIComponent(inbox)}/address`, { method: 'POST' }),
   /** Helm posts a test ticket for the webhook through its own public URL. */
   sendTestTicket: (webhook: string) =>
     request<TicketTestResult>(`/ticket-webhooks/${encodeURIComponent(webhook)}/test`, { method: 'POST' }),
-  /** Creates or replaces a webhook's email address; shown only in this response. */
-  setTicketWebhookEmail: (webhook: string) =>
-    request<{ webhook: TicketWebhook; email_address: string }>(`/ticket-webhooks/${encodeURIComponent(webhook)}/email`, { method: 'POST' }),
   getEmailIntake: () => request<EmailIntakeView>('/email-intake'),
   /** An embedded user guide (Markdown) for the in-app help drawer. */
   getHelpDocument: (page: string) => request<string>(`/docs/${encodeURIComponent(page)}`),
@@ -627,7 +625,7 @@ export const api = {
   disconnectCloudflare: () => request<CloudflareConnectStatus>('/cloudflare/session', { method: 'DELETE' }),
   startCloudflareOAuth: () => request<{ authorize_url: string }>('/cloudflare/oauth/start', { method: 'POST' }),
   listCloudflareZones: () => request<{ data: CloudflareZoneOption[] }>('/cloudflare/zones'),
-  startCloudflareSetup: (input: { zone: string; hostname?: string; email?: { local_part: string; fallback_address?: string; enable_subaddressing: boolean } }) =>
+  startCloudflareSetup: (input: { zone: string; hostname?: string; email?: { local_part: string; fallback_address?: string; enable_subaddressing: boolean; project?: string; inbox_name?: string; assign_to_me?: boolean } }) =>
     request<CloudflareSetupRun>('/cloudflare/setup', { method: 'POST', body: input }),
   getCloudflareSetup: (run: string) => request<CloudflareSetupRun>(`/cloudflare/setup/${encodeURIComponent(run)}`),
   /** The Cloudflare API token is sent once and never stored by Helm. */

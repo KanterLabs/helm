@@ -7,9 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/KanterLabs/helm/internal/store"
 )
 
 // The token link must select exactly the permissions the setup cards list,
@@ -78,36 +75,5 @@ func TestOAuthStartUsesPKCEAndOneTimeState(t *testing.T) {
 	}
 	if (&Manager{cfg: Config{OAuthClientID: ""}}).OAuthAvailable() {
 		t.Fatal("sign-in must be unavailable without a client ID")
-	}
-}
-
-func TestEmailTestLifecycle(t *testing.T) {
-	m := &Manager{}
-	intake := store.EmailIntake{LocalPart: "helm-alerts", Domain: "example.com"}
-	test := m.StartEmailTest("actor-1", "hook-1", intake)
-	tag := strings.TrimSuffix(strings.TrimPrefix(test.Address, "helm-alerts+"), "@example.com")
-	if test.Status != EmailTestWaiting || len(tag) != store.EmailTagLength || !strings.HasPrefix(test.Subject, "Helm email test ") {
-		t.Fatalf("test = %+v", test)
-	}
-	if id, webhook, ok := m.MatchEmailTest(strings.ToUpper(tag)); !ok || id != test.ID || webhook != "hook-1" {
-		t.Fatal("the test address did not match its webhook")
-	}
-	if _, ok := m.EmailTestStatus("someone-else", "hook-1", test.ID); ok {
-		t.Fatal("another administrator saw the test")
-	}
-	m.RecordEmailTest(test.ID, "Me <me@example.org>", "created", "OPS-1", "https://helm/p/ops/tasks/OPS-1")
-	m.RecordEmailTest(test.ID, "Later <later@example.org>", "repeated", "OPS-1", "")
-	got, ok := m.EmailTestStatus("actor-1", "hook-1", test.ID)
-	if !ok || got.Status != EmailTestReceived || got.Sender != "Me <me@example.org>" || got.TicketKey != "OPS-1" {
-		t.Fatalf("received test = %+v", got)
-	}
-	m.tests.items[test.ID].expires = time.Now().Add(-time.Second)
-	if _, _, ok := m.MatchEmailTest(tag); ok {
-		t.Fatal("an expired test address still matched")
-	}
-	waiting := m.StartEmailTest("actor-1", "hook-1", intake)
-	m.tests.items[waiting.ID].expires = time.Now().Add(-time.Second)
-	if expired, _ := m.EmailTestStatus("actor-1", "hook-1", waiting.ID); expired.Status != EmailTestExpired {
-		t.Fatalf("status = %q, want expired", expired.Status)
 	}
 }

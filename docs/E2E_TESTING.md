@@ -154,7 +154,7 @@ its OAuth endpoints) and the real sign-in relay Worker served by
 | A weak token half-configures Cloudflare | With a token that cannot manage DNS, every domain shows "No DNS access" and cannot be chosen, the setup API refuses with the fix, and the fake API holds no new tunnel. |
 | A failed email step breaks the working URL | When the email rule cannot be created, the public URL, connector and reachability steps are done, the email step says only email was not set up, the Worker is removed and plus addressing restored, and the Public URL card stays Live. |
 | The admin has to invent a hostname | Choosing a domain fills `hooks.<domain>`; plus-addressing consent is required before setup can start. |
-| Setup claims success without a working path | The run is `done` only after the tunnel, connector, reachability and email steps are done; the Public URL card is Live and Email is On. |
+| Setup claims success without a working path | The run is `done` only after the tunnel, connector, reachability and email steps are done; the Public URL card is Live, Email is On, and the email step names the first inbox (**Alerts**) whose address is shown in the result, the summary and the inbox list. |
 | The credential outlives setup or leaks | After the run Helm reports not connected; neither token appears in status responses, the database or the server log. |
 | Sign-in bypasses consent or the relay | Sign-in goes through Cloudflare's authorize endpoint and the relay page, which shows this Helm's origin before continuing; the code is redeemed with PKCE and revoked after setup. |
 | A rerun duplicates resources | Running setup again after sign-in shows the existing public URL instead of a hostname field, reports it as already set up, adds email, and leaves one tunnel. |
@@ -162,11 +162,11 @@ its OAuth endpoints) and the real sign-in relay Worker served by
 | Agents reach setup | Agent tokens get `403` from every guided-setup route. |
 | Help is missing or wrong | **How this works** opens the embedded guide at the setup section; links to other guides open inside the drawer. |
 | The setup panel is not sign-in first | With nothing set up, Reach Helm from outside shows **Sign in with Cloudflare** with the token form hidden until **Use an API token instead**; with one usable domain it is chosen automatically and the public URL is shown as a line, not a form. |
-| A finished setup leaves the admin in the wizard | **Done** shows a summary with the live public URL and the email pattern, and **Run setup again** reopens setup; returning from sign-in always opens setup. |
+| A finished setup leaves the admin in the wizard | **Done** shows a summary with the live public URL and the inbox address, and **Run setup again** reopens setup; returning from sign-in always opens setup. |
 
 ## Email intake failure contract
 
-The email-address workflow (see `EMAIL_ALERT_INTAKE_PLAN.md`) must prove these
+The email-inbox workflow (see `EMAIL_ALERT_INTAKE_PLAN.md`) must prove these
 failure cases through a real Helm process and browser, using the fake
 Cloudflare API and the Worker source Helm actually uploads, executed in Node
 against Helm's hooks listener.
@@ -176,12 +176,12 @@ against Helm's hooks listener.
 | Email intake runs without a public path for the Worker | With no active Public URL, setup is refused and the card says why. |
 | Setup half-provisions Cloudflare | A zone without Email Routing, an address that is already routed, and a token missing rule access each fail with a message naming the problem; the fake API then holds no Worker, no Helm rule, and plus addressing is unchanged. |
 | Plus addressing is turned on silently | With it off, setup without consent is refused; with consent it is on and the intake records that Helm enabled it. |
-| The intake secret or webhook tag leaks | Neither appears in API responses after creation, the database, the server log, ticket evidence or the Worker's plain-text bindings; the Worker holds the Helm URL only as a `secret_text` binding. |
-| Mail opens tickets for the wrong webhook | Mail to a webhook's address creates a ticket in that webhook's project with the subject as title and the text body as description; an unknown tag is bounced by the Worker with Helm's reason and listed as refused. |
+| The intake secret leaks | It does not appear in API responses after creation, the database, the server log, ticket evidence or the Worker's plain-text bindings; the Worker holds the Helm URL only as a `secret_text` binding. |
+| Inbox addresses are hidden or forgotten | Creating an inbox shows its full address at once (local part, readable name slug, six random characters) with **Copy** and **Email it**, and it is still shown after reloading; inboxes cannot be created before email is on (`409`). |
+| Mail opens tickets in the wrong place | Mail to an inbox's address creates a ticket in that inbox's project with the subject as title and the text body as description, and the inbox counts it; an unknown address is bounced by the Worker with "No Helm inbox uses this address" and listed as refused. |
 | Repeated or re-delivered mail floods the queue | The same Message-ID twice is `duplicate` with no count change; a new message with the same sender and subject repeats the open ticket; after completion it opens a new ticket. |
 | Unreadable or oversized mail is silently lost | Mail without a From header is bounced and listed; mail over 1 MiB is bounced (or forwarded to the fallback) and listed as too large. |
 | Helm being down loses mail | With Helm unreachable the Worker retries and then forwards to the fallback address with `X-Helm-Intake-Failed`. |
-| Replacing or disabling stops nothing | After **Email address…** replaces a webhook's address, the old address bounces; a disabled webhook's address bounces. |
+| Replacing or turning off stops nothing | After **Replace address** the old address bounces and the new one is shown; a turned-off inbox's address bounces and existing tickets stay. |
 | Removal leaves Cloudflare resources or breaks delivery paths | The Public URL cannot be removed while email intake is active; removal with a token deletes the Worker and rule; without one the intake shows *Needs cleanup* and **Finish cleanup…** deletes them. |
-| Non-admins manage email intake | Agent tokens get `403` from every email-intake management route. |
-| Self-hosters cannot check email end to end | **Test email** shows a one-time address (not the webhook's real one) with a `mailto:` link; mail delivered to it through the Worker turns the row to "Email arrived from …" with a low-priority test ticket, and a second test only counts on that ticket. Agents get `403`. |
+| Non-admins manage email intake | Agent tokens get `403` from every email-intake and inbox management route. |

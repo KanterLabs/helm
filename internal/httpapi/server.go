@@ -667,6 +667,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.publicEndpoints(w, r, identity)
 		case "email-intake":
 			s.emailIntakes(w, r, identity)
+		case "email-inboxes":
+			s.emailInboxes(w, r, identity)
 		case "cloudflare":
 			s.cloudflareConnect(w, r, identity, parts)
 		case "sidebar-counts":
@@ -712,6 +714,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		s.cloudflareConnect(w, r, identity, parts)
 		return
 	}
+	if parts[0] == "email-inboxes" && (len(parts) == 2 || (len(parts) == 3 && parts[2] == "address")) {
+		s.emailInbox(w, r, identity, parts)
+		return
+	}
 	if parts[0] == "email-intake" && len(parts) == 2 {
 		s.emailIntake(w, r, identity, parts[1])
 		return
@@ -720,7 +726,7 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		s.testPublicEndpoint(w, r, identity, parts[1])
 		return
 	}
-	if parts[0] == "ticket-webhooks" && (len(parts) == 2 || len(parts) == 3 || (len(parts) == 4 && parts[2] == "test-email")) {
+	if parts[0] == "ticket-webhooks" && (len(parts) == 2 || len(parts) == 3) {
 		s.ticketWebhook(w, r, identity, parts)
 		return
 	}

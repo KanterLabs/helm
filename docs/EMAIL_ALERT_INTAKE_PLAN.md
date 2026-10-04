@@ -1,7 +1,7 @@
-# Email addresses for ticket webhooks
+# Email inboxes
 
-Status: implemented on `beta` (2026-10-03). User guide:
-[PUBLIC_ACCESS.md § Email addresses](PUBLIC_ACCESS.md#email-addresses).
+Status: implemented on `beta` (2026-10-03; inboxes 2026-10-04). User guide:
+[PUBLIC_ACCESS.md § Email inboxes](PUBLIC_ACCESS.md#email-inboxes).
 Failure contract: [E2E_TESTING.md § Email intake failure contract](E2E_TESTING.md#email-intake-failure-contract).
 This supersedes the mailbox-connector part of
 [COOLIFY_EMAIL_INTAKE_PLAN.md](COOLIFY_EMAIL_INTAKE_PLAN.md).
@@ -9,9 +9,31 @@ This supersedes the mailbox-connector part of
 ## Goal
 
 Many alert sources can only send email (backup tools, NAS boxes, cron,
-older monitoring). Every ticket webhook should therefore also have an email
-address. Mail sent to it opens or repeats a ticket exactly like a `curl` POST
-to the webhook URL, and admins can see what arrived and what was refused.
+older monitoring). Admins create **inboxes** in Helm, each with a visible
+address and a target project; apps send their alert emails there and each
+email opens or repeats a ticket exactly like a `curl` POST to a webhook,
+and admins can see what arrived and what was refused.
+
+### Update: inboxes replace per-webhook addresses (2026-10-04)
+
+The first version gave each ticket webhook an address shown once and then
+masked. In use that was the wrong model: people think "my apps email me
+alerts; point them at a Helm address instead", not "my webhook also has an
+address". So:
+
+- **Inboxes are their own thing** (`email_inboxes`, migration 034): name,
+  project, optional assignee, address tag, counts. Webhooks are HTTP-only
+  again.
+- **Addresses are always shown.** An email address is handed to many apps
+  and printed in their settings anyway; hiding it bought little and made
+  setup harder. The tag is `<name slug>-<6 random base32>` (30 bits), so it
+  is readable and not guessable; **Replace address** handles spam.
+- **Guided setup creates the first inbox** (**Alerts**, in the chosen
+  project), so after Sign in with Cloudflare there is an address to use.
+- **Testing is just emailing the inbox** (with **Email it**); the one-time
+  Test email feature was removed.
+- Per-webhook email tags from migration 033 are no longer read (beta-only
+  data).
 
 Constraints that shape the design:
 
@@ -69,12 +91,12 @@ prevents it.
 3. Helm deploys the Worker and rule, then shows the base address, Worker
    name, rule, plus-addressing state and fallback.
 
-**Per webhook:** creating a webhook while email is set up reveals both the
-URL and an address such as `helm-alerts+k3j9x2m4q7ab5cde@example.com`, once,
-with copy buttons. Existing webhooks get an **Email address…** action that
-creates (or replaces) the address and reveals it once. Rows show a masked
-hint (`helm-alerts+…5cde@example.com`). The address is a bearer credential
-just like the URL: anyone who knows it can open tickets.
+**Inboxes:** **Email inboxes** (below the panel) lists each inbox with its
+address (for example `helm-alerts+homelab-ops-x7k2qm@example.com`),
+**Copy**, **Email it**, how many emails arrived and when, and **More →
+Replace address / Turn off**. **Inbox name, Tickets go to, Assign to me →
+Create inbox** adds one. Anyone who knows an address can open tickets, as
+with any email address.
 
 **Recent emails:** the card lists the last 20 receipts: time, sender,
 subject, outcome (`created`, `repeated`, `retained`, or a refusal reason)
@@ -93,21 +115,23 @@ Admin page: the Public access line also states whether email intake is on.
 
 | Input | Rule |
 | --- | --- |
-| Recipient | Envelope `to` must be `<name>+<tag>@<domain>` of the active intake (case-insensitive). The tag's SHA-256 selects an enabled webhook. Otherwise: refused `unknown_recipient` (Worker bounces "No Helm address"). |
+| Recipient | Envelope `to` must be `<name>+<tag>@<domain>` of the active intake (case-insensitive). The tag selects an enabled inbox. Otherwise: refused `unknown_recipient` (Worker bounces "No Helm inbox uses this address"). |
 | Title | Decoded `Subject` (RFC 2047), one line, max 300 chars; empty → `Email from <sender>`. |
 | Description | `text/plain` part, else HTML converted to text, else the decoded body; quoted-printable/base64 and UTF-8/US-ASCII/ISO-8859-1/Windows-1252 decoded; max 20,000 chars with a truncation note. Attachments are ignored (named in evidence). |
 | Priority | `X-Priority: 1`/`2`, `Importance: high` or `Priority: urgent` → high; otherwise normal. |
 | Repeats | Family = header From address + normalized subject (lower-cased, whitespace collapsed, leading `Re:`/`Fwd:` removed). Same family while the ticket is open → repeat count; after completion → new linked ticket. The envelope sender is not used because bulk senders vary it per message (VERP). |
-| Duplicates | Receipt key = normalized `Message-ID`, or SHA-256 of the raw message when absent. A receipt already recorded for this intake returns `duplicate` and changes nothing. The receipt, ticket and webhook statistics commit in one transaction. |
+| Duplicates | Receipt key = normalized `Message-ID`, or SHA-256 of the raw message when absent. A receipt already recorded for this intake returns `duplicate` and changes nothing. The receipt, ticket and inbox count commit in one transaction. |
 | Evidence | From, Date, Message-ID, received time, attachment names, and SPF/DKIM/DMARC verdicts when Cloudflare supplied them. Never the recipient tag. |
 | Size | The Worker refuses messages over 1 MiB (or forwards them to the fallback) and reports the refusal to Helm without the body. |
 
 ## Security model
 
-- **Two secrets, both stored only as SHA-256:** the intake secret in the
-  Worker's URL (`em_…`, 256 bits) proves a request came from Helm's Worker;
-  the per-webhook tag (16 base32 characters, 80 bits) selects the webhook.
-  Neither appears in responses after creation, logs, metrics or evidence.
+- **The intake secret** in the Worker's URL (`em_…`, 256 bits, stored only
+  as SHA-256) proves a request came from Helm's Worker. It never appears in
+  responses after creation, logs, metrics or evidence.
+- **Inbox addresses are not secrets:** they are shown to admins and handed
+  to apps. The random part stops guessing; Cloudflare's sender checks and
+  **Replace address** handle abuse.
 - **Sender authentication** is Cloudflare's: DMARC policy plus SPF-or-DKIM.
   Helm does not trust `Authentication-Results` from message content; it only
   records the verdict header the Worker copies from Cloudflare's own
@@ -131,9 +155,10 @@ Admin page: the Public access line also states whether email intake is on.
   name, rule ID, `secret_sha256`, fallback address, whether Helm enabled plus
   addressing, the Public URL it posts through, status, cleanup flag,
   creator and timestamps. At most one active.
-- `ticket_webhooks` gains `email_tag_sha256` (unique), `email_tag_hint`,
-  `email_tag_created_at`.
-- `email_receipts`: intake, receipt key digest (unique per intake), webhook,
+- `email_inboxes` (migration 034): name, project, assignee, unique tag,
+  creator, created/replaced/disabled times, received count and last
+  received time. (033's `ticket_webhooks.email_tag_*` columns are unused.)
+- `email_receipts`: intake, receipt key digest (unique per intake), inbox,
   sender, subject, outcome, ticket, repeat count, reason, time. Pruned to the
   newest 500 per intake.
 
@@ -144,7 +169,8 @@ Admin page: the Public access line also states whether email intake is on.
 | `GET /api/v1/email-intake` | Active intake, history, recent receipts, required permissions, prerequisites. Admins. |
 | `POST /api/v1/email-intake` | `{domain, local_part, fallback_address?, enable_subaddressing, api_token}` provisions. Admins. |
 | `DELETE /api/v1/email-intake/{id}` | Optional `{api_token}`; same cleanup model as Public URLs. Admins. |
-| `POST /api/v1/ticket-webhooks/{id}/email` | Creates or replaces the webhook's address; returns it once. Admins. |
+| `GET/POST /api/v1/email-inboxes` | Lists inboxes with addresses; `{name, project, assignee?: "me"}` creates one (`409` until email is on). Admins. |
+| `DELETE /api/v1/email-inboxes/{id}`, `POST …/{id}/address` | Turn an inbox off; replace its address. Admins. |
 | `POST /api/v1/hooks/tickets/email/{secret}` | Worker → Helm. `message/rfc822` body ≤ 1 MiB with `X-Helm-Envelope-To`/`-From`. `201` created, `200` repeated/retained/duplicate, `404` unknown address, `400` unreadable, `413` too large. |
 
 ## Worker contract

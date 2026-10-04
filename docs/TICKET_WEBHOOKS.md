@@ -3,8 +3,8 @@
 Any app that can send an HTTP POST with JSON can open Helm tickets: monitoring
 alerts, CI failures, form submissions, cron scripts, or Zapier/n8n flows. New
 tickets land in the chosen project's **Needs triage** queue on the Tickets page.
-Apps that can only send email can use the webhook's
-[email address](PUBLIC_ACCESS.md#email-addresses) instead.
+Apps that send alerts by email use an
+[email inbox](PUBLIC_ACCESS.md#email-inboxes) instead.
 
 ## 1. Create a webhook URL
 
@@ -103,22 +103,20 @@ variables, see `COOLIFY_EMAIL_INTAKE_PLAN.md`) keeps working.
 
 ## Public URL and email addresses
 
-To let apps outside your network reach these webhooks, or to give each
-webhook an email address, use **Reach Helm from outside → Sign in with
-Cloudflare**; see [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#set-up-with-cloudflare).
+To let apps outside your network reach these webhooks, use **Reach Helm
+from outside → Sign in with Cloudflare**; see
+[PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#set-up-with-cloudflare). Apps that only
+send email use [email inboxes](PUBLIC_ACCESS.md#email-inboxes).
 
-Each webhook row then has **Send test** (a real ticket through the public
-URL) and, with email on, **Test email** (a one-time address you send any
-email to). See [PUBLIC_ACCESS.md § Test it](PUBLIC_ACCESS.md#test-it). The
-rarer actions (**Email address…**, **Rotate**, **Disable**) are under
-**More**.
+Each webhook row then has **Send test**, a real ticket through the public
+URL ([Test it](PUBLIC_ACCESS.md#test-it)). **Rotate** and **Disable** are
+under **More**.
 
 ## API reference
 
 The machine-readable contract is `/openapi.json` (operations
 `postTicketWebhook`, `listTicketWebhooks`, `createTicketWebhook`,
-`rotateTicketWebhook`, `disableTicketWebhook`, `setTicketWebhookEmail`,
-`sendTestTicket`, `startEmailTest`, `getEmailTest`) and, for the Coolify
-path, `receiveCoolifyAlert`. Public
+`rotateTicketWebhook`, `disableTicketWebhook`,
+`sendTestTicket`) and, for the Coolify path, `receiveCoolifyAlert`. Public
 access operations are listed in
 [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#api-reference).

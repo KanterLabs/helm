@@ -4740,8 +4740,8 @@
     "/api/v1/hooks/tickets/email/{secret}": {
       "post": {
         "operationId": "postTicketEmail",
-        "summary": "Deliver an email to a webhook (Cloudflare email Worker)",
-        "description": "Called only by the Cloudflare Email Worker Helm deploys (see\n`createEmailIntake`). The path secret is the Worker's intake secret.\n`X-Helm-Envelope-To` selects the webhook by its address tag\n(`<name>+<tag>@<domain>`). The decoded subject becomes the title and\nthe text part the description. A message whose `Message-ID` was\nalready processed returns `duplicate` and changes nothing; the same\nsender and subject repeat an open ticket. `400`, `404` and `413`\ncarry a reason the Worker bounces to the sender.\n",
+        "summary": "Deliver an email to an inbox (Cloudflare email Worker)",
+        "description": "Called only by the Cloudflare Email Worker Helm deploys (see\n`createEmailIntake`). The path secret is the Worker's intake secret.\n`X-Helm-Envelope-To` selects the email inbox by its address tag\n(`<name>+<tag>@<domain>`). The decoded subject becomes the title and\nthe text part the description. A message whose `Message-ID` was\nalready processed returns `duplicate` and changes nothing; the same\nsender and subject repeat an open ticket. `400`, `404` and `413`\ncarry a reason the Worker bounces to the sender.\n",
         "tags": [
           "Tickets"
         ],
@@ -4880,7 +4880,7 @@
     "/api/v1/email-intake": {
       "get": {
         "operationId": "getEmailIntake",
-        "summary": "Show email addresses for webhooks",
+        "summary": "Show email intake",
         "description": "Human administrators only. The active setup, earlier setups, the 20 most recent received or refused emails, and the Cloudflare token permissions setup needs.",
         "tags": [
           "Tickets"
@@ -4917,8 +4917,8 @@
       },
       "post": {
         "operationId": "createEmailIntake",
-        "summary": "Turn on email addresses for webhooks",
-        "description": "Human administrators only. Requires an active public endpoint. Uses\nthe Cloudflare API token once to deploy an Email Worker (its Helm URL\nis a `secret_text` binding) and one Email Routing rule for\n`<local_part>@<domain>`; plus addressing then gives every webhook its\nown `<local_part>+<tag>@<domain>`. If plus addressing is off for the\nzone, the first request returns `409 subaddressing_consent_required`\nand changes nothing; repeat with `enable_subaddressing: true`. Any\nfailure deletes what was created. The token is never stored.\n",
+        "summary": "Turn on email intake",
+        "description": "Human administrators only. Requires an active public endpoint. Uses\nthe Cloudflare API token once to deploy an Email Worker (its Helm URL\nis a `secret_text` binding) and one Email Routing rule for\n`<local_part>@<domain>`; plus addressing then gives every email inbox\nits own `<local_part>+<tag>@<domain>`. If plus addressing is off for the\nzone, the first request returns `409 subaddressing_consent_required`\nand changes nothing; repeat with `enable_subaddressing: true`. Any\nfailure deletes what was created. The token is never stored.\n",
         "tags": [
           "Tickets"
         ],
@@ -4979,7 +4979,7 @@
       ],
       "delete": {
         "operationId": "disableEmailIntake",
-        "summary": "Turn off email addresses",
+        "summary": "Turn off email intake",
         "description": "Human administrators only. Helm stops accepting mail immediately.\nWith an `api_token` body it also deletes the Worker and routing\nrule; without one the setup is marked `cleanup_pending`. Repeating\nwith a token finishes cleanup. Plus addressing is left on.\n",
         "tags": [
           "Tickets"
@@ -5329,7 +5329,7 @@
       "post": {
         "operationId": "startCloudflareSetup",
         "summary": "Run guided setup",
-        "description": "Human administrators only. Starts the checklist in the background:\ncreate (or reuse) the public URL, wait for the connector, verify the\nURL from the internet, optionally turn on email, then forget the\ncredential. A public URL created by the run is removed again if the\nconnector or reachability step fails. Poll `getCloudflareSetup`.\n",
+        "description": "Human administrators only. Starts the checklist in the background:\ncreate (or reuse) the public URL, wait for the connector, verify the\nURL from the internet, optionally turn on email and create the first\nemail inbox, then forget the credential. A public URL created by the run is removed again if the\nconnector or reachability step fails. Poll `getCloudflareSetup`.\n",
         "tags": [
           "Tickets"
         ],
@@ -5365,6 +5365,18 @@
                       },
                       "enable_subaddressing": {
                         "type": "boolean"
+                      },
+                      "project": {
+                        "type": "string",
+                        "description": "Project for the first inbox (created when no inbox is on)."
+                      },
+                      "inbox_name": {
+                        "type": "string",
+                        "description": "Name of the first inbox; default `Alerts`."
+                      },
+                      "assign_to_me": {
+                        "type": "boolean",
+                        "description": "Assign the first inbox's tickets to the caller."
                       }
                     },
                     "additionalProperties": false
@@ -5759,7 +5771,6 @@
                   "required": [
                     "data",
                     "endpoint_base",
-                    "email",
                     "public_hostname"
                   ],
                   "properties": {
@@ -5776,34 +5787,6 @@
                     "public_hostname": {
                       "type": "string",
                       "description": "The active public endpoint's hostname, or empty; enables `sendTestTicket`."
-                    },
-                    "email": {
-                      "description": "The active email setup, used to show masked addresses; null when email is off.",
-                      "oneOf": [
-                        {
-                          "type": "null"
-                        },
-                        {
-                          "type": "object",
-                          "required": [
-                            "address",
-                            "local_part",
-                            "domain"
-                          ],
-                          "properties": {
-                            "address": {
-                              "type": "string"
-                            },
-                            "local_part": {
-                              "type": "string"
-                            },
-                            "domain": {
-                              "type": "string"
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      ]
                     }
                   },
                   "additionalProperties": false
@@ -6008,136 +5991,17 @@
         }
       }
     },
-    "/api/v1/ticket-webhooks/{webhook}/test-email": {
-      "parameters": [
-        {
-          "name": "webhook",
-          "in": "path",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/Identifier"
-          }
-        }
-      ],
-      "post": {
-        "operationId": "startEmailTest",
-        "summary": "Start a test email for a webhook",
-        "description": "Human administrators only, with email addresses on. Returns a\none-time address (`<name>+<tag>@<domain>`) valid for 15 minutes and\nbound to this webhook; it is not the webhook's real address. Mail\nsent to it through Cloudflare files one low-priority test ticket\n(`dedupe_key` helm-email-test). Poll `getEmailTest`.\n",
-        "tags": [
-          "Tickets"
-        ],
-        "responses": {
-          "201": {
-            "description": "Test address",
-            "headers": {
-              "X-Request-ID": {
-                "$ref": "#/components/headers/XRequestID"
-              },
-              "X-Roadmap-Revision": {
-                "$ref": "#/components/headers/XRoadmapRevision"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EmailTest"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          }
-        }
-      }
-    },
-    "/api/v1/ticket-webhooks/{webhook}/test-email/{test}": {
-      "parameters": [
-        {
-          "name": "webhook",
-          "in": "path",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/Identifier"
-          }
-        },
-        {
-          "name": "test",
-          "in": "path",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/Identifier"
-          }
-        }
-      ],
+    "/api/v1/email-inboxes": {
       "get": {
-        "operationId": "getEmailTest",
-        "summary": "Test email status",
-        "description": "`waiting`, `received` (with the sender, delay and ticket) or `expired`. Only the administrator who started the test can read it.",
+        "operationId": "listEmailInboxes",
+        "summary": "List email inboxes",
+        "description": "Human administrators only. Inboxes are addresses created in Helm\n(`<local part>+<tag>@<domain>`) whose mail becomes tickets in their\nproject. Addresses are always shown (empty while email is off).\nEnabled inboxes first, newest first.\n",
         "tags": [
           "Tickets"
         ],
         "responses": {
           "200": {
-            "description": "Status",
-            "headers": {
-              "X-Request-ID": {
-                "$ref": "#/components/headers/XRequestID"
-              },
-              "X-Roadmap-Revision": {
-                "$ref": "#/components/headers/XRoadmapRevision"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EmailTest"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        }
-      }
-    },
-    "/api/v1/ticket-webhooks/{webhook}/email": {
-      "parameters": [
-        {
-          "name": "webhook",
-          "in": "path",
-          "required": true,
-          "schema": {
-            "$ref": "#/components/schemas/Identifier"
-          }
-        }
-      ],
-      "post": {
-        "operationId": "setTicketWebhookEmail",
-        "summary": "Create or replace a webhook's email address",
-        "description": "Human administrators only, with email addresses turned on. Returns the address once; any earlier address for the webhook stops working immediately.",
-        "tags": [
-          "Tickets"
-        ],
-        "responses": {
-          "200": {
-            "description": "New email address",
+            "description": "Inboxes",
             "headers": {
               "X-Request-ID": {
                 "$ref": "#/components/headers/XRequestID"
@@ -6151,16 +6015,22 @@
                 "schema": {
                   "type": "object",
                   "required": [
-                    "webhook",
-                    "email_address"
+                    "data",
+                    "email_on"
                   ],
                   "properties": {
-                    "webhook": {
-                      "$ref": "#/components/schemas/TicketWebhook"
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EmailInbox"
+                      }
                     },
-                    "email_address": {
+                    "email_on": {
+                      "type": "boolean"
+                    },
+                    "domain": {
                       "type": "string",
-                      "description": "Shown only in this response."
+                      "description": "The email domain when email is on."
                     }
                   },
                   "additionalProperties": false
@@ -6173,12 +6043,160 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createEmailInbox",
+        "summary": "Create an email inbox",
+        "description": "Human administrators only, with email turned on (`409 email_not_set_up` otherwise). Returns the inbox with its address.",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "project"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "project": {
+                    "type": "string",
+                    "description": "Project ID",
+                    "key or slug with a Backlog column.": null
+                  },
+                  "assignee": {
+                    "type": "string",
+                    "description": "Enabled human actor ID, `me` for the caller, or empty for unassigned tickets."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Inbox",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailInbox"
+                }
+              }
+            }
           },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/email-inboxes/{inbox}": {
+      "parameters": [
+        {
+          "name": "inbox",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "disableEmailInbox",
+        "summary": "Turn an email inbox off",
+        "description": "Human administrators only. Mail to its address bounces from now on; tickets it created are kept.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "204": {
+            "description": "Turned off"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/email-inboxes/{inbox}/address": {
+      "parameters": [
+        {
+          "name": "inbox",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "replaceEmailInboxAddress",
+        "summary": "Replace an email inbox's address",
+        "description": "Human administrators only. Issues a new address; the previous one bounces immediately.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Inbox with its new address",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailInbox"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
@@ -14359,13 +14377,6 @@
           "delivery_count": {
             "type": "integer",
             "minimum": 0
-          },
-          "email_tag_hint": {
-            "type": "string",
-            "description": "Last four characters of the webhook's email address tag, when it has one."
-          },
-          "email_tag_created_at": {
-            "$ref": "#/components/schemas/Timestamp"
           }
         },
         "additionalProperties": false
@@ -14419,10 +14430,6 @@
           "url": {
             "type": "string",
             "description": "Full URL to configure in the outside app. Shown only in this response."
-          },
-          "email_address": {
-            "type": "string",
-            "description": "The webhook's email address when email is on (create only). Shown only in this response."
           }
         },
         "additionalProperties": false
@@ -14610,6 +14617,13 @@
           "email_base": {
             "type": "string"
           },
+          "inbox_address": {
+            "type": "string",
+            "description": "Address of the first inbox setup created or found."
+          },
+          "inbox_name": {
+            "type": "string"
+          },
           "started_at": {
             "type": "string"
           },
@@ -14619,70 +14633,65 @@
         },
         "additionalProperties": false
       },
-      "EmailTest": {
+      "EmailInbox": {
         "type": "object",
         "required": [
           "id",
-          "webhook_id",
-          "address",
-          "subject",
-          "status",
+          "name",
+          "project_id",
+          "project_key",
+          "project_slug",
+          "tag",
           "created_at",
-          "expires_at"
+          "received_count",
+          "address"
         ],
         "properties": {
           "id": {
             "type": "string"
           },
-          "webhook_id": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "project_id": {
             "type": "string"
+          },
+          "project_key": {
+            "type": "string"
+          },
+          "project_slug": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "assignee_name": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string",
+            "description": "The part after `+`; a slug of the name plus six random characters."
           },
           "address": {
             "type": "string",
-            "description": "One-time address for this test; not the webhook's real address."
-          },
-          "subject": {
-            "type": "string",
-            "description": "Suggested subject for the test message."
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "waiting",
-              "received",
-              "expired"
-            ]
+            "description": "Full address to give apps; empty while email is off."
           },
           "created_at": {
-            "type": "string"
+            "$ref": "#/components/schemas/Timestamp"
           },
-          "expires_at": {
-            "type": "string"
+          "replaced_at": {
+            "$ref": "#/components/schemas/Timestamp"
           },
-          "received_at": {
-            "type": "string"
+          "disabled_at": {
+            "$ref": "#/components/schemas/Timestamp"
           },
-          "seconds": {
+          "last_received_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "received_count": {
             "type": "integer",
-            "description": "Seconds from creating the address to the email arriving."
-          },
-          "sender": {
-            "type": "string"
-          },
-          "disposition": {
-            "type": "string",
-            "enum": [
-              "created",
-              "repeated",
-              "retained",
-              "duplicate"
-            ]
-          },
-          "ticket_key": {
-            "type": "string"
-          },
-          "ticket_url": {
-            "type": "string"
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -14834,10 +14843,10 @@
           "id": {
             "type": "string"
           },
-          "webhook_id": {
+          "inbox_id": {
             "type": "string"
           },
-          "webhook_name": {
+          "inbox_name": {
             "type": "string"
           },
           "sender": {

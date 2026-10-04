@@ -33,6 +33,8 @@ type AlertIntakeRoute struct {
 	// message: a receipt already recorded returns "duplicate" and changes
 	// nothing.
 	Receipt *IntakeReceipt
+	// InboxID, when set, receives email statistics in the same transaction.
+	InboxID string
 }
 
 // IntakeAlert is one normalized condition parsed from an external delivery.
@@ -129,7 +131,7 @@ func (s *Store) IngestAlerts(ctx context.Context, route AlertIntakeRoute, alerts
 		}
 		receiptID := ""
 		if route.Receipt != nil {
-			id, prior, err := claimEmailReceiptTx(ctx, tx, *route.Receipt, route.WebhookID, created)
+			id, prior, err := claimEmailReceiptTx(ctx, tx, *route.Receipt, route.InboxID, created)
 			if err != nil {
 				return err
 			}
@@ -154,6 +156,11 @@ func (s *Store) IngestAlerts(ctx context.Context, route AlertIntakeRoute, alerts
 		}
 		if route.WebhookID != "" {
 			if _, err := tx.ExecContext(ctx, `UPDATE ticket_webhooks SET delivery_count = delivery_count + 1, last_delivery_at = ? WHERE id = ?`, created, route.WebhookID); err != nil {
+				return err
+			}
+		}
+		if route.InboxID != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE email_inboxes SET received_count = received_count + 1, last_received_at = ? WHERE id = ?`, created, route.InboxID); err != nil {
 				return err
 			}
 		}
