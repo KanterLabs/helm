@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
-  import type { Actor, EmailSummary, Project, TicketTestResult, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
+  import type { Actor, EmailSummary, EmailTest, Project, TicketTestResult, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
   import { openHelp } from '../help';
-  import CloudflareSetup from './CloudflareSetup.svelte';
-  import EmailIntakeCard from './EmailIntakeCard.svelte';
   import HelpDrawer from './HelpDrawer.svelte';
-  import PublicEndpointCard from './PublicEndpointCard.svelte';
+  import PublicAccessPanel from './PublicAccessPanel.svelte';
 
   export let user: Actor;
   export let projects: Project[] = [];
@@ -36,8 +34,8 @@
   let email: EmailSummary | null = null;
   let publicHostname = '';
   let testResults: Record<string, TicketTestResult> = {};
-  // Remounts the status cards after guided setup changes what exists.
-  let cardsKey = 0;
+  let emailTests: Record<string, EmailTest> = {};
+  let emailTestPoll: ReturnType<typeof setTimeout> | undefined;
   let copied = '';
   let busyId = '';
 
@@ -129,6 +127,48 @@
     }
   }
 
+  async function startEmailTest(hook: TicketWebhook) {
+    busyId = hook.id;
+    error = '';
+    try {
+      emailTests = { ...emailTests, [hook.id]: await api.startEmailTest(hook.id) };
+      pollEmailTests();
+    } catch (cause) {
+      error = message(cause, 'The test email address could not be created.');
+    } finally {
+      busyId = '';
+    }
+  }
+
+  // Refresh waiting email tests every few seconds until mail arrives or
+  // the 15-minute address expires.
+  function pollEmailTests() {
+    clearTimeout(emailTestPoll);
+    if (!Object.values(emailTests).some((test) => test.status === 'waiting')) return;
+    emailTestPoll = setTimeout(async () => {
+      for (const test of Object.values(emailTests).filter((item) => item.status === 'waiting')) {
+        try {
+          const next = await api.getEmailTest(test.webhook_id, test.id);
+          emailTests = { ...emailTests, [test.webhook_id]: next };
+          if (next.status === 'received') void load();
+        } catch {
+          // Keep waiting; the next poll retries.
+        }
+      }
+      pollEmailTests();
+    }, 3000);
+  }
+
+  // Row menus close once an action is chosen.
+  function fromMenu(event: Event, action: () => void) {
+    (event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open');
+    action();
+  }
+
+  function mailtoLink(test: EmailTest): string {
+    return `mailto:${test.address}?subject=${encodeURIComponent(test.subject)}&body=${encodeURIComponent('Testing Helm email intake.')}`;
+  }
+
   function testSummary(result: TicketTestResult): string {
     const timing = `${result.latency_ms < 1 ? '<1' : result.latency_ms} ms${result.via_cloudflare ? ' via Cloudflare' : ''}`;
     return result.ok ? `${result.message} · ${timing}` : result.message;
@@ -163,6 +203,7 @@
   }
 
   onMount(load);
+  onDestroy(() => clearTimeout(emailTestPoll));
 </script>
 
 <section class="ticket-integrations" aria-labelledby="ticket-integrations-heading">
@@ -173,13 +214,7 @@
 
   {#if error}<div class="inline-alert error" role="alert"><span>!</span>{error}</div>{/if}
 
-  {#if user.admin}
-    <CloudflareSetup onChanged={() => { cardsKey += 1; void load(); onPublicAccessChanged(); }} />
-    {#key cardsKey}
-      <PublicEndpointCard onChanged={() => { void load(); onPublicAccessChanged(); }} />
-      <EmailIntakeCard onChanged={() => { void load(); onPublicAccessChanged(); }} />
-    {/key}
-  {/if}
+  {#if user.admin}<PublicAccessPanel onChanged={() => { void load(); onPublicAccessChanged(); }} />{/if}
   <HelpDrawer />
 
   {#if revealed}
@@ -217,6 +252,7 @@
   {/if}
 
   {#if user.admin}
+    <h3 class="webhooks-heading">Webhooks</h3>
     <form class="webhook-create" aria-label="New webhook" on:submit|preventDefault={create}>
       <label>Name<input aria-label="Webhook name" bind:value={name} maxlength="100" placeholder="e.g. Grafana alerts" required /></label>
       <label>Project<select aria-label="Webhook project" bind:value={project}>{#each projects as item (item.id)}<option value={item.key}>{item.key} · {item.name}</option>{/each}</select></label>
@@ -241,7 +277,18 @@
               {#if email}<td data-webhook-email>{#if emailHint(hook)}<code>{emailHint(hook)}</code>{:else}<span class="optional">None</span>{/if}</td>{/if}
               <td data-webhook-deliveries>{hook.delivery_count}</td>
               <td>{when(hook.last_delivery_at)}</td>
-              <td class="webhook-actions">{#if !hook.disabled_at}{#if publicHostname}<button class="text-button" type="button" disabled={busyId === hook.id} title={`Send a test ticket through https://${publicHostname}`} on:click={() => sendTest(hook)}>{busyId === hook.id && !testResults[hook.id] ? 'Sending…' : 'Send test'}</button>{/if}{#if email}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => setEmail(hook)}>Email address…</button>{/if}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={() => rotate(hook)}>Rotate</button><button class="text-button danger" type="button" disabled={busyId === hook.id} on:click={() => disable(hook)}>Disable</button>{/if}</td>
+              <td class="webhook-actions">{#if !hook.disabled_at}
+                {#if publicHostname}<button class="text-button" type="button" disabled={busyId === hook.id} title={`Send a test ticket through https://${publicHostname}`} on:click={() => sendTest(hook)}>{busyId === hook.id && !testResults[hook.id] ? 'Sending…' : 'Send test'}</button>{/if}
+                {#if email}<button class="text-button" type="button" disabled={busyId === hook.id} title="Get a one-time address and send it an email from any mailbox" on:click={() => startEmailTest(hook)}>Test email</button>{/if}
+                <details class="row-menu">
+                  <summary aria-label={`More actions for ${hook.name}`}>More</summary>
+                  <div class="row-menu-items">
+                    {#if email}<button class="text-button" type="button" disabled={busyId === hook.id} on:click={(event) => fromMenu(event, () => setEmail(hook))}>Email address…</button>{/if}
+                    <button class="text-button" type="button" disabled={busyId === hook.id} on:click={(event) => fromMenu(event, () => rotate(hook))}>Rotate</button>
+                    <button class="text-button danger" type="button" disabled={busyId === hook.id} on:click={(event) => fromMenu(event, () => disable(hook))}>Disable</button>
+                  </div>
+                </details>
+              {/if}</td>
             </tr>
             {#if testResults[hook.id]}
               {@const result = testResults[hook.id]}
@@ -251,6 +298,21 @@
                   {testSummary(result)}
                   {#if result.ok && result.ticket_url}<a href={result.ticket_url}>Open {result.ticket_key}</a>{/if}
                   {#if result.cf_ray}<span class="optional">· Ray {result.cf_ray}</span>{/if}
+                </td>
+              </tr>
+            {/if}
+            {#if emailTests[hook.id]}
+              {@const test = emailTests[hook.id]}
+              <tr class="webhook-test-row" data-webhook-email-test={hook.name} data-email-test-status={test.status}>
+                <td colspan={email ? 8 : 7}>
+                  {#if test.status === 'waiting'}
+                    <p><strong>Send any email to</strong> <code data-email-test-address>{test.address}</code> <button class="text-button" type="button" on:click={() => copy(`test-${hook.id}`, test.address)}>{copied === `test-${hook.id}` ? 'Copied' : 'Copy'}</button> <a href={mailtoLink(test)}>Open in mail app</a></p>
+                    <p class="optional">From any mailbox, for example your phone. This address works for 15 minutes and files one low-priority test ticket. Waiting for it to arrive…</p>
+                  {:else if test.status === 'received'}
+                    <p><span class="test-ok">✓</span> Email arrived from {test.sender} through Cloudflare{test.seconds ? ` ${test.seconds} s after the address was created` : ''}. {test.disposition === 'repeated' ? 'Counted on' : 'Opened'} {test.ticket_key}. {#if test.ticket_url}<a href={test.ticket_url}>Open {test.ticket_key}</a>{/if}</p>
+                  {:else}
+                    <p><span class="test-failed">✕</span> No email arrived within 15 minutes. Check that the domain's MX records point to Cloudflare (Email Routing shows them), that plus addressing is on, and the sender's outbox; bounced mail is listed under Recent emails. <button class="text-button" type="button" on:click={() => startEmailTest(hook)}>Try again</button></p>
+                  {/if}
                 </td>
               </tr>
             {/if}
@@ -264,8 +326,9 @@
     <p class="optional">Ask a workspace administrator to create a webhook URL for your app.</p>
   {/if}
 
-  <section class="webhook-guide" aria-labelledby="webhook-guide-heading">
-    <h3 id="webhook-guide-heading">How to send a ticket <button class="text-button" type="button" on:click={() => openHelp('ticket-webhooks')}>Full guide</button></h3>
+  <details class="webhook-guide" open={!hooks.length}>
+    <summary><h3 id="webhook-guide-heading">How to send a ticket</h3></summary>
+    <button class="text-button guide-link" type="button" on:click={() => openHelp('ticket-webhooks')}>Full guide</button>
     <p>POST a JSON object to the webhook URL with <code>Content-Type: application/json</code>. No other authentication is needed: keep the URL private, and rotate it if it leaks.</p>
     <div class="webhook-code">
       <pre data-webhook-curl><code>{curlExample}</code></pre>
@@ -285,7 +348,7 @@
       <p data-webhook-email-guide>Apps that can only send email can get an address per webhook too. {#if user.admin}Turn on <strong>Email</strong> above.{:else}Ask a workspace administrator to turn on email.{/if}</p>
     {/if}
     <p class="optional">Choose the <strong>Coolify notifications</strong> format to paste the URL into Coolify → Notifications → Webhook. The full reference is in the API document at <a href="/openapi.json">/openapi.json</a> (operation <code>postTicketWebhook</code>).</p>
-  </section>
+  </details>
 </section>
 
 <style>
@@ -310,8 +373,18 @@
   .webhook-test-row a { margin-left: 6px; font-weight: 700; }
   .test-ok { color: var(--semantic-green); font-weight: 800; }
   .test-failed { color: var(--semantic-red); font-weight: 800; }
+  .webhooks-heading { margin: 4px 0 0; font-size: 15px; }
   .webhook-guide { display: grid; gap: 10px; }
-  .webhook-guide h3 { margin: 0; font-size: 14px; }
+  .webhook-guide > summary { cursor: pointer; }
+  .webhook-guide h3 { display: inline; margin: 0; font-size: 14px; }
+  .webhook-guide[open] > summary { margin-bottom: 10px; }
+  .guide-link { justify-self: start; }
+  .webhook-actions { align-items: center; flex-wrap: wrap; }
+  .row-menu { position: relative; }
+  .row-menu > summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 12px; font-weight: 700; }
+  .row-menu > summary::-webkit-details-marker { display: none; }
+  .row-menu-items { position: absolute; right: 0; z-index: 5; display: grid; gap: 6px; min-width: 130px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 20px rgb(15 18 30 / 0.12); }
+  .webhook-test-row p { margin: 0 0 4px; }
   .webhook-code { display: grid; gap: 6px; justify-items: start; }
   .webhook-code pre { width: 100%; margin: 0; padding: 12px; overflow-x: auto; border-radius: 8px; background: var(--surface-muted); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
   .webhook-fields td:first-child { white-space: nowrap; }

@@ -687,6 +687,23 @@ export interface TicketTestResult {
   message: string;
 }
 
+/** A one-time test address for a webhook (Test email). */
+export interface EmailTest {
+  id: string;
+  webhook_id: string;
+  address: string;
+  subject: string;
+  status: 'waiting' | 'received' | 'expired';
+  created_at: string;
+  expires_at: string;
+  received_at?: string;
+  seconds?: number;
+  sender?: string;
+  disposition?: string;
+  ticket_key?: string;
+  ticket_url?: string;
+}
+
 export interface EmailSummary {
   address: string;
   local_part: string;

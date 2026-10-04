@@ -6,9 +6,9 @@ opening ports: outside apps get a **public URL** for
 [ticket webhooks](TICKET_WEBHOOKS.md) and, optionally, an **email address**
 per webhook. Nothing else about Helm becomes public.
 
-Everything here lives in **Tickets → ⇄ Connect apps** and is for
-administrators. Each card has a **Learn more** link that opens this guide
-inside Helm.
+Everything here lives in **Tickets → ⇄ Connect apps → Reach Helm from
+outside** and is for administrators. **Learn more** opens this guide inside
+Helm.
 
 Related: design and decisions in
 [CLOUDFLARE_CONNECT_PLAN.md](CLOUDFLARE_CONNECT_PLAN.md) and
@@ -21,54 +21,58 @@ Related: design and decisions in
 | --- | --- |
 | `POST /api/v1/hooks/tickets/<secret>` (webhooks), `/api/v1/intake/coolify/<secret>`, the email Worker's route and one-time test probes | The dashboard, sign-in, every other API route. Cloudflare answers them with 404, and the tunnel only connects to a separate listener that serves nothing else. |
 
-## Connect Cloudflare (guided setup)
+## Set up with Cloudflare
 
-The **Connect Cloudflare** panel does everything in one pass. You need a
-Cloudflare account with your domain on it.
+You need a Cloudflare account with your domain on it. In **Reach Helm from
+outside**:
 
-1. **Connect.** Either:
-   - **Sign in with Cloudflare.** Cloudflare asks which account Helm may use
-     and shows the permissions; email permissions are optional. After you
-     approve, a page on `helm-connect…workers.dev` shows where you are being
-     sent back to; check it is your Helm and select **Continue to Helm**.
-   - **Use a token.** Select **Create token on Cloudflare**: Cloudflare's
-     token page opens with every permission already selected. On that page
-     choose your account, and under **Zone resources** your domain, then
-     **Continue to summary → Create token**. Copy the token, paste it into
-     Helm and select **Connect**.
-2. **Choose a domain.** Helm lists your domains and whether Email Routing is
-   on for each. Domains the connection cannot manage DNS for are marked
-   **No DNS access** and cannot be chosen. Helm proposes a free hostname such
-   as `hooks.example.com` (change it if you like); if a public URL is already
-   working, setup keeps it and the hostname field is replaced by a note.
-3. **Choose email.** "Also give webhooks email addresses" is on when Email
-   Routing is ready. If plus addressing is off for the domain, Helm explains
-   what turning it on changes and needs your tick. Optionally set a
-   **fallback** address for mail Helm cannot accept.
-4. **Set up.** Helm shows a live checklist:
+1. **Select Sign in with Cloudflare.** Cloudflare asks which account Helm may
+   use and shows the permissions (the email ones are optional). Approve, and
+   a short page on `helm-connect…workers.dev` shows the Helm you are being
+   sent back to; check it is yours and select **Continue to Helm**.
+2. **Check the plan Helm shows.** Your domain is chosen for you when only one
+   can be used (otherwise pick one; domains the connection cannot manage DNS
+   for are marked **No DNS access**). Helm shows the public URL it will
+   create, such as `https://hooks.example.com` (**Change** to pick another
+   unused name); a public URL that already works is kept.
+3. **Email (optional).** "Give webhooks email addresses too" is ticked when
+   the domain has Email Routing on. If plus addressing is off, tick the box
+   that turns it on; it also lets mail to any `name+anything@` reach
+   `name@` across the domain. **Email options** set the address name
+   (default `helm-alerts`) and an optional **fallback** address for mail
+   Helm cannot accept.
+4. **Select Set up** and watch the checklist:
 
    | Step | What happens |
    | --- | --- |
-   | Create the public URL | Tunnel + DNS record, webhook paths only. An already active public URL is reused as is. |
+   | Public URL | Tunnel + DNS record, webhook paths only. An already active public URL is kept as is. |
    | Connect the tunnel | `cloudflared` registers with Cloudflare's edge. |
    | Reach Helm from the internet | Helm calls its own public URL through Cloudflare (DNS can take a minute). |
    | Give webhooks email addresses | Email Worker + routing rule, when requested. Already-on email is kept. |
-   | Forget the Cloudflare credential | The token or sign-in is dropped (sign-ins are revoked at Cloudflare). |
+   | Forget the Cloudflare credential | The sign-in or token is dropped (sign-ins are revoked at Cloudflare). |
 
    If the tunnel never connects or the URL never answers, Helm removes the
    public URL it just created, so nothing is left half-built. If only email
    fails, the working public URL stays and the step says why.
-5. **Next:** create a webhook below and select **Send test** on it to open a
-   test ticket through the public URL.
+5. **Select Done.** The panel now shows a short summary: the public URL and
+   the email address pattern. Then [test it](#test-it).
 
-Run Connect Cloudflare again any time, for example to add email later; it
-reuses what already works.
+**Later:** **Add email addresses** (when email is off) or **Run setup again**
+signs in again and reuses what already works. Everything else, such as
+connector status, recent emails, removal, history and the manual forms, is
+under **Details, history and manual setup**.
 
-**Credentials.** Helm keeps the token or sign-in only in memory, for at most
+**No sign-in option?** Select **Use an API token instead**. **Create token
+on Cloudflare** opens Cloudflare's token page with every permission
+selected; choose your account, and under **Zone resources** your domain, then
+**Continue to summary → Create token**. Paste the token and select
+**Connect**; the rest is the same.
+
+**Credentials.** Helm keeps the sign-in or token only in memory, for at most
 30 minutes, tied to the administrator who connected, and never in the
-database, logs or responses. Removing things later asks for a token or
-sign-in again. Revoke a sign-in any time in Cloudflare under **Manage
-OAuth authorizations**.
+database, logs or responses. Removing things later asks you to connect
+again. Revoke a sign-in any time in Cloudflare under **Manage OAuth
+authorizations**.
 
 **Sign in with Cloudflare availability.** Helm's Cloudflare app is
 currently *private*: only members of the KanterLabs Cloudflare account can
@@ -76,13 +80,30 @@ approve it. Everyone else uses the token option, which does exactly the
 same setup. Operators can hide the button with `HELM_CLOUDFLARE_OAUTH=off`
 or point Helm at their own Cloudflare app (see [Settings](#settings)).
 
+## Test it
+
+Both tests run from the webhook table (Tickets → ⇄ Connect apps) and travel
+the same path outside apps use. Each files one low-priority test ticket per
+webhook; repeated tests only add to its count.
+
+| Test | What you do | What it proves |
+| --- | --- | --- |
+| **Send test** | Select it on a webhook. | Helm posts a ticket to its own public URL through Cloudflare and the tunnel, and shows the ticket it opened (or why it failed). |
+| **Test email** | Select it, then send any email to the one-time address it shows (or use **Open in mail app**) from any mailbox, for example your phone. | Your mail provider → Cloudflare's MX → the routing rule → the email Worker → Helm. The row turns to "Email arrived from … through Cloudflare" with the ticket. |
+
+The **Test email** address works for 15 minutes and only for that webhook;
+it is not the webhook's real address, so nothing needs to be replaced. If
+nothing arrives, check that the domain's MX records point to Cloudflare
+(Email Routing shows them), that plus addressing is on, and the sender's
+outbox; refused mail appears under **Recent emails** in the Email details.
+
 ## Public URL (Cloudflare Tunnel)
 
 The public URL publishes **only** the webhook routes on a public HTTPS
 hostname through a Cloudflare Tunnel, with no open ports, router changes or
-certificates. [Connect Cloudflare](#connect-cloudflare-guided-setup) creates
-it for you; to do it by hand, open **Set up manually** on the Public URL
-card:
+certificates. [Set up with Cloudflare](#set-up-with-cloudflare) creates it
+for you; to do it by hand, open **Details, history and manual setup → Set
+up manually** on the Public URL card:
 
 1. Create a token with the **Create token** link (or by hand with
    Account › Cloudflare Tunnel › Edit, plus Zone › Zone › Read and
@@ -159,7 +180,7 @@ Requirements and settings:
 ## Email addresses
 
 Backup tools, NAS boxes, cron and older monitoring often send alerts only by
-email. With email turned on (by [Connect Cloudflare](#connect-cloudflare-guided-setup)
+email. With email turned on (by [Set up with Cloudflare](#set-up-with-cloudflare)
 or the **Email** card), every webhook also has an address such as `helm-alerts+k3j9x2m4q7ab5cde@example.com`. Mail to
 it opens or repeats a ticket exactly like a POST to the webhook URL. The
 design and its trade-offs are in
@@ -267,4 +288,5 @@ Operations in `/openapi.json`: `getCloudflareConnect`,
 `getCloudflareSetup`, `getPublicEndpoints`, `createPublicEndpoint`,
 `testPublicEndpoint`, `disablePublicEndpoint`, `getEmailIntake`,
 `createEmailIntake`, `disableEmailIntake`, `postTicketEmail`,
-`setTicketWebhookEmail`, `sendTestTicket`, `getHelpDocument`.
+`setTicketWebhookEmail`, `sendTestTicket`, `startEmailTest`,
+`getEmailTest`, `getHelpDocument`.

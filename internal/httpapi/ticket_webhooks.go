@@ -239,6 +239,19 @@ func (s *Server) ticketWebhook(w http.ResponseWriter, r *http.Request, identity 
 		s.writeJSON(w, http.StatusOK, ticketWebhookSecretResponse{Webhook: hook, Secret: secret, URL: s.ticketHookBase(r.Context()) + secret})
 	case len(parts) == 3 && parts[2] == "test" && r.Method == http.MethodPost:
 		s.sendTestTicket(w, r, id)
+	case len(parts) == 3 && parts[2] == "test-email" && r.Method == http.MethodPost:
+		s.startEmailTest(w, r, identity, id)
+	case len(parts) == 4 && parts[2] == "test-email" && r.Method == http.MethodGet:
+		w.Header().Set("Cache-Control", "no-store")
+		if s.publicEndpointsUnavailable(w) {
+			return
+		}
+		test, ok := s.PublicEndpoints.EmailTestStatus(identity.Actor.ID, id, parts[3])
+		if !ok {
+			s.writeError(w, http.StatusNotFound, "not_found", "email test not found", nil)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, test)
 	case len(parts) == 3 && parts[2] == "email" && r.Method == http.MethodPost:
 		if !s.secretResponseAllowed(w, r) {
 			return
@@ -289,6 +302,35 @@ func (s *Server) sendTestTicket(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	s.writeJSON(w, http.StatusOK, result)
+}
+
+// startEmailTest serves POST /api/v1/ticket-webhooks/{id}/test-email: a
+// one-time address, valid for 15 minutes, that files a test ticket for the
+// webhook when mail sent to it arrives through Cloudflare.
+func (s *Server) startEmailTest(w http.ResponseWriter, r *http.Request, identity auth.Identity, id string) {
+	w.Header().Set("Cache-Control", "no-store")
+	if s.publicEndpointsUnavailable(w) {
+		return
+	}
+	hook, err := s.Store.GetTicketWebhook(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if hook.DisabledAt != nil {
+		s.writeError(w, http.StatusConflict, "webhook_disabled", "a disabled webhook cannot open tickets", nil)
+		return
+	}
+	intake, ok, err := s.Store.ActiveEmailIntake(r.Context())
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if !ok {
+		s.writeError(w, http.StatusConflict, "email_not_set_up", "turn on email addresses first", nil)
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, s.PublicEndpoints.StartEmailTest(identity.Actor.ID, hook.ID, intake))
 }
 
 // testTicketHook files a test ticket that arrived through the public URL

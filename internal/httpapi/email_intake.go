@@ -59,10 +59,15 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 		AuthResults: r.Header.Get("X-Helm-Authentication-Results"),
 		ReceivedAt:  time.Now().UTC(),
 	}
-	webhookID := ""
+	webhookID, testID := "", ""
 	var hook store.TicketWebhook
 	if tag, ok := intake.ParseEmailRecipient(envelope.To, emailIntake.LocalPart, emailIntake.Domain); ok {
-		if found, err := s.Store.ResolveWebhookByEmailTag(r.Context(), tag); err == nil {
+		// A one-time test address (Test email) maps to its webhook first.
+		if id, testWebhook, isTest := s.PublicEndpoints.MatchEmailTest(tag); isTest {
+			if found, err := s.Store.GetTicketWebhook(r.Context(), testWebhook); err == nil && found.DisabledAt == nil {
+				hook, webhookID, testID = found, found.ID, id
+			}
+		} else if found, err := s.Store.ResolveWebhookByEmailTag(r.Context(), tag); err == nil {
 			hook, webhookID = found, found.ID
 		} else if !errors.Is(err, store.ErrNotFound) {
 			s.writeStoreError(w, err)
@@ -126,12 +131,26 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 		WebhookID:   hook.ID,
 		Receipt:     &store.IntakeReceipt{IntakeID: emailIntake.ID, Key: parsed.ReceiptKey, Sender: boundedText(parsed.FromDisplay, 200), Subject: parsed.Subject},
 	}
-	results, err := s.Store.IngestAlerts(r.Context(), route, []store.IntakeAlert{parsed.Alert(hook.ID, hook.Name)})
+	alert := parsed.Alert(hook.ID, hook.Name)
+	if testID != "" {
+		// Test emails share one low-priority ticket per webhook.
+		subject := parsed.Subject
+		if subject == "" {
+			subject = "(no subject)"
+		}
+		alert.Title, alert.Priority = "Test email via Cloudflare", "low"
+		alert.FamilyKey, alert.ConditionKey = "email:"+publicendpoint.EmailTestDedupeKey, "email:"+publicendpoint.EmailTestDedupeKey
+		alert.Description = "Helm received this test email from " + parsed.FromDisplay + " (subject “" + subject + "”) through Cloudflare Email Routing, so mail to this webhook's address works. Repeated tests count on this ticket; complete it when you are done."
+	}
+	results, err := s.Store.IngestAlerts(r.Context(), route, []store.IntakeAlert{alert})
 	if !s.writeIngestError(w, route.Integration, "email", err) {
 		return
 	}
 	s.logAlertIntake(route.Integration, "email", "recorded", results)
 	result := results[0]
+	if testID != "" {
+		s.PublicEndpoints.RecordEmailTest(testID, boundedText(parsed.FromDisplay, 200), result.Disposition, result.TaskKey, s.Cfg.PublicOrigin+"/p/"+hook.ProjectSlug+"/tasks/"+result.TaskKey)
+	}
 	status := http.StatusOK
 	if result.Disposition == "created" {
 		status = http.StatusCreated

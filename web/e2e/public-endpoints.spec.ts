@@ -72,6 +72,8 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
 
   await page.goto(`/tickets?project=${project.key}`);
   await page.getByRole('button', { name: /Connect apps/ }).click();
+  // Detailed cards live under "Details, history and manual setup".
+  await openManual(page.locator('[data-public-access-advanced]'));
   const card = page.locator('.public-endpoint');
   await expect(card.getByRole('heading', { name: 'Public URL' })).toBeVisible();
 

@@ -70,6 +70,7 @@ import {
   type CloudflareSetupRun,
   type CloudflareZoneOption,
   type TicketTestResult,
+  type EmailTest,
   type PublicEndpointTestResult,
   type PublicEndpointView,
   type TicketWebhook,
@@ -605,6 +606,11 @@ export const api = {
   listTickets: (params: { queue?: TicketQueue; project?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
     request<TicketCollection>(pathWithQuery('/tickets', params), { signal }),
   listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string; email: EmailSummary | null; public_hostname: string }>('/ticket-webhooks'),
+  /** A one-time address that files a test ticket when mail reaches it. */
+  startEmailTest: (webhook: string) =>
+    request<EmailTest>(`/ticket-webhooks/${encodeURIComponent(webhook)}/test-email`, { method: 'POST' }),
+  getEmailTest: (webhook: string, test: string) =>
+    request<EmailTest>(`/ticket-webhooks/${encodeURIComponent(webhook)}/test-email/${encodeURIComponent(test)}`),
   /** Helm posts a test ticket for the webhook through its own public URL. */
   sendTestTicket: (webhook: string) =>
     request<TicketTestResult>(`/ticket-webhooks/${encodeURIComponent(webhook)}/test`, { method: 'POST' }),

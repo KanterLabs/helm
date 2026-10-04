@@ -45,8 +45,13 @@ async function resetPublicAccess(request: APIRequestContext) {
 
 async function openSetup(page: Page) {
   await page.goto('/tickets?connect=1');
+  await expect(page.getByRole('heading', { name: 'Reach Helm from outside' })).toBeVisible();
+  await expect(page.locator('[data-public-access-status]')).toHaveText('Not set up');
   const panel = page.locator('[data-cloudflare-setup]');
-  await expect(panel.getByRole('heading', { name: 'Connect Cloudflare' })).toBeVisible();
+  // Sign in is the primary path; the token path is one click away.
+  await expect(panel.locator('[data-cloudflare-signin]')).toBeVisible();
+  await expect(panel.locator('#cf-token')).toHaveCount(0);
+  await panel.locator('[data-token-toggle]').click();
   return panel;
 }
 
@@ -74,9 +79,9 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     expect(JSON.parse(link.searchParams.get('permissionGroupKeys') as string).map((item: { key: string }) => item.key).sort()).toEqual(['argotunnel', 'dns', 'email_routing_address', 'email_routing_rule', 'workers_scripts', 'zone', 'zone_settings']);
 
     // Help explains every step without leaving Helm.
-    await panel.getByRole('button', { name: 'Learn more' }).click();
+    await panel.getByRole('button', { name: 'How this works' }).click();
     const drawer = page.locator('[data-help-drawer]');
-    await expect(drawer.getByRole('heading', { name: 'Connect Cloudflare (guided setup)' })).toBeInViewport();
+    await expect(drawer.getByRole('heading', { name: 'Set up with Cloudflare' })).toBeInViewport();
     await drawer.getByRole('link', { name: 'ticket webhooks' }).first().click();
     await expect(drawer.getByRole('heading', { name: 'Ticket webhooks: connect outside apps to Helm Tickets' })).toBeVisible();
     await page.keyboard.press('Escape');
@@ -108,10 +113,13 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     // why, and the half-created Worker and plus addressing are rolled back.
     await panel.locator('#cf-token').fill(cfToken);
     await panel.getByRole('button', { name: 'Connect', exact: true }).click();
-    await panel.locator('[data-zone="example.test"] input').check();
-    await expect(panel.getByLabel('Guided public hostname')).toHaveValue('hooks.example.test');
+    // The only domain this connection can manage is chosen automatically.
+    await expect(panel.locator('[data-zone="example.test"]')).toContainText('Domain example.test');
+    await expect(panel.locator('[data-other-zones]')).toContainText('1 other domain');
+    await expect(panel.locator('[data-setup-hostname]')).toContainText('https://hooks.example.test');
     await expect(panel.locator('[data-setup-start]')).toBeDisabled();
     await panel.locator('[data-setup-consent] input').check();
+    await panel.locator('.cf-email-options > summary').click();
     await panel.getByLabel('Guided email address name').fill(`fail-rule-${runID}`);
     await testInfo.attach('connect-choose.png', { contentType: 'image/png', body: await panel.screenshot() });
     await panel.locator('[data-setup-start]').click();
@@ -126,8 +134,8 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     expect(Object.keys(partial.workers)).toEqual(Object.keys(before.workers));
     expect(partial.email_routing['zone-1'].support_subaddress).toBe(false);
     expect((await status(request)).connected).toBe(false);
-    await expect(page.locator('.public-endpoint [data-public-badge]')).toHaveText('Live');
-    await expect(page.locator('.email-intake [data-email-badge]')).toHaveText('Off');
+    await expect(page.locator('[data-public-access-status]')).toHaveText('Live');
+    expect((await json<{ active?: unknown }>(await request.get('/api/v1/email-intake'), 'email')).active).toBeUndefined();
 
     // The token is never stored, logged or returned.
     expect(JSON.stringify(await status(request))).not.toContain(cfToken);
@@ -151,7 +159,9 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     await expect(panel.getByRole('status')).toContainText('Signed in with Cloudflare');
     await expect(panel.locator('[data-cloudflare-connected="cloudflare"]')).toBeVisible();
     const revokedBefore = (await fakeState(request)).oauth_revoked;
-    await panel.locator('[data-zone="example.test"] input').check();
+    // The only domain this connection can manage is chosen automatically.
+    await expect(panel.locator('[data-zone="example.test"]')).toContainText('Domain example.test');
+    await expect(panel.locator('[data-other-zones]')).toContainText('1 other domain');
     await expect(panel.locator('[data-setup-existing]')).toContainText('https://hooks.example.test');
     await panel.locator('[data-setup-consent] input').check();
     await panel.locator('[data-setup-start]').click();
@@ -166,11 +176,15 @@ test('Admins connect Cloudflare once and Helm sets up public access with a check
     expect(Object.values(done.rules).some((rule) => rule.matchers[0]?.value === 'helm-alerts@example.test')).toBe(true);
     expect(done.email_routing['zone-1'].support_subaddress).toBe(true);
     expect((await status(request)).connected).toBe(false);
-    await expect(page.locator('.public-endpoint [data-public-badge]')).toHaveText('Live');
-    await expect(page.locator('.email-intake [data-email-badge]')).toHaveText('On');
+    // Done shows the short summary; setup can be run again from it.
+    await panel.getByRole('button', { name: 'Done' }).click();
+    await expect(page.locator('[data-summary-url]')).toHaveText('https://hooks.example.test');
+    await expect(page.locator('[data-summary-email]')).toContainText('helm-alerts+…@example.test');
+    await expect(page.locator('[data-public-access-status]')).toHaveText('Live');
+    await testInfo.attach('summary.png', { contentType: 'image/png', body: await page.locator('[data-public-access]').screenshot() });
 
     // A declined sign-in and a forged callback are both refused.
-    await panel.getByRole('button', { name: 'Done' }).click();
+    await page.locator('[data-rerun-setup]').click();
     await json(await request.post(`${fakeCF}/__oauth_deny_next`), 'deny next');
     await panel.locator('[data-cloudflare-signin]').click();
     await expect(page.getByRole('heading', { name: 'Cloudflare sign-in was not completed' })).toBeVisible();

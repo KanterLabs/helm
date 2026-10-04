@@ -1,7 +1,7 @@
 # Connect Cloudflare: guided, automatic public access
 
 Status: implemented on `beta` (2026-10-03), both phases. User guide:
-[PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#connect-cloudflare-guided-setup); failure
+[PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#set-up-with-cloudflare); failure
 contract: [E2E_TESTING.md](E2E_TESTING.md#connect-cloudflare-failure-contract);
 relay: [deploy/cloudflare-connect-relay](../deploy/cloudflare-connect-relay/README.md).
 See [As built](#as-built) for what changed from this plan.
@@ -243,3 +243,13 @@ Recorded 2026-10-03 after implementation and verification.
   the binary and rendered in a drawer, instead of `/docs/…` pages.
 - **Release notes** for beta changes collect in
   [releases/unreleased.md](releases/unreleased.md) until the next version.
+- **Simplified around sign-in (2026-10-04).** Connect apps now has one
+  **Reach Helm from outside** panel: sign-in is the only primary action
+  (token behind "Use an API token instead"), a single usable domain is
+  picked automatically, the hostname is a line with **Change**, and email
+  options are folded away. After setup the panel shows a two-line summary;
+  the detailed cards and manual forms moved under **Details, history and
+  manual setup**. Webhook rows show the two tests (**Send test**, **Test
+  email**) with rarer actions under **More**.
+- **Test email** gives self-hosters an end-to-end check of the real mail
+  path with a one-time, webhook-bound address (memory only, 15 minutes).

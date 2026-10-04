@@ -160,7 +160,9 @@ its OAuth endpoints) and the real sign-in relay Worker served by
 | A rerun duplicates resources | Running setup again after sign-in shows the existing public URL instead of a hostname field, reports it as already set up, adds email, and leaves one tunnel. |
 | A declined or forged sign-in connects anyway | A denied consent returns "Cloudflare sign-in was not completed"; a callback with an unknown state is refused and Cloudflare issues no token. |
 | Agents reach setup | Agent tokens get `403` from every guided-setup route. |
-| Help is missing or wrong | **Learn more** opens the embedded guide at the guided-setup section; links to other guides open inside the drawer. |
+| Help is missing or wrong | **How this works** opens the embedded guide at the setup section; links to other guides open inside the drawer. |
+| The setup panel is not sign-in first | With nothing set up, Reach Helm from outside shows **Sign in with Cloudflare** with the token form hidden until **Use an API token instead**; with one usable domain it is chosen automatically and the public URL is shown as a line, not a form. |
+| A finished setup leaves the admin in the wizard | **Done** shows a summary with the live public URL and the email pattern, and **Run setup again** reopens setup; returning from sign-in always opens setup. |
 
 ## Email intake failure contract
 
@@ -182,3 +184,4 @@ against Helm's hooks listener.
 | Replacing or disabling stops nothing | After **Email address…** replaces a webhook's address, the old address bounces; a disabled webhook's address bounces. |
 | Removal leaves Cloudflare resources or breaks delivery paths | The Public URL cannot be removed while email intake is active; removal with a token deletes the Worker and rule; without one the intake shows *Needs cleanup* and **Finish cleanup…** deletes them. |
 | Non-admins manage email intake | Agent tokens get `403` from every email-intake management route. |
+| Self-hosters cannot check email end to end | **Test email** shows a one-time address (not the webhook's real one) with a `mailto:` link; mail delivered to it through the Worker turns the row to "Email arrived from …" with a low-priority test ticket, and a second test only counts on that ticket. Agents get `403`. |

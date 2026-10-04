@@ -6008,6 +6008,115 @@
         }
       }
     },
+    "/api/v1/ticket-webhooks/{webhook}/test-email": {
+      "parameters": [
+        {
+          "name": "webhook",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "startEmailTest",
+        "summary": "Start a test email for a webhook",
+        "description": "Human administrators only, with email addresses on. Returns a\none-time address (`<name>+<tag>@<domain>`) valid for 15 minutes and\nbound to this webhook; it is not the webhook's real address. Mail\nsent to it through Cloudflare files one low-priority test ticket\n(`dedupe_key` helm-email-test). Poll `getEmailTest`.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "201": {
+            "description": "Test address",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailTest"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/ticket-webhooks/{webhook}/test-email/{test}": {
+      "parameters": [
+        {
+          "name": "webhook",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        {
+          "name": "test",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getEmailTest",
+        "summary": "Test email status",
+        "description": "`waiting`, `received` (with the sender, delay and ticket) or `expired`. Only the administrator who started the test can read it.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailTest"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/v1/ticket-webhooks/{webhook}/email": {
       "parameters": [
         {
@@ -14505,6 +14614,74 @@
             "type": "string"
           },
           "finished_at": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmailTest": {
+        "type": "object",
+        "required": [
+          "id",
+          "webhook_id",
+          "address",
+          "subject",
+          "status",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "webhook_id": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string",
+            "description": "One-time address for this test; not the webhook's real address."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Suggested subject for the test message."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "received",
+              "expired"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "received_at": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "integer",
+            "description": "Seconds from creating the address to the email arriving."
+          },
+          "sender": {
+            "type": "string"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "created",
+              "repeated",
+              "retained",
+              "duplicate"
+            ]
+          },
+          "ticket_key": {
+            "type": "string"
+          },
+          "ticket_url": {
             "type": "string"
           }
         },

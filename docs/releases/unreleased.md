@@ -3,6 +3,15 @@
 User-visible changes on `beta` since the last release, newest first. At the
 next release these entries move into `docs/releases/vX.Y.Z.md`.
 
+## 2026-10-04
+
+- **Simpler Connect apps.** One **Reach Helm from outside** panel centred on
+  **Sign in with Cloudflare**; after setup it shows a short summary, with
+  details and manual setup folded away. Webhook rows show **Send test** and
+  **Test email**, other actions under **More**.
+- **Test email.** A one-time address per webhook to send any email to from
+  your own mailbox; Helm shows when it arrived and the test ticket it filed.
+
 ## 2026-10-03
 
 - **Connect Cloudflare.** Tickets → Connect apps has a guided setup: sign in

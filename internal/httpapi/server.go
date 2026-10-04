@@ -720,7 +720,7 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		s.testPublicEndpoint(w, r, identity, parts[1])
 		return
 	}
-	if parts[0] == "ticket-webhooks" && (len(parts) == 2 || len(parts) == 3) {
+	if parts[0] == "ticket-webhooks" && (len(parts) == 2 || len(parts) == 3 || (len(parts) == 4 && parts[2] == "test-email")) {
 		s.ticketWebhook(w, r, identity, parts)
 		return
 	}

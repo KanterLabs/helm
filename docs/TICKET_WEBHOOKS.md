@@ -104,19 +104,21 @@ variables, see `COOLIFY_EMAIL_INTAKE_PLAN.md`) keeps working.
 ## Public URL and email addresses
 
 To let apps outside your network reach these webhooks, or to give each
-webhook an email address, see [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md). Its
-**Connect Cloudflare** guided setup does everything in one pass.
+webhook an email address, use **Reach Helm from outside → Sign in with
+Cloudflare**; see [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#set-up-with-cloudflare).
 
-Once a public URL is active, **Send test** on a webhook makes Helm post a
-real test ticket for it through the public URL, exactly as an outside app
-would, and shows the ticket it opened or why it failed. Test tickets are low
-priority and share one `dedupe_key`, so repeated tests count on one ticket.
+Each webhook row then has **Send test** (a real ticket through the public
+URL) and, with email on, **Test email** (a one-time address you send any
+email to). See [PUBLIC_ACCESS.md § Test it](PUBLIC_ACCESS.md#test-it). The
+rarer actions (**Email address…**, **Rotate**, **Disable**) are under
+**More**.
 
 ## API reference
 
 The machine-readable contract is `/openapi.json` (operations
 `postTicketWebhook`, `listTicketWebhooks`, `createTicketWebhook`,
 `rotateTicketWebhook`, `disableTicketWebhook`, `setTicketWebhookEmail`,
-`sendTestTicket`) and, for the Coolify path, `receiveCoolifyAlert`. Public
+`sendTestTicket`, `startEmailTest`, `getEmailTest`) and, for the Coolify
+path, `receiveCoolifyAlert`. Public
 access operations are listed in
 [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#api-reference).

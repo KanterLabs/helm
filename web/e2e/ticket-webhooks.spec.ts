@@ -148,6 +148,7 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   const row = panel.locator(`[data-webhook-name="Grafana alerts ${runID}"]`);
   await expect(row.locator('[data-webhook-deliveries]')).toHaveText('5');
   page.once('dialog', (dialog) => void dialog.accept());
+  await row.locator('.row-menu > summary').click();
   await row.getByRole('button', { name: 'Rotate' }).click();
   const rotated = await panel.locator('[data-webhook-secret-reveal] input').inputValue();
   expect(rotated).not.toBe(url);
@@ -156,6 +157,7 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   expect((await post(request, rotated, { title: `After rotate ${runID}` })).status()).toBe(201);
   await panel.getByRole('button', { name: 'I saved it' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
+  await row.locator('.row-menu > summary').click();
   await row.getByRole('button', { name: 'Disable' }).click();
   await expect(row).toContainText('disabled');
   expect((await post(request, rotated, { title: 'disabled' })).status()).toBe(404);

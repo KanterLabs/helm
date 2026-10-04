@@ -64,6 +64,8 @@ type Manager struct {
 	probes probeRegistry
 	// connect holds Cloudflare sign-ins and guided setup runs (memory only).
 	connect connectState
+	// tests holds one-time test email addresses (memory only).
+	tests emailTests
 	// lastTest is the most recent self-test of the active endpoint.
 	testMu   sync.Mutex
 	lastTest *TestResult

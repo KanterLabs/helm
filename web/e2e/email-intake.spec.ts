@@ -89,6 +89,7 @@ async function openManual(details: Locator) {
 async function openConnectApps(page: Page, projectKey: string) {
   await page.goto(`/tickets?project=${projectKey}`);
   await page.getByRole('button', { name: /Connect apps/ }).click();
+  await openManual(page.locator('[data-public-access-advanced]'));
   const card = page.locator('.email-intake');
   await expect(card.getByRole('heading', { name: 'Email', exact: true })).toBeVisible();
   return card;
@@ -112,6 +113,7 @@ test('Admins give webhooks email addresses that open tickets through the Cloudfl
     expect((await request.post('/api/v1/email-intake', { headers: bearer, data: { domain: 'example.test', local_part: 'x', api_token: cfToken } })).status()).toBe(403);
     expect((await request.delete('/api/v1/email-intake/x', { headers: bearer })).status()).toBe(403);
     expect((await request.post('/api/v1/ticket-webhooks/x/email', { headers: bearer })).status()).toBe(403);
+    expect((await request.post('/api/v1/ticket-webhooks/x/test-email', { headers: bearer })).status()).toBe(403);
 
     // Without a Public URL the Worker has no way to reach Helm.
     let card = await openConnectApps(page, project.key);
@@ -253,8 +255,32 @@ test('Admins give webhooks email addresses that open tickets through the Cloudfl
     await expect(card.locator('[data-email-outcome="unknown_recipient"]').first()).toHaveText('Bounced: unknown address');
     await testInfo.attach('email-intake-active.png', { contentType: 'image/png', body: await card.screenshot() });
 
+    // Test email: a one-time address files a low-priority test ticket when
+    // mail sent to it arrives, and the row reports who sent it.
+    const testRow = page.locator(`[data-webhook-email-test="Backups ${runID}"]`);
+    await page.locator(`[data-webhook-name="Backups ${runID}"]`).getByRole('button', { name: 'Test email' }).click();
+    await expect(testRow).toHaveAttribute('data-email-test-status', 'waiting');
+    const testAddress = (await testRow.locator('[data-email-test-address]').innerText()).trim();
+    expect(testAddress).toMatch(new RegExp(`^${localPart}\\+[a-z2-7]{16}@example\\.test$`));
+    expect(testAddress).not.toBe(address);
+    await expect(testRow.getByRole('link', { name: 'Open in mail app' })).toHaveAttribute('href', new RegExp(`^mailto:${testAddress.replace('+', '\\+')}\\?subject=Helm%20email%20test%20`));
+    await testInfo.attach('email-test-waiting.png', { contentType: 'image/png', body: await testRow.screenshot() });
+    const testMail = mail(['From: Me <me@phone.example>', `To: ${testAddress}`, 'Subject: Helm email test', `Message-ID: <emailtest-${runID}@phone.example>`, '', 'hello']);
+    expect(await deliver(worker, env, testMail, testAddress)).toEqual({});
+    await expect(testRow).toHaveAttribute('data-email-test-status', 'received', { timeout: 15_000 });
+    await expect(testRow).toContainText('Email arrived from Me <me@phone.example> through Cloudflare');
+    const [testTicket] = await ticketsTitled(request, project.key, 'Test email via Cloudflare');
+    expect(testTicket).toMatchObject({ priority: 'low' });
+    await expect(testRow).toContainText(`Opened ${testTicket.key}`);
+    await testInfo.attach('email-test-received.png', { contentType: 'image/png', body: await testRow.screenshot() });
+    expect(await deliver(worker, env, testMail.replace(`<emailtest-${runID}@`, `<emailtest2-${runID}@`), testAddress)).toEqual({});
+    expect(await ticketsTitled(request, project.key, 'Test email via Cloudflare')).toHaveLength(1);
+    expect((await json<Ticket>(await request.get(`/api/v1/tasks/${testTicket.id}`), 'test ticket')).alert_source?.occurrence_count).toBe(2);
+    expect((await request.post('/api/v1/ticket-webhooks/x/test-email', { headers: jsonHeaders })).status()).toBe(404);
+
     // Replacing the address stops the old one; disabling stops the new one.
     page.once('dialog', (dialog) => dialog.accept());
+    await page.locator(`[data-webhook-name="Backups ${runID}"] .row-menu > summary`).click();
     await page.locator(`[data-webhook-name="Backups ${runID}"]`).getByRole('button', { name: 'Email address…' }).click();
     const replaced = await page.locator('#webhook-email-only').inputValue();
     expect(replaced).not.toBe(address);
@@ -263,6 +289,7 @@ test('Admins give webhooks email addresses that open tickets through the Cloudfl
     expect(await deliver(worker, env, fresh, replaced)).toEqual({});
     expect((await json<Ticket>(await request.get(`/api/v1/tasks/${ticket.id}`), 'ticket')).alert_source?.occurrence_count).toBe(3);
     page.once('dialog', (dialog) => dialog.accept());
+    await page.locator(`[data-webhook-name="Backups ${runID}"] .row-menu > summary`).click();
     await page.locator(`[data-webhook-name="Backups ${runID}"]`).getByRole('button', { name: 'Disable' }).click();
     await expect(page.locator(`[data-webhook-name="Backups ${runID}"]`)).toContainText('disabled');
     expect(await deliver(worker, env, first.replace(`<first-${runID}@`, `<fifth-${runID}@`), replaced)).toEqual({ rejected: 'No Helm webhook uses this address' });

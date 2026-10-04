@@ -3,7 +3,7 @@
 Status: deployed 2026-10-03 at
 `https://helm-connect.shanekanterman04.workers.dev/cloudflare/callback`.
 Design: [../../docs/CLOUDFLARE_CONNECT_PLAN.md](../../docs/CLOUDFLARE_CONNECT_PLAN.md).
-User guide: [../../docs/PUBLIC_ACCESS.md](../../docs/PUBLIC_ACCESS.md#connect-cloudflare-guided-setup).
+User guide: [../../docs/PUBLIC_ACCESS.md](../../docs/PUBLIC_ACCESS.md#set-up-with-cloudflare).
 
 ## Why it exists
 
