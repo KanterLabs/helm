@@ -251,8 +251,11 @@ Recorded 2026-10-03 after implementation and verification.
   the detailed cards and manual forms moved under **Details, history and
   manual setup**.
 - **Inboxes (2026-10-04).** Setup's email step now also creates the first
-  email inbox (**Alerts** by default, in the chosen project) and shows its
+  email inbox (**Alerts** by default) and shows its
   address, so "send email to the inbox → ticket" works right after sign-in.
   Webhook rows show **Send test** with rarer actions under **More**; the
   short-lived Test email feature was replaced by emailing an inbox. See
   [EMAIL_ALERT_INTAKE_PLAN.md](EMAIL_ALERT_INTAKE_PLAN.md).
+- **No project choice (2026-10-04).** The inbox step asks only for a name;
+  its tickets land in the one ticket queue
+  ([TICKET_QUEUE_PLAN.md](TICKET_QUEUE_PLAN.md)).

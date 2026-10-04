@@ -21,7 +21,8 @@ const maxIntakeAlertsPerDelivery = 25
 type AlertIntakeRoute struct {
 	Integration string
 	// ActorName labels the dedicated intake actor in Activity.
-	ActorName  string
+	ActorName string
+	// ProjectRef is empty for the ticket queue (every current intake path).
 	ProjectRef string
 	// AssigneeRef is an enabled human's ID or email; empty leaves new
 	// tickets unassigned.
@@ -94,7 +95,13 @@ func (s *Store) IngestAlerts(ctx context.Context, route AlertIntakeRoute, alerts
 	if len(alerts) == 0 || len(alerts) > maxIntakeAlertsPerDelivery {
 		return nil, invalid(fmt.Sprintf("a delivery must contain 1-%d alerts", maxIntakeAlertsPerDelivery), nil)
 	}
-	project, err := s.GetProject(ctx, route.ProjectRef)
+	var project Project
+	var err error
+	if strings.TrimSpace(route.ProjectRef) == "" {
+		project, err = s.TicketQueue(ctx)
+	} else {
+		project, err = s.GetProject(ctx, route.ProjectRef)
+	}
 	if errors.Is(err, ErrNotFound) {
 		return nil, intakeRoutingError("intake project is not available")
 	}

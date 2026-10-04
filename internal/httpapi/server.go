@@ -714,6 +714,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		s.cloudflareConnect(w, r, identity, parts)
 		return
 	}
+	if parts[0] == "tickets" && len(parts) == 3 && parts[2] == "file" {
+		s.fileTicket(w, r, identity, parts[1])
+		return
+	}
 	if parts[0] == "email-inboxes" && (len(parts) == 2 || (len(parts) == 3 && parts[2] == "address")) {
 		s.emailInbox(w, r, identity, parts)
 		return

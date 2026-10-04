@@ -3,12 +3,11 @@
   import { api } from '../api';
   import { openHelp } from '../help';
   import { formatRelative } from '../state';
-  import type { EmailInbox, Project } from '../types';
+  import type { EmailInbox } from '../types';
 
   // Email inboxes: addresses created in Helm. Apps (backups, monitoring,
   // Proxmox, Coolify…) send their alert emails here and each email becomes
-  // a ticket. See docs/PUBLIC_ACCESS.md#email-inboxes.
-  export let projects: Project[] = [];
+  // a ticket in Needs triage. See docs/PUBLIC_ACCESS.md#email-inboxes.
   /** Bumped by the parent when setup may have created an inbox. */
   export let refreshKey = 0;
 
@@ -18,7 +17,6 @@
   let error = '';
   let notice = '';
   let name = '';
-  let project = '';
   let assignMe = true;
   let saving = false;
   let busyId = '';
@@ -26,7 +24,6 @@
   let newest = '';
   let poll: ReturnType<typeof setInterval> | undefined;
 
-  $: if (!project && projects.length) project = projects[0].key;
   $: active = inboxes.filter((inbox) => !inbox.disabled_at);
   $: retired = inboxes.filter((inbox) => inbox.disabled_at);
   $: refreshKey, void load();
@@ -47,13 +44,13 @@
   }
 
   async function create() {
-    if (!name.trim() || !project || saving) return;
+    if (!name.trim() || saving) return;
     saving = true;
     error = '';
     try {
-      const inbox = await api.createEmailInbox({ name: name.trim(), project, assignee: assignMe ? 'me' : '' });
+      const inbox = await api.createEmailInbox({ name: name.trim(), assignee: assignMe ? 'me' : '' });
       newest = inbox.id;
-      notice = `Inbox “${inbox.name}” is ready. Send email to ${inbox.address} and it becomes a ticket in ${inbox.project_key}.`;
+      notice = `Inbox “${inbox.name}” is ready. Send email to ${inbox.address} and it becomes a ticket in Needs triage.`;
       name = '';
       await load();
     } catch (cause) {
@@ -123,7 +120,7 @@
   <header>
     <div>
       <h3 id="inboxes-heading">Email inboxes</h3>
-      <p>Point your apps' alert emails at an inbox (backups, monitoring, Proxmox, Coolify…). Every email becomes a ticket in the inbox's project; the same alert again just adds to the open ticket's count.</p>
+      <p>Point your apps' alert emails at an inbox (backups, monitoring, Proxmox, Coolify…). Every email becomes a ticket in Needs triage; the same alert again just adds to the open ticket's count.</p>
     </div>
     <button class="text-button" type="button" on:click={() => openHelp('public-access', 'email-inboxes')}>Learn more</button>
   </header>
@@ -137,7 +134,7 @@
           <li class:fresh={inbox.id === newest} data-inbox={inbox.name}>
             <div class="inbox-main">
               <strong>{inbox.name}</strong>
-              <span class="optional">→ {inbox.project_key}{#if inbox.assignee_name} · assigned to {inbox.assignee_name}{/if}</span>
+              {#if inbox.assignee_name}<span class="optional">assigned to {inbox.assignee_name}</span>{/if}
             </div>
             <div class="inbox-address">
               <code data-inbox-address>{inbox.address}</code>
@@ -163,13 +160,12 @@
 
     <form class="inbox-create" aria-label="New inbox" on:submit|preventDefault={create}>
       <label>Inbox name<input aria-label="Inbox name" bind:value={name} maxlength="100" placeholder="e.g. Homelab alerts" /></label>
-      <label>Tickets go to<select aria-label="Inbox project" bind:value={project}>{#each projects as item (item.id)}<option value={item.key}>{item.key} · {item.name}</option>{/each}</select></label>
       <label class="inbox-check"><input type="checkbox" bind:checked={assignMe} /> Assign to me</label>
       <button class="button primary" type="submit" disabled={!name.trim() || saving}>{saving ? 'Creating…' : 'Create inbox'}</button>
     </form>
 
     {#if retired.length}
-      <details class="optional"><summary>Turned off ({retired.length})</summary><ul>{#each retired as inbox (inbox.id)}<li>{inbox.name} → {inbox.project_key}</li>{/each}</ul></details>
+      <details class="optional"><summary>Turned off ({retired.length})</summary><ul>{#each retired as inbox (inbox.id)}<li>{inbox.name}</li>{/each}</ul></details>
     {/if}
   {/if}
 
@@ -189,7 +185,7 @@
   .inbox-address { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
   .inbox-address code { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
   .inbox-meta { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
-  .inbox-create { display: grid; grid-template-columns: 2fr 1.6fr auto auto; gap: 10px; align-items: end; }
+  .inbox-create { display: grid; grid-template-columns: 2fr auto auto; gap: 10px; align-items: end; }
   .inbox-create label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
   .inbox-check { display: flex !important; align-items: center; gap: 6px !important; min-height: 36px; }
   .inbox-check input { width: auto; height: auto; padding: 0; }

@@ -5,10 +5,18 @@ next release these entries move into `docs/releases/vX.Y.Z.md`.
 
 ## 2026-10-04
 
+- **One ticket queue.** Webhooks, email inboxes, Coolify and **＋ New
+  ticket** no longer ask for a project: every new ticket lands in Tickets →
+  Needs triage (keys like `TKT-12`, shown as **Not filed**). Use **Project**
+  on a ticket to file it into a project when you know where it belongs; it
+  gets that project's key and the old key keeps working. Existing webhooks
+  and inboxes keep their URLs and addresses and now deliver to the queue.
+  `HELM_COOLIFY_PROJECT` is deprecated and ignored. Guide:
+  [TICKET_WEBHOOKS.md § Where tickets land](../TICKET_WEBHOOKS.md#where-tickets-land).
 - **Email inboxes.** Create inboxes in Helm (**Connect apps → Email
   inboxes**); each has an address that is always shown, with **Copy** and
   **Email it**. Point your apps' alert emails at it and every email becomes
-  a ticket in the inbox's project. Sign in with Cloudflare creates the first
+  a ticket. Sign in with Cloudflare creates the first
   inbox. Replaces per-webhook email addresses and **Test email**; webhooks
   are HTTP-only again.
 - **Simpler Connect apps.** One **Reach Helm from outside** panel centred on

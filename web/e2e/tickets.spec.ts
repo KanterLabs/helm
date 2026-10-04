@@ -3,7 +3,7 @@ import { expect, test, type APIRequestContext, type APIResponse } from '@playwri
 // Proves the "Tickets workspace failure contract" in docs/E2E_TESTING.md
 // against a real Helm process, database and browser.
 
-type Project = { id: string; key: string; slug: string };
+type Project = { id: string; key: string; slug: string; name?: string; system_kind?: string };
 type Column = { id: string; semantic_state: string; position: number };
 type Collection<T> = { data: T[]; next_cursor?: string | null };
 type Ticket = { origin: string; status: string; created_at: string };
@@ -19,13 +19,13 @@ type Task = {
   agent_work?: unknown;
   completed_at?: string;
   ticket?: Ticket;
+  project_id?: string;
 };
-type TicketPage = { data: Task[]; next_cursor: string; counts: Record<string, number> };
+type TicketPage = { data: Task[]; next_cursor: string; counts: Record<string, number>; queue?: { project_id: string; key: string } };
 
 const baseURL = process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080';
 const origin = new URL(baseURL).origin;
 const secret = process.env.HELM_E2E_COOLIFY_SECRET || '';
-const intakeProject = process.env.HELM_E2E_COOLIFY_PROJECT || 'COOLIFYE2E';
 
 function headers(version?: number): Record<string, string> {
   return {
@@ -100,8 +100,6 @@ test('Tickets keep durable membership, server counts and guarded human triage', 
 
   // Alert intake creates the same kind of ticket.
   expect(secret.length, 'run.sh must provide HELM_E2E_COOLIFY_SECRET').toBeGreaterThanOrEqual(32);
-  const projectList = items(await json<Collection<Project> | Project[]>(await request.get('/api/v1/projects?limit=200'), 'projects'));
-  if (!projectList.some((item) => item.key === intakeProject)) await createProject(request, intakeProject);
   const delivered = await json<{ alerts: { task_id: string }[] }>(await request.post(`/api/v1/intake/coolify/${secret}`, {
     data: { event: 'traefik_version_outdated', servers: [{ name: `tickets-${runID}`, uuid: `tk${runID}`, current_version: 'v3.6.1', latest_version: 'v3.6.4' }] },
     headers: { 'Content-Type': 'application/json' }
@@ -235,4 +233,56 @@ test('Tickets keep durable membership, server counts and guarded human triage', 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await testInfo.attach('tickets-mobile-list.png', { contentType: 'image/png', body: await page.screenshot() });
+});
+
+test('New tickets land in one queue and triage files them into a project', async ({ page, request }, testInfo) => {
+  test.setTimeout(90_000);
+  const runID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+  const ops = await createProject(request, `OQ${runID}`.slice(0, 16));
+  const title = `Printer on floor 2 is jammed ${runID}`;
+
+  // New ticket asks for no project; the ticket lands in Needs triage, not filed.
+  await page.goto('/tickets');
+  await page.getByRole('button', { name: '＋ New ticket' }).click();
+  const form = page.getByRole('form', { name: 'New ticket' });
+  await expect(form.getByLabel('Project')).toHaveCount(0);
+  await form.getByLabel('Title').fill(title);
+  await form.getByRole('button', { name: 'Create ticket' }).click();
+  const detail = page.locator('.ticket-detail');
+  await expect(detail.getByRole('heading', { name: title })).toBeVisible();
+  await expect(detail.locator('[data-ticket-status]')).toHaveText('Needs triage');
+  await expect(detail.getByLabel('File to project')).toHaveValue('');
+  const queued = await ticketPage(request, `q=${encodeURIComponent(title)}`);
+  expect(queued.queue, 'the ticket queue is reported').toBeTruthy();
+  const queueKey = queued.queue?.key as string;
+  const ticket = queued.data[0];
+  expect(ticket.key).toMatch(new RegExp(`^${queueKey}-\\d+$`));
+  expect(ticket.project_id).toBe(queued.queue?.project_id);
+  await expect(page.locator(`[data-ticket-key="${ticket.key}"] [data-ticket-project]`)).toHaveText('Not filed');
+  await expect(page.getByLabel('Project filter').locator('option', { hasText: 'Not filed' })).toHaveCount(1);
+
+  // The queue is a system project: hidden from project navigation, not archivable.
+  const queueProject = await json<Project>(await request.get(`/api/v1/projects/${queued.queue?.project_id}`), 'queue project');
+  expect(queueProject.system_kind).toBe('tickets');
+  await expect(page.locator('.all-projects').getByRole('button', { name: queueProject.name as string, exact: true })).toHaveCount(0);
+  const archive = await request.patch(`/api/v1/projects/${queueProject.id}`, { data: { archived: true }, headers: headers() });
+  expect(archive.status()).toBe(400);
+
+  // Filing moves it into the project with a new key; the old key still resolves.
+  await detail.getByLabel('File to project').selectOption(ops.id);
+  const filedKey = new RegExp(`^${ops.key}-\\d+$`);
+  await expect(page.locator('.ticket-moved')).toContainText(`${ticket.key} is now ${ops.key}-`);
+  await expect(detail.locator('.task-key')).toHaveText(filedKey);
+  await expect(page).toHaveURL(new RegExp(`ticket=${ops.key}-`));
+  const filed = await getTask(request, ticket.id);
+  expect(filed.key).toMatch(filedKey);
+  expect(filed.project_id).toBe(ops.id);
+  expect(filed.ticket?.status).toBe('needs_triage');
+  expect((await getTask(request, ticket.key)).id).toBe(ticket.id);
+  expect((await ticketPage(request, `project=${ops.key}`)).data.map((task) => task.id)).toEqual([ticket.id]);
+  await testInfo.attach('ticket-filed.png', { contentType: 'image/png', body: await page.screenshot({ fullPage: true }) });
+
+  // Filing back into the queue is refused.
+  const back = await request.post(`/api/v1/tickets/${filed.id}/file`, { data: { project: queueProject.id }, headers: headers() });
+  expect(back.status()).toBe(400);
 });

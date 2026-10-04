@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
   import { openHelp } from '../help';
-  import type { EmailInbox, EmailIntakeView, Project, PublicEndpointView } from '../types';
+  import type { EmailInbox, EmailIntakeView, PublicEndpointView } from '../types';
   import CloudflareSetup from './CloudflareSetup.svelte';
   import EmailIntakeCard from './EmailIntakeCard.svelte';
   import PublicEndpointCard from './PublicEndpointCard.svelte';
@@ -11,7 +11,6 @@
   // guided setup (Sign in with Cloudflare). Set up → a short summary.
   // Detailed status, history and manual setup sit in one collapsed section.
   export let onChanged: () => void = () => undefined;
-  export let projects: Project[] = [];
 
   const detailsKey = 'helm.publicAccess.detailsOpen';
 
@@ -118,7 +117,7 @@
       </dl>
       <p class="optional">{#if emailOn}Try it: email an inbox below and watch the ticket appear.{:else}Try it: use <strong>Send test</strong> on a webhook below.{/if} <button class="text-button" type="button" on:click={() => { showSetup = true; }} data-rerun-setup>Run setup again</button></p>
     {:else if showSetup}
-      <CloudflareSetup preferEmail={true} {projects} onChanged={setupChanged} onFinished={finished} />
+      <CloudflareSetup preferEmail={true} onChanged={setupChanged} onFinished={finished} />
       {#if active}
         <button class="text-button cancel-setup" type="button" on:click={() => { showSetup = false; addingEmail = false; }}>Back to summary</button>
       {/if}

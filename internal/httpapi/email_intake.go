@@ -121,7 +121,6 @@ func (s *Server) emailHook(w http.ResponseWriter, r *http.Request, secret string
 	route := store.AlertIntakeRoute{
 		Integration: "inbox-" + inbox.ID,
 		ActorName:   inbox.Name,
-		ProjectRef:  inbox.ProjectID,
 		AssigneeRef: assignee,
 		InboxID:     inbox.ID,
 		Receipt:     &store.IntakeReceipt{IntakeID: emailIntake.ID, Key: parsed.ReceiptKey, Sender: boundedText(parsed.FromDisplay, 200), Subject: parsed.Subject},

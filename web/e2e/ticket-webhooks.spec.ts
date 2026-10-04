@@ -4,7 +4,7 @@ import { expect, test, type APIRequestContext, type APIResponse } from '@playwri
 // Proves the "Ticket webhooks failure contract" in docs/E2E_TESTING.md
 // against a real Helm process, database and browser.
 
-type Project = { id: string; key: string; slug: string };
+type Project = { id: string; key: string; slug: string; system_kind?: string };
 type Column = { id: string; semantic_state: string };
 type Collection<T> = { data: T[] };
 type Task = {
@@ -60,8 +60,6 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   const me = await json<{ id: string }>(await request.get('/api/v1/auth/me'), 'me');
   const runID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
   const project = await json<Project>(await request.post('/api/v1/projects', { data: { key: `WH${runID}`.slice(0, 16), name: `Webhooks ${runID}` }, headers: headers() }), 'project');
-  const columns = (await json<Collection<Column>>(await request.get(`/api/v1/projects/${project.id}/columns?limit=20`), 'columns')).data;
-  const backlog = columns.find((column) => column.semantic_state === 'backlog') as Column;
   const secrets: string[] = [];
 
   // Agent bearer tokens cannot manage webhooks.
@@ -76,7 +74,8 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   const panel = page.locator('.ticket-integrations');
   await expect(panel.getByRole('heading', { name: 'How to send a ticket' })).toBeVisible();
   await panel.getByLabel('Webhook name', { exact: true }).fill(`Grafana alerts ${runID}`);
-  await panel.getByLabel('Webhook project', { exact: true }).selectOption(project.key);
+  // No project to choose: every ticket lands in the ticket queue.
+  await expect(panel.getByLabel('Webhook project')).toHaveCount(0);
   const createResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/ticket-webhooks') && response.request().method() === 'POST');
   await panel.getByRole('button', { name: 'Create webhook URL' }).click();
   expect((await createResponse).headers()['cache-control']).toBe('no-store');
@@ -97,20 +96,27 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   expect(hook).toMatchObject({ format: 'generic', delivery_count: 0 });
   expect(url.endsWith(hook.secret_hint)).toBeTruthy();
 
-  // A curl-shaped post opens a ticket in the webhook's project, assigned as configured.
+  // Creating the webhook created the ticket queue (docs/TICKET_QUEUE_PLAN.md).
+  const queueRef = (await json<{ queue?: { project_id: string } }>(await request.get('/api/v1/tickets?limit=1'), 'tickets')).queue;
+  const queue = await json<Project>(await request.get(`/api/v1/projects/${queueRef?.project_id}`), 'ticket queue');
+  expect(queue.system_kind).toBe('tickets');
+  const columns = (await json<Collection<Column>>(await request.get(`/api/v1/projects/${queue.id}/columns?limit=20`), 'columns')).data;
+  const backlog = columns.find((column) => column.semantic_state === 'backlog') as Column;
+
+  // A curl-shaped post opens a ticket in Needs triage, assigned as configured.
   const payload = { title: `Disk almost full on db-${runID}`, description: 'Volume at **93%**.', priority: 'high', dedupe_key: `db-${runID}:disk`, source: 'grafana', url: 'https://grafana.example.com/d/disk', fields: { host: `db-${runID}`, usage: '93%', critical: true } };
   const createdResponse = await post(request, url, payload);
   expect(createdResponse.status()).toBe(201);
   const created = await createdResponse.json() as HookResult;
   expect(created).toMatchObject({ disposition: 'created', occurrence_count: 1 });
-  expect(created.ticket.url).toBe(`${origin}/p/${project.slug}/tasks/${created.ticket.key}`);
+  expect(created.ticket.url).toBe(`${origin}/p/${queue.slug}/tasks/${created.ticket.key}`);
   const ticket = await getTask(request, created.ticket.id);
   expect(ticket).toMatchObject({ title: payload.title, priority: 'high', column_id: backlog.id, assignee: me.id, ticket: { origin: 'alert', status: 'needs_triage' } });
   expect(ticket.claimed_by).toBeUndefined();
   expect(ticket.alert_source).toMatchObject({ alert_type: 'grafana', resource_name: `Grafana alerts ${runID}`, evidence: { host: `db-${runID}`, usage: '93%', critical: 'true', link: 'https://grafana.example.com/d/disk' } });
 
   // Invalid payloads name the field and create nothing.
-  const before = await projectTaskCount(request, project);
+  const before = await projectTaskCount(request, queue);
   for (const [body, field] of [[{ description: 'no title' }, 'title'], [{ title: 'x', priority: 'p1' }, 'priority'], [{ tittle: 'typo' }, 'tittle'], [{ title: 'x', fields: { host: { nested: true } } }, 'fields.host']] as const) {
     const response = await post(request, url, body);
     expect(response.status()).toBe(400);
@@ -118,7 +124,7 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
     expect(error.code).toBe('invalid_ticket');
     expect(error.details.field).toBe(field);
   }
-  expect(await projectTaskCount(request, project)).toBe(before);
+  expect(await projectTaskCount(request, queue)).toBe(before);
 
   // Same dedupe_key while open only repeats; after completion it opens linked work.
   const repeatResponse = await post(request, url, payload);
@@ -136,7 +142,7 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   expect(withoutAgain.ticket.key).not.toBe(without.ticket.key);
 
   // The human sees readable evidence on the ticket.
-  await page.goto(`/tickets?project=${project.key}&ticket=${followUp.ticket.key}`);
+  await page.goto(`/tickets?project=${queue.key}&ticket=${followUp.ticket.key}`);
   const source = page.locator('.ticket-detail .alert-source-section');
   await expect(source).toContainText('Webhook');
   await expect(source).toContainText('grafana');
@@ -164,7 +170,7 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   await testInfo.attach('connect-apps-list.png', { contentType: 'image/png', body: await panel.screenshot() });
 
   // A Coolify-format webhook behaves like the built-in Coolify intake.
-  const coolify = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Coolify ${runID}`, project: project.key, format: 'coolify', assignee: 'me' }, headers: { Origin: origin, 'Content-Type': 'application/json' } }), 'coolify webhook');
+  const coolify = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Coolify ${runID}`, format: 'coolify', assignee: 'me' }, headers: { Origin: origin, 'Content-Type': 'application/json' } }), 'coolify webhook');
   secrets.push(coolify.url);
   const coolifyResult = await json<{ disposition: string; alerts: { disposition: string; task_id: string }[] }>(await post(request, coolify.url, {
     event: 'traefik_version_outdated', message: 'Traefik proxy outdated', servers: [{ name: `coolify-${runID}`, uuid: `wh${runID}`, current_version: '3.6.25', latest_version: '3.7.13', update_type: 'minor_upgrade', upgrade_target: 'v3.7' }]

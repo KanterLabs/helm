@@ -2,9 +2,34 @@
 
 Any app that can send an HTTP POST with JSON can open Helm tickets: monitoring
 alerts, CI failures, form submissions, cron scripts, or Zapier/n8n flows. New
-tickets land in the chosen project's **Needs triage** queue on the Tickets page.
+tickets land in **Needs triage** on the Tickets page; you decide which project
+a ticket belongs to when you triage it ([Where tickets land](#where-tickets-land)).
 Apps that send alerts by email use an
 [email inbox](PUBLIC_ACCESS.md#email-inboxes) instead.
+
+## Where tickets land
+
+Every new ticket, whether from a webhook, an email inbox, Coolify or **＋ New
+ticket**, lands in one queue: **Tickets → Needs triage**. Nothing asks for a
+project up front, because the app sending an alert rarely knows where the
+work belongs.
+
+- Queue tickets have keys like `TKT-12` and show **Not filed**.
+- **File to project** (the **Project** menu on a ticket) moves it into a
+  project when you know where it belongs. It gets that project's next key
+  (`TKT-12` becomes `OPS-41`); links to `TKT-12` keep working. Status,
+  notes, evidence, labels, watchers and the repeat count come along, and
+  the next repeat of the same alert counts on the filed ticket.
+- Filing is optional: you can accept, start and complete tickets without
+  ever filing them.
+- The project filter on Tickets has **Not filed** for the queue.
+- A ticket with subtasks, dependencies or a shipped release, or one an
+  agent is working on, can't be filed until that changes; Helm says which.
+
+Under the hood the queue is a built-in project named **Tickets**. Helm
+creates it the first time a ticket needs it, hides it from project lists,
+and doesn't let it be archived. Agent tokens see queue tickets only if
+they're granted that project. Design: [TICKET_QUEUE_PLAN.md](TICKET_QUEUE_PLAN.md).
 
 ## 1. Create a webhook URL
 
@@ -13,7 +38,6 @@ An administrator opens **Tickets → Connect apps** and enters:
 | Setting | Meaning |
 | --- | --- |
 | Name | Shown as the ticket's source and in Activity, e.g. `Grafana alerts`. |
-| Project | Project whose Backlog receives the tickets. |
 | Format | **Generic JSON** (below) or **Coolify notifications** (Coolify's own webhook payload). |
 | Assign new tickets to me | Otherwise tickets start unassigned. |
 
@@ -70,7 +94,7 @@ of being silently dropped. Bodies are limited to 64 KiB.
 | `400` | `{"error":{"code":"invalid_ticket","message":"title is required","details":{"field":"title","allowed_fields":[…]}}}` | Fix the named field; nothing was created. |
 | `404` | `{"error":{"code":"not_found",…}}` | Unknown, rotated or disabled URL. |
 | `413` | | Body over 64 KiB. |
-| `503` | `{"error":{"code":"intake_unavailable",…}}` | The target project or its Backlog column is gone; retry after an admin fixes it. |
+| `503` | `{"error":{"code":"intake_unavailable",…}}` | The ticket queue's Needs triage column is gone; retry after an admin fixes it. |
 
 ## Repeats
 
@@ -86,8 +110,8 @@ Concurrent posts with the same key never create duplicate tickets.
 
 ## What the ticket looks like
 
-- An ordinary task in the project's Backlog column, shown in Tickets → Needs
-  triage.
+- An ordinary task in the ticket queue's Needs triage column, shown in
+  Tickets → Needs triage as **Not filed**.
 - `ticket.origin` is `alert`, and the ticket is never claimed for an agent.
 - The **Alert source** panel shows the webhook name, `source`, `url` (as
   *Link*), each `fields` entry, the repeat count and first/last receipt.
@@ -117,6 +141,6 @@ under **More**.
 The machine-readable contract is `/openapi.json` (operations
 `postTicketWebhook`, `listTicketWebhooks`, `createTicketWebhook`,
 `rotateTicketWebhook`, `disableTicketWebhook`,
-`sendTestTicket`) and, for the Coolify path, `receiveCoolifyAlert`. Public
+`sendTestTicket`, `createQueueTicket`, `fileTicket`) and, for the Coolify path, `receiveCoolifyAlert`. Public
 access operations are listed in
 [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#api-reference).

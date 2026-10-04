@@ -12,7 +12,7 @@ import (
 // Email inboxes: addresses created in Helm whose mail becomes tickets.
 //
 //	GET    /api/v1/email-inboxes               inboxes with their addresses
-//	POST   /api/v1/email-inboxes               {name, project, assignee?}
+//	POST   /api/v1/email-inboxes               {name, assignee?}
 //	DELETE /api/v1/email-inboxes/{id}          turn an inbox off
 //	POST   /api/v1/email-inboxes/{id}/address  replace its address
 
@@ -65,11 +65,11 @@ func (s *Server) emailInboxes(w http.ResponseWriter, r *http.Request, identity a
 	case http.MethodPost:
 		var payload struct {
 			Name     string `json:"name"`
-			Project  string `json:"project"`
+			Project  string `json:"project"` // ignored: tickets land in the ticket queue
 			Assignee string `json:"assignee"`
 		}
 		if err := decodeJSON(r, &payload); err != nil {
-			s.writeError(w, http.StatusBadRequest, "invalid_json", "request body must be {name, project, assignee?}", nil)
+			s.writeError(w, http.StatusBadRequest, "invalid_json", "request body must be {name, assignee?}", nil)
 			return
 		}
 		if _, ok, err := s.Store.ActiveEmailIntake(r.Context()); err != nil {
@@ -83,7 +83,7 @@ func (s *Server) emailInboxes(w http.ResponseWriter, r *http.Request, identity a
 		if assignee == "me" {
 			assignee = identity.Actor.ID
 		}
-		inbox, err := s.Store.CreateEmailInbox(r.Context(), store.EmailInboxInput{Name: payload.Name, ProjectRef: payload.Project, AssigneeID: assignee}, identity.Actor.ID)
+		inbox, err := s.Store.CreateEmailInbox(r.Context(), store.EmailInboxInput{Name: payload.Name, AssigneeID: assignee}, identity.Actor.ID)
 		if err != nil {
 			s.writeStoreError(w, err)
 			return

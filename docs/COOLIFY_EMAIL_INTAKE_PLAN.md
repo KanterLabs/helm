@@ -54,7 +54,8 @@ signature, delivery ID or custom headers, so:
   `(integration, condition_key)` constraint (key = server UUID + offered
   version), and correlation and task creation commit in one transaction. A
   retried delivery can over-count occurrences but never duplicates a task.
-- A new condition creates a `kind=task` in the configured project's Backlog,
+- A new condition creates a `kind=task` in the ticket queue's Needs triage
+  (before 2026-10-04: the configured project's Backlog),
   assigned to the configured human, unclaimed, and produces one assignment
   notification. A repeat only increments the occurrence count and adds an
   `alert.repeated` Activity event. It never edits, versions, reopens or
@@ -62,17 +63,17 @@ signature, delivery ID or custom headers, so:
   deleted). A new offered version creates linked follow-up work.
 - `test` is `ignored` and other events are `unsupported`, so neither creates
   a task. Any invalid server in a multi-server notice rejects the whole
-  delivery. Bodies over 64 KiB return `413`. A missing project, Backlog column
-  or assignee returns `503`.
+  delivery. Bodies over 64 KiB return `413`. A missing Needs triage column or
+  assignee returns `503`.
 - Tasks expose read-only `alert_source` evidence, shown in an Alert source
   panel in the task drawer.
 
-Configuration (all three are required together):
+Configuration (the secret and assignee are required together):
 
 | Variable | Meaning |
 | --- | --- |
 | `HELM_COOLIFY_WEBHOOK_SECRET_FILE` or `HELM_COOLIFY_WEBHOOK_SECRET` | Path secret; the file must be owner-only. Set exactly one. |
-| `HELM_COOLIFY_PROJECT` | Target project ID, key or slug, resolved per delivery. |
+| `HELM_COOLIFY_PROJECT` | Deprecated and ignored (2026-10-04): Coolify tickets land in the ticket queue like every other intake ([TICKET_QUEUE_PLAN.md](TICKET_QUEUE_PLAN.md)). Helm logs a warning when it is set. |
 | `HELM_COOLIFY_ASSIGNEE` | Enabled human actor ID or email, resolved per delivery. |
 
 Beta reads these from the `beta` environment secret

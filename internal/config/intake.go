@@ -7,8 +7,9 @@ import (
 )
 
 // CoolifyIntake pins the routing for Coolify webhook alerts. Every field comes
-// from operator configuration; webhook content can never choose the project,
-// assignee or secret. A zero value means the intake route is disabled.
+// from operator configuration; webhook content can never choose the
+// assignee or secret. Tickets land in the ticket queue. A zero value means
+// the intake route is disabled.
 type CoolifyIntake struct {
 	// Secret is the URL path credential Coolify presents. Coolify webhooks
 	// carry no signature or custom headers, so the secret must be part of the
@@ -18,8 +19,9 @@ type CoolifyIntake struct {
 	// HELM_COOLIFY_WEBHOOK_SECRET.
 	Secret     []byte
 	SecretFile string
-	// Project is a project ID, key or slug resolved on every delivery so a
-	// renamed or missing project fails closed instead of using a stale ID.
+	// Project is the deprecated HELM_COOLIFY_PROJECT. It is accepted so
+	// existing deployments keep starting, but ignored: Coolify tickets land
+	// in the ticket queue like every other intake (docs/TICKET_QUEUE_PLAN.md).
 	Project string
 	// Assignee is a human actor ID or email resolved on every delivery.
 	Assignee string
@@ -58,8 +60,8 @@ func coolifyIntakeFromEnv() (CoolifyIntake, error) {
 	if intake.SecretFile != "" && secretValue.value != "" {
 		return CoolifyIntake{}, fmt.Errorf("set only one of HELM_COOLIFY_WEBHOOK_SECRET_FILE and HELM_COOLIFY_WEBHOOK_SECRET")
 	}
-	if !hasSecret || intake.Project == "" || intake.Assignee == "" {
-		return CoolifyIntake{}, fmt.Errorf("a Coolify webhook secret, HELM_COOLIFY_PROJECT and HELM_COOLIFY_ASSIGNEE must be set together")
+	if !hasSecret || intake.Assignee == "" {
+		return CoolifyIntake{}, fmt.Errorf("a Coolify webhook secret and HELM_COOLIFY_ASSIGNEE must be set together")
 	}
 	if strings.ContainsAny(intake.Project+intake.Assignee, "\r\n\x00") {
 		return CoolifyIntake{}, fmt.Errorf("HELM_COOLIFY_PROJECT and HELM_COOLIFY_ASSIGNEE must not contain control characters")

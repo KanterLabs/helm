@@ -1,14 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
-  import type { Actor, Project, TicketTestResult, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
+  import type { Actor, TicketTestResult, TicketWebhook, TicketWebhookFormat, TicketWebhookSecret } from '../types';
   import { openHelp } from '../help';
   import EmailInboxes from './EmailInboxes.svelte';
   import HelpDrawer from './HelpDrawer.svelte';
   import PublicAccessPanel from './PublicAccessPanel.svelte';
 
   export let user: Actor;
-  export let projects: Project[] = [];
   export let onPublicAccessChanged: () => void = () => undefined;
 
   const fields: { name: string; required: boolean; text: string }[] = [
@@ -26,7 +25,6 @@
   let loading = false;
   let error = '';
   let name = '';
-  let project = '';
   let format: TicketWebhookFormat = 'generic';
   let assignMe = true;
   let saving = false;
@@ -38,7 +36,6 @@
   let copied = '';
   let busyId = '';
 
-  $: if (!project && projects.length) project = projects[0].key;
   $: exampleURL = revealed?.url || `${endpointBase || `${window.location.origin}/api/v1/hooks/tickets/`}<secret>`;
   $: curlExample = `curl -X POST '${exampleURL}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"title": "Disk almost full on db-1", "priority": "high", "dedupe_key": "db-1:disk", "source": "grafana", "fields": {"host": "db-1", "usage": "93%"}}'`;
 
@@ -69,11 +66,11 @@
   }
 
   async function create() {
-    if (!name.trim() || !project || saving) return;
+    if (!name.trim() || saving) return;
     saving = true;
     error = '';
     try {
-      revealed = await api.createTicketWebhook({ name: name.trim(), project, format, assignee: assignMe ? 'me' : '' });
+      revealed = await api.createTicketWebhook({ name: name.trim(), format, assignee: assignMe ? 'me' : '' });
       name = '';
       await load();
     } catch (cause) {
@@ -149,21 +146,21 @@
 <section class="ticket-integrations" aria-labelledby="ticket-integrations-heading">
   <div class="integrations-heading">
     <h2 id="ticket-integrations-heading">Connect apps</h2>
-    <p>Any app that can send an HTTP POST can open tickets: monitoring, CI, forms, scripts or Zapier-style tools. Create a webhook URL here, paste it into the app, and new tickets land in that project's <strong>Needs triage</strong> queue.</p>
+    <p>Any app that can send an HTTP POST can open tickets: monitoring, CI, forms, scripts or Zapier-style tools. Create a webhook URL here, paste it into the app, and new tickets land in <strong>Needs triage</strong>.</p>
   </div>
 
   {#if error}<div class="inline-alert error" role="alert"><span>!</span>{error}</div>{/if}
 
   {#if user.admin}
-    <PublicAccessPanel {projects} onChanged={() => { inboxesKey += 1; void load(); onPublicAccessChanged(); }} />
-    <EmailInboxes {projects} refreshKey={inboxesKey} />
+    <PublicAccessPanel onChanged={() => { inboxesKey += 1; void load(); onPublicAccessChanged(); }} />
+    <EmailInboxes refreshKey={inboxesKey} />
   {/if}
   <HelpDrawer />
 
   {#if revealed}
     <div class="webhook-reveal" role="status" data-webhook-secret-reveal>
       <strong>Copy this URL now. It will not be shown again.</strong>
-      <p>Webhook “{revealed.webhook.name}” → {revealed.webhook.project_key} · {revealed.webhook.format === 'coolify' ? 'Coolify notifications' : 'Generic JSON'}</p>
+      <p>Webhook “{revealed.webhook.name}” · {revealed.webhook.format === 'coolify' ? 'Coolify notifications' : 'Generic JSON'}</p>
       <div class="webhook-url-row">
         <label class="sr-only" for="webhook-url">Webhook URL</label>
         <input id="webhook-url" readonly value={revealed.url} on:focus={(event) => event.currentTarget.select()} />
@@ -177,7 +174,6 @@
     <h3 class="webhooks-heading">Webhooks</h3>
     <form class="webhook-create" aria-label="New webhook" on:submit|preventDefault={create}>
       <label>Name<input aria-label="Webhook name" bind:value={name} maxlength="100" placeholder="e.g. Grafana alerts" required /></label>
-      <label>Project<select aria-label="Webhook project" bind:value={project}>{#each projects as item (item.id)}<option value={item.key}>{item.key} · {item.name}</option>{/each}</select></label>
       <label>Format<select aria-label="Webhook format" bind:value={format}><option value="generic">Generic JSON</option><option value="coolify">Coolify notifications</option></select></label>
       <label class="webhook-check"><input type="checkbox" bind:checked={assignMe} /> Assign new tickets to me</label>
       <button class="button primary" type="submit" disabled={!name.trim() || saving}>{saving ? 'Creating…' : 'Create webhook URL'}</button>
@@ -188,12 +184,11 @@
     {:else if hooks.length}
       <table class="webhook-table">
         <caption class="sr-only">Ticket webhooks</caption>
-        <thead><tr><th scope="col">Name</th><th scope="col">Project</th><th scope="col">Format</th><th scope="col">URL ends</th><th scope="col">Deliveries</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col">Format</th><th scope="col">URL ends</th><th scope="col">Deliveries</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {#each hooks as hook (hook.id)}
             <tr class:disabled={Boolean(hook.disabled_at)} data-webhook-name={hook.name}>
               <td>{hook.name}{#if hook.disabled_at}{' '}<span class="optional">· disabled</span>{/if}</td>
-              <td>{hook.project_key}</td>
               <td>{hook.format === 'coolify' ? 'Coolify' : 'Generic JSON'}</td>
               <td><code>…{hook.secret_hint}</code></td>
               <td data-webhook-deliveries>{hook.delivery_count}</td>
@@ -212,7 +207,7 @@
             {#if testResults[hook.id]}
               {@const result = testResults[hook.id]}
               <tr class="webhook-test-row" data-webhook-test-result={hook.name}>
-                <td colspan="7">
+                <td colspan="6">
                   <span class={result.ok ? 'test-ok' : 'test-failed'} data-webhook-test-status={result.ok ? 'ok' : 'failed'}>{result.ok ? '✓' : '✕'}</span>
                   {testSummary(result)}
                   {#if result.ok && result.ticket_url}<a href={result.ticket_url}>Open {result.ticket_key}</a>{/if}
@@ -260,7 +255,7 @@
   .webhook-url-row { display: flex; gap: 8px; }
   .webhook-url-row input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 12px; }
   .webhook-reveal .text-button { justify-self: start; }
-  .webhook-create { display: grid; grid-template-columns: 2fr 1.5fr 1.2fr auto auto; gap: 10px; align-items: end; }
+  .webhook-create { display: grid; grid-template-columns: 2fr 1.2fr auto auto; gap: 10px; align-items: end; }
   .webhook-create label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
   .webhook-check { display: flex !important; align-items: center; gap: 6px !important; min-height: 36px; }
   .webhook-table { width: 100%; border-collapse: collapse; font-size: 12px; }

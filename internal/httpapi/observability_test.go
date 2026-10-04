@@ -96,6 +96,7 @@ func TestMetricRoutesUseBoundedTemplates(t *testing.T) {
 		"/api/v1/cloudflare/oauth/callback?code=secret":    "/api/v1/cloudflare/oauth/callback",
 		"/api/v1/docs/public-access":                       "/api/v1/docs/:doc",
 		"/api/v1/email-inboxes/inbox-id/address":           "/api/v1/email-inboxes/:inbox/address",
+		"/api/v1/tickets/TKT-4/file":                       "/api/v1/tickets/:ticket/file",
 		"/api/v1/auth/setup":                               "/api/v1/auth/setup",
 	}
 	for rawPath, want := range tests {

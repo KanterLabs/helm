@@ -46,7 +46,6 @@ func (s *Server) coolifyIntake(w http.ResponseWriter, r *http.Request, secret st
 	s.ingestCoolify(w, r, body, store.AlertIntakeRoute{
 		Integration: intake.CoolifyIntegration,
 		ActorName:   "Coolify",
-		ProjectRef:  cfg.Project,
 		AssigneeRef: cfg.Assignee,
 	})
 }

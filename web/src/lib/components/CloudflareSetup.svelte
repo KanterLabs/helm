@@ -3,7 +3,7 @@
   import { api } from '../api';
   import { openHelp } from '../help';
   import { formatRelative } from '../state';
-  import type { CloudflareConnectStatus, CloudflareSetupRun, CloudflareZoneOption, Project } from '../types';
+  import type { CloudflareConnectStatus, CloudflareSetupRun, CloudflareZoneOption } from '../types';
 
   // Guided setup: sign in with Cloudflare (or use a token), confirm the
   // domain, and Helm creates the public URL and email addresses with a live
@@ -13,8 +13,6 @@
   export let onFinished: () => void = () => undefined;
   /** Pre-ticks email (e.g. "Add email addresses"). */
   export let preferEmail = true;
-  /** Projects the first inbox can file tickets into. */
-  export let projects: Project[] = [];
 
   const stepIcons: Record<string, string> = { pending: '○', running: '◌', done: '✓', skipped: '–', failed: '✕' };
 
@@ -27,7 +25,6 @@
   let localPart = 'helm-alerts';
   let fallback = '';
   let consent = false;
-  let inboxProject = '';
   let inboxName = 'Alerts';
   let token = '';
   let tokenOpen = false;
@@ -41,7 +38,6 @@
   $: otherZones = zones.filter((item) => !item.usable);
   $: zone = zones.find((item) => item.id === zoneId);
   $: emailPossible = zone?.email_routing === 'ready';
-  $: if (!inboxProject && projects.length) inboxProject = projects[0].key;
   $: needsConsent = Boolean(zone && emailPossible && withEmail && !zone.plus_addressing);
   $: canStart = Boolean(zone && zone.usable && (hostname.trim() || status?.active_public_hostname) && (!withEmail || !emailPossible || !needsConsent || consent) && !busy);
   $: if (status && !status.oauth_available) tokenOpen = true;
@@ -131,7 +127,7 @@
       run = await api.startCloudflareSetup({
         zone: zone.id,
         hostname: hostname.trim(),
-        email: withEmail && emailPossible ? { local_part: localPart.trim() || 'helm-alerts', fallback_address: fallback.trim() || undefined, enable_subaddressing: consent, project: inboxProject || undefined, inbox_name: inboxName.trim() || 'Alerts', assign_to_me: true } : undefined
+        email: withEmail && emailPossible ? { local_part: localPart.trim() || 'helm-alerts', fallback_address: fallback.trim() || undefined, enable_subaddressing: consent, inbox_name: inboxName.trim() || 'Alerts', assign_to_me: true } : undefined
       });
       schedule();
     } catch (cause) {
@@ -280,7 +276,6 @@
           {:else if withEmail}
             <div class="cf-inbox">
               <label class="cf-field">Inbox name<input aria-label="Guided inbox name" bind:value={inboxName} autocomplete="off" /></label>
-              <label class="cf-field">Tickets go to<select aria-label="Guided inbox project" bind:value={inboxProject}>{#each projects as item (item.id)}<option value={item.key}>{item.key} · {item.name}</option>{/each}</select></label>
             </div>
             {#if needsConsent}
               <label class="cf-check consent" data-setup-consent><input type="checkbox" bind:checked={consent} /> Turn on plus addressing for {zone.name}, so <code>name+anything@{zone.name}</code> also reaches <code>name@{zone.name}</code>.</label>

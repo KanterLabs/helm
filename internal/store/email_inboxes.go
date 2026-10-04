@@ -10,8 +10,8 @@ import (
 	"unicode/utf8"
 )
 
-// EmailInbox is an address created in Helm whose mail becomes tickets in a
-// project: <intake local part>+<Tag>@<intake domain>.
+// EmailInbox is an address created in Helm whose mail becomes tickets in the
+// ticket queue: <intake local part>+<Tag>@<intake domain>.
 type EmailInbox struct {
 	ID             string  `json:"id"`
 	Name           string  `json:"name"`
@@ -28,10 +28,10 @@ type EmailInbox struct {
 	ReceivedCount  int     `json:"received_count"`
 }
 
-// EmailInboxInput creates an inbox.
+// EmailInboxInput creates an inbox. Its tickets land in the ticket queue
+// (TicketQueue).
 type EmailInboxInput struct {
 	Name       string
-	ProjectRef string
 	AssigneeID string
 }
 
@@ -72,21 +72,15 @@ func newInboxTag(name string) string {
 	return slug + "-" + string(buf)
 }
 
-// CreateEmailInbox creates an inbox for a project with a Backlog column.
+// CreateEmailInbox creates an inbox whose mail becomes tickets in the queue.
 func (s *Store) CreateEmailInbox(ctx context.Context, input EmailInboxInput, actorID string) (EmailInbox, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" || utf8.RuneCountInString(input.Name) > 100 || strings.ContainsAny(input.Name, "\r\n\x00") {
 		return EmailInbox{}, invalid("name must be 1-100 characters on one line", map[string]any{"field": "name"})
 	}
-	project, err := s.GetProject(ctx, input.ProjectRef)
-	if errors.Is(err, ErrNotFound) {
-		return EmailInbox{}, invalid("project not found", map[string]any{"field": "project"})
-	}
+	project, err := s.TicketQueue(ctx)
 	if err != nil {
 		return EmailInbox{}, err
-	}
-	if _, err := s.StateColumn(ctx, project.ID, "backlog"); err != nil {
-		return EmailInbox{}, invalid("project needs a Backlog column for new tickets", map[string]any{"field": "project"})
 	}
 	if input.AssigneeID != "" {
 		if _, err := s.resolveIntakeAssignee(ctx, input.AssigneeID); err != nil {

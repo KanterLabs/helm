@@ -72,7 +72,7 @@ the same database starts from a fresh condition.
 | Failure | Observable proof |
 | --- | --- |
 | A wrong or missing secret can create work or reveal that intake exists | The request returns the same `404` as an unknown route and the project task count is unchanged. |
-| A Traefik notice creates work in the wrong place or for an agent | The task is `kind=task` in the configured project's Backlog column, assigned to the configured human, with no `claimed_by` and no `agent_work`. |
+| A Traefik notice creates work in the wrong place or for an agent | The task is `kind=task` in the ticket queue's Needs triage column (whatever the deprecated `HELM_COOLIFY_PROJECT` says), assigned to the configured human, with no `claimed_by` and no `agent_work`. |
 | Concurrent deliveries of one notice create duplicate tasks | Parallel identical deliveries return one `created` and the rest `repeated`; exactly one task exists and its occurrence count equals the delivery count. |
 | A repeat overwrites human triage or notifies again | After a human edits title, priority and description, a repeat leaves those fields and the task version unchanged and adds no assignee notification. |
 | A repeat reopens or recreates completed work | After completion, an identical notice reports `retained`; the task stays completed and no new task appears. |
@@ -103,6 +103,21 @@ retry against the same database starts clean.
 | Keyboard users cannot work the queue | Arrow keys move through rows, Enter opens a ticket, `/` focuses search outside text inputs and does nothing while typing. |
 | Notes are lost or trigger hidden side effects | An internal note posts as an ordinary task comment and shows in the ticket immediately and after reload. |
 
+## Ticket queue failure contract
+
+The one-queue workflow (see `TICKET_QUEUE_PLAN.md`) must prove these failure
+cases through a real Helm process, database and browser
+(`web/e2e/tickets.spec.ts`, plus the webhook, email, Coolify and guided-setup
+specs).
+
+| Failure | Observable proof |
+| --- | --- |
+| Intake still asks for a project | The New ticket, webhook, inbox and guided-setup forms have no project field. |
+| Intake lands somewhere else | A New ticket, a webhook post, an inbox email and a Coolify alert all land in the queue project reported by `GET /api/v1/tickets` (`queue`), in Needs triage, shown as **Not filed**. |
+| The queue leaks into normal project UI or can be retired | The queue has `system_kind=tickets`, is absent from the sidebar project list, offers **Not filed** in the Tickets filter, and archiving it returns `400`. |
+| Filing loses the ticket or its history | After **File to project** the ticket has the project's next key, keeps its status, is listed under that project, the old key still resolves to it, and the page says `<old> is now <new>`. |
+| A ticket can be filed back into the queue | Filing into the queue project returns `400`. |
+
 ## Ticket webhooks failure contract
 
 The ticket webhook workflow must prove these failure cases through a real Helm
@@ -116,7 +131,7 @@ process, database and browser. Screenshots mask every revealed webhook URL.
 | Invalid payloads are opaque or partially applied | A missing `title` or a bad `priority` returns `400` naming the field and creates nothing. |
 | Repeats create duplicate tickets | Posts with the same `dedupe_key` while the ticket is open return `repeated` and bump the count; after completion the next post opens a new ticket linked to the previous one. |
 | Rotation or disabling leaves old URLs working | After rotate the old URL returns the generic `404` and the new one works; a disabled webhook returns `404`. |
-| A webhook routes outside its configured project | Tickets land in the webhook's project Backlog, assigned as configured, with `ticket.origin=alert` and readable evidence fields. |
+| A webhook routes outside the ticket queue | The create form has no project field; tickets land in the ticket queue's Needs triage, assigned as configured, with `ticket.origin=alert` and readable evidence fields. |
 | A Coolify-format webhook diverges from the built-in Coolify intake | A webhook created with format `coolify` accepts a Coolify `traefik_version_outdated` payload and creates the same kind of ticket. |
 
 ## Public endpoint failure contract

@@ -37,11 +37,11 @@ type TicketWebhook struct {
 	DeliveryCount  int     `json:"delivery_count"`
 }
 
-// TicketWebhookInput creates a webhook.
+// TicketWebhookInput creates a webhook. Its tickets land in the ticket
+// queue (TicketQueue).
 type TicketWebhookInput struct {
 	Name       string
 	Format     string
-	ProjectRef string
 	AssigneeID string
 }
 
@@ -91,15 +91,9 @@ func (s *Store) CreateTicketWebhook(ctx context.Context, input TicketWebhookInpu
 	if err != nil {
 		return TicketWebhook{}, "", err
 	}
-	project, err := s.GetProject(ctx, input.ProjectRef)
-	if errors.Is(err, ErrNotFound) {
-		return TicketWebhook{}, "", invalid("project not found", map[string]any{"field": "project"})
-	}
+	project, err := s.TicketQueue(ctx)
 	if err != nil {
 		return TicketWebhook{}, "", err
-	}
-	if _, err := s.StateColumn(ctx, project.ID, "backlog"); err != nil {
-		return TicketWebhook{}, "", invalid("project needs a Backlog column for new tickets", map[string]any{"field": "project"})
 	}
 	if input.AssigneeID != "" {
 		if _, err := s.resolveIntakeAssignee(ctx, input.AssigneeID); err != nil {

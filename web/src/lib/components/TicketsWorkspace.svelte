@@ -65,7 +65,6 @@
   let connectOpen = false;
   // Admins see at a glance whether this Helm is reachable from the internet.
   let publicAccess: PublicEndpointView | null = null;
-  let createProject = '';
   let createTitle = '';
   let createDescription = '';
   let createPriority: Task['priority'] = 'normal';
@@ -79,8 +78,19 @@
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
+  // The ticket queue (docs/TICKET_QUEUE_PLAN.md): every new ticket lands
+  // there; triage files it into a project when it belongs to one.
+  let ticketQueue: { project_id: string; key: string } | null = null;
+  let fileProject = '';
   $: projectById = new Map(projects.map((project) => [project.id, project]));
-  $: if (!createProject && projects.length) createProject = (projects.find((project) => project.key === projectFilter.toUpperCase()) || projects[0]).id;
+  $: workProjects = projects.filter((project) => !project.system_kind && !project.archived_at);
+  $: if (detail) fileProject = filedProject(detail)?.id || '';
+
+  function filedProject(task: Task): Project | undefined {
+    const project = projectById.get(task.project_id);
+    if (!project || project.system_kind || task.project_id === ticketQueue?.project_id) return undefined;
+    return project;
+  }
 
   export function searchElement(): HTMLInputElement | null {
     return searchInput;
@@ -167,6 +177,7 @@
       if (request !== listRequest) return;
       tickets = options.append ? [...tickets, ...page.data] : page.data;
       counts = page.counts;
+      ticketQueue = page.queue || null;
       nextCursor = page.next_cursor || '';
     } catch (error) {
       if (request !== listRequest) return;
@@ -307,6 +318,20 @@
     });
   }
 
+  async function fileTo(projectId: string) {
+    const project = projectById.get(projectId);
+    if (!detail || !project || projectId === detail.project_id) return;
+    const before = detail.key;
+    await act('Project', (task) => api.fileTicket(task.id, projectId));
+    if (detail && detail.key !== before) {
+      selectedKey = detail.key;
+      writeURL();
+      movedNotice = `${before} is now ${detail.key} in ${project.name}.`;
+    }
+    // A failed filing leaves the ticket where it was; show that again.
+    fileProject = detail ? filedProject(detail)?.id || '' : '';
+  }
+
   async function markWaiting() {
     const reason = waitReason.trim();
     if (!reason) return;
@@ -330,11 +355,11 @@
   }
 
   async function createTicket() {
-    if (!createProject || !createTitle.trim() || createSaving) return;
+    if (!createTitle.trim() || createSaving) return;
     createSaving = true;
     createError = '';
     try {
-      const task = await api.createTicket(createProject, {
+      const task = await api.createTicket({
         title: createTitle.trim(),
         description: createDescription.trim() || undefined,
         priority: createPriority,
@@ -427,7 +452,7 @@
     <div>
       <div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Triage</span></div>
       <h1 id="tickets-heading">Tickets</h1>
-      <p>Alerts and requests that need a person. Status follows each ticket's board column; assignment never claims work for an agent.</p>
+      <p>Alerts and requests that need a person. Everything new lands in Needs triage; file a ticket into a project when you know where it belongs.</p>
     </div>
     <div class="tickets-heading-actions">
       <button class="button quiet-button" type="button" aria-expanded={connectOpen} on:click={toggleConnect}>⇄ Connect apps{#if publicAccess?.active}<span class={`public-pill pill-${publicAccess.connector.state}`} title={`Public URL https://${publicAccess.active.hostname} is ${publicAccess.connector.state === 'connected' ? 'live' : publicAccess.connector.state}`} data-public-pill>● Public</span>{/if}</button>
@@ -435,17 +460,16 @@
     </div>
   </header>
 
-  {#if connectOpen}<TicketIntegrations {user} {projects} onPublicAccessChanged={loadPublicAccess} />{/if}
+  {#if connectOpen}<TicketIntegrations {user} onPublicAccessChanged={loadPublicAccess} />{/if}
 
   {#if creating}
     <form class="ticket-create" aria-label="New ticket" on:submit|preventDefault={createTicket}>
-      <div class="ticket-create-grid">
-        <label>Project<select bind:value={createProject}>{#each projects as project (project.id)}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label>
-        <label>Priority<select bind:value={createPriority}>{#each priorities as value}<option value={value}>{priorityLabels[value]}</option>{/each}</select></label>
-      </div>
       <label>Title<input bind:value={createTitle} maxlength="500" required placeholder="What needs attention?" /></label>
       <label>Details <span class="optional">Optional</span><textarea rows="3" bind:value={createDescription} placeholder="Context, links, or the alert text"></textarea></label>
-      <label class="ticket-check"><input type="checkbox" bind:checked={createAssignMe} /> Assign to me</label>
+      <div class="ticket-create-row">
+        <label>Priority<select bind:value={createPriority}>{#each priorities as value}<option value={value}>{priorityLabels[value]}</option>{/each}</select></label>
+        <label class="ticket-check"><input type="checkbox" bind:checked={createAssignMe} /> Assign to me</label>
+      </div>
       {#if createError}<div class="inline-alert error" role="alert"><span>!</span>{createError}</div>{/if}
       <div class="ticket-create-actions"><button class="text-button" type="button" on:click={() => creating = false}>Cancel</button><button class="button primary" type="submit" disabled={!createTitle.trim() || createSaving}>{createSaving ? 'Creating…' : 'Create ticket'}</button></div>
     </form>
@@ -461,7 +485,7 @@
 
   <div class="ticket-filters">
     <label class="ticket-search"><span class="sr-only">Search tickets</span><input bind:this={searchInput} type="search" bind:value={query} on:input={searchChanged} placeholder="Search tickets or a key (press /)" /></label>
-    <label><span class="sr-only">Project</span><select aria-label="Project filter" bind:value={projectFilter} on:change={changeFilters}><option value="">All projects</option>{#each projects as project (project.id)}<option value={project.key}>{project.key} · {project.name}</option>{/each}</select></label>
+    <label><span class="sr-only">Project</span><select aria-label="Project filter" bind:value={projectFilter} on:change={changeFilters}><option value="">All tickets</option>{#if ticketQueue}<option value={ticketQueue.key}>Not filed</option>{/if}{#each workProjects as project (project.id)}<option value={project.key}>{project.key} · {project.name}</option>{/each}</select></label>
   </div>
 
   {#if movedNotice}<div class="inline-alert ticket-moved" role="status"><span>✓</span>{movedNotice}</div>{/if}
@@ -486,7 +510,7 @@
                 </span>
                 <strong>{task.title}</strong>
                 <span class="ticket-row-meta">
-                  <span>{projectById.get(task.project_id)?.key || 'Project'}{#if task.alert_source} · {task.alert_source.resource_name}{/if}</span>
+                  <span data-ticket-project>{filedProject(task)?.key || 'Not filed'}{#if task.alert_source} · {task.alert_source.resource_name}{/if}</span>
                   <span>{assigneeLabel(task)}</span>
                   <span>{age(task.ticket?.created_at || task.created_at)}</span>
                 </span>
@@ -513,6 +537,7 @@
             <h2 id="ticket-detail-title" tabindex="-1" bind:this={detailHeading}>{detail.title}</h2>
             <div class="ticket-controls">
               <label>Priority<select aria-label="Ticket priority" value={detail.priority} disabled={actionPending} on:change={(event) => { const priority = event.currentTarget.value as Task['priority']; void act('Priority', (task) => api.patchTask(task.id, { priority }, task.version)); }}>{#each priorities as value}<option value={value}>{priorityLabels[value]}</option>{/each}</select></label>
+              <label>Project<select aria-label="File to project" bind:value={fileProject} disabled={actionPending} on:change={() => fileTo(fileProject)}>{#if !filedProject(detail)}<option value="">Not filed</option>{/if}{#each workProjects as project (project.id)}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label>
               <span class="ticket-assignee">Assignee: <strong>{assigneeLabel(detail)}</strong></span>
               {#if actorId(detail.assignee) !== user.id}<button class="button quiet-button compact" type="button" disabled={actionPending} on:click={() => act('Assignment', (task) => api.patchTask(task.id, { assignee: user.id }, task.version))}>Assign to me</button>{/if}
               {#if actorId(detail.assignee)}<button class="text-button" type="button" disabled={actionPending} on:click={() => act('Assignment', (task) => api.patchTask(task.id, { assignee: null }, task.version))}>Unassign</button>{/if}
@@ -574,7 +599,7 @@
   .breadcrumbs { display: flex; gap: 6px; color: var(--muted); font-size: 11px; }
   .ticket-create, .ticket-wait { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
   .ticket-create label, .ticket-wait label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
-  .ticket-create-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+  .ticket-create-row { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; }
   .ticket-check { display: flex !important; align-items: center; gap: 6px !important; }
   .ticket-create-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
   .ticket-queues { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -599,6 +624,8 @@
   .ticket-status.status-completed { color: var(--semantic-green); background: var(--green-soft); }
   .ticket-repeat, .ticket-origin { padding: 2px 6px; border-radius: 5px; color: var(--ink-soft); background: var(--surface-muted); font-size: 11px; font-weight: 700; }
   .ticket-more { margin-top: 8px; width: 100%; }
+  .ticket-moved { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
+  .ticket-moved > span:first-child { background: var(--semantic-green); }
   .ticket-detail-pane { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised, var(--surface)); }
   .ticket-detail-empty { color: var(--muted); font-size: 13px; text-align: center; }
   .ticket-detail { display: grid; gap: 12px; }
@@ -627,7 +654,7 @@
     .has-selection .ticket-detail-pane { display: block; }
     .has-selection .tickets-list-pane, .has-selection .ticket-queues, .has-selection .ticket-filters, .has-selection .tickets-heading p { display: none; }
     .ticket-back { display: inline-block; }
-    .ticket-filters, .ticket-create-grid { grid-template-columns: minmax(0, 1fr); }
+    .ticket-filters { grid-template-columns: minmax(0, 1fr); }
     .ticket-open-board { margin-left: 0; }
   }
 </style>

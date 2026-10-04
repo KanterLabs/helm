@@ -117,6 +117,9 @@ type Project struct {
 	OverdueTaskCount          int     `json:"overdue_task_count,omitempty"`
 	ColumnCount               int     `json:"column_count,omitempty"`
 	Version                   int64   `json:"version,omitempty"`
+	// SystemKind is "tickets" for the built-in ticket queue
+	// (docs/TICKET_QUEUE_PLAN.md); empty for ordinary projects.
+	SystemKind string `json:"system_kind,omitempty"`
 }
 
 type Column struct {
@@ -842,7 +845,7 @@ func projectFromRow(scanner interface{ Scan(...any) error }) (Project, error) {
 	var p Project
 	var archived sql.NullString
 	var favorite int
-	if err := scanner.Scan(&p.ID, &p.Key, &p.Slug, &p.Name, &p.Description, &p.Color, &favorite, &archived, &p.ChecklistCompletionPolicy, &p.CreatedAt, &p.UpdatedAt, &p.Version); err != nil {
+	if err := scanner.Scan(&p.ID, &p.Key, &p.Slug, &p.Name, &p.Description, &p.Color, &favorite, &archived, &p.ChecklistCompletionPolicy, &p.CreatedAt, &p.UpdatedAt, &p.Version, &p.SystemKind); err != nil {
 		return Project{}, err
 	}
 	if p.ChecklistCompletionPolicy == "" {

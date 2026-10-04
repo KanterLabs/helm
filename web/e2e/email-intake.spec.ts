@@ -76,9 +76,12 @@ function mail(lines: string[]): string {
   return lines.join('\r\n');
 }
 
-async function ticketsTitled(request: APIRequestContext, projectKey: string, title: string): Promise<Ticket[]> {
-  const page = await json<{ data: Ticket[] }>(await request.get(`/api/v1/tickets?project=${projectKey}&q=${encodeURIComponent(title)}`), 'tickets');
-  return page.data.filter((ticket) => ticket.title === title);
+// Inbox mail lands in the ticket queue (docs/TICKET_QUEUE_PLAN.md).
+async function queuedTicketsTitled(request: APIRequestContext, title: string): Promise<Ticket[]> {
+  const page = await json<{ data: (Ticket & { project_id: string })[]; queue?: { project_id: string } }>(await request.get(`/api/v1/tickets?q=${encodeURIComponent(title)}`), 'tickets');
+  const matches = page.data.filter((ticket) => ticket.title === title);
+  for (const ticket of matches) expect(ticket.project_id, 'inbox tickets land in the ticket queue').toBe(page.queue?.project_id);
+  return matches;
 }
 
 // Manual setup forms sit in a collapsed "Set up manually" section.
@@ -113,11 +116,11 @@ test('Admins create email inboxes whose mail becomes tickets through the Cloudfl
     expect((await request.post('/api/v1/email-intake', { headers: bearer, data: { domain: 'example.test', local_part: 'x', api_token: cfToken } })).status()).toBe(403);
     expect((await request.delete('/api/v1/email-intake/x', { headers: bearer })).status()).toBe(403);
     expect((await request.get('/api/v1/email-inboxes', { headers: bearer })).status()).toBe(403);
-    expect((await request.post('/api/v1/email-inboxes', { headers: bearer, data: { name: 'x', project: project.key } })).status()).toBe(403);
+    expect((await request.post('/api/v1/email-inboxes', { headers: bearer, data: { name: 'x' } })).status()).toBe(403);
     expect((await request.delete('/api/v1/email-inboxes/x', { headers: bearer })).status()).toBe(403);
     expect((await request.post('/api/v1/email-inboxes/x/address', { headers: bearer })).status()).toBe(403);
     // Inboxes need email to be on.
-    expect((await request.post('/api/v1/email-inboxes', { headers: jsonHeaders, data: { name: 'Too early', project: project.key } })).status()).toBe(409);
+    expect((await request.post('/api/v1/email-inboxes', { headers: jsonHeaders, data: { name: 'Too early' } })).status()).toBe(409);
 
     // Without a Public URL the Worker has no way to reach Helm.
     let card = await openConnectApps(page, project.key);
@@ -201,7 +204,7 @@ test('Admins create email inboxes whose mail becomes tickets through the Cloudfl
     // An inbox created in Helm shows its address right away, permanently.
     const inboxes = page.locator('[data-email-inboxes]');
     await inboxes.getByLabel('Inbox name').fill(`Backups ${runID}`);
-    await inboxes.getByLabel('Inbox project').selectOption(project.key);
+    await expect(inboxes.getByLabel('Inbox project')).toHaveCount(0);
     await inboxes.getByRole('button', { name: 'Create inbox' }).click();
     const inboxRow = inboxes.locator(`[data-inbox="Backups ${runID}"]`);
     const address = (await inboxRow.locator('[data-inbox-address]').innerText()).trim();
@@ -221,9 +224,9 @@ test('Admins create email inboxes whose mail becomes tickets through the Cloudfl
       'X-Priority: 1', 'Content-Type: text/plain; charset=utf-8', '', 'Volume 1 is degraded.', '', 'Replace disk 2.'
     ]);
 
-    // Mail to the inbox opens a ticket in its project.
+    // Mail to the inbox opens a ticket in Needs triage.
     expect(await deliver(worker, env, first, address)).toEqual({});
-    const [ticket] = await ticketsTitled(request, project.key, title);
+    const [ticket] = await queuedTicketsTitled(request, title);
     expect(ticket).toMatchObject({ title, description: 'Volume 1 is degraded.\n\nReplace disk 2.', priority: 'high' });
     const detail = await json<Ticket>(await request.get(`/api/v1/tasks/${ticket.id}`), 'ticket');
     expect(detail.alert_source).toMatchObject({ alert_type: 'email', occurrence_count: 1, evidence: { from: 'Backup Bot <backup@nas.example>', message_id: `first-${runID}@nas.example`, authentication: 'not reported by Cloudflare' } });
@@ -235,7 +238,7 @@ test('Admins create email inboxes whose mail becomes tickets through the Cloudfl
     const repeat = first.replace(`Subject: ${title}`, `Subject: Re: ${title}`).replace(`<first-${runID}@`, `<second-${runID}@`);
     expect(await deliver(worker, env, repeat, address)).toEqual({});
     expect((await json<Ticket>(await request.get(`/api/v1/tasks/${ticket.id}`), 'ticket')).alert_source?.occurrence_count).toBe(2);
-    expect(await ticketsTitled(request, project.key, title)).toHaveLength(1);
+    expect(await queuedTicketsTitled(request, title)).toHaveLength(1);
 
     // Unknown addresses and unreadable mail bounce with Helm's reason.
     const stranger = `${localPart}+backups-aaaaaa@example.test`;

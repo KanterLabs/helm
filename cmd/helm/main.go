@@ -104,6 +104,9 @@ func main() {
 			fatalLog("demo data seed failed", classifyMainError(seedErr))
 		}
 	}
+	if cfg.CoolifyIntake.Project != "" {
+		log.Printf(`{"level":"warn","msg":"HELM_COOLIFY_PROJECT is deprecated and ignored: Coolify tickets land in the ticket queue"}`)
+	}
 	manager := auth.NewManager(data, cfg)
 	codexManager := codexruntime.NewManager(codexruntime.Options{
 		Binary:     cfg.CodexBinary,

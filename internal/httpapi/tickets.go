@@ -19,11 +19,29 @@ type ticketCollection struct {
 	Data       []store.Task       `json:"data"`
 	NextCursor string             `json:"next_cursor"`
 	Counts     store.TicketCounts `json:"counts"`
+	// Queue identifies the ticket queue (tickets there are "not filed"),
+	// once it exists.
+	Queue *ticketQueueRef `json:"queue,omitempty"`
+}
+
+type ticketQueueRef struct {
+	ProjectID string `json:"project_id"`
+	Key       string `json:"key"`
 }
 
 // tickets serves GET /api/v1/tickets: one queue page plus server counts for
-// every queue over the same project/search scope.
+// every queue over the same project/search scope. POST creates a ticket in
+// the ticket queue.
 func (s *Server) tickets(w http.ResponseWriter, r *http.Request, identity auth.Identity) {
+	if r.Method == http.MethodPost {
+		project, err := s.Store.TicketQueue(r.Context())
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		s.projectTickets(w, r, identity, project.ID)
+		return
+	}
 	if r.Method != http.MethodGet {
 		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
@@ -82,7 +100,14 @@ func (s *Server) tickets(w http.ResponseWriter, r *http.Request, identity auth.I
 	if more && len(tickets) > 0 {
 		next = encodeCursor(offset + len(tickets))
 	}
-	s.writeJSON(w, http.StatusOK, ticketCollection{Data: tickets, NextCursor: next, Counts: counts})
+	collection := ticketCollection{Data: tickets, NextCursor: next, Counts: counts}
+	if queue, found, err := s.Store.LookupTicketQueue(r.Context()); err != nil {
+		s.writeStoreError(w, err)
+		return
+	} else if found && identity.CanProject(queue.ID) {
+		collection.Queue = &ticketQueueRef{ProjectID: queue.ID, Key: queue.Key}
+	}
+	s.writeJSON(w, http.StatusOK, collection)
 }
 
 // projectTickets serves POST /api/v1/projects/{project}/tickets.
@@ -122,5 +147,50 @@ func (s *Server) projectTickets(w http.ResponseWriter, r *http.Request, identity
 			return 0, nil, "", err
 		}
 		return http.StatusCreated, body, taskETag(task), nil
+	})
+}
+
+// fileTicket serves POST /api/v1/tickets/{task}/file {project}: triage moves
+// a ticket into a project. It gets that project's next key; the old key
+// keeps resolving to it.
+func (s *Server) fileTicket(w http.ResponseWriter, r *http.Request, identity auth.Identity, reference string) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
+	if !requireScope(w, identity, "tasks:write") {
+		return
+	}
+	var payload struct {
+		Project string `json:"project"`
+	}
+	if err := decodeJSON(r, &payload); err != nil || payload.Project == "" {
+		s.writeError(w, http.StatusBadRequest, "invalid_json", "request body must be {project}", nil)
+		return
+	}
+	task, err := s.Store.ResolveTaskReference(r.Context(), reference)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	destination, err := s.Store.GetProject(r.Context(), payload.Project)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if !identity.CanProject(task.ProjectID) || !identity.CanProject(destination.ID) {
+		s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to both projects", nil)
+		return
+	}
+	s.mutation(w, r, identity, func() (int, []byte, string, error) {
+		filed, err := s.Store.FileTicket(r.Context(), task.ID, destination.ID, identity.Actor.ID)
+		if err != nil {
+			return 0, nil, "", err
+		}
+		body, err := marshalTaskForIdentity(identity, filed)
+		if err != nil {
+			return 0, nil, "", err
+		}
+		return http.StatusOK, body, taskETag(filed), nil
 	})
 }

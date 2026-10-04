@@ -5368,7 +5368,8 @@
                       },
                       "project": {
                         "type": "string",
-                        "description": "Project for the first inbox (created when no inbox is on)."
+                        "deprecated": true,
+                        "description": "Ignored; the first inbox's tickets land in the ticket queue."
                       },
                       "inbox_name": {
                         "type": "string",
@@ -6049,7 +6050,7 @@
       "post": {
         "operationId": "createEmailInbox",
         "summary": "Create an email inbox",
-        "description": "Human administrators only, with email turned on (`409 email_not_set_up` otherwise). Returns the inbox with its address.",
+        "description": "Human administrators only, with email turned on (`409 email_not_set_up` otherwise). Returns the inbox with its address. Its mail becomes tickets in the ticket queue's Needs triage.",
         "tags": [
           "Tickets"
         ],
@@ -6060,8 +6061,7 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "name",
-                  "project"
+                  "name"
                 ],
                 "properties": {
                   "name": {
@@ -6071,8 +6071,8 @@
                   },
                   "project": {
                     "type": "string",
-                    "description": "Project ID",
-                    "key or slug with a Backlog column.": null
+                    "deprecated": true,
+                    "description": "Ignored; inbox tickets land in the ticket queue."
                   },
                   "assignee": {
                     "type": "string",
@@ -6205,7 +6205,7 @@
       "post": {
         "operationId": "receiveCoolifyAlert",
         "summary": "Receive a Coolify webhook notification",
-        "description": "Coolify webhook target. The path secret is the only credential because\nCoolify webhooks carry no signature or custom headers; it is configured\nthrough `HELM_COOLIFY_WEBHOOK_SECRET_FILE` and never logged. A disabled\nintake and a wrong secret both return the generic `404`.\n\n`traefik_version_outdated` records one condition per server, keyed by\nserver UUID and offered version, in a single transaction. A new\ncondition creates an assigned, unclaimed task in the configured\nproject's Backlog column and notifies the assignee once. A known\ncondition only increments its occurrence count: the task is never\nedited, reopened or recreated (`repeated` when open, `retained` when\ncompleted or deleted). `test` is `ignored`; other events are\n`unsupported`. Both create no work. Any invalid server rejects the\nwhole delivery.\n",
+        "description": "Coolify webhook target. The path secret is the only credential because\nCoolify webhooks carry no signature or custom headers; it is configured\nthrough `HELM_COOLIFY_WEBHOOK_SECRET_FILE` and never logged. A disabled\nintake and a wrong secret both return the generic `404`.\n\n`traefik_version_outdated` records one condition per server, keyed by\nserver UUID and offered version, in a single transaction. A new\ncondition creates an assigned, unclaimed task in the ticket queue's\nNeeds triage column and notifies the assignee once. A known\ncondition only increments its occurrence count: the task is never\nedited, reopened or recreated (`repeated` when open, `retained` when\ncompleted or deleted). `test` is `ignored`; other events are\n`unsupported`. Both create no work. Any invalid server rejects the\nwhole delivery.\n",
         "tags": [
           "Alert intake"
         ],
@@ -10491,6 +10491,166 @@
             "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
+      },
+      "post": {
+        "operationId": "createQueueTicket",
+        "summary": "Create a ticket in the ticket queue",
+        "description": "Creates a ticket in the ticket queue's Needs triage column, creating\nthe queue on first use (docs/TICKET_QUEUE_PLAN.md). Same body and\nrules as `createTicket`; no project is chosen. Requires\n`tasks:write`, and scoped tokens need the queue project.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              },
+              "example": {
+                "title": "Printer on floor 2 is jammed",
+                "priority": "normal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ticket created in Needs triage.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{ticket}/file": {
+      "parameters": [
+        {
+          "name": "ticket",
+          "in": "path",
+          "required": true,
+          "description": "Ticket ID or key (an old key from before filing also works).",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "fileTicket",
+        "summary": "File a ticket into a project",
+        "description": "Moves a ticket into an active project other than the queue. It gets\nthat project's next key and keeps its status (the same column state,\nelse Backlog), notes, evidence, watchers, labels (matched by name,\ncreated when missing) and repeat count; the old key keeps resolving\nto it. Refused with `409` for subtasks, tickets with subtasks or\ndependencies, tickets in a shipped release, and while an agent's\nclaim is active. Requires `tasks:write` on both projects.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "project"
+                ],
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project ID",
+                    "key or slug.": null
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The filed ticket.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
       }
     },
     "/api/v1/my-work": {
@@ -14384,8 +14544,7 @@
       "TicketWebhookCreateRequest": {
         "type": "object",
         "required": [
-          "name",
-          "project"
+          "name"
         ],
         "properties": {
           "name": {
@@ -14395,7 +14554,8 @@
           },
           "project": {
             "type": "string",
-            "description": "Project ID, key or slug that receives tickets."
+            "deprecated": true,
+            "description": "Ignored; webhook tickets land in the ticket queue."
           },
           "format": {
             "type": "string",
@@ -15062,6 +15222,23 @@
           },
           "counts": {
             "$ref": "#/components/schemas/TicketCounts"
+          },
+          "queue": {
+            "type": "object",
+            "description": "The ticket queue, once it exists; tickets in it are not filed into a project yet.",
+            "required": [
+              "project_id",
+              "key"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "key": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -16219,6 +16396,13 @@
             "type": "integer",
             "minimum": 1,
             "description": "Optimistic version for guarded administration edits."
+          },
+          "system_kind": {
+            "type": "string",
+            "enum": [
+              "tickets"
+            ],
+            "description": "Set on the built-in ticket queue that every new ticket lands in\n(docs/TICKET_QUEUE_PLAN.md). Clients hide it from project\nnavigation; it cannot be archived.\n"
           }
         },
         "additionalProperties": false

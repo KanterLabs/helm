@@ -157,6 +157,7 @@
   import { offlineReadOnly } from './lib/connectivity';
   import { clearOfflineBoards, readOfflineBoards, saveOfflineBoard, setOfflineOwner, type OfflineBoard as OfflineBoardSnapshot } from './lib/offlineBoards';
   import OfflineBoard from './lib/components/OfflineBoard.svelte';
+  import { mapWithConcurrency, projectFanOut } from './lib/concurrency';
   import PwaStatus from './lib/components/PwaStatus.svelte';
   import { boardCardHeight, createColumnScroll } from './lib/boardLayout';
   import { flip } from 'svelte/animate';
@@ -939,10 +940,13 @@
   }, {});
   $: intelligenceProjectIds = projectIntelligence?.projects.map((project) => project.project_id) || [];
   $: projectIntelligenceById = new Map((projectIntelligence?.projects || []).map((project) => [project.project_id, project]));
-  $: orderedProjects = orderProjects(projects, projectOrderMode, intelligenceProjectIds, recentProjectIds);
+  // The built-in ticket queue is reached through Tickets, never as a project
+  // in navigation or pickers (docs/TICKET_QUEUE_PLAN.md).
+  $: navProjects = projects.filter((project) => !project.system_kind);
+  $: orderedProjects = orderProjects(navProjects, projectOrderMode, intelligenceProjectIds, recentProjectIds);
   $: favoriteProjects = orderedProjects.filter((project) => project.favorite);
   $: recentProjects = recentProjectIds
-    .map((id) => projects.find((project) => project.id === id))
+    .map((id) => navProjects.find((project) => project.id === id))
     .filter((project): project is Project => Boolean(project));
   $: filteredSwitcherProjects = orderedProjects.filter((project) =>
     `${project.name} ${project.key}`.toLowerCase().includes(projectSwitcherQuery.trim().toLowerCase())
@@ -2435,7 +2439,7 @@
 
   async function loadAccessibleReleases(projectSnapshot = projects): Promise<void> {
     if (!releaseApiFunction('listReleases')) return;
-    await Promise.all(projectSnapshot.map((project) => loadProjectReleases(project.id).catch(() => [])));
+    await mapWithConcurrency(projectSnapshot, projectFanOut, (project) => loadProjectReleases(project.id).catch(() => []));
   }
 
   async function loadProjectReleases(projectId = activeProject?.id, page = false): Promise<ReleaseModel[]> {
@@ -2727,7 +2731,8 @@
         roadmapProjectId = undefined;
         auditIdFromRoute = '';
       }
-      const target = routeProject || nextProjects.find((project) => project.slug === remembered) || nextProjects[0];
+      const workProjects = nextProjects.filter((project) => !project.system_kind);
+      const target = routeProject || workProjects.find((project) => project.slug === remembered) || workProjects[0];
       if (target) {
         activeProjectSlug = target.slug;
         const targetParams = new URL(window.location.href).searchParams;
@@ -3248,7 +3253,7 @@
     try {
       const [taskResult, columnResults] = await Promise.all([
         listAllIssues({ limit: 200, release_id: releaseQueryValue(issueReleaseFilter) || (issueReleaseFilter === 'unassigned' ? issueReleaseFilter : undefined) }),
-        Promise.all(projects.map(async (project) => api.listAllColumns(project.id)))
+        mapWithConcurrency(projects, projectFanOut, (project) => api.listAllColumns(project.id))
       ]);
       if (
         requestId !== issueRequest
@@ -3556,15 +3561,13 @@
       } else if (!projectId && projects.length) {
         // The v1 response may omit per-project rows. Fill the progress list
         // from the documented project-scoped roadmap endpoint when needed.
-        const summaries = await Promise.all(
-          projects.map(async (project) => {
-            try {
-              return { projectId: project.id, summary: await api.roadmap(project.slug) };
-            } catch {
-              return null;
-            }
-          })
-        );
+        const summaries = await mapWithConcurrency(projects, projectFanOut, async (project) => {
+          try {
+            return { projectId: project.id, summary: await api.roadmap(project.slug) };
+          } catch {
+            return null;
+          }
+        });
         if (requestId !== roadmapRequest || view !== 'roadmap' || roadmapProjectId !== requestedProjectId) return false;
         projects = projects.map((project) => {
           const row = summaries.find((summary) => summary?.projectId === project.id)?.summary;
@@ -5035,11 +5038,11 @@
   }
 
   async function openTaskModal(parentTaskId: string | null = null) {
-    if (!projects.length) {
+    if (!navProjects.length) {
       openProjectModal();
       return;
     }
-    taskModalProjectId = activeProject?.id || projects[0].id;
+    taskModalProjectId = (activeProject && !activeProject.system_kind ? activeProject.id : '') || navProjects[0].id;
     taskModalColumnId = '';
     taskModalColumns = activeProject?.id === taskModalProjectId ? [...columns] : [];
     taskModalTitle = '';
@@ -5224,11 +5227,11 @@
   }
 
   async function openBugModal() {
-    if (!projects.length) {
+    if (!navProjects.length) {
       openProjectModal();
       return;
     }
-    bugModalProjectId = activeProject?.id || projects[0].id;
+    bugModalProjectId = (activeProject && !activeProject.system_kind ? activeProject.id : '') || navProjects[0].id;
     bugModalColumnId = '';
     bugModalColumns = activeProject?.id === bugModalProjectId ? [...columns] : [];
     bugModalTitle = '';
@@ -7050,10 +7053,11 @@
   ) {
     const requestedSession = sessionGeneration;
     if (!confirmDrawerTaskSwitch(task)) return;
+    // Tickets still in the queue open in place instead of on a board.
     const project = projectForTask(task);
     const origin = window.location.pathname + window.location.search;
     taskRouteOrigin = isTaskLocation() ? (taskRouteOrigin || origin) : origin;
-    if (project) {
+    if (project && !project.system_kind) {
       activeProjectSlug = project.slug;
       recentProjectIds = rememberProject(project.id, localStorage);
       view = 'board';
@@ -7433,7 +7437,7 @@
           <div class="nav-skeleton"></div><div class="nav-skeleton short"></div>
         {:else if projectsError}
           <button class="nav-error" type="button" on:click={loadProjects}>Couldn’t load projects · Retry</button>
-        {:else if !projects.length}
+        {:else if !navProjects.length}
           <div class="nav-empty">No projects yet</div>
         {:else}
           <div class="project-subsection all-projects"><span class="subsection-label">{projectOrderMode === 'smart' ? 'Smart order' : projectOrderMode === 'recent' ? 'Recent' : 'Alphabetical'}</span>
@@ -7803,7 +7807,7 @@
               <select aria-label="Filter by issue type" bind:value={issueFilters.kind}><option value="bug">Bugs</option><option value="task">Tasks</option><option value="all">All kinds</option></select>
               <select aria-label="Filter by severity" bind:value={issueFilters.severity}><option value="all">All severities</option><option value="untriaged">Untriaged</option>{#each Object.entries(severityLabels) as pair}<option value={pair[0]}>{pair[1]}</option>{/each}</select>
               <select aria-label="Filter by resolution" bind:value={issueFilters.resolution}><option value="all">All resolutions</option><option value="open">Open</option>{#each resolutionOptions as resolution}<option value={resolution}>{resolutionLabels[resolution]}</option>{/each}</select>
-              <select aria-label="Filter issues by project" bind:value={issueProjectFilter}><option value="all">All projects</option>{#each projects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select>
+              <select aria-label="Filter issues by project" bind:value={issueProjectFilter}><option value="all">All projects</option>{#each navProjects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select>
               <select aria-label="Filter issues by focus" bind:value={issueReleaseFilter} on:change={() => { syncIssueViewURL(issueFilters, issueProjectFilter); void loadIssues(); }}><option value="all">All focus areas</option>{#each allReleaseOptions as release}<option value={release.id}>{releaseOptionLabel(release)}</option>{/each}<option value="unassigned">No focus</option></select><select aria-label="Filter by reporter" bind:value={issueFilters.reporter}><option value="all">All reporters</option>{#each issueReporterOptions as reporter}<option value={reporter}>{reporter}</option>{/each}</select>
             </div>
             {#if issueFilters.query || issueFilters.kind !== 'bug' || issueFilters.severity !== 'all' || issueFilters.resolution !== 'all' || issueFilters.reporter !== 'all' || issueProjectFilter !== 'all' || issueReleaseFilter !== 'all'}<button class="clear-filters" type="button" on:click={clearIssueFilters}>Clear filters</button>{/if}
@@ -8043,7 +8047,7 @@
         <div class="modal-header"><div><span class="eyebrow">Capture an idea</span><h2 id="task-modal-title">Create a task</h2></div><button class="icon-button" type="button" aria-label="Close" on:click={closeTaskModal}>×</button></div>
         {#if taskModalError}<div class="inline-alert error" role="alert"><span>!</span>{taskModalError}</div>{/if}
 		<form on:submit|preventDefault={createGlobalTask}>
-		  <div class="form-row task-destination-row"><label>Project<select bind:value={taskModalProjectId} on:change={changeTaskModalProject}>{#each projects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label><label>Column<select bind:value={taskModalColumnId} disabled={taskModalLoading || !taskModalColumns.length}>{#each taskModalColumns as column}<option value={column.id}>{column.name}</option>{/each}</select></label></div>
+		  <div class="form-row task-destination-row"><label>Project<select bind:value={taskModalProjectId} on:change={changeTaskModalProject}>{#each navProjects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label><label>Column<select bind:value={taskModalColumnId} disabled={taskModalLoading || !taskModalColumns.length}>{#each taskModalColumns as column}<option value={column.id}>{column.name}</option>{/each}</select></label></div>
 		  {#if taskModalParentId && drawerTask?.id === taskModalParentId}<p class="task-parent-note">This task will be created as a child of <strong>{drawerTask.key}</strong>.</p>{/if}
 		  <section class="luna-assist-panel" aria-labelledby="luna-assist-heading" aria-describedby="luna-assist-description">
 		    <div class="luna-assist-heading"><div><span class="eyebrow">Optional assist</span><h3 id="luna-assist-heading">Plan it with Luna</h3><p id="luna-assist-description">Describe the outcome and Luna will suggest the task details.</p></div><span class="luna-mark" aria-hidden="true">✦</span></div>
@@ -8084,7 +8088,7 @@
         <div class="modal-header"><div><span class="eyebrow">Capture a regression</span><h2 id="bug-modal-title">Report a bug</h2></div><button class="icon-button" type="button" aria-label="Close" on:click={closeBugModal}>×</button></div>
         {#if bugModalError}<div class="inline-alert error" role="alert"><span>!</span>{bugModalError}</div>{/if}
         <form on:submit|preventDefault={reportBug}>
-          <div class="form-row task-destination-row"><label>Project<select bind:value={bugModalProjectId} on:change={() => void changeBugModalProject()}>{#each projects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label><label>Column<select bind:value={bugModalColumnId} disabled={bugModalLoading || !bugModalColumns.length}>{#each bugModalColumns as column}<option value={column.id}>{column.name}</option>{/each}</select></label></div>
+          <div class="form-row task-destination-row"><label>Project<select bind:value={bugModalProjectId} on:change={() => void changeBugModalProject()}>{#each navProjects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label><label>Column<select bind:value={bugModalColumnId} disabled={bugModalLoading || !bugModalColumns.length}>{#each bugModalColumns as column}<option value={column.id}>{column.name}</option>{/each}</select></label></div>
           <label>Bug title<input data-dialog-initial-focus bind:value={bugModalTitle} placeholder="What went wrong?" /></label>
           <label>Actual behavior<textarea rows="3" bind:value={bugModalActual} placeholder="What happened?" required></textarea></label>
           <label>Expected behavior<textarea rows="2" bind:value={bugModalExpected} placeholder="What should have happened?"></textarea></label>

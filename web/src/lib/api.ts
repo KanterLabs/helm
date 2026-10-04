@@ -596,17 +596,21 @@ export const api = {
       body: input,
       idempotencyKey: key()
     }),
-  createTicket: (project: string, input: { title: string; description?: string; priority?: Task['priority']; assignee?: string | null }) =>
-    request<Task>(`/projects/${encodeURIComponent(project)}/tickets`, {
+  /** New tickets land in the ticket queue's Needs triage. */
+  createTicket: (input: { title: string; description?: string; priority?: Task['priority']; assignee?: string | null }) =>
+    request<Task>('/tickets', {
       method: 'POST',
       body: input,
       idempotencyKey: key()
     }),
+  /** Moves a ticket into a project; it gets that project's next key. */
+  fileTicket: (task: string, project: string) =>
+    request<Task>(`/tickets/${encodeURIComponent(task)}/file`, { method: 'POST', body: { project } }),
   listTickets: (params: { queue?: TicketQueue; project?: string; q?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
     request<TicketCollection>(pathWithQuery('/tickets', params), { signal }),
   listTicketWebhooks: () => request<{ data: TicketWebhook[]; endpoint_base: string; public_hostname: string }>('/ticket-webhooks'),
   listEmailInboxes: () => request<{ data: EmailInbox[]; email_on: boolean; domain?: string }>('/email-inboxes'),
-  createEmailInbox: (input: { name: string; project: string; assignee?: string }) =>
+  createEmailInbox: (input: { name: string; assignee?: string }) =>
     request<EmailInbox>('/email-inboxes', { method: 'POST', body: input }),
   disableEmailInbox: (inbox: string) => request<void>(`/email-inboxes/${encodeURIComponent(inbox)}`, { method: 'DELETE' }),
   /** The old address stops working at once. */
@@ -625,7 +629,7 @@ export const api = {
   disconnectCloudflare: () => request<CloudflareConnectStatus>('/cloudflare/session', { method: 'DELETE' }),
   startCloudflareOAuth: () => request<{ authorize_url: string }>('/cloudflare/oauth/start', { method: 'POST' }),
   listCloudflareZones: () => request<{ data: CloudflareZoneOption[] }>('/cloudflare/zones'),
-  startCloudflareSetup: (input: { zone: string; hostname?: string; email?: { local_part: string; fallback_address?: string; enable_subaddressing: boolean; project?: string; inbox_name?: string; assign_to_me?: boolean } }) =>
+  startCloudflareSetup: (input: { zone: string; hostname?: string; email?: { local_part: string; fallback_address?: string; enable_subaddressing: boolean; inbox_name?: string; assign_to_me?: boolean } }) =>
     request<CloudflareSetupRun>('/cloudflare/setup', { method: 'POST', body: input }),
   getCloudflareSetup: (run: string) => request<CloudflareSetupRun>(`/cloudflare/setup/${encodeURIComponent(run)}`),
   /** The Cloudflare API token is sent once and never stored by Helm. */
@@ -634,7 +638,7 @@ export const api = {
   disableEmailIntake: (intake: string, apiToken = '') =>
     request<{ intake: EmailIntake; warning?: string }>(`/email-intake/${encodeURIComponent(intake)}`, { method: 'DELETE', ...(apiToken ? { body: { api_token: apiToken } } : {}) }),
   /** No idempotency key: the response carries a one-time secret. */
-  createTicketWebhook: (input: { name: string; project: string; format: TicketWebhookFormat; assignee?: string }) =>
+  createTicketWebhook: (input: { name: string; format: TicketWebhookFormat; assignee?: string }) =>
     request<TicketWebhookSecret>('/ticket-webhooks', { method: 'POST', body: input }),
   rotateTicketWebhook: (webhook: string) =>
     request<TicketWebhookSecret>(`/ticket-webhooks/${encodeURIComponent(webhook)}/rotate`, { method: 'POST' }),

@@ -60,7 +60,7 @@ var metricRouteTemplates = map[string]struct{}{
 	"/api/v1/export": {}, "/api/v1/import": {}, "/api/v1/import/trello": {},
 	"/api/v1/auth/status": {}, "/api/v1/auth/setup": {}, "/api/v1/auth/login": {}, "/api/v1/auth/logout": {}, "/api/v1/auth/me": {},
 	"/api/v1/codex/account": {}, "/api/v1/codex/login": {}, "/api/v1/codex/login/cancel": {}, "/api/v1/codex/logout": {},
-	"/api/v1/project-intelligence": {}, "/api/v1/project-intelligence/analyze": {}, "/api/v1/intake/coolify/:secret": {}, "/api/v1/tickets": {}, "/api/v1/projects/:project/tickets": {}, "/api/v1/hooks/tickets/:secret": {}, "/api/v1/ticket-webhooks": {}, "/api/v1/ticket-webhooks/:webhook": {}, "/api/v1/ticket-webhooks/:webhook/rotate": {}, "/api/v1/public-endpoints": {}, "/api/v1/public-endpoints/:endpoint": {}, "/api/v1/public-endpoints/:endpoint/test": {}, "/api/v1/hooks/tickets/email/:secret": {}, "/api/v1/email-intake": {}, "/api/v1/email-intake/:intake": {}, "/api/v1/ticket-webhooks/:webhook/test": {}, "/api/v1/cloudflare": {}, "/api/v1/cloudflare/session": {}, "/api/v1/cloudflare/oauth/start": {}, "/api/v1/cloudflare/oauth/callback": {}, "/api/v1/cloudflare/zones": {}, "/api/v1/cloudflare/setup": {}, "/api/v1/cloudflare/setup/:run": {}, "/api/v1/docs/:doc": {}, "/api/v1/email-inboxes": {}, "/api/v1/email-inboxes/:inbox": {}, "/api/v1/email-inboxes/:inbox/address": {},
+	"/api/v1/project-intelligence": {}, "/api/v1/project-intelligence/analyze": {}, "/api/v1/intake/coolify/:secret": {}, "/api/v1/tickets": {}, "/api/v1/projects/:project/tickets": {}, "/api/v1/hooks/tickets/:secret": {}, "/api/v1/ticket-webhooks": {}, "/api/v1/ticket-webhooks/:webhook": {}, "/api/v1/ticket-webhooks/:webhook/rotate": {}, "/api/v1/public-endpoints": {}, "/api/v1/public-endpoints/:endpoint": {}, "/api/v1/public-endpoints/:endpoint/test": {}, "/api/v1/hooks/tickets/email/:secret": {}, "/api/v1/email-intake": {}, "/api/v1/email-intake/:intake": {}, "/api/v1/ticket-webhooks/:webhook/test": {}, "/api/v1/cloudflare": {}, "/api/v1/cloudflare/session": {}, "/api/v1/cloudflare/oauth/start": {}, "/api/v1/cloudflare/oauth/callback": {}, "/api/v1/cloudflare/zones": {}, "/api/v1/cloudflare/setup": {}, "/api/v1/cloudflare/setup/:run": {}, "/api/v1/docs/:doc": {}, "/api/v1/email-inboxes": {}, "/api/v1/email-inboxes/:inbox": {}, "/api/v1/email-inboxes/:inbox/address": {}, "/api/v1/tickets/:ticket/file": {},
 	"/api/v1/projects": {}, "/api/v1/projects/:project": {},
 	"/api/v1/projects/:project/export": {}, "/api/v1/projects/:project/import": {}, "/api/v1/projects/:project/boards": {},
 	"/api/v1/projects/:project/columns": {}, "/api/v1/projects/:project/tasks": {}, "/api/v1/projects/:project/task-context": {},
@@ -526,6 +526,11 @@ func metricRoute(rawPath string) string {
 		if parts[index-1] == "tickets" && parts[index] == "email" && parts[index-2] == "hooks" && index+1 < len(parts) {
 			parts[index+1] = ":secret"
 			index++
+			continue
+		}
+		// /api/v1/tickets/{ticket}/file names a ticket, not a hook secret.
+		if parts[index-1] == "tickets" && parts[index-2] == "v1" {
+			parts[index] = ":ticket"
 			continue
 		}
 		if replacement, ok := metricDynamicSegments[parts[index-1]]; ok {

@@ -2,9 +2,11 @@ import { expect, test, type APIRequestContext, type APIResponse } from '@playwri
 
 // Proves the "Coolify alert intake failure contract" in docs/E2E_TESTING.md
 // against a real Helm process. test/e2e/run.sh starts the server with a
-// disposable per-run intake secret and routing pinned to this project key.
+// disposable per-run intake secret. Tickets land in the ticket queue
+// (docs/TICKET_QUEUE_PLAN.md); run.sh's HELM_COOLIFY_PROJECT is deprecated
+// and must be ignored.
 
-type Project = { id: string; key: string; name: string; slug: string };
+type Project = { id: string; key: string; name: string; slug: string; system_kind?: string };
 type Column = { id: string; semantic_state: string };
 type Collection<T> = { data: T[]; next_cursor?: string | null };
 type AlertSource = {
@@ -43,7 +45,7 @@ type Server = Record<string, string>;
 const baseURL = process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080';
 const e2eOrigin = new URL(baseURL).origin;
 const secret = process.env.HELM_E2E_COOLIFY_SECRET || '';
-const projectKey = process.env.HELM_E2E_COOLIFY_PROJECT || 'COOLIFYE2E';
+const deprecatedProjectKey = process.env.HELM_E2E_COOLIFY_PROJECT || 'COOLIFYE2E';
 const intakePath = `/api/v1/intake/coolify/${secret}`;
 
 function headers(version?: number): Record<string, string> {
@@ -87,6 +89,19 @@ async function getTask(request: APIRequestContext, id: string): Promise<Task> {
   return json<Task>(await request.get(`/api/v1/tasks/${id}`), `GET task ${id}`);
 }
 
+// The ticket queue exists once any intake path has been set up; creating
+// and disabling a throwaway webhook makes sure of that without a ticket.
+async function ticketQueue(request: APIRequestContext): Promise<Project> {
+  let queue = (await json<{ queue?: { project_id: string } }>(await request.get('/api/v1/tickets?limit=1'), 'tickets')).queue;
+  if (!queue) {
+    const created = await json<{ webhook: { id: string } }>(await request.post('/api/v1/ticket-webhooks', { data: { name: 'Queue bootstrap' }, headers: headers() }), 'bootstrap webhook');
+    expect((await request.delete(`/api/v1/ticket-webhooks/${created.webhook.id}`, { headers: headers() })).status()).toBe(204);
+    queue = (await json<{ queue?: { project_id: string } }>(await request.get('/api/v1/tickets?limit=1'), 'tickets')).queue;
+  }
+  expect(queue, 'the ticket queue exists').toBeTruthy();
+  return json<Project>(await request.get(`/api/v1/projects/${queue?.project_id}`), 'ticket queue project');
+}
+
 async function projectTasks(request: APIRequestContext, project: Project): Promise<Task[]> {
   return items(await json<Collection<Task> | Task[]>(await request.get(`/api/v1/projects/${project.id}/tasks?limit=200`), 'list project tasks'));
 }
@@ -116,19 +131,10 @@ test('Coolify webhooks create one assigned Backlog task per condition and preser
   expect(wrong.status()).toBe(404);
   expect(await wrong.json()).toEqual(await unknown.json());
 
-  // Misconfigured routing fails closed with 503 rather than dropping alerts
-  // somewhere else. The project only exists on a retry against the same DB.
-  let project = items(await json<Collection<Project> | Project[]>(await request.get('/api/v1/projects?limit=200'), 'list projects'))
-    .find((item) => item.key === projectKey);
-  if (!project) {
-    const unavailable = await deliver(request, traefik(server(name1, uuid1)));
-    expect(unavailable.status()).toBe(503);
-    expect((await unavailable.json()).error.code).toBe('intake_unavailable');
-    project = await json<Project>(await request.post('/api/v1/projects', {
-      data: { key: projectKey, name: 'Coolify intake E2E', description: 'Synthetic Coolify alert intake fixture.' },
-      headers: headers()
-    }), 'create intake project');
-  }
+  // Tickets go to the ticket queue whatever HELM_COOLIFY_PROJECT says.
+  const project = await ticketQueue(request);
+  expect(project.system_kind).toBe('tickets');
+  expect(project.key).not.toBe(deprecatedProjectKey);
   expect(await tasksNamed(request, project, name1)).toHaveLength(0);
 
   const preferences = await json<{ assignments: boolean }>(await request.get('/api/v1/notification-preferences'), 'preferences');

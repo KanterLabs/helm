@@ -46,10 +46,10 @@ type SetupRun struct {
 	startedTime  time.Time
 }
 
-// SetupEmail requests email as part of guided setup. With ProjectRef, a
-// first inbox (InboxName, default "Alerts") is created when none exists.
+// SetupEmail requests email as part of guided setup. A first inbox
+// (InboxName, default "Alerts") is created when none exists; its tickets
+// land in the ticket queue.
 type SetupEmail struct {
-	ProjectRef          string
 	InboxName           string
 	AssigneeID          string
 	LocalPart           string
@@ -356,27 +356,23 @@ func (m *Manager) finishEmailStep(ctx context.Context, run *SetupRun, intake sto
 			break
 		}
 	}
-	if inbox == nil && request.ProjectRef != "" {
+	if inbox == nil {
 		name := strings.TrimSpace(request.InboxName)
 		if name == "" {
 			name = "Alerts"
 		}
-		created, err := m.store.CreateEmailInbox(ctx, store.EmailInboxInput{Name: name, ProjectRef: request.ProjectRef, AssigneeID: request.AssigneeID}, run.actorID)
+		created, err := m.store.CreateEmailInbox(ctx, store.EmailInboxInput{Name: name, AssigneeID: request.AssigneeID}, run.actorID)
 		if err != nil {
 			m.setStep(run, "email", StepFailed, prefix+"Email is on, but the inbox could not be created: "+cleanMessage(err)+" Create one under Email inboxes.")
 			return
 		}
 		inbox = &created
 	}
-	if inbox == nil {
-		m.setStep(run, "email", StepDone, prefix+"Create an inbox under Email inboxes to get an address.")
-		return
-	}
 	address := intake.InboxAddress(inbox.Tag)
 	m.connect.mu.Lock()
 	run.InboxAddress, run.InboxName = address, inbox.Name
 	m.connect.mu.Unlock()
-	m.setStep(run, "email", StepDone, prefix+"Inbox “"+inbox.Name+"” ("+inbox.ProjectKey+"): mail to "+address+" becomes tickets.")
+	m.setStep(run, "email", StepDone, prefix+"Inbox “"+inbox.Name+"”: mail to "+address+" becomes a ticket in Needs triage.")
 }
 
 // cleanMessage drops the internal error prefixes from an error.

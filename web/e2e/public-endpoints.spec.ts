@@ -117,13 +117,13 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   // The self-test round-trips a one-time nonce through the hooks listener
   // without creating a ticket. Agents cannot run it; guessed or reused
   // nonces are not answered, and the main origin never answers probes.
-  const ticketsBefore = (await json<{ data: unknown[] }>(await request.get(`/api/v1/tickets?project=${project.key}`), 'tickets before test')).data.length;
+  const ticketsBefore = (await json<{ counts: unknown }>(await request.get('/api/v1/tickets'), 'tickets before test')).counts;
   await expect(card.getByText('Not tested yet')).toBeVisible();
   await card.getByRole('button', { name: 'Test public URL' }).click();
   await expect(card.locator('[data-test-result]')).toHaveAttribute('data-test-result', 'ok');
   await expect(card.locator('[data-test-detail]')).toContainText('ms round trip');
   expect((await view(request)).last_test).toMatchObject({ endpoint_id: active.id, ok: true });
-  expect((await json<{ data: unknown[] }>(await request.get(`/api/v1/tickets?project=${project.key}`), 'tickets after test')).data.length).toBe(ticketsBefore);
+  expect((await json<{ counts: unknown }>(await request.get('/api/v1/tickets'), 'tickets after test')).counts).toEqual(ticketsBefore);
   expect((await request.post(`/api/v1/public-endpoints/${active.id}/test`, { headers: bearer })).status()).toBe(403);
   expect((await request.post(`/api/v1/public-endpoints/${'0'.repeat(32)}/test`, { headers: jsonHeaders })).status()).toBe(409);
   const guess = `/api/v1/hooks/tickets/probe/${'a'.repeat(32)}`;
@@ -148,7 +148,7 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
     expect((await request.get(`${hooksURL}${path}`)).status(), path).toBe(404);
   }
   expect((await request.get(`${hooksURL}/healthz`)).status()).toBe(200);
-  const webhook = await json<{ url: string; webhook: { id: string } }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Public ${runID}`, project: project.key }, headers: jsonHeaders }), 'webhook');
+  const webhook = await json<{ url: string; webhook: { id: string } }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Public ${runID}` }, headers: jsonHeaders }), 'webhook');
   expect(webhook.url).toMatch(new RegExp(`^https://${hostname.replace(/\./g, '\\.')}/api/v1/hooks/tickets/hk_`));
   const viaTunnel = await request.post(`${hooksURL}${new URL(webhook.url).pathname}`, { data: { title: `Through the tunnel ${runID}` }, headers: { 'Content-Type': 'application/json' } });
   expect(viaTunnel.status()).toBe(201);
@@ -159,7 +159,9 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   // with a one-time nonce bound to that webhook. Repeats count on one
   // ticket; agents cannot send tests and a guessed nonce files nothing.
   const testTitle = 'Test ticket via public URL';
-  const testTickets = async () => (await json<{ data: { key: string; title: string; priority: string }[] }>(await request.get(`/api/v1/tickets?project=${project.key}&q=${encodeURIComponent(testTitle)}`), 'test tickets')).data.filter((item) => item.title === testTitle);
+  const allTestTickets = async () => (await json<{ data: { key: string; title: string; priority: string }[] }>(await request.get(`/api/v1/tickets?q=${encodeURIComponent(testTitle)}`), 'test tickets')).data.filter((item) => item.title === testTitle);
+  const earlierTestTickets = new Set((await allTestTickets()).map((item) => item.key));
+  const testTickets = async () => (await allTestTickets()).filter((item) => !earlierTestTickets.has(item.key));
   await page.reload();
   await page.getByRole('button', { name: /Connect apps/ }).click();
   const panel = page.locator('.ticket-integrations');
@@ -241,7 +243,7 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   expect(settled.endpoint.cleanup_pending).toBe(false);
   await expect(page.locator('[data-public-pill]')).toHaveCount(0);
   await testInfo.attach('public-url-history.png', { contentType: 'image/png', body: await card.screenshot() });
-  const fallback = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Private ${runID}`, project: project.key }, headers: jsonHeaders }), 'fallback webhook');
+  const fallback = await json<{ url: string }>(await request.post('/api/v1/ticket-webhooks', { data: { name: `Private ${runID}` }, headers: jsonHeaders }), 'fallback webhook');
   expect(fallback.url.startsWith(`${origin}/api/v1/hooks/tickets/`)).toBe(true);
   await testInfo.attach('public-url-setup.png', { contentType: 'image/png', body: await card.screenshot() });
 });

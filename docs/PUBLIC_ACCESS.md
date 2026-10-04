@@ -38,7 +38,7 @@ outside**:
    unused name); a public URL that already works is kept.
 3. **Email (optional).** "Turn on email and create an inbox" is ticked when
    the domain has Email Routing on. Name the first inbox (default
-   **Alerts**) and choose the project its tickets go to. If plus addressing
+   **Alerts**); its emails become tickets in Needs triage. If plus addressing
    is off, tick the box that turns it on; it also lets mail to any
    `name+anything@` reach `name@` across the domain. **Email options** set
    the address name (default `helm-alerts`) and an optional **fallback**
@@ -89,7 +89,7 @@ Both checks travel the same path real apps use.
 
 | Check | What you do | What it proves |
 | --- | --- | --- |
-| **Email an inbox** | Send any email to an inbox's address from any mailbox (**Email it** opens your mail app), for example from your phone. | Your mail provider → Cloudflare's MX → the routing rule → the email Worker → Helm. A ticket appears in the inbox's project within seconds, and the inbox shows "1 email". |
+| **Email an inbox** | Send any email to an inbox's address from any mailbox (**Email it** opens your mail app), for example from your phone. | Your mail provider → Cloudflare's MX → the routing rule → the email Worker → Helm. A ticket appears in Tickets → Needs triage within seconds, and the inbox shows "1 email". |
 | **Send test** | Select it on a webhook. | Helm posts a ticket to its own public URL through Cloudflare and the tunnel, and shows the ticket it opened (or why it failed). |
 
 If an email does not turn into a ticket, look under **Details, history and
@@ -187,11 +187,11 @@ becomes a ticket, with no mailbox for Helm to read and no password stored.
 your apps ──email──▶ helm-alerts+homelab-ops-x7k2qm@example.com
                          │ Cloudflare Email Routing (your domain)
                          ▼
-                     Helm ──▶ ticket in the inbox's project
+                     Helm ──▶ ticket in Tickets → Needs triage
 ```
 
-**Create an inbox:** **Email inboxes → Inbox name, Tickets go to, Assign to
-me → Create inbox.** (Guided setup creates the first one for you.) The
+**Create an inbox:** **Email inboxes → Inbox name, Assign to me → Create
+inbox.** (Guided setup creates the first one for you.) The
 address appears at once and stays visible, with **Copy** and **Email it**.
 Put it in your apps' notification settings in place of your own address.
 

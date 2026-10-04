@@ -472,6 +472,13 @@ func (s *Store) ResolveTaskReference(ctx context.Context, reference string) (Tas
 	row := s.DB.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.deleted_at IS NULL AND (t.id=? OR lower(p.key || '-' || CAST(t.number AS TEXT))=lower(?)) LIMIT 1`, reference, reference)
 	task, err := taskFromRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
+		// A ticket filed into a project keeps answering to its old key.
+		if id, ok, aliasErr := s.resolveTaskAlias(ctx, reference); aliasErr != nil || ok {
+			if aliasErr != nil {
+				return Task{}, aliasErr
+			}
+			return s.GetTask(ctx, id)
+		}
 		return Task{}, notFound("task not found")
 	}
 	if err != nil {

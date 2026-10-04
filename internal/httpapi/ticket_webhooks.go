@@ -79,7 +79,6 @@ func webhookRoute(hook store.TicketWebhook) store.AlertIntakeRoute {
 	return store.AlertIntakeRoute{
 		Integration: "webhook-" + hook.ID,
 		ActorName:   hook.Name,
-		ProjectRef:  hook.ProjectID,
 		AssigneeRef: assignee,
 		WebhookID:   hook.ID,
 	}
@@ -160,18 +159,18 @@ func (s *Server) ticketWebhooks(w http.ResponseWriter, r *http.Request, identity
 		var payload struct {
 			Name     string `json:"name"`
 			Format   string `json:"format"`
-			Project  string `json:"project"`
+			Project  string `json:"project"` // ignored: tickets land in the ticket queue
 			Assignee string `json:"assignee"`
 		}
 		if err := decodeJSON(r, &payload); err != nil {
-			s.writeError(w, http.StatusBadRequest, "invalid_json", "request body must be {name, project, format?, assignee?}", nil)
+			s.writeError(w, http.StatusBadRequest, "invalid_json", "request body must be {name, format?, assignee?}", nil)
 			return
 		}
 		assignee := strings.TrimSpace(payload.Assignee)
 		if assignee == "me" {
 			assignee = identity.Actor.ID
 		}
-		hook, secret, err := s.Store.CreateTicketWebhook(r.Context(), store.TicketWebhookInput{Name: payload.Name, Format: payload.Format, ProjectRef: payload.Project, AssigneeID: assignee}, identity.Actor.ID)
+		hook, secret, err := s.Store.CreateTicketWebhook(r.Context(), store.TicketWebhookInput{Name: payload.Name, Format: payload.Format, AssigneeID: assignee}, identity.Actor.ID)
 		if err != nil {
 			s.writeStoreError(w, err)
 			return

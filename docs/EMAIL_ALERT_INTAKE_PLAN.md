@@ -10,8 +10,8 @@ This supersedes the mailbox-connector part of
 
 Many alert sources can only send email (backup tools, NAS boxes, cron,
 older monitoring). Admins create **inboxes** in Helm, each with a visible
-address and a target project; apps send their alert emails there and each
-email opens or repeats a ticket exactly like a `curl` POST to a webhook,
+address; apps send their alert emails there and each email opens or
+repeats a ticket in Needs triage exactly like a `curl` POST to a webhook,
 and admins can see what arrived and what was refused.
 
 ### Update: inboxes replace per-webhook addresses (2026-10-04)
@@ -32,6 +32,10 @@ address". So:
   project), so after Sign in with Cloudflare there is an address to use.
 - **Testing is just emailing the inbox** (with **Email it**); the one-time
   Test email feature was removed.
+- **No project per inbox (later the same day).** Inbox tickets land in the
+  one ticket queue and triage files them into projects
+  ([TICKET_QUEUE_PLAN.md](TICKET_QUEUE_PLAN.md)). `email_inboxes.project_id`
+  now always holds the queue.
 - Per-webhook email tags from migration 033 are no longer read (beta-only
   data).
 
@@ -169,7 +173,7 @@ Admin page: the Public access line also states whether email intake is on.
 | `GET /api/v1/email-intake` | Active intake, history, recent receipts, required permissions, prerequisites. Admins. |
 | `POST /api/v1/email-intake` | `{domain, local_part, fallback_address?, enable_subaddressing, api_token}` provisions. Admins. |
 | `DELETE /api/v1/email-intake/{id}` | Optional `{api_token}`; same cleanup model as Public URLs. Admins. |
-| `GET/POST /api/v1/email-inboxes` | Lists inboxes with addresses; `{name, project, assignee?: "me"}` creates one (`409` until email is on). Admins. |
+| `GET/POST /api/v1/email-inboxes` | Lists inboxes with addresses; `{name, assignee?: "me"}` creates one (`409` until email is on). Admins. |
 | `DELETE /api/v1/email-inboxes/{id}`, `POST …/{id}/address` | Turn an inbox off; replace its address. Admins. |
 | `POST /api/v1/hooks/tickets/email/{secret}` | Worker → Helm. `message/rfc822` body ≤ 1 MiB with `X-Helm-Envelope-To`/`-From`. `201` created, `200` repeated/retained/duplicate, `404` unknown address, `400` unreadable, `413` too large. |
 

@@ -138,6 +138,8 @@ export interface Project {
   completed_task_count?: number;
   completed_count?: number;
   version?: number;
+  /** "tickets" for the built-in ticket queue, hidden from project navigation. */
+  system_kind?: 'tickets';
 }
 
 export interface ProjectIntelligenceMetrics {
@@ -801,6 +803,8 @@ export interface TicketCollection {
   data: Task[];
   next_cursor: string;
   counts: TicketCounts;
+  /** The ticket queue; tickets there are not filed into a project yet. */
+  queue?: { project_id: string; key: string };
 }
 
 export interface AlertSource {
