@@ -150,8 +150,12 @@ func (s *Server) projectIntelligence(w http.ResponseWriter, r *http.Request, ide
 	}
 	defer s.endProjectIntelligence(identity.Actor.ID)
 	started := time.Now()
+	ctx, cancel := context.WithTimeout(r.Context(), projectIntelligenceTimeout)
+	defer cancel()
 
-	account, err := s.Codex.Account(r.Context(), identity.Actor.ID, false)
+	accountCtx, accountCancel := context.WithTimeout(ctx, codexAccountTimeout)
+	account, err := s.Codex.Account(accountCtx, identity.Actor.ID, false)
+	accountCancel()
 	if err != nil {
 		s.metricsValue().recordProjectIntelligence(classifyCodexDraftError(err), time.Since(started))
 		s.writeProjectIntelligenceError(w, err)
@@ -167,14 +171,12 @@ func (s *Server) projectIntelligence(w http.ResponseWriter, r *http.Request, ide
 		s.writeInternal(w, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), projectIntelligenceTimeout)
-	defer cancel()
 	model := s.Cfg.CodexModel
 	if strings.TrimSpace(model) == "" {
 		model = "gpt-5.6-luna"
 	}
 	turnStarted := time.Now()
-	run := s.startLunaRun(r.Context(), store.LunaRunStart{
+	run := s.startLunaRun(ctx, store.LunaRunStart{
 		ActorID: identity.Actor.ID, Feature: "project_intelligence", Model: model, Effort: "low",
 	})
 	s.saveLunaRunInput(run, prompt)

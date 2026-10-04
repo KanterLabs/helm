@@ -101,14 +101,45 @@ jobs:
           HELM_E2E_GOFLAGS: -race
           HELM_E2E_REVISION: ${{ github.sha }}
         run: ./test/e2e/run.sh
+      - name: Verify stalled Codex account deadlines
+        id: account_deadlines
+        env:
+          HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-e2e-deadlines
+          HELM_E2E_GOFLAGS: -race
+          HELM_E2E_REVISION: ${{ github.sha }}
+          HELM_E2E_SKIP_WEB_BUILD: 'true'
+          HELM_E2E_CODEX_STALL_ACCOUNT: 'true'
+        run: ./test/e2e/run.sh e2e/luna-account-deadline-stability.spec.ts
       - name: Upload browser evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: helm-e2e-${{ github.sha }}
+          include-hidden-files: true
           path: ${{ runner.temp }}/helm-e2e-evidence
           if-no-files-found: error
           retention-days: 14
+      - name: Upload account deadline evidence
+        if: ${{ always() && steps.account_deadlines.outcome != 'skipped' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: helm-e2e-deadlines-${{ github.sha }}
+          include-hidden-files: true
+          path: ${{ runner.temp }}/helm-e2e-deadlines
+          if-no-files-found: error
+          retention-days: 14
+
+  # Keep the protected-main race context tied to the real race-instrumented
+  # browser and stalled-account workflows above.
+  race:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: browser
+    runs-on: homelab
+    steps:
+      - name: Require successful race-instrumented workflows
+        env:
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: test "$BROWSER_RESULT" = success
 
   container:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
@@ -168,7 +199,7 @@ jobs:
 
   beta_deploy:
     if: ${{ github.ref == 'refs/heads/beta' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) && vars.HELM_BETA_DEPLOY_PAUSED != 'true' }}
-    needs: [checks, browser, container]
+    needs: [checks, browser, race, container]
     runs-on: homelab
     environment:
       name: beta
@@ -420,7 +451,7 @@ jobs:
 
   deploy:
     if: ${{ github.ref == 'refs/heads/main' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) }}
-    needs: [checks, browser, container]
+    needs: [checks, browser, race, container]
     runs-on: homelab
     environment:
       name: production
