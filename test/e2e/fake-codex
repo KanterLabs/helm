@@ -17,6 +17,8 @@ SUGGESTION = {
     "supporting_task_keys": [],
 }
 
+STALL_ACCOUNT = os.environ.get("HELM_E2E_CODEX_STALL_ACCOUNT") == "true"
+
 
 def send(payload):
     sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
@@ -35,6 +37,10 @@ for line in sys.stdin:
     if method == "initialize":
         send({"id": request_id, "result": {"home": os.environ.get("CODEX_HOME", "")}})
     elif method == "account/read":
+        if STALL_ACCOUNT:
+            # Exercise the real HTTP deadline path: consume the request but
+            # leave the RPC pending as an unresponsive Codex app-server would.
+            continue
         send({
             "id": request_id,
             "result": {

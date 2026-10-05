@@ -65,6 +65,8 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		s.writeError(w, http.StatusServiceUnavailable, "luna_unavailable", "Luna assistance is unavailable; you can still create the task manually", nil)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), taskDraftTimeout)
+	defer cancel()
 	project, err := s.Store.GetProject(r.Context(), reference)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -81,7 +83,9 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		s.writeError(w, http.StatusBadRequest, "invalid_request", "query must be valid UTF-8 between 1 and 4000 bytes", nil)
 		return
 	}
-	account, err := s.Codex.Account(r.Context(), identity.Actor.ID, false)
+	accountCtx, accountCancel := context.WithTimeout(ctx, codexAccountTimeout)
+	account, err := s.Codex.Account(accountCtx, identity.Actor.ID, false)
+	accountCancel()
 	if err != nil {
 		s.writeCodexDraftError(w, err)
 		return
@@ -90,7 +94,7 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		s.writeError(w, http.StatusConflict, "codex_not_connected", "Connect your Codex-enabled ChatGPT subscription before asking Luna for a draft", nil)
 		return
 	}
-	contextPack, err := s.Store.TaskDraftContext(r.Context(), project.ID, query)
+	contextPack, err := s.Store.TaskDraftContext(ctx, project.ID, query)
 	if err != nil {
 		s.writeInternal(w, err)
 		return
@@ -100,8 +104,6 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		s.writeInternal(w, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), taskDraftTimeout)
-	defer cancel()
 	model := s.Cfg.CodexModel
 	if model == "" {
 		model = "gpt-5.6-luna"
@@ -111,7 +113,7 @@ func (s *Server) taskDraft(w http.ResponseWriter, r *http.Request, identity auth
 		effort = "medium"
 	}
 	started := time.Now()
-	run := s.startLunaRun(r.Context(), store.LunaRunStart{
+	run := s.startLunaRun(ctx, store.LunaRunStart{
 		ActorID: identity.Actor.ID, ProjectID: project.ID, ProjectKey: project.Key,
 		Feature: "task_draft", Model: model, Effort: effort,
 	})

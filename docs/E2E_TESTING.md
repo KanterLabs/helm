@@ -62,6 +62,18 @@ real Helm process:
 | The endpoint accepts an unsafe limit | `/api/v1/codex/runs?limit=101` does not return a structured `400`. |
 | Successful E2E evidence cannot be independently checked | The evidence bundle is missing or its `SHA256SUMS` verification fails. |
 
+## Task-save concurrency failure contract
+
+The task-save stability workflow must prove these failure cases before changing
+drawer save orchestration. Each delayed browser route must call `route.fetch()`
+against the disposable Helm server, so the assertions cover real persistence
+and delivery races rather than mocked responses.
+
+| Failure | Observable proof |
+| --- | --- |
+| A delayed PATCH response overwrites edits made after the first save started | The first submitted title and description are persisted, newer edits remain visible and dirty after the response arrives, and a second save persists those newer values. |
+| A delayed label creation resumes a save against a different task | Task A persists its original submitted snapshot, task B's API state remains unchanged, task B's newer drawer draft remains visible and dirty, and no unrelated drawer error appears. |
+| A delayed PATCH response overwrites a draft in a reopened drawer | After closing and reopening the same task, edits made in the reopened drawer remain visible and dirty when the old response is delivered. |
 ## Coolify alert intake failure contract
 
 The Coolify webhook workflow must prove these failure cases through a real
