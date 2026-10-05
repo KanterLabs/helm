@@ -1,5 +1,7 @@
 # Activity and task history UX plan
 
+Status: implemented (2026-08-30, "add activity history experience"). Kept as the design record.
+
 ## Goal
 
 Make Roadmap answer three questions without forcing a person to scan a large

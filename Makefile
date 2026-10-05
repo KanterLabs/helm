@@ -59,7 +59,8 @@ vet:
 lint:
 	@test -z "$$(gofmt -l cmd internal)" || { echo 'gofmt required' >&2; exit 1; }
 	@cd $(WEB_DIR) && $(NPM) run openapi:check
-	@bash -n deploy/*.sh deploy/helm-deploy-gateway
+	@cd $(WEB_DIR) && $(NPM) run docs:check
+	@bash -n deploy/*.sh deploy/helm-deploy-gateway deploy/cloudflare-connect-relay/deploy.sh
 	@./deploy/test-deployment-security.sh
 
 docker-build:

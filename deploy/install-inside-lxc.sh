@@ -371,6 +371,34 @@ apt-get install --yes --no-install-recommends bubblewrap ca-certificates curl nf
 apt-get clean
 rm -rf -- /var/lib/apt/lists/*
 
+# The private beta bundle carries no cloudflared (the Proxmox verifier pins its
+# member set), but Helm's optional public webhook URL needs the binary. Fetch
+# the same pinned, checksum-verified build the production bundle ships. It is
+# only a binary for helm.service to supervise; cloudflared.service stays masked.
+# A failed fetch leaves the feature unavailable rather than failing the deploy.
+CLOUDFLARED_VERSION=2026.8.2
+CLOUDFLARED_SHA256=fcfb02b575a52ca1af2e3267af4e1517bcdeb30ac48c834c69abaed3c0576ad2
+install_private_cloudflared() {
+	local target=/usr/local/bin/cloudflared temporary
+	if [[ -f "$target" && ! -L "$target" ]] &&
+		echo "$CLOUDFLARED_SHA256  $target" | sha256sum --check --strict --status; then
+		return 0
+	fi
+	temporary=$(mktemp /usr/local/bin/.cloudflared.XXXXXX) || return 1
+	if ! curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --max-time 120 \
+		"https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64" \
+		--output "$temporary" ||
+		! echo "$CLOUDFLARED_SHA256  $temporary" | sha256sum --check --strict --status; then
+		rm -f -- "$temporary"
+		return 1
+	fi
+	chown root:root "$temporary" && chmod 0755 "$temporary" && mv -T -- "$temporary" "$target"
+}
+if (( PRIVATE_TAILNET_BETA == 1 )); then
+	install_private_cloudflared ||
+		log "cloudflared $CLOUDFLARED_VERSION could not be installed; public webhook URLs stay unavailable"
+fi
+
 getent group roadmap >/dev/null 2>&1 || groupadd --system roadmap
 roadmap_user_existing=0
 if ! id roadmap >/dev/null 2>&1; then

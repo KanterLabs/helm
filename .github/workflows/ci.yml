@@ -293,6 +293,11 @@ jobs:
           # homelab-edge reaches CT 106 over the LAN; no tailscale interface
           # is required inside the guest for the private HTTPS origin.
           HELM_TAILNET_ALLOWED_PEER_IPS: 10.0.0.101
+          # Optional Coolify alert intake. Coolify webhooks authenticate only
+          # with a URL path secret, so it reaches the guest through this
+          # root-only owner environment.
+          HELM_COOLIFY_WEBHOOK_SECRET: ${{ secrets.BETA_COOLIFY_WEBHOOK_SECRET }}
+          HELM_COOLIFY_PROJECT: ${{ vars.BETA_COOLIFY_PROJECT }}
         run: |
           test -n "$HELM_ADMIN_EMAIL"
           test -n "$HELM_TAILNET_OWNER_LOGIN"
@@ -334,6 +339,15 @@ jobs:
             printf 'ROADMAP_BETA_SWITCH_ENABLED=true\nROADMAP_BETA_SWITCH_SOCKET=%s\n' "$HELM_BETA_SWITCH_SOCKET"
           } > "$owner_file"
           chmod 0600 "$owner_file"
+          if [[ -n "$HELM_COOLIFY_WEBHOOK_SECRET" || -n "$HELM_COOLIFY_PROJECT" ]]; then
+            [[ "$HELM_COOLIFY_WEBHOOK_SECRET" =~ ^[A-Za-z0-9_-]{32,256}$ ]]
+            [[ "$HELM_COOLIFY_PROJECT" =~ ^[A-Za-z0-9_-]{1,64}$ ]]
+            {
+              printf 'HELM_COOLIFY_WEBHOOK_SECRET=%s\n' "$HELM_COOLIFY_WEBHOOK_SECRET"
+              printf 'HELM_COOLIFY_PROJECT=%s\n' "$HELM_COOLIFY_PROJECT"
+              printf 'HELM_COOLIFY_ASSIGNEE=%s\n' "$HELM_ADMIN_EMAIL"
+            } >> "$owner_file"
+          fi
           printf 'HELM_OWNER_ENV_FILE=%s\n' "$owner_file" >> "$GITHUB_ENV"
       - name: Materialize beta release signing key
         env:
