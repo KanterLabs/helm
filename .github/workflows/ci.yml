@@ -25,9 +25,8 @@ concurrency:
 
 jobs:
   checks:
-    # A public repository must never run untrusted fork code on the homelab.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,13 +71,11 @@ jobs:
           name: helm-binary-${{ github.sha }}
           path: dist/helm
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
 
   browser:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    # The live automatic pool admits and sizes heavy jobs through its hook.
-    # The legacy homelab-heavy pool is intentionally capped at zero.
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,11 +89,16 @@ jobs:
           node-version: 22.23.2
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Cache matching Playwright Chromium downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('web/package-lock.json') }}
       - name: Install browser dependencies
         run: |
           cd web
           npm ci
-          npx playwright install chromium
+          npx playwright install --with-deps chromium
       - name: Run the race-instrumented real browser workflow
         env:
           HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-e2e-evidence
@@ -120,7 +122,7 @@ jobs:
           include-hidden-files: true
           path: ${{ runner.temp }}/helm-e2e-evidence
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ job.status == 'failure' && 7 || 3 }}
       - name: Upload account deadline evidence
         if: ${{ always() && steps.account_deadlines.outcome != 'skipped' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -129,14 +131,15 @@ jobs:
           include-hidden-files: true
           path: ${{ runner.temp }}/helm-e2e-deadlines
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ job.status == 'failure' && 7 || 3 }}
 
   # Keep the protected-main race context tied to the real race-instrumented
   # browser and stalled-account workflows above.
   race:
-    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ always() }}
     needs: browser
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Require successful race-instrumented workflows
         env:
@@ -144,10 +147,8 @@ jobs:
         run: test "$BROWSER_RESULT" = success
 
   container:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    # The live automatic pool admits and sizes heavy jobs through its hook.
-    # The legacy homelab-heavy pool is intentionally capped at zero.
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     needs: checks
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -206,12 +207,13 @@ jobs:
             ${{ runner.temp }}/helm-container/cloudflared
             ${{ runner.temp }}/helm-container/cloudflared.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
 
   beta_deploy:
     if: ${{ github.ref == 'refs/heads/beta' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) && vars.HELM_BETA_DEPLOY_PAUSED != 'true' }}
     needs: [checks, browser, race, container]
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     environment:
       name: beta
       url: https://beta-helm.home.shanekanterman.dev
@@ -225,6 +227,13 @@ jobs:
       HELM_BETA_SWITCH_ENABLED: 'true'
       HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
     steps:
+      - name: Connect protected deployment to the private tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-helm-deploy
+          args: --accept-routes
       # github.sha is the selected beta commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -403,7 +412,8 @@ jobs:
 
   beta_rollback:
     if: ${{ github.ref == 'refs/heads/beta' && github.event_name == 'workflow_dispatch' && inputs.rollback_sha != '' }}
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     environment:
       name: beta
       url: https://beta-helm.home.shanekanterman.dev
@@ -414,6 +424,13 @@ jobs:
       HELM_DEPLOY_ENVIRONMENT: beta
       HELM_PUBLIC_ORIGIN: https://beta-helm.home.shanekanterman.dev
     steps:
+      - name: Connect protected deployment to the private tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-helm-deploy
+          args: --accept-routes
       # A manual rollback is beta-authorized only when dispatched from beta,
       # and its scripts are pinned to the selected beta commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -461,9 +478,10 @@ jobs:
           rm -f -- dist/owner.env
 
   deploy:
-    if: ${{ github.ref == 'refs/heads/main' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) }}
+    if: ${{ github.ref == 'refs/heads/main' && ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[ci-hosted-cutover]')) || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) }}
     needs: [checks, browser, race, container]
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     environment:
       name: production
       url: https://tc.shanekanterman.dev
@@ -471,6 +489,13 @@ jobs:
       group: helm-production
       cancel-in-progress: false
     steps:
+      - name: Connect protected deployment to the private tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-helm-deploy
+          args: --accept-routes
       # github.sha is the selected main commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -593,7 +618,8 @@ jobs:
 
   rollback:
     if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.rollback_sha != '' }}
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     environment:
       name: production
       url: https://tc.shanekanterman.dev
@@ -601,6 +627,13 @@ jobs:
       group: helm-production
       cancel-in-progress: false
     steps:
+      - name: Connect protected deployment to the private tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-helm-deploy
+          args: --accept-routes
       # A manual rollback is production-authorized only when dispatched from
       # main, and its scripts are pinned to the selected main commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
