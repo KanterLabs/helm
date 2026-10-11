@@ -76,7 +76,9 @@ jobs:
 
   browser:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: homelab-heavy
+    # The live automatic pool admits and sizes heavy jobs through its hook.
+    # The legacy homelab-heavy pool is intentionally capped at zero.
+    runs-on: homelab
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -143,7 +145,9 @@ jobs:
 
   container:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: homelab-heavy
+    # The live automatic pool admits and sizes heavy jobs through its hook.
+    # The legacy homelab-heavy pool is intentionally capped at zero.
+    runs-on: homelab
     needs: checks
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -174,6 +178,11 @@ jobs:
           docker cp "$container_id:/usr/local/bin/codex" "$image_dir/codex"
           test -x "$image_dir/codex"
           (cd "$image_dir" && sha256sum codex > codex.sha256)
+          docker exec "$container_id" /usr/local/bin/cloudflared --version
+          docker exec "$container_id" /usr/local/bin/cloudflared tunnel --help >/dev/null
+          docker cp "$container_id:/usr/local/bin/cloudflared" "$image_dir/cloudflared"
+          test -x "$image_dir/cloudflared"
+          (cd "$image_dir" && sha256sum cloudflared > cloudflared.sha256)
           printf 'container_smoke=ok\n'
           image_tar="$image_dir/helm-${GITHUB_SHA}.tar"
           docker save --output "$image_tar" "helm:${GITHUB_SHA}"
@@ -194,6 +203,8 @@ jobs:
             ${{ runner.temp }}/helm-container/helm-${{ github.sha }}.tar.gz.sha256
             ${{ runner.temp }}/helm-container/codex
             ${{ runner.temp }}/helm-container/codex.sha256
+            ${{ runner.temp }}/helm-container/cloudflared
+            ${{ runner.temp }}/helm-container/cloudflared.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -477,17 +488,22 @@ jobs:
           test -f dist/helm
           chmod 0755 dist/helm
           test -x dist/helm
-      - name: Download tested Codex runtime
+      - name: Download tested runtime binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: helm-image-${{ github.sha }}
           path: dist/container
-      - name: Verify Codex runtime artifact
+      - name: Verify runtime artifacts
         run: |
           test -f dist/container/codex
           test -f dist/container/codex.sha256
           (cd dist/container && sha256sum --check --strict codex.sha256)
           install -m 0755 dist/container/codex dist/codex
+          test -f dist/container/cloudflared
+          test -f dist/container/cloudflared.sha256
+          (cd dist/container && sha256sum --check --strict cloudflared.sha256)
+          install -m 0755 dist/container/cloudflared dist/cloudflared
+          install -m 0644 dist/container/cloudflared.sha256 dist/cloudflared.sha256
       - name: Configure deploy identity
         env:
           DEPLOY_KEY: ${{ secrets.ROADMAP_DEPLOY_SSH_KEY }}

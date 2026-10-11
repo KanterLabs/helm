@@ -275,7 +275,9 @@ jobs:
   browser:
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
     needs: admit
-    runs-on: homelab-heavy
+    # The live automatic pool admits and sizes heavy jobs through its hook.
+    # The legacy homelab-heavy pool is intentionally capped at zero.
+    runs-on: homelab
     steps:
       - name: Check out the exact candidate commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -337,7 +339,9 @@ jobs:
   container:
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
     needs: [admit, checks]
-    runs-on: homelab-heavy
+    # The live automatic pool admits and sizes heavy jobs through its hook.
+    # The legacy homelab-heavy pool is intentionally capped at zero.
+    runs-on: homelab
     steps:
       - name: Check out the exact candidate commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

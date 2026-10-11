@@ -373,7 +373,8 @@ rm -rf -- /var/lib/apt/lists/*
 
 # The private beta bundle carries no cloudflared (the Proxmox verifier pins its
 # member set), but Helm's optional public webhook URL needs the binary. Fetch
-# the same pinned, checksum-verified build the production bundle ships. It is
+# a separately pinned, checksum-verified upstream build. Production instead
+# receives the connector extracted from its scanned image artifact. This is
 # only a binary for helm.service to supervise; cloudflared.service stays masked.
 # A failed fetch leaves the feature unavailable rather than failing the deploy.
 CLOUDFLARED_VERSION=2026.8.2

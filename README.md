@@ -10,7 +10,7 @@
 **A small, self-hosted project board and bug tracker for teams where humans and software agents move work together.**
 
 [![CI](https://github.com/KanterLabs/helm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/KanterLabs/helm/actions/workflows/ci.yml)
-![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![Svelte](https://img.shields.io/badge/Svelte-TypeScript-FF3E00?logo=svelte&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-one_container-2496ED?logo=docker&logoColor=white)

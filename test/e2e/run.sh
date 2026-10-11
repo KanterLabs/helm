@@ -90,7 +90,7 @@ if [[ -z "$binary" ]]; then
       --volume "$root:/src:ro" \
       --volume "$work_dir:/out" \
       --workdir /src \
-      golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 \
+      golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c \
       go build "${go_flags[@]}" -buildvcs=false -trimpath -o /out/helm ./cmd/helm
   else
     printf 'Helm E2E requires Go or Docker to build the application\n' >&2

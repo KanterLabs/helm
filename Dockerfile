@@ -25,22 +25,27 @@ RUN npm install --global --ignore-scripts "@openai/codex@${CODEX_VERSION}" \
     && install -D -m 0755 "$native" /out/codex
 
 # cloudflared runs the optional public webhook endpoint (Cloudflare Tunnel).
-# The release binary is static; its SHA-256 is pinned per architecture from
-# the upstream release notes.
-FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS cloudflared
+# Upstream binaries still embed vulnerable Go/x/net versions. Rebuild the
+# checksum-pinned 2026.9.3 source with the security fixes, retaining its feature
+# code. GOSUMDB verifies the pinned module update and its transitive modules.
+FROM --platform=$BUILDPLATFORM golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS cloudflared
 
-ARG TARGETARCH=amd64
-ARG CLOUDFLARED_VERSION=2026.9.3
+ARG TARGETARCH
+WORKDIR /src/cloudflared
+ENV GOTOOLCHAIN=local GOSUMDB=sum.golang.org GOFLAGS=-mod=mod
 RUN case "$TARGETARCH" in \
-      amd64) sum=77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2 ;; \
-      arm64) sum=aaeb2d7d0da3614634c7e03ab13487a1522c2e79165ed2929cfe23d5e95b326d ;; \
+      amd64|arm64) ;; \
       *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac \
-    && curl -fsSL -o /tmp/cloudflared "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${TARGETARCH}" \
-    && echo "${sum}  /tmp/cloudflared" | sha256sum -c - \
-    && install -D -m 0755 /tmp/cloudflared /out/cloudflared
+    && curl -fsSL -o /tmp/cloudflared.tar.gz "https://codeload.github.com/cloudflare/cloudflared/tar.gz/96d39adbc812dc7363834bda908970c1a2560a72" \
+    && echo "7459141c5769755f20de6f7edf32d3223f643a225a7f080772cb18baa2a08d27  /tmp/cloudflared.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/cloudflared.tar.gz --strip-components=1 \
+    && go get golang.org/x/net@v0.60.0 \
+    && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" go build -mod=readonly -trimpath -buildvcs=false \
+       -ldflags="-s -w -X main.Version=2026.9.3-helm.1 -X main.BuildTime=2026-10-11-0000" \
+       -o /out/cloudflared ./cmd/cloudflared
 
-FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build
+FROM golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./

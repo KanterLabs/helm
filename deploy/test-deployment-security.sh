@@ -158,9 +158,7 @@ contains 'candidate_subject=%s' "$BETA_CANDIDATE_WORKFLOW"
 contains 'HELM_RELEASE_SUBJECT="$candidate_subject"' "$BETA_CANDIDATE_WORKFLOW"
 contains 'HELM_RELEASE_SHA=%s' "$BUILD_BUNDLE"
 contains 'owner environment already contains a release SHA' "$BUILD_BUNDLE"
-contains 'CLOUDFLARED_VERSION=2026.8.2' "$BUILD_BUNDLE"
-contains 'CLOUDFLARED_SHA256=fcfb02b575a52ca1af2e3267af4e1517bcdeb30ac48c834c69abaed3c0576ad2' "$BUILD_BUNDLE"
-# The private beta installer fetches the same pinned build the bundle ships.
+# Private beta retains its separately pinned optional connector download.
 contains 'CLOUDFLARED_VERSION=2026.8.2' "$INSTALL"
 contains 'CLOUDFLARED_SHA256=fcfb02b575a52ca1af2e3267af4e1517bcdeb30ac48c834c69abaed3c0576ad2' "$INSTALL"
 contains 'echo "$CLOUDFLARED_SHA256  $temporary" | sha256sum --check --strict --status' "$INSTALL"
