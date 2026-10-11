@@ -27,17 +27,16 @@ jobs:
     # operator dispatches the protected canonical beta ref. A fork can neither
     # provide the workflow definition nor reach the beta environment job.
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     outputs:
       candidate_sha: ${{ steps.validate.outputs.candidate_sha }}
       candidate_ref: ${{ steps.validate.outputs.candidate_ref }}
       trusted_sha: ${{ steps.validate.outputs.trusted_sha }}
       metadata_name: ${{ steps.validate.outputs.metadata_name }}
     steps:
-      # The canonical KanterLabs/infrastructure homelab runner contract gives
-      # each job one ephemeral runner pod and private DinD daemon; no host
-      # Docker socket/home/static deployment credential is mounted, and the
-      # workspace and daemon disappear when the job ends. Keep this checkout
+      # Hosted validation carries no private route or deployment credentials.
+      # Keep this checkout
       # explicit anyway so the source boundary is independently auditable.
       # This is the only source checkout in the admission job. The candidate
       # is fetched as an object after validation; it is never used as the
@@ -206,7 +205,8 @@ jobs:
   checks:
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
     needs: admit
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Check out the exact candidate commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -277,7 +277,8 @@ jobs:
   browser:
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
     needs: admit
-    runs-on: homelab-heavy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Check out the exact candidate commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -306,12 +307,17 @@ jobs:
           node-version: 22.23.2
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install browser dependencies and build the candidate app
+      - name: Cache matching Playwright Chromium downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('web/package-lock.json') }}
+      - name: Install browser dependencies
         run: |
           set -Eeuo pipefail
           cd web
           npm ci
-          npx playwright install chromium
+          npx playwright install --with-deps chromium
           npm run build
           cd ..
           rm -rf -- internal/webassets/dist
@@ -391,7 +397,8 @@ jobs:
   race:
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
     needs: admit
-    runs-on: homelab-heavy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Check out the exact candidate commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -416,7 +423,8 @@ jobs:
   container:
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' }}
     needs: [admit, checks]
-    runs-on: homelab-heavy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Check out the exact candidate commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -493,7 +501,8 @@ jobs:
     # SHA and never checks out candidate_ref or candidate_sha as source.
     if: ${{ github.repository == 'KanterLabs/helm' && github.event.repository.full_name == 'KanterLabs/helm' && github.ref == 'refs/heads/beta' && vars.HELM_BETA_DEPLOY_PAUSED != 'true' }}
     needs: [admit, checks, browser, race, container]
-    runs-on: homelab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     environment:
       name: beta
       url: https://beta-helm.home.shanekanterman.dev
@@ -508,6 +517,13 @@ jobs:
       TRUSTED_BETA_SHA: ${{ needs.admit.outputs.trusted_sha }}
       HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
     steps:
+      - name: Connect protected deployment to the private tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-helm-deploy
+          args: --accept-routes
       - name: Check out only the trusted beta event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

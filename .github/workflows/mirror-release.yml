@@ -22,11 +22,19 @@ jobs:
       github.repository == 'KanterLabs/helm' &&
       github.event.repository.full_name == 'KanterLabs/helm' &&
       github.ref == 'refs/heads/main'
-    runs-on: homelab
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
+    environment: production
     permissions:
       contents: write
     steps:
+      - name: Connect protected deployment to the private tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-helm-deploy
+          args: --accept-routes
       - name: Check out the protected GitHub main adapter
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
