@@ -1,11 +1,12 @@
 # Coolify email intake for Helm
 
 Status: v1 implemented as a Coolify **webhook** intake (2026-10-02) plus the
-Tickets workspace (2026-10-03). Tracking: TC-255. Email intake shipped
-differently from the mailbox connector proposed below: every ticket webhook
-gets an address through Cloudflare Email Routing and an Email Worker (see
-[EMAIL_ALERT_INTAKE_PLAN.md](EMAIL_ALERT_INTAKE_PLAN.md)). IMAP polling,
-mutes and backfill below remain proposed and deferred.
+Tickets workspace (2026-10-03); included in v0.2.0. Tracking: TC-255. Email intake
+is implemented as named inboxes through Cloudflare Email Routing and an
+Email Worker, replacing the mailbox connector proposed below (see
+[EMAIL_ALERT_INTAKE_PLAN.md](EMAIL_ALERT_INTAKE_PLAN.md)). Webhooks are
+HTTP-only; new intake goes to the ticket queue. IMAP polling, mutes and
+backfill below remain proposed and deferred.
 
 ## Implemented: Tickets workspace
 

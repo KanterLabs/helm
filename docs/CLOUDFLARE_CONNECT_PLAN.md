@@ -1,6 +1,7 @@
 # Connect Cloudflare: guided, automatic public access
 
-Status: implemented on `beta` (2026-10-03), both phases. User guide:
+Status: implemented on `beta` (2026-10-03), both phases; included in
+v0.2.0. User guide:
 [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md#set-up-with-cloudflare); failure
 contract: [E2E_TESTING.md](E2E_TESTING.md#connect-cloudflare-failure-contract);
 relay: [deploy/cloudflare-connect-relay](../deploy/cloudflare-connect-relay/README.md).

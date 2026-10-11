@@ -1,6 +1,7 @@
 # One ticket queue: intake without choosing a project
 
-Status: implemented on `beta` (2026-10-04), both phases. User guide:
+Status: implemented on `beta` (2026-10-04), both phases; included in
+v0.2.0. User guide:
 [TICKET_WEBHOOKS.md § Where tickets land](TICKET_WEBHOOKS.md#where-tickets-land).
 Differences from the proposal are listed under [As built](#as-built).
 

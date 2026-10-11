@@ -294,3 +294,11 @@ Fixes after rollback go to `beta` first, then through Phases 2–4 again
   - **Local note:** `/tmp` is a nearly full 16 GB tmpfs, so run gates with
     `GOTMPDIR`/`TMPDIR` on the home disk.
 
+- **Release preparation (2026-10-11), TC-262:** Gitea and GitHub beta
+  agree on `9d23fa2`. Version and release notes are prepared. A verified
+  production backup (10 projects, 1,087 tasks) upgraded from schema 28 to
+  35 with every original row preserved. The actual retained v0.1.1 binary
+  read and wrote the upgraded copy; v0.2.0 roll-forward preserved those
+  writes and a queue ticket. Integrity and foreign-key checks passed.
+  `source-map-js` was patched to 1.2.2 to clear a newly reported dependency
+  advisory. The production deploy will take a fresh verified backup.

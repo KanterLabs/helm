@@ -1,6 +1,7 @@
 # Email inboxes
 
-Status: implemented on `beta` (2026-10-03; inboxes 2026-10-04). User guide:
+Status: implemented on `beta` (2026-10-03; inboxes 2026-10-04); included in
+v0.2.0. User guide:
 [PUBLIC_ACCESS.md § Email inboxes](PUBLIC_ACCESS.md#email-inboxes).
 Failure contract: [E2E_TESTING.md § Email intake failure contract](E2E_TESTING.md#email-intake-failure-contract).
 This supersedes the mailbox-connector part of
