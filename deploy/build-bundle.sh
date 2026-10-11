@@ -273,6 +273,23 @@ safe_file "$DIST_DIR/codex" codex-binary
 	printf 'codex binary must be executable\n' >&2
 	exit 1
 }
+CLOUDFLARED_PATH="$DIST_DIR/cloudflared"
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	# Production must use the connector extracted from the scanned image.
+	# Fail closed instead of downloading a different upstream binary at deploy.
+	safe_file "$CLOUDFLARED_PATH" cloudflared-binary
+	safe_file "$DIST_DIR/cloudflared.sha256" cloudflared-checksum
+	[[ -x "$CLOUDFLARED_PATH" ]] || {
+		printf 'cloudflared binary must be executable\n' >&2
+		exit 1
+	}
+	[[ "$(wc -l < "$DIST_DIR/cloudflared.sha256")" -eq 1 ]] &&
+		LC_ALL=C grep -Eq '^[0-9a-f]{64}  cloudflared$' "$DIST_DIR/cloudflared.sha256" || {
+		printf 'cloudflared checksum must identify only the tested connector\n' >&2
+		exit 1
+	}
+	(cd "$DIST_DIR" && sha256sum --check --strict cloudflared.sha256 >/dev/null)
+fi
 if (( PRIVATE_TAILNET_BETA == 1 )); then
 	safe_file "$DIST_DIR/helm-beta-switchd" beta-switch-controller-binary
 	[[ -x "$DIST_DIR/helm-beta-switchd" ]] || {
@@ -409,34 +426,6 @@ if (( PRIVATE_TAILNET_BETA == 1 )); then
 else
 	safe_file "$CLOUDFLARED_TOKEN_FILE" cloudflared-token
 	chmod 0600 "$CLOUDFLARED_TOKEN_FILE"
-fi
-
-# Keep this pin in lockstep with the reviewed Stashlet deployment. Existing
-# downloads are checked as well; a stale or tampered cache is never bundled.
-CLOUDFLARED_VERSION=2026.8.2
-CLOUDFLARED_SHA256=fcfb02b575a52ca1af2e3267af4e1517bcdeb30ac48c834c69abaed3c0576ad2
-CLOUDFLARED_PATH="$DIST_DIR/cloudflared"
-
-if (( PRIVATE_TAILNET_BETA == 0 )) && [[ -e "$CLOUDFLARED_PATH" && ( ! -f "$CLOUDFLARED_PATH" || -L "$CLOUDFLARED_PATH" ) ]]; then
-	printf 'cloudflared cache is not a regular file\n' >&2
-	exit 1
-fi
-
-if (( PRIVATE_TAILNET_BETA == 0 )) && [[ ! -f "$CLOUDFLARED_PATH" ]]; then
-	tmp=$(mktemp "$DIST_DIR/.cloudflared.XXXXXX")
-	trap 'rm -f "$tmp"' EXIT
-	curl --fail --location --show-error --proto '=https' --tlsv1.2 \
-		"https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64" \
-		--output "$tmp"
-	echo "$CLOUDFLARED_SHA256  $tmp" | sha256sum --check --strict >/dev/null
-	chmod 0755 "$tmp"
-	mv -T -- "$tmp" "$CLOUDFLARED_PATH"
-	trap - EXIT
-fi
-
-if (( PRIVATE_TAILNET_BETA == 0 )); then
-	echo "$CLOUDFLARED_SHA256  $CLOUDFLARED_PATH" | sha256sum --check --strict >/dev/null
-	chmod 0755 "$CLOUDFLARED_PATH"
 fi
 
 BUNDLE_DIR=$(mktemp -d)

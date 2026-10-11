@@ -201,6 +201,7 @@
       'bug.triaged': 'triaged the bug',
       'bug.resolved': 'resolved the bug',
       'bug.reopened': 'reopened the bug',
+      'alert.repeated': 'received a repeat alert',
       'comment.updated': 'edited a comment',
       'comment.deleted': 'deleted a comment'
     };

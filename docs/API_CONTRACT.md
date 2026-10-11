@@ -891,6 +891,18 @@ clients can poll those events through `/api/v1/events?after=...`.
 This is an internal-only MVP. It does not provide public issue intake, external
 issue-tracker synchronization, provider-specific email/Slack integrations,
 attachments, service-level agreements, or a separate bug-permission model.
+The one external intake is the operator-configured Coolify webhook
+(`POST /api/v1/intake/coolify/{secret}`, see
+[`docs/COOLIFY_EMAIL_INTAKE_PLAN.md`](COOLIFY_EMAIL_INTAKE_PLAN.md)); it creates
+ordinary assigned Backlog tasks with read-only `alert_source` evidence, not bugs.
+Those tasks, and tasks created with `POST /api/v1/projects/{project}/tickets`,
+carry `ticket` membership and are listed by `GET /api/v1/tickets`. That
+endpoint returns queue pages with server counts, and queue status derives
+from the column semantic state.
+Outside apps open tickets through admin-managed ticket webhooks
+(`POST /api/v1/hooks/tickets/{secret}`); see
+[`docs/TICKET_WEBHOOKS.md`](TICKET_WEBHOOKS.md) for the readable setup guide,
+JSON fields, responses and repeat handling.
 Core in-app notifications and watches are documented in
 [`docs/NOTIFICATIONS.md`](NOTIFICATIONS.md). Safe event-driven automations and
 external delivery are tracked separately as TC-165 and TC-166. Bugs remain

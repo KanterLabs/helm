@@ -168,6 +168,15 @@ guest retains them with each release so application and Codex runtime roll
 forward together. The guest installs `bubblewrap`, which Codex requires for
 its Linux sandbox. Pre-Luna retained releases remain valid rollback targets.
 
+Production also takes `cloudflared` and `cloudflared.sha256` from that run's
+scanned image artifact. CI verifies the checksum before packaging, and the
+signed manifest covers the connector's exact bytes. Local production bundle
+builds require those files in `dist/`; the packager fails if they are missing
+or disagree. It does not download another binary during deployment. The
+container builds cloudflared from checksum-pinned upstream source with the
+Go and networking security fixes documented in the release notes. Private
+beta's optional connector download remains a separate bootstrap path.
+
 ## Cloudflare Access and tunnel bootstrap
 
 The Cloudflare API token used by CI needs only the permissions required to

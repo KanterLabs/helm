@@ -218,6 +218,12 @@ func validPriority(value string) bool {
 }
 
 func (s *Store) CreateTask(ctx context.Context, projectID string, input TaskInput, actorID string) (Task, error) {
+	return s.createTask(ctx, projectID, input, actorID, nil)
+}
+
+// createTask runs afterInsert inside the creation transaction so dependent
+// rows (such as ticket membership) commit atomically with the task.
+func (s *Store) createTask(ctx context.Context, projectID string, input TaskInput, actorID string, afterInsert func(*sql.Tx, string) error) (Task, error) {
 	validated, err := validateTaskInput(input, true)
 	if err != nil {
 		return Task{}, err
@@ -358,6 +364,11 @@ func (s *Store) CreateTask(ctx context.Context, projectID string, input TaskInpu
 				return err
 			}
 		}
+		if afterInsert != nil {
+			if err := afterInsert(tx, id); err != nil {
+				return err
+			}
+		}
 		eventType := "task.created"
 		if kind == bugKind {
 			eventType = "bug.created"
@@ -461,6 +472,13 @@ func (s *Store) ResolveTaskReference(ctx context.Context, reference string) (Tas
 	row := s.DB.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.deleted_at IS NULL AND (t.id=? OR lower(p.key || '-' || CAST(t.number AS TEXT))=lower(?)) LIMIT 1`, reference, reference)
 	task, err := taskFromRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
+		// A ticket filed into a project keeps answering to its old key.
+		if id, ok, aliasErr := s.resolveTaskAlias(ctx, reference); aliasErr != nil || ok {
+			if aliasErr != nil {
+				return Task{}, aliasErr
+			}
+			return s.GetTask(ctx, id)
+		}
 		return Task{}, notFound("task not found")
 	}
 	if err != nil {
@@ -523,6 +541,12 @@ func (s *Store) enrichTaskAt(ctx context.Context, task *Task, at time.Time) erro
 		return err
 	}
 	task.AgentWork = work
+	if err := s.populateAlertSource(ctx, task); err != nil {
+		return err
+	}
+	if err := s.populateTicket(ctx, task); err != nil {
+		return err
+	}
 	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM comments WHERE task_id=? AND deleted_at IS NULL`, task.ID).Scan(&task.CommentCount); err != nil {
 		return err
 	}

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/KanterLabs/helm/internal/config"
 	"github.com/KanterLabs/helm/internal/db"
 	"github.com/KanterLabs/helm/internal/httpapi"
+	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 )
 
@@ -102,6 +104,9 @@ func main() {
 			fatalLog("demo data seed failed", classifyMainError(seedErr))
 		}
 	}
+	if cfg.CoolifyIntake.Project != "" {
+		log.Printf(`{"level":"warn","msg":"HELM_COOLIFY_PROJECT is deprecated and ignored: Coolify tickets land in the ticket queue"}`)
+	}
 	manager := auth.NewManager(data, cfg)
 	codexManager := codexruntime.NewManager(codexruntime.Options{
 		Binary:     cfg.CodexBinary,
@@ -117,6 +122,31 @@ func main() {
 		betaSwitchClient = client
 	}
 	api := httpapi.NewWithBetaSwitch(data, manager, cfg, betaSwitchClient, codexManager)
+	var hooksServer *http.Server
+	if cfg.PublicEndpoints.HooksAddr != "" {
+		api.PublicEndpoints = publicendpoint.NewManager(publicendpoint.Config{
+			APIBase:       cfg.PublicEndpoints.CloudflareAPIBase,
+			Binary:        cfg.PublicEndpoints.CloudflaredBinary,
+			HookService:   "http://" + cfg.PublicEndpoints.HooksAddr,
+			TokenDir:      filepath.Join(filepath.Dir(cfg.DB), "public-endpoints"),
+			ProbeOrigin:   cfg.PublicEndpoints.ProbeOrigin,
+			OAuthClientID: cfg.PublicEndpoints.OAuth.ClientID,
+			OAuthRelayURL: cfg.PublicEndpoints.OAuth.RelayURL,
+			DashboardURL:  cfg.PublicEndpoints.OAuth.DashboardURL,
+			PublicOrigin:  cfg.PublicOrigin,
+		}, data)
+		hooksServer = &http.Server{Addr: cfg.PublicEndpoints.HooksAddr, Handler: httpapi.NewPublicHooksHandler(api), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
+		go func() {
+			log.Printf(`{"level":"info","msg":"helm public hooks listener started","addr":%q}`, cfg.PublicEndpoints.HooksAddr)
+			// Public endpoints are optional: a busy port must not stop Helm.
+			if serveErr := hooksServer.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				errorLog("public hooks listener stopped", serveErr)
+			}
+		}()
+		if resumeErr := api.PublicEndpoints.Resume(ctx); resumeErr != nil {
+			errorLog("public endpoint resume failed", resumeErr)
+		}
+	}
 	server := &http.Server{Addr: cfg.Addr, Handler: api, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
 	var privateServer *http.Server
 	var privateListener net.Listener
@@ -158,6 +188,14 @@ func main() {
 	<-signalCtx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if api.PublicEndpoints != nil {
+		api.PublicEndpoints.Shutdown()
+	}
+	if hooksServer != nil {
+		if err := hooksServer.Shutdown(shutdownCtx); err != nil {
+			errorLog("public hooks listener shutdown failed", err)
+		}
+	}
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		errorLog("server shutdown failed", err)
 	}

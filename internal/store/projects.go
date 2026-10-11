@@ -33,7 +33,7 @@ type ColumnInput struct {
 	Archived      *bool
 }
 
-const projectSelect = `SELECT id, key, slug, name, description, color, favorite, archived_at, checklist_completion_policy, created_at, updated_at, version FROM projects`
+const projectSelect = `SELECT id, key, slug, name, description, color, favorite, archived_at, checklist_completion_policy, created_at, updated_at, version, COALESCE(system_kind, '') FROM projects`
 const columnSelect = `SELECT id, project_id, name, semantic_state, position, archived_at, ordering_version, created_at, updated_at, version FROM columns`
 
 func validateProjectInput(input ProjectInput, creating bool) (ProjectInput, error) {
@@ -311,6 +311,9 @@ func (s *Store) UpdateProjectWithVersion(ctx context.Context, id string, input P
 	current, err := s.GetProject(ctx, id)
 	if err != nil {
 		return Project{}, err
+	}
+	if current.SystemKind != "" && validated.Archived != nil && *validated.Archived {
+		return Project{}, invalid("the ticket queue cannot be archived", map[string]any{"field": "archived"})
 	}
 	key, slug, name := current.Key, current.Slug, current.Name
 	description, color := current.Description, current.Color

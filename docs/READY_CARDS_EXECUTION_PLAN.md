@@ -1,5 +1,7 @@
 # Seven Ready cards execution plan
 
+Status: delivered (task dependencies shipped; see CARD_DEPENDENCIES_PLAN.md). Kept as the execution record.
+
 ## Goal and scope
 
 Deliver the exact seven cards currently in the TC Ready column:

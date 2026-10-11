@@ -26,6 +26,7 @@ import (
 	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
+	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 	"github.com/KanterLabs/helm/internal/webassets"
 )
@@ -38,9 +39,12 @@ type Server struct {
 	// BetaSwitch is an injected client for the root-owned beta switch broker.
 	// The HTTP layer never invokes deployment commands or accesses release
 	// paths directly.
-	BetaSwitch     betaswitch.Client
-	idemMu         sync.Mutex
-	betaSwitchIdem map[string]betaSwitchReplay
+	BetaSwitch betaswitch.Client
+	// PublicEndpoints provisions and runs the optional Cloudflare tunnel
+	// that exposes webhook routes publicly; nil when not configured.
+	PublicEndpoints *publicendpoint.Manager
+	idemMu          sync.Mutex
+	betaSwitchIdem  map[string]betaSwitchReplay
 	// mutationLimiter is initialized by New and is intentionally process-local.
 	// Persistent agent accounting lives in store so a restart cannot reset the
 	// actor's resource budget.
@@ -328,6 +332,10 @@ func isProtectedAPIRequest(r *http.Request) bool {
 	if (r.URL.Path == "/api/v1" || r.URL.Path == "/api/v1/") && r.Method == http.MethodGet {
 		return false
 	}
+	// Webhook intake authenticates with its own path secret, never a session.
+	if parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1")); isCoolifyIntakePath(parts) || isTicketHookPath(parts) || isEmailHookPath(parts) {
+		return false
+	}
 	return !isPublicAuthRequest(r)
 }
 
@@ -524,6 +532,18 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusOK, response)
 		return
 	}
+	if isCoolifyIntakePath(parts) {
+		s.coolifyIntake(w, r, parts[2])
+		return
+	}
+	if isTicketHookPath(parts) {
+		s.ticketHook(w, r, parts[2])
+		return
+	}
+	if isEmailHookPath(parts) {
+		s.emailHook(w, r, parts[3])
+		return
+	}
 	// Auth endpoints status/setup/login are intentionally public. Logout can
 	// also be called after a session has expired.
 	if len(parts) >= 2 && parts[0] == "auth" {
@@ -639,6 +659,18 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.roadmap(w, r, identity, "", false)
 		case "my-work":
 			s.myWork(w, r, identity)
+		case "tickets":
+			s.tickets(w, r, identity)
+		case "ticket-webhooks":
+			s.ticketWebhooks(w, r, identity)
+		case "public-endpoints":
+			s.publicEndpoints(w, r, identity)
+		case "email-intake":
+			s.emailIntakes(w, r, identity)
+		case "email-inboxes":
+			s.emailInboxes(w, r, identity)
+		case "cloudflare":
+			s.cloudflareConnect(w, r, identity, parts)
 		case "sidebar-counts":
 			s.sidebarCounts(w, r, identity)
 		case "project-intelligence":
@@ -670,6 +702,38 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		s.betaSwitchRoute(w, r, identity, parts[2:])
 		return
 	}
+	if parts[0] == "public-endpoints" && len(parts) == 2 {
+		s.publicEndpoint(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "docs" && len(parts) == 2 {
+		s.helpDocument(w, r, parts[1])
+		return
+	}
+	if parts[0] == "cloudflare" {
+		s.cloudflareConnect(w, r, identity, parts)
+		return
+	}
+	if parts[0] == "tickets" && len(parts) == 3 && parts[2] == "file" {
+		s.fileTicket(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "email-inboxes" && (len(parts) == 2 || (len(parts) == 3 && parts[2] == "address")) {
+		s.emailInbox(w, r, identity, parts)
+		return
+	}
+	if parts[0] == "email-intake" && len(parts) == 2 {
+		s.emailIntake(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "public-endpoints" && len(parts) == 3 && parts[2] == "test" {
+		s.testPublicEndpoint(w, r, identity, parts[1])
+		return
+	}
+	if parts[0] == "ticket-webhooks" && (len(parts) == 2 || len(parts) == 3) {
+		s.ticketWebhook(w, r, identity, parts)
+		return
+	}
 	if parts[0] == "issues" && len(parts) == 2 && parts[1] == "metrics" {
 		s.issueMetrics(w, r, identity)
 		return
@@ -689,6 +753,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 				s.taskContext(w, r, identity, parts[1])
 			case "task-draft":
 				s.taskDraft(w, r, identity, parts[1])
+			case "tickets":
+				s.projectTickets(w, r, identity, parts[1])
 			case "timeline":
 				s.projectTimeline(w, r, identity, parts[1])
 			case "columns":

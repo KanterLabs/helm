@@ -1248,7 +1248,7 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .mobile-brand { flex: 0 0 auto; }
   .mobile-brand strong { display: none; }
   .mobile-brand .brand-mark { width: 34px; height: 34px; }
-  .mobile-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 45; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: 0 -8px 24px rgba(29, 36, 51, .08); backdrop-filter: blur(16px); transition: background-color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out); }
+  .mobile-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 45; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; padding: 5px 8px calc(5px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: 0 -8px 24px rgba(29, 36, 51, .08); backdrop-filter: blur(16px); transition: background-color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out); }
   .icon-button, .icon-button.tiny { width: 44px; height: 44px; }
   .text-button { min-height: 44px; display: inline-flex; align-items: center; }
   .quick-add-trigger { min-height: 44px; }

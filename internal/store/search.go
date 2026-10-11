@@ -46,7 +46,8 @@ func (s *Store) ListSearchTasksWithExtra(ctx context.Context, filter SearchFilte
 // normal project collection: command search only needs navigation labels and
 // should remain bounded even when a workspace has many projects.
 func (s *Store) ListSearchProjects(ctx context.Context, projectIDs []string, queryValue string) ([]Project, error) {
-	query := projectSelect + ` WHERE archived_at IS NULL`
+	// The built-in ticket queue is reached through Tickets, not as a project.
+	query := projectSelect + ` WHERE archived_at IS NULL AND system_kind IS NULL`
 	args := make([]any, 0, len(projectIDs)+1)
 	if projectIDs != nil && len(projectIDs) == 0 {
 		query += ` AND 1=0`

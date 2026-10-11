@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Deterministic Cloudflare v4 API fixture for public-endpoint E2E tests.
+
+Usage: fake-cloudflare PORT TOKEN ZONELESS_TOKEN [NORULES_TOKEN]
+TOKEN sees zones example.test (Email Routing on, plus addressing off) and
+plain.test (Email Routing off) in account acct-1; ZONELESS_TOKEN sees no
+zones; NORULES_TOKEN sees zones and Workers but not Email Routing rules.
+GET /__state (no auth) returns everything created, for test assertions.
+"""
+import base64
+import hashlib
+import json
+import os
+import secrets
+import sys
+import threading
+from email.parser import BytesParser
+from email.policy import HTTP
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlencode, urlparse
+
+PORT, TOKEN, ZONELESS = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+NORULES = sys.argv[4] if len(sys.argv) > 4 else None
+ZONE = {"id": "zone-1", "name": "example.test", "account": {"id": "acct-1", "name": "E2E account"}}
+ZONE2 = {"id": "zone-2", "name": "plain.test", "account": {"id": "acct-1", "name": "E2E account"}}
+# OAuth (dash.cloudflare.com/oauth2/*) for the guided-setup sign-in flow.
+OAUTH_CLIENT = os.environ.get("FAKE_OAUTH_CLIENT_ID", "e2e-client")
+OAUTH_REDIRECT = os.environ.get("FAKE_OAUTH_REDIRECT", "")
+ZONES = {zone["name"]: zone for zone in (ZONE, ZONE2)}
+lock = threading.Lock()
+state = {
+    "tunnels": {}, "configs": {}, "dns": {}, "run_tokens": {}, "deleted_tunnels": [], "deleted_dns": [], "counter": 0,
+    "email_routing": {
+        "zone-1": {"enabled": True, "status": "ready", "support_subaddress": False, "name": "example.test"},
+        "zone-2": {"enabled": False, "status": "unconfigured", "support_subaddress": False, "name": "plain.test"},
+    },
+    # An address someone already routes, to prove Helm never takes it over.
+    "rules": {"rule-taken": {"id": "rule-taken", "zone": "zone-1", "name": "existing", "enabled": True,
+                             "matchers": [{"type": "literal", "field": "to", "value": "taken@example.test"}],
+                             "actions": [{"type": "forward", "value": ["owner@example.org"]}]}},
+    "deleted_rules": [], "workers": {}, "deleted_workers": [],
+    "oauth_codes": {}, "oauth_tokens_issued": 0, "oauth_revoked": 0, "oauth_deny_next": False,
+    "addresses": [{"email": "fallback@example.org", "verified": "2026-01-01T00:00:00Z"},
+                  {"email": "unverified@example.org", "verified": None}],
+}
+
+
+def next_id(prefix):
+    state["counter"] += 1
+    return f"{prefix}-{state['counter']}"
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def reply(self, status, result=None, errors=None):
+        body = json.dumps({"success": not errors, "errors": errors or [], "messages": [], "result": result}).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def raw_body(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        return self.rfile.read(length) if length else b""
+
+    def body(self):
+        raw = self.raw_body()
+        return json.loads(raw or b"{}") if raw else {}
+
+    def multipart(self):
+        message = BytesParser(policy=HTTP).parsebytes(
+            b"Content-Type: " + self.headers.get("Content-Type", "").encode() + b"\r\n\r\n" + self.raw_body())
+        parts = {}
+        for part in message.iter_parts():
+            content = part.get_content()
+            parts[part.get_param("name", header="content-disposition")] = content.decode() if isinstance(content, bytes) else content
+        return parts
+
+    def oauth(self, method, url):
+        query = parse_qs(url.query)
+        one = lambda key: (query.get(key) or [""])[0]
+        if url.path == "/oauth2/auth" and method == "GET":
+            # Real Cloudflare validates the client and exact redirect first.
+            if one("client_id") != OAUTH_CLIENT or one("redirect_uri") != OAUTH_REDIRECT or one("code_challenge_method") != "S256" or not one("code_challenge"):
+                self.send_response(302)
+                self.send_header("Location", "/oauth/error?error=invalid_request")
+                self.end_headers()
+                return
+            if state["oauth_deny_next"]:
+                state["oauth_deny_next"] = False
+                params = {"error": "access_denied", "error_description": "The user denied access", "state": one("state")}
+            else:
+                code = secrets.token_urlsafe(16)
+                state["oauth_codes"][code] = {"challenge": one("code_challenge"), "redirect": one("redirect_uri")}
+                params = {"code": code, "state": one("state")}
+            self.send_response(302)
+            self.send_header("Location", OAUTH_REDIRECT + "?" + urlencode(params))
+            self.end_headers()
+            return
+        form = {key: values[0] for key, values in parse_qs(self.raw_body().decode()).items()}
+        if url.path == "/oauth2/token" and method == "POST":
+            grant = state["oauth_codes"].pop(form.get("code", ""), None)
+            verifier = form.get("code_verifier", "")
+            challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            if not grant or grant["challenge"] != challenge or form.get("client_id") != OAUTH_CLIENT or form.get("redirect_uri") != grant["redirect"]:
+                body = json.dumps({"error": "invalid_grant", "error_description": "The authorization code is invalid"}).encode()
+                self.send_response(400)
+            else:
+                state["oauth_tokens_issued"] += 1
+                body = json.dumps({"access_token": TOKEN, "token_type": "bearer", "expires_in": 3600, "scope": "zone.read"}).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if url.path == "/oauth2/revoke" and method == "POST":
+            if form.get("token") == TOKEN and form.get("client_id") == OAUTH_CLIENT:
+                state["oauth_revoked"] += 1
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.reply(404, errors=[{"code": 7003, "message": "no oauth route"}])
+
+    def handle_any(self, method):
+        url = urlparse(self.path)
+        if url.path == "/__state" and method == "GET":
+            with lock:
+                return self.reply(200, state)
+        if url.path == "/__oauth_deny_next" and method == "POST":
+            with lock:
+                state["oauth_deny_next"] = True
+                return self.reply(200, {})
+        if url.path.startswith("/oauth2/"):
+            with lock:
+                return self.oauth(method, url)
+        token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
+        if token not in (TOKEN, ZONELESS) and token != NORULES:
+            return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+        parts = [part for part in url.path.removeprefix("/client/v4").split("/") if part]
+        query = parse_qs(url.query)
+        with lock:
+            if parts == ["zones"] and method == "GET":
+                name = (query.get("name") or [""])[0]
+                if token == ZONELESS:
+                    return self.reply(200, [])
+                if not name:
+                    return self.reply(200, list(ZONES.values()))
+                return self.reply(200, [ZONES[name]] if name in ZONES else [])
+            if len(parts) >= 4 and parts[0] == "zones" and parts[2:4] == ["email", "routing"]:
+                return self.email_routing(method, parts[1], parts[4:], token)
+            if parts[:2] == ["accounts", "acct-1"] and parts[2:4] == ["workers", "scripts"] and len(parts) == 5:
+                name = parts[4]
+                if method == "PUT":
+                    upload = self.multipart()
+                    metadata = json.loads(upload["metadata"])
+                    state["workers"][name] = {"metadata": metadata, "source": upload[metadata["main_module"]]}
+                    return self.reply(200, {"id": name})
+                if method == "DELETE":
+                    if name not in state["workers"]:
+                        return self.reply(404, errors=[{"code": 10007, "message": "workers.api.error.script_not_found"}])
+                    state["workers"].pop(name)
+                    state["deleted_workers"].append(name)
+                    return self.reply(200, None)
+            if parts[:2] == ["accounts", "acct-1"] and parts[2:] == ["email", "routing", "addresses"] and method == "GET":
+                if token == NORULES:
+                    return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+                return self.reply(200, state["addresses"])
+            if parts[:2] == ["accounts", "acct-1"] and len(parts) >= 3 and parts[2] == "cfd_tunnel":
+                if len(parts) == 3 and method == "POST":
+                    tunnel = {"id": next_id("tun"), **self.body()}
+                    state["tunnels"][tunnel["id"]] = tunnel
+                    return self.reply(200, tunnel)
+                tunnel_id = parts[3]
+                # Like Cloudflare, a soft-deleted tunnel accepts repeat deletes.
+                if tunnel_id in state["deleted_tunnels"] and method == "DELETE":
+                    return self.reply(200, None if parts[4:] == [] else {})
+                if tunnel_id not in state["tunnels"]:
+                    return self.reply(404, errors=[{"code": 1003, "message": "tunnel not found"}])
+                if parts[4:] == ["token"] and method == "GET":
+                    run_token = f"run-{tunnel_id}-{secrets.token_hex(16)}"
+                    state["run_tokens"][tunnel_id] = run_token
+                    return self.reply(200, run_token)
+                if parts[4:] == ["configurations"] and method == "PUT":
+                    state["configs"][tunnel_id] = self.body()
+                    return self.reply(200, {})
+                if parts[4:] == ["connections"] and method == "DELETE":
+                    return self.reply(200, {})
+                if parts[4:] == [] and method == "DELETE":
+                    state["tunnels"].pop(tunnel_id)
+                    state["deleted_tunnels"].append(tunnel_id)
+                    return self.reply(200, {"id": tunnel_id})
+            if parts[:2] == ["zones", "zone-1"] and len(parts) >= 3 and parts[2] == "dns_records":
+                if token != TOKEN:
+                    return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+                if len(parts) == 3 and method == "GET":
+                    name = (query.get("name") or [""])[0]
+                    return self.reply(200, [record for record in state["dns"].values() if record["name"] == name])
+                if len(parts) == 3 and method == "POST":
+                    record = {"id": next_id("dns"), **self.body()}
+                    state["dns"][record["id"]] = record
+                    return self.reply(200, record)
+                if len(parts) == 4 and method == "DELETE":
+                    if parts[3] not in state["dns"]:
+                        return self.reply(404, errors=[{"code": 81044, "message": "Record does not exist."}])
+                    state["dns"].pop(parts[3])
+                    state["deleted_dns"].append(parts[3])
+                    return self.reply(200, {"id": parts[3]})
+        return self.reply(404, errors=[{"code": 7003, "message": f"no route for {method} {url.path}"}])
+
+    def email_routing(self, method, zone_id, rest, token):
+        settings = state["email_routing"].get(zone_id)
+        if settings is None or token == ZONELESS:
+            return self.reply(404, errors=[{"code": 1001, "message": "zone not found"}])
+        if rest == []:
+            if method == "GET":
+                return self.reply(200, settings)
+            if method == "PATCH":
+                settings.update({key: value for key, value in self.body().items() if key == "support_subaddress"})
+                return self.reply(200, settings)
+        if token == NORULES:
+            return self.reply(403, errors=[{"code": 10000, "message": "Authentication error"}])
+        if rest == ["rules"] and method == "GET":
+            return self.reply(200, [rule for rule in state["rules"].values() if rule["zone"] == zone_id])
+        if rest == ["rules"] and method == "POST":
+            rule = {"id": next_id("rule"), "zone": zone_id, **self.body()}
+            # Lets tests prove setup rolls back after the Worker was uploaded.
+            if any(str(matcher.get("value", "")).startswith("fail-rule") for matcher in rule.get("matchers", [])):
+                return self.reply(400, errors=[{"code": 2007, "message": "Invalid rule"}])
+            state["rules"][rule["id"]] = rule
+            return self.reply(200, rule)
+        if len(rest) == 2 and rest[0] == "rules" and method == "DELETE":
+            if rest[1] not in state["rules"]:
+                return self.reply(404, errors=[{"code": 2020, "message": "Rule not found"}])
+            state["rules"].pop(rest[1])
+            state["deleted_rules"].append(rest[1])
+            return self.reply(200, {"id": rest[1]})
+        return self.reply(404, errors=[{"code": 7003, "message": f"no route for {method} email/routing/{'/'.join(rest)}"}])
+
+    def do_PATCH(self):
+        self.handle_any("PATCH")
+
+    def do_GET(self):
+        self.handle_any("GET")
+
+    def do_POST(self):
+        self.handle_any("POST")
+
+    def do_PUT(self):
+        self.handle_any("PUT")
+
+    def do_DELETE(self):
+        self.handle_any("DELETE")
+
+
+ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

@@ -76,7 +76,9 @@ jobs:
 
   browser:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: homelab-heavy
+    # The live automatic pool admits and sizes heavy jobs through its hook.
+    # The legacy homelab-heavy pool is intentionally capped at zero.
+    runs-on: homelab
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -143,7 +145,9 @@ jobs:
 
   container:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: homelab-heavy
+    # The live automatic pool admits and sizes heavy jobs through its hook.
+    # The legacy homelab-heavy pool is intentionally capped at zero.
+    runs-on: homelab
     needs: checks
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -174,6 +178,11 @@ jobs:
           docker cp "$container_id:/usr/local/bin/codex" "$image_dir/codex"
           test -x "$image_dir/codex"
           (cd "$image_dir" && sha256sum codex > codex.sha256)
+          docker exec "$container_id" /usr/local/bin/cloudflared --version
+          docker exec "$container_id" /usr/local/bin/cloudflared tunnel --help >/dev/null
+          docker cp "$container_id:/usr/local/bin/cloudflared" "$image_dir/cloudflared"
+          test -x "$image_dir/cloudflared"
+          (cd "$image_dir" && sha256sum cloudflared > cloudflared.sha256)
           printf 'container_smoke=ok\n'
           image_tar="$image_dir/helm-${GITHUB_SHA}.tar"
           docker save --output "$image_tar" "helm:${GITHUB_SHA}"
@@ -194,6 +203,8 @@ jobs:
             ${{ runner.temp }}/helm-container/helm-${{ github.sha }}.tar.gz.sha256
             ${{ runner.temp }}/helm-container/codex
             ${{ runner.temp }}/helm-container/codex.sha256
+            ${{ runner.temp }}/helm-container/cloudflared
+            ${{ runner.temp }}/helm-container/cloudflared.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -293,6 +304,11 @@ jobs:
           # homelab-edge reaches CT 106 over the LAN; no tailscale interface
           # is required inside the guest for the private HTTPS origin.
           HELM_TAILNET_ALLOWED_PEER_IPS: 10.0.0.101
+          # Optional Coolify alert intake. Coolify webhooks authenticate only
+          # with a URL path secret, so it reaches the guest through this
+          # root-only owner environment.
+          HELM_COOLIFY_WEBHOOK_SECRET: ${{ secrets.BETA_COOLIFY_WEBHOOK_SECRET }}
+          HELM_COOLIFY_PROJECT: ${{ vars.BETA_COOLIFY_PROJECT }}
         run: |
           test -n "$HELM_ADMIN_EMAIL"
           test -n "$HELM_TAILNET_OWNER_LOGIN"
@@ -334,6 +350,15 @@ jobs:
             printf 'ROADMAP_BETA_SWITCH_ENABLED=true\nROADMAP_BETA_SWITCH_SOCKET=%s\n' "$HELM_BETA_SWITCH_SOCKET"
           } > "$owner_file"
           chmod 0600 "$owner_file"
+          if [[ -n "$HELM_COOLIFY_WEBHOOK_SECRET" || -n "$HELM_COOLIFY_PROJECT" ]]; then
+            [[ "$HELM_COOLIFY_WEBHOOK_SECRET" =~ ^[A-Za-z0-9_-]{32,256}$ ]]
+            [[ "$HELM_COOLIFY_PROJECT" =~ ^[A-Za-z0-9_-]{1,64}$ ]]
+            {
+              printf 'HELM_COOLIFY_WEBHOOK_SECRET=%s\n' "$HELM_COOLIFY_WEBHOOK_SECRET"
+              printf 'HELM_COOLIFY_PROJECT=%s\n' "$HELM_COOLIFY_PROJECT"
+              printf 'HELM_COOLIFY_ASSIGNEE=%s\n' "$HELM_ADMIN_EMAIL"
+            } >> "$owner_file"
+          fi
           printf 'HELM_OWNER_ENV_FILE=%s\n' "$owner_file" >> "$GITHUB_ENV"
       - name: Materialize beta release signing key
         env:
@@ -463,17 +488,22 @@ jobs:
           test -f dist/helm
           chmod 0755 dist/helm
           test -x dist/helm
-      - name: Download tested Codex runtime
+      - name: Download tested runtime binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: helm-image-${{ github.sha }}
           path: dist/container
-      - name: Verify Codex runtime artifact
+      - name: Verify runtime artifacts
         run: |
           test -f dist/container/codex
           test -f dist/container/codex.sha256
           (cd dist/container && sha256sum --check --strict codex.sha256)
           install -m 0755 dist/container/codex dist/codex
+          test -f dist/container/cloudflared
+          test -f dist/container/cloudflared.sha256
+          (cd dist/container && sha256sum --check --strict cloudflared.sha256)
+          install -m 0755 dist/container/cloudflared dist/cloudflared
+          install -m 0644 dist/container/cloudflared.sha256 dist/cloudflared.sha256
       - name: Configure deploy identity
         env:
           DEPLOY_KEY: ${{ secrets.ROADMAP_DEPLOY_SSH_KEY }}

@@ -10,7 +10,7 @@
 **A small, self-hosted project board and bug tracker for teams where humans and software agents move work together.**
 
 [![CI](https://github.com/KanterLabs/helm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/KanterLabs/helm/actions/workflows/ci.yml)
-![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
 ![Svelte](https://img.shields.io/badge/Svelte-TypeScript-FF3E00?logo=svelte&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-one_container-2496ED?logo=docker&logoColor=white)
@@ -242,6 +242,9 @@ also works on headless servers. Credentials stay in per-user directories under
 | Moving data between installations | [`docs/PORTABILITY.md`](docs/PORTABILITY.md) |
 | Metrics, readiness, and logs | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) |
 | Installable PWA | [`docs/PWA.md`](docs/PWA.md) |
+| Every setting (`HELM_*` variables) | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) |
+| Webhooks: let outside apps open tickets | [`docs/TICKET_WEBHOOKS.md`](docs/TICKET_WEBHOOKS.md) |
+| Public access: Connect Cloudflare, public URL, email addresses | [`docs/PUBLIC_ACCESS.md`](docs/PUBLIC_ACCESS.md) |
 | Operations, backups, and restore | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
 | How the maintainers deploy Helm | [`docs/HOMELAB_DEPLOYMENT.md`](docs/HOMELAB_DEPLOYMENT.md) |
 
