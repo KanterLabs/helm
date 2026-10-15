@@ -189,3 +189,100 @@ func TestForwardAuthShortAssertionLifetime(t *testing.T) {
 		t.Fatalf("assertion lifetime = %s", lifetime)
 	}
 }
+
+// Machine admission is transport-only and must never produce an owner assertion.
+func TestForwardAuthAgentAdmission(t *testing.T) {
+	key := []byte("01234567890123456789012345678901")
+	cases := []struct {
+		name, uri, bearer string
+		tags, allowed     []string
+		want              int
+	}{
+		{"approved API", "/api/v1/projects?limit=1", "Bearer scoped-token", []string{"tag:helm-agent"}, []string{"tag:helm-agent"}, 200},
+		{"disabled by default", "/api/v1/projects", "Bearer scoped-token", []string{"tag:helm-agent"}, nil, 401},
+		{"wrong tag", "/api/v1/projects", "Bearer scoped-token", []string{"tag:ci-runners"}, []string{"tag:helm-agent"}, 401},
+		{"missing bearer", "/api/v1/projects", "", []string{"tag:helm-agent"}, []string{"tag:helm-agent"}, 401},
+		{"empty bearer", "/api/v1/projects", "Bearer ", []string{"tag:helm-agent"}, []string{"tag:helm-agent"}, 401},
+		{"browser", "/", "Bearer scoped-token", []string{"tag:helm-agent"}, []string{"tag:helm-agent"}, 401},
+		{"auth", "/api/v1/auth/status", "Bearer scoped-token", []string{"tag:helm-agent"}, []string{"tag:helm-agent"}, 401},
+		{"encoded auth", "/api/v1/%61uth/status", "Bearer scoped-token", []string{"tag:helm-agent"}, []string{"tag:helm-agent"}, 401},
+		{"dot path", "/api/v1/projects/../auth/status", "Bearer scoped-token", []string{"tag:helm-agent"}, []string{"tag:helm-agent"}, 401},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := &mockWhoIs{peer: TailnetPeer{Tags: tc.tags}}
+			h, err := NewHandlerWithAgentTags(key, "ShaneKanterman04@github", "owner@example.com", "https://helm.home.shanekanterman.dev", resolver, tc.allowed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := forwardAuthRequest("")
+			r.Header.Set(forwardedURIHeader, tc.uri)
+			if tc.bearer != "" {
+				r.Header.Set("Authorization", tc.bearer)
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d", w.Code, tc.want)
+			}
+			if w.Header().Get(auth.TailnetAssertionHeader) != "" {
+				t.Fatal("agent response contains human assertion")
+			}
+		})
+	}
+}
+
+func TestLocalAPIWhoIsPreservesTaggedPeerWithoutUserProfile(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "tailscaled.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("application bearer leaked to LocalAPI")
+		}
+		_, _ = w.Write([]byte(`{"Node":{"Tags":["tag:helm-agent"]}}`))
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	peer, err := (LocalAPIWhoIs{Socket: socket}).WhoIs(context.Background(), "100.91.193.78:4123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if peer.LoginName != "" || len(peer.Tags) != 1 || peer.Tags[0] != "tag:helm-agent" {
+		t.Fatalf("peer = %#v", peer)
+	}
+}
+
+func TestForwardAuthAgentAuthCheck(t *testing.T) {
+	key := []byte("01234567890123456789012345678901")
+	for _, tc := range []struct {
+		method, uri string
+		want        int
+	}{
+		{http.MethodGet, "/api/v1/auth/me", http.StatusOK},
+		{http.MethodPost, "/api/v1/auth/me", http.StatusUnauthorized},
+		{http.MethodGet, "/api/v1/auth/status", http.StatusUnauthorized},
+	} {
+		t.Run(tc.method+tc.uri, func(t *testing.T) {
+			resolver := &mockWhoIs{peer: TailnetPeer{Tags: []string{"tag:gha-helm-deploy"}}}
+			h, err := NewHandlerWithAgentTags(key, "ShaneKanterman04@github", "owner@example.com", "https://helm.home.shanekanterman.dev", resolver, []string{"tag:gha-helm-deploy"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := forwardAuthRequest("")
+			r.Header.Set(forwardedMethodHeader, tc.method)
+			r.Header.Set(forwardedURIHeader, tc.uri)
+			r.Header.Set("Authorization", "Bearer scoped-token")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d", w.Code, tc.want)
+			}
+			if w.Header().Get(auth.TailnetAssertionHeader) != "" {
+				t.Fatal("agent auth-check produced a human assertion")
+			}
+		})
+	}
+}

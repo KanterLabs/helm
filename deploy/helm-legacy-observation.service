@@ -1,0 +1,18 @@
+[Unit]
+Description=Observe Helm legacy API usage without changing routes
+After=helm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/helm-observe-legacy-origin
+User=root
+Group=root
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/roadmap/operations
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0027

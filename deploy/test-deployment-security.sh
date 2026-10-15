@@ -104,7 +104,7 @@ contains 'ssh -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" status < /dev/nul
 contains 'ssh -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" "rollback $SHA" < /dev/null' "$DEPLOY_CI"
 not_contains 'scp -q' "$DEPLOY_CI"
 not_contains '/usr/local/sbin/helm-deploy-gateway' "$DEPLOY_CI"
-contains 'HELM_DEPLOY_ENVIRONMENT must be production or beta' "$DEPLOY_CI"
+contains 'HELM_DEPLOY_ENVIRONMENT must be production, production-private or beta' "$DEPLOY_CI"
 contains 'PVE_DEPLOY_USER must be helm-beta-deploy for beta deployments' "$DEPLOY_CI"
 
 # Only the intended command alphabet can reach gateway action dispatch.
@@ -493,7 +493,8 @@ assert_proof_format() {
 }
 assert_proof_format 'pre_upgrade_backup=roadmap-20260828T173000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.db source_schema=9 candidate_schema=10 latest_schema=10 migration_digest=0000000000000000000000000000000000000000000000000000000000000000 checksum=valid integrity=ok fk=ok preflight=ok'
 assert_proof_format 'pre_upgrade_backup=none source_schema=0 candidate_schema=10 latest_schema=10 migration_digest=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff checksum=valid integrity=ok fk=ok preflight=ok'
-not_contains 'roadmap.db' "$ROLLBACK"
+not_contains 'sqlite3' "$ROLLBACK"
+not_contains 'cp --' "$ROLLBACK"
 
 # Exercise the gateway cleanup predicate with a mocked pct boundary. A failed
 # pct create is allowed to leave a partial configuration, but the transaction
@@ -1631,10 +1632,18 @@ contains 'actions/setup-go@' "$WORKFLOW"
 contains '# v7.0.0' "$WORKFLOW"
 contains 'actions/setup-node@' "$WORKFLOW"
 contains 'ROADMAP_RELEASE_SIGNING_KEY' "$WORKFLOW"
-contains 'ROADMAP_CF_ACCESS_CLIENT_ID' "$WORKFLOW"
-contains 'ROADMAP_CF_ACCESS_CLIENT_SECRET' "$WORKFLOW"
-contains 'HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE: "1"' "$WORKFLOW"
-contains 'cloudflare_dir="$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"
+# Private production reads its existing legacy tunnel without reconciling
+# public routing or using Cloudflare edge identity for readiness.
+contains 'HELM_DEPLOY_ENVIRONMENT: production-private' "$WORKFLOW"
+contains 'HELM_ADMIN_EMAIL: ${{ secrets.ROADMAP_ADMIN_EMAIL }}' "$WORKFLOW"
+contains 'python3 deploy/prepare-production-private.py' "$WORKFLOW"
+not_contains 'ROADMAP_CF_ACCESS_CLIENT_ID' "$WORKFLOW"
+not_contains 'ROADMAP_CF_ACCESS_CLIENT_SECRET' "$WORKFLOW"
+not_contains './deploy/cloudflare.sh prepare' "$WORKFLOW"
+not_contains './deploy/cloudflare.sh publish' "$WORKFLOW"
+contains 'class NoRedirect' "$DEPLOY_DIR/prepare-production-private.py"
+contains "x.get('name')=='roadmap-homelab'" "$DEPLOY_DIR/prepare-production-private.py"
+contains 'os.O_EXCL,0o600' "$DEPLOY_DIR/prepare-production-private.py"
 contains 'HELM_CLOUDFLARED_TOKEN_FILE=%s' "$WORKFLOW"
 contains 'HELM_OWNER_ENV_FILE=%s' "$WORKFLOW"
 count_contains 2 'rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"' "$WORKFLOW"

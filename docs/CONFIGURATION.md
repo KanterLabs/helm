@@ -15,6 +15,7 @@ startup.
 | --- | --- | --- |
 | `HELM_ADDR` | `:8080` (`0.0.0.0:8080` in Compose) | Listen address. `cloudflare`, `tailnet` and `disabled` auth modes require a loopback address. |
 | `HELM_DB` | `data/roadmap.db` (`/data/roadmap.db` in Compose) | SQLite database path. Tunnel run tokens live in a `public-endpoints` directory beside it. |
+| `HELM_LEGACY_ORIGIN` | empty | Optional exact former browser origin for direct scoped bearer API compatibility. Production private uses `https://tc.shanekanterman.dev`; UI GET/HEAD redirects to the canonical origin and old browser writes are rejected. |
 | `HELM_PUBLIC_ORIGIN` | none | External URL users reach Helm at, as a normalized origin (no trailing slash). Required for `local` and `cloudflare` auth; also where "Sign in with Cloudflare" returns. |
 | `HELM_SECURE_COOKIES` | `true` | Mark session cookies `Secure`; must be `true` in `cloudflare` and `tailnet` modes. Set `false` only for plain-HTTP local use. |
 | `HELM_DEMO_SEED` | `false` (`true` in Compose) | Seed demo projects on first start; must be `false` in SSO modes. |
@@ -38,7 +39,15 @@ startup.
 | `HELM_TAILNET_ALLOWED_PEER_IPS` | empty | Comma-separated edge IPs allowed to connect. |
 
 The private beta's exact values are in
-[BETA_DEPLOYMENT_PLAN.md](BETA_DEPLOYMENT_PLAN.md).
+[BETA_DEPLOYMENT_PLAN.md](BETA_DEPLOYMENT_PLAN.md). Production uses
+[`deploy/tailnet-owner-production.env.example`](../deploy/tailnet-owner-production.env.example):
+`https://helm.home.shanekanterman.dev` is both the exact public origin and
+assertion audience; the listener is `10.0.0.38:8443`, and the only permitted
+origin peer is `10.0.0.101`. Both canonical and legacy settings must agree.
+Keep the existing admin email to preserve the owner actor. The assertion key
+is separate from the origin TLS key and the release-signing key; production
+and beta provision separate key bytes even though guest-local paths match.
+Never distribute assertion or TLS signing keys to owner/agent clients.
 
 ## Luna (Codex task assist)
 

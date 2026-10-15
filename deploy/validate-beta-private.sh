@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
-# Validate the beta guest's private Tailnet profile without contacting DNS,
-# Cloudflare, or the public origin. The gateway runs this as root inside CT
-# 106 after an install or rollback.
+# Validate an exact private guest profile without contacting public services.
+# The default remains beta for the installed legacy helper name.
 set -Eeuo pipefail
 
 CONFIG_FILE=/etc/roadmap/roadmap.env
 OWNER_CONFIG_FILE=/etc/roadmap/tailnet-owner.env
+PROFILE=beta
+if [[ ${1:-} = --profile && $# -eq 2 ]]; then
+	PROFILE=$2
+elif [[ $# -ne 0 ]]; then
+	printf 'usage: %s [--profile beta|production-private]\n' "$0" >&2; exit 64
+fi
 PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
+PRIVATE_TLS_ADDR=10.0.0.39:8443
+case "$PROFILE" in
+	beta) ;;
+	production-private)
+		PRIVATE_ORIGIN=https://helm.home.shanekanterman.dev
+		PRIVATE_TLS_ADDR=10.0.0.38:8443
+		;;
+	*) printf 'unapproved private profile\n' >&2; exit 64 ;;
+esac
 PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101
 ASSERTION_KEY_SOURCE=/etc/roadmap/tailnet.key
 TLS_CERT_SOURCE=/etc/roadmap/tailnet-origin.crt
@@ -57,6 +71,18 @@ done
 [[ "$(single_kv_value HELM_TAILNET_ALLOWED_PEER_IPS)" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] || fail 'beta guest has an unexpected private origin peer'
 [[ "$(single_kv_value ROADMAP_TAILNET_ALLOWED_PEER_IPS)" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] || fail 'beta guest has a conflicting private origin peer'
 
+for prefix in HELM ROADMAP; do
+	[[ "$(single_kv_value "${prefix}_TAILNET_TLS_ADDR")" = "$PRIVATE_TLS_ADDR" ]] || fail 'private listener address is invalid'
+	if [[ "$PROFILE" = production-private ]]; then
+		[[ "$(single_kv_value "${prefix}_ADDR")" = 127.0.0.1:8080 &&
+			"$(single_kv_value "${prefix}_DB")" = /var/lib/roadmap/data/roadmap.db &&
+			"$(single_kv_value "${prefix}_SECURE_COOKIES")" = true &&
+			"$(single_kv_value "${prefix}_DEMO_SEED")" = false &&
+			"$(single_kv_value "${prefix}_BETA_SWITCH_ENABLED")" = false &&
+			"$(single_kv_value "${prefix}_LEGACY_ORIGIN")" = https://tc.shanekanterman.dev ]] || fail 'production private runtime invariants are invalid'
+	fi
+done
+
 for key in HELM_AUTH_MODE ROADMAP_AUTH_MODE HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN \
 	HELM_TAILNET_AUDIENCE ROADMAP_TAILNET_AUDIENCE \
 	HELM_TAILNET_ASSERTION_KEY_FILE ROADMAP_TAILNET_ASSERTION_KEY_FILE \
@@ -70,6 +96,16 @@ for key in HELM_AUTH_MODE ROADMAP_AUTH_MODE HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_OR
 		fail "Tailnet owner environment is missing $key"
 	[[ "$release_value" = "$owner_value" ]] || fail "Tailnet owner environment conflicts for $key"
 done
+if [[ "$PROFILE" = production-private ]]; then
+	for prefix in HELM ROADMAP; do
+		for setting in ADDR DB SECURE_COOKIES DEMO_SEED BETA_SWITCH_ENABLED LEGACY_ORIGIN; do
+			key="${prefix}_$setting"
+			release_value=$(single_kv_value "$key") || fail "roadmap environment is missing $key"
+			owner_value=$(awk -F= -v key="$key" '$1 == key { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$OWNER_CONFIG_FILE") || fail "Tailnet owner environment is missing $key"
+			[[ "$release_value" = "$owner_value" ]] || fail "Tailnet owner environment conflicts for $key"
+		done
+	done
+fi
 [[ "$(awk -F= '$1 == "HELM_TAILNET_ALLOWED_PEER_IPS" { print substr($0, index($0, "=") + 1) }' "$OWNER_CONFIG_FILE")" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] ||
 	fail 'Tailnet owner environment has an unexpected private origin peer'
 
@@ -84,10 +120,23 @@ regular_file "$TLS_KEY_SOURCE" Tailnet-TLS-key
 [[ "$(stat -c '%U:%G' -- "$TLS_KEY_SOURCE")" = roadmap:roadmap ]] || fail 'Tailnet TLS key owner is invalid'
 [[ "$(stat -c '%a' -- "$TLS_KEY_SOURCE")" = 600 ]] || fail 'Tailnet TLS key mode is invalid'
 
+command -v openssl >/dev/null || fail 'openssl is required for private origin TLS validation'
+openssl x509 -in "$TLS_CERT_SOURCE" -noout -checkend 86400 >/dev/null || fail 'private origin TLS certificate expires within one day'
+openssl x509 -in "$TLS_CERT_SOURCE" -noout -checkhost "${PRIVATE_ORIGIN#https://}" >/dev/null || fail 'private origin TLS certificate hostname is invalid'
+[[ "$(openssl x509 -in "$TLS_CERT_SOURCE" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum)" = \
+	"$(openssl pkey -in "$TLS_KEY_SOURCE" -pubout -outform DER | sha256sum)" ]] || fail 'private origin TLS certificate and key do not match'
+
 systemctl is-active --quiet helm.service || fail 'helm.service is not active'
 systemctl is-active --quiet roadmap.service || fail 'roadmap.service compatibility alias is not active'
-if systemctl is-active --quiet cloudflared.service; then
-	fail 'cloudflared.service is active in the private beta profile'
+if [[ "$PROFILE" = beta ]]; then
+	if systemctl is-active --quiet cloudflared.service; then
+		fail 'cloudflared.service is active in the private beta profile'
+	fi
+else
+	systemctl is-active --quiet cloudflared.service || fail 'production legacy API connector is inactive'
+	if systemctl is-active --quiet helm-beta-switchd.service; then
+		fail 'beta switch controller is active in production'
+	fi
 fi
 
 command -v curl >/dev/null 2>&1 || fail 'curl is required'
@@ -106,4 +155,4 @@ status=$(curl --silent --show-error --max-time 5 --output "$work/unauthenticated
 grep -Eq '"error"[[:space:]]*:[[:space:]]*\{[^}]*"code"[[:space:]]*:[[:space:]]*"unauthorized"' "$work/unauthenticated.json" \
 	|| fail 'loopback unauthenticated auth probe returned an unexpected response'
 
-printf 'beta_private_ready=ok\n'
+if [[ "$PROFILE" = beta ]]; then printf 'beta_private_ready=ok\n'; else printf 'production_private_ready=ok\n'; fi

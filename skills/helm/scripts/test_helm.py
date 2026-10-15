@@ -167,6 +167,59 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.cf_access_client_secret, "client-secret")
 
 
+class DiagnosticTests(unittest.TestCase):
+    def test_offline_diagnostics_and_sources(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "config.json"
+            path.write_text(json.dumps({"base_url": "https://file.example", "token": "fake-secret"}))
+            path.chmod(0o600)
+            with mock.patch.dict(os.environ, {"HELM_CONFIG": str(path)}, clear=True), mock.patch.object(helper.Client, "call", side_effect=AssertionError("network forbidden")):
+                args = helper.build_parser().parse_args(["config-check"])
+                config = helper.load_config()
+                result = args.handler(helper.Client(config), args)
+                self.assertEqual(result, {"origin": "https://file.example", "url_source": "file:base_url", "config_source": "env:HELM_CONFIG", "application_token_present": True, "cloudflare_pair_present": False})
+                with mock.patch.dict(os.environ, {"HELM_URL": "https://helm.example.com", "HELM_CF_ACCESS_CLIENT_ID": "edge-id", "HELM_CF_ACCESS_CLIENT_SECRET": "edge-secret"}):
+                    result = args.handler(helper.Client(helper.load_config()), args)
+                    self.assertEqual(result["url_source"], "env:HELM_URL")
+                    self.assertEqual(result["origin"], "https://helm.example.com")
+                    self.assertTrue(result["cloudflare_pair_present"])
+                for value in ("fake-secret", "edge-id", "edge-secret", str(path)):
+                    self.assertNotIn(value, json.dumps(result))
+
+    def test_canonical_legacy_and_default_sources(self):
+        with tempfile.TemporaryDirectory() as raw:
+            canonical, legacy = Path(raw) / "helm.json", Path(raw) / "legacy.json"
+            for path, origin in ((canonical, "https://canonical.example"), (legacy, "https://legacy.example")):
+                path.write_text(json.dumps({"base_url": origin, "token": "fake-secret"}))
+                path.chmod(0o600)
+            canonical_name = "DEFAULT_CONFIG" if hasattr(helper, "LEGACY_CONFIG") else "CANONICAL_CONFIG"
+            legacy_name = "LEGACY_CONFIG" if hasattr(helper, "LEGACY_CONFIG") else "DEFAULT_CONFIG"
+            with mock.patch.object(helper, canonical_name, canonical), mock.patch.object(helper, legacy_name, legacy), mock.patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(helper.load_config().config_source, "canonical-file")
+                self.assertEqual(helper.load_config().base_url, "https://canonical.example")
+                canonical.unlink()
+                self.assertEqual(helper.load_config().config_source, "legacy-file")
+                legacy.unlink()
+                with mock.patch.dict(os.environ, {"HELM_TOKEN": "fake-secret"}):
+                    self.assertEqual(helper.load_config().url_source, "default")
+
+    def test_malformed_urls_fail_safely(self):
+        for origin in ("https://[private-secret", "https://private-secret:bad", "https://@private-secret", "https://user:private-secret@helm.example", "https://private-secret\n.example"):
+            with self.subTest(origin=origin), tempfile.TemporaryDirectory() as raw, mock.patch.dict(os.environ, {"HELM_CONFIG": str(Path(raw)/"absent"), "HELM_URL": origin, "HELM_TOKEN": "fake-secret"}, clear=True):
+                with self.assertRaises(helper.RoadmapError) as caught:
+                    helper.load_config()
+                self.assertNotIn("private-secret", str(caught.exception))
+
+    def test_conflicting_file_urls_fail_closed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "config.json"
+            path.write_text(json.dumps({"base_url": "https://one.example", "helm_url": "https://two.example", "token": "fake-secret"}))
+            path.chmod(0o600)
+            with mock.patch.dict(os.environ, {"HELM_CONFIG": str(path)}, clear=True):
+                with self.assertRaisesRegex(helper.RoadmapError, "conflicting"):
+                    helper.load_config()
+
+
 class TerminalActionTests(unittest.TestCase):
     def test_complete_and_block_clear_by_task_after_progress_operation_changes(self) -> None:
         for action, field in (("complete", "comment"), ("block", "reason")):
