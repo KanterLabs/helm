@@ -104,7 +104,7 @@ contains 'ssh -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" status < /dev/nul
 contains 'ssh -o BatchMode=yes -T "$PVE_DEPLOY_USER@$PVE_HOST" "rollback $SHA" < /dev/null' "$DEPLOY_CI"
 not_contains 'scp -q' "$DEPLOY_CI"
 not_contains '/usr/local/sbin/helm-deploy-gateway' "$DEPLOY_CI"
-contains 'HELM_DEPLOY_ENVIRONMENT must be production or beta' "$DEPLOY_CI"
+contains 'HELM_DEPLOY_ENVIRONMENT must be production, production-private or beta' "$DEPLOY_CI"
 contains 'PVE_DEPLOY_USER must be helm-beta-deploy for beta deployments' "$DEPLOY_CI"
 
 # Only the intended command alphabet can reach gateway action dispatch.
@@ -493,7 +493,8 @@ assert_proof_format() {
 }
 assert_proof_format 'pre_upgrade_backup=roadmap-20260828T173000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.db source_schema=9 candidate_schema=10 latest_schema=10 migration_digest=0000000000000000000000000000000000000000000000000000000000000000 checksum=valid integrity=ok fk=ok preflight=ok'
 assert_proof_format 'pre_upgrade_backup=none source_schema=0 candidate_schema=10 latest_schema=10 migration_digest=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff checksum=valid integrity=ok fk=ok preflight=ok'
-not_contains 'roadmap.db' "$ROLLBACK"
+not_contains 'sqlite3' "$ROLLBACK"
+not_contains 'cp --' "$ROLLBACK"
 
 # Exercise the gateway cleanup predicate with a mocked pct boundary. A failed
 # pct create is allowed to leave a partial configuration, but the transaction

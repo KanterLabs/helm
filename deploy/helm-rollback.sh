@@ -21,7 +21,6 @@ LOCK_PATH="$STATE_DIR/deploy.lock"
 CONFIG_DIR=$(compat_env HELM_CONFIG_DIR ROADMAP_CONFIG_DIR /etc/roadmap)
 SERVICE_STOP_TIMEOUT=30
 SHA=${1:-}
-PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
 
 fail() {
 	printf '[helm-rollback] %s\n' "$*" >&2
@@ -110,15 +109,60 @@ install_release_env() {
 	mv -T -- "$temporary" "$CONFIG_DIR/roadmap.env" || return 1
 }
 
-private_profile_env() {
+private_profile_kind() {
 	local path=$1 mode origin
 	[[ -f "$path" && ! -L "$path" ]] || return 1
-	mode=$(awk -F= '$1 == "HELM_AUTH_MODE" { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path") || return 1
+	mode=$(awk -F= '$1 == "HELM_AUTH_MODE" { count++; value = substr($0, index($0, "=") + 1) } END { if (count > 1) exit 1; print value }' "$path") || return 1
+	if [[ "$mode" != tailnet ]]; then printf '0'; return; fi
 	origin=$(awk -F= '$1 == "HELM_PUBLIC_ORIGIN" { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path") || return 1
-	[[ "$mode" = tailnet && "$origin" = "$PRIVATE_ORIGIN" ]]
+	case "$origin" in
+		https://beta-helm.home.shanekanterman.dev) printf '1' ;;
+		https://helm.home.shanekanterman.dev) printf '2' ;;
+		*) return 1 ;;
+	esac
+}
+
+validate_private_env() {
+	local path=$1 kind=$2 key value owner_value prefix expected_origin expected_addr
+	(( kind != 0 )) || return 0
+	expected_origin=https://beta-helm.home.shanekanterman.dev
+	expected_addr=10.0.0.39:8443
+	if (( kind == 2 )); then
+		expected_origin=https://helm.home.shanekanterman.dev
+		expected_addr=10.0.0.38:8443
+	fi
+	[[ -f "$CONFIG_DIR/tailnet-owner.env" && ! -L "$CONFIG_DIR/tailnet-owner.env" ]] || return 1
+	for prefix in HELM ROADMAP; do
+		for key in AUTH_MODE PUBLIC_ORIGIN TAILNET_AUDIENCE TAILNET_ASSERTION_KEY_FILE TAILNET_TLS_ADDR TAILNET_TLS_CERT_FILE TAILNET_TLS_KEY_FILE TAILNET_ALLOWED_PEER_IPS ADMIN_EMAIL TAILNET_OWNER_LOGIN; do
+			value=$(awk -F= -v key="${prefix}_$key" '$1 == key { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path") || return 1
+			owner_value=$(awk -F= -v key="${prefix}_$key" '$1 == key { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$CONFIG_DIR/tailnet-owner.env") || return 1
+			[[ "$value" = "$owner_value" ]] || return 1
+			case "$key" in
+				AUTH_MODE) [[ "$value" = tailnet ]] || return 1 ;;
+				PUBLIC_ORIGIN|TAILNET_AUDIENCE) [[ "$value" = "$expected_origin" ]] || return 1 ;;
+				TAILNET_TLS_ADDR) [[ "$value" = "$expected_addr" ]] || return 1 ;;
+				TAILNET_ALLOWED_PEER_IPS) [[ "$value" = 10.0.0.101 ]] || return 1 ;;
+			esac
+		done
+		if (( kind == 2 )); then
+			for key in ADDR DB SECURE_COOKIES DEMO_SEED BETA_SWITCH_ENABLED LEGACY_ORIGIN; do
+				value=$(awk -F= -v key="${prefix}_$key" '$1 == key { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path") || return 1
+				owner_value=$(awk -F= -v key="${prefix}_$key" '$1 == key { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$CONFIG_DIR/tailnet-owner.env") || return 1
+				[[ "$value" = "$owner_value" ]] || return 1
+				case "$key" in
+					ADDR) [[ "$value" = 127.0.0.1:8080 ]] || return 1 ;;
+					DB) [[ "$value" = /var/lib/roadmap/data/roadmap.db ]] || return 1 ;;
+					SECURE_COOKIES) [[ "$value" = true ]] || return 1 ;;
+					LEGACY_ORIGIN) [[ "$value" = https://tc.shanekanterman.dev ]] || return 1 ;;
+					DEMO_SEED|BETA_SWITCH_ENABLED) [[ "$value" = false ]] || return 1 ;;
+				esac
+			done
+		fi
+	done
 }
 
 configure_private_units() {
+	local kind=${1:-1}
 	install -d -m 0755 -o root -g root /etc/systemd/system/helm.service.d
 	if [[ ! -f /etc/systemd/system/helm.service.d/tailnet-credentials.conf || -L /etc/systemd/system/helm.service.d/tailnet-credentials.conf ]]; then
 		local temporary=/etc/systemd/system/helm.service.d/tailnet-credentials.conf.new
@@ -128,7 +172,11 @@ configure_private_units() {
 		chmod 0644 "$temporary"
 		mv -T -- "$temporary" /etc/systemd/system/helm.service.d/tailnet-credentials.conf
 	fi
-	systemctl mask cloudflared.service || return 1
+	if (( kind == 1 )); then
+		systemctl mask cloudflared.service || return 1
+	else
+		systemctl unmask cloudflared.service || return 1
+	fi
 	systemctl daemon-reload
 }
 
@@ -162,14 +210,6 @@ validate_release_env "$TARGET/roadmap.env" "$SHA" ||
 (cd "$TARGET" && sha256sum --check --strict "$TARGET_BINARY.sha256" >/dev/null) \
 	|| fail 'requested release binary checksum failed'
 validate_optional_codex "$TARGET" || fail 'requested release Codex checksum failed'
-target_private_profile=0
-if private_profile_env "$TARGET/roadmap.env"; then
-	target_private_profile=1
-fi
-current_private_profile=0
-if private_profile_env "$CONFIG_DIR/roadmap.env"; then
-	current_private_profile=1
-fi
 
 if [[ -e "$LOCK_PATH" || -L "$LOCK_PATH" ]]; then
 	[[ -f "$LOCK_PATH" && ! -L "$LOCK_PATH" ]] || fail 'deployment lock is not a regular file'
@@ -178,6 +218,14 @@ fi
 exec 9>"$LOCK_PATH"
 chmod 0600 "$LOCK_PATH"
 flock -x 9
+
+target_private_profile=$(private_profile_kind "$TARGET/roadmap.env") || fail 'requested private profile is invalid'
+current_private_profile=$(private_profile_kind "$CONFIG_DIR/roadmap.env") || fail 'current private profile is invalid'
+validate_private_env "$TARGET/roadmap.env" "$target_private_profile" || fail 'requested private profile conflicts with provisioned configuration'
+if (( target_private_profile != 0 && current_private_profile != 0 && target_private_profile != current_private_profile )); then
+	fail 'rollback cannot cross production and beta private profiles'
+fi
+
 
 previous_target=
 if [[ -L "$CURRENT_LINK" ]]; then
@@ -200,9 +248,7 @@ if [[ -n "$previous_target" ]]; then
 		fail 'current release has no release environment'
 	validate_release_env "$previous_target/roadmap.env" "$previous_sha" ||
 		fail 'current release environment revision is invalid'
-	if private_profile_env "$previous_target/roadmap.env"; then
-		previous_private_profile=1
-	fi
+	previous_private_profile=$(private_profile_kind "$previous_target/roadmap.env") || fail 'previous private profile is invalid'
 fi
 
 atomic_switch() {
@@ -252,16 +298,16 @@ start_and_verify_previous() {
 	# Stop both units before switching the link. This makes recovery the same
 	# transaction for application and connector failures, and prevents a
 	# connector from retaining target-release configuration during the switch.
-	if (( previous_profile == 0 )); then
+	if (( previous_profile != 1 )); then
 		stop_unit cloudflared.service || return 1
 	fi
 	stop_unit roadmap.service || return 1
 	stop_unit helm.service || return 1
 	install_release_env "$previous_target" "$previous_sha" || return 1
 	atomic_switch "$previous_target" || return 1
-	if (( previous_profile == 1 )); then
+	if (( previous_profile != 0 )); then
 		if declare -F configure_private_units >/dev/null 2>&1; then
-			configure_private_units || return 1
+			configure_private_units "$previous_profile" || return 1
 		fi
 	else
 		if declare -F configure_public_units >/dev/null 2>&1; then
@@ -272,7 +318,7 @@ start_and_verify_previous() {
 	healthy_revision "$previous_sha" || return 1
 	systemctl is-active --quiet helm.service || return 1
 	systemctl is-active --quiet roadmap.service || return 1
-	if (( previous_profile == 0 )); then
+	if (( previous_profile != 1 )); then
 		systemctl start cloudflared.service || return 1
 		systemctl is-active --quiet cloudflared.service || return 1
 	fi
@@ -299,15 +345,15 @@ on_exit() {
 trap on_exit EXIT
 
 recovery_needed=1
-if (( current_private_profile == 0 )); then
+if (( current_private_profile != 1 )); then
 	stop_unit cloudflared.service || fail 'could not stop cloudflared.service and verify it is inactive'
 fi
 stop_unit roadmap.service || fail 'could not stop roadmap.service and verify it is inactive'
 stop_unit helm.service || fail 'could not stop helm.service and verify it is inactive'
 install_release_env "$TARGET" "$SHA" || fail 'could not install requested release environment'
 atomic_switch "$TARGET" || fail 'could not switch to requested release'
-if (( target_private_profile == 1 )); then
-	configure_private_units || fail 'could not configure private beta units'
+if (( target_private_profile != 0 )); then
+	configure_private_units "$target_private_profile" || fail 'could not configure private units'
 else
 	configure_public_units || fail 'could not configure public units'
 fi
@@ -322,7 +368,7 @@ if ! systemctl start helm.service || ! healthy_revision "$SHA" || ! systemctl is
 	fail 'requested release failed app health and previous release recovery failed'
 fi
 
-if (( target_private_profile == 0 )); then
+if (( target_private_profile != 1 )); then
 	if ! systemctl start cloudflared.service || ! systemctl is-active --quiet cloudflared.service; then
 		if start_and_verify_previous 'requested release failed cloudflared validation'; then
 			recovery_needed=0

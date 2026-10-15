@@ -18,6 +18,8 @@ type Config struct {
 	DB           string
 	AuthMode     string
 	PublicOrigin string
+	// LegacyOrigin retains bearer-only API compatibility during a private hostname move.
+	LegacyOrigin string
 	AdminEmail   string
 	// BetaSwitchEnabled exposes the beta release switcher only on the private
 	// Tailnet deployment. It is deliberately disabled by default and is
@@ -84,6 +86,10 @@ func FromEnv() (Config, error) {
 		return Config{}, err
 	}
 	publicOrigin, err := resolveEnv("HELM_PUBLIC_ORIGIN", "ROADMAP_PUBLIC_ORIGIN")
+	if err != nil {
+		return Config{}, err
+	}
+	legacyOrigin, err := resolveEnv("HELM_LEGACY_ORIGIN", "ROADMAP_LEGACY_ORIGIN")
 	if err != nil {
 		return Config{}, err
 	}
@@ -202,6 +208,7 @@ func FromEnv() (Config, error) {
 		DB:                      valueOr(db, "data/roadmap.db"),
 		AuthMode:                strings.ToLower(valueOr(authMode, "local")),
 		PublicOrigin:            strings.TrimRight(publicOrigin.value, "/"),
+		LegacyOrigin:            legacyOrigin.value,
 		AdminEmail:              adminEmail.value,
 		BetaSwitchSocket:        valueOr(betaSwitchSocket, "/run/helm-beta-switcher/helm-beta-switchd.sock"),
 		CodexBinary:             valueOr(codexBinary, "codex"),
@@ -290,6 +297,13 @@ func FromEnv() (Config, error) {
 			return Config{}, err
 		}
 		c.PublicOrigin = origin
+	}
+	if c.LegacyOrigin != "" {
+		legacy, err := normalizeOrigin(c.LegacyOrigin, true)
+		if err != nil || c.AuthMode != "tailnet" || legacy == c.PublicOrigin {
+			return Config{}, fmt.Errorf("HELM_LEGACY_ORIGIN requires a distinct HTTPS origin and tailnet authentication")
+		}
+		c.LegacyOrigin = legacy
 	}
 	if c.AuthMode == "disabled" && !loopbackAddr(c.Addr) {
 		return Config{}, fmt.Errorf("HELM_AUTH_MODE=disabled requires HELM_ADDR to bind to loopback")

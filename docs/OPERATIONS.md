@@ -286,6 +286,82 @@ container image, or an agent's task data.
 
 ## Release, backup, and rollback
 
+### Production private profile
+
+Use `HELM_DEPLOY_ENVIRONMENT=production-private` to build/deploy CT 103 through
+the existing production gateway/account. Production remains the default public
+profile for retained releases; beta still selects only CT 106. The production
+verifier accepts the exact original production member set or that set plus
+`validate-beta-private.sh`. It rejects beta controller members and a beta
+origin in a production envelope. Install the reviewed verifier and gateway on
+the PVE host before sending the new envelope.
+
+Provision CT 103 separately from beta before deploying:
+
+- Copy `deploy/tailnet-owner-production.env.example` to
+  `/etc/roadmap/tailnet-owner.env` (`root:root`, `0600`), replacing the admin
+  email with the existing production owner email. Match this file to the
+  signed release owner environment; never copy beta credentials or state.
+- Provision `/etc/roadmap/tailnet.key` (`roadmap:roadmap`, `0600`, at least 32
+  bytes) with a production-only assertion key also held by the trusted edge.
+  Provision the separate origin certificate `tailnet-origin.crt`
+  (`root:root`, `0644`) and TLS key `tailnet-origin.key`
+  (`roadmap:roadmap`, `0600`) in the same directory. The certificate must match
+  the production hostname and key and remain valid for at least one day.
+- Configure the trusted edge to verify the certificate chain and hostname for
+  `10.0.0.38:8443`, sign the exact production audience, authorize approved
+  owner/agent peers, and preserve bearer authorization. Never disable origin
+  TLS verification. CT 103 admits only origin peer `10.0.0.101` on 8443.
+- Retain the existing production Cloudflare connector/token and protected
+  legacy API hostname. The new app must implement the exact legacy-origin
+  compatibility policy before cutover. The installer does not rewrite remote
+  tunnel ingress. Keep `HELM_BETA_SWITCH_ENABLED=false` and its legacy alias;
+  production removes the switch controller.
+
+Build a new immutable release revision for the changed profile. A retained
+same-SHA directory with a different environment is rejected. The installer
+preserves `/var/lib/roadmap/data/roadmap.db`, backup paths, Unix identities,
+`helm.service` and compatibility aliases; it never attaches beta storage.
+The assertion key and origin TLS private key stay outside the bundle. The
+production release signature remains separate from edge signing.
+
+After deployment run:
+
+```sh
+HELM_DEPLOY_ENVIRONMENT=production-private ./deploy/deploy-ci.sh private-ready
+# Or inside CT 103 via an approved console:
+/usr/local/sbin/helm-private-ready --profile production-private
+```
+
+The helper checks exact effective profile values, credential ownership,
+certificate expiry/hostname/key match, service state, `/readyz` and a loopback
+HTTP 401 without credentials. Promotion additionally requires verified edge
+TLS, approved and rejected owner/agent access, scoped bearer reads/writes,
+stable actor/project/task IDs, and the physical iPhone session/PWA flow.
+The helper cannot prove external edge authorization or TLS trust.
+
+Roll back with the existing production gateway and retained compatible SHA:
+
+```sh
+HELM_DEPLOY_ENVIRONMENT=production-private ./deploy/deploy-ci.sh rollback \
+  <40-character-retained-production-sha>
+```
+
+Rollback switches the binary and its retained environment against the same
+live database and gates on `/readyz`; it does not restore a database backup.
+A private target must match its provisioned owner environment. For rollback
+between private configurations, first stage the matching owner environment
+and edge route/auth configuration under the deployment lock through the
+approved operator procedure. A legacy public target removes the Tailnet
+environment drop-in and restores its retained Cloudflare configuration;
+coordinate the edge route/auth rollback and verify the existing Cloudflare
+owner access before reopening that browser origin. This rollback intentionally
+restores the previous browser policy, so only one write origin is promoted.
+The last validated firewall policy is retained. Never weaken TLS validation
+or attach CT 106 data to recover access. Verify stable IDs and post-cutover
+writes after rollback; database restoration is a separate destructive recovery
+procedure.
+
 The push-to-main workflow runs checks on `homelab`, the browser suite and
 container build on `homelab-heavy`, and deployment orchestration on
 `homelab`. Its production concurrency is non-canceling, so a second main push

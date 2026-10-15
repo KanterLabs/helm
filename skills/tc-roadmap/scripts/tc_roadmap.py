@@ -81,6 +81,8 @@ class Config:
     token: str
     cf_access_client_id: str = ""
     cf_access_client_secret: str = ""
+    url_source: str = "provided"
+    config_source: str = "provided"
 
 
 def _credential_path() -> Path:
@@ -144,7 +146,8 @@ def _config_value(values: dict[str, Any], names: tuple[str, ...], label: str) ->
 
 
 def load_config() -> Config:
-    values = _read_config_file(_credential_path())
+    path = _credential_path()
+    values = _read_config_file(path)
     configured_url = _env_alias(None, ("HELM_URL", "TC_ROADMAP_URL"), "URL")
     configured_token = _env_alias(None, ("HELM_TOKEN", "TC_ROADMAP_TOKEN", "ROADMAP_TOKEN"), "token")
     file_url = _config_value(values, ("helm_url", "base_url", "tc_roadmap_url"), "URL")
@@ -167,8 +170,17 @@ def load_config() -> Config:
     token = (configured_token or file_token).strip()
     client_id = (configured_client_id or file_client_id).strip()
     client_secret = (configured_client_secret or file_client_secret).strip()
-    parsed = parse.urlsplit(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
+    # urlsplit can raise on malformed IPv6/ports and silently strip controls.
+    # Never include unvalidated URL text in diagnostics or exception messages.
+    if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in base_url):
+        raise RoadmapError("Helm URL must not contain whitespace or control characters")
+    try:
+        parsed = parse.urlsplit(base_url)
+        hostname = parsed.hostname
+        parsed.port  # Validate malformed and out-of-range ports before output.
+    except ValueError:
+        raise RoadmapError("Helm URL is not a valid HTTP(S) origin") from None
+    if parsed.scheme not in {"http", "https"} or not hostname or parsed.username is not None or parsed.password is not None:
         raise RoadmapError("TC Roadmap URL must be an HTTP(S) origin without credentials")
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise RoadmapError("TC Roadmap URL must not contain a path, query, or fragment")
@@ -178,7 +190,15 @@ def load_config() -> Config:
         raise RoadmapError("TC Roadmap agent token is not configured")
     if bool(client_id) != bool(client_secret):
         raise RoadmapError("both Cloudflare Access credential fields must be configured together")
-    return Config(base_url, token, client_id, client_secret)
+    if configured_url:
+        url_source = "env:" + next(name for name in ("HELM_URL", "TC_ROADMAP_URL") if os.environ.get(name, "").strip())
+    elif file_url:
+        url_source = "file:" + next(name for name in ("helm_url", "base_url", "tc_roadmap_url") if isinstance(values.get(name), str) and values[name].strip())
+    else:
+        url_source = "default"
+    config_override = next((name for name in ("HELM_CONFIG", "TC_ROADMAP_CONFIG") if os.environ.get(name, "").strip()), "")
+    config_source = ("env:" + config_override) if config_override else ("canonical-file" if path == CANONICAL_CONFIG else "legacy-file")
+    return Config(base_url, token, client_id, client_secret, url_source, config_source)
 
 
 class _NoRedirect(request.HTTPRedirectHandler):
@@ -2326,9 +2346,27 @@ def _action(client: Client, args: argparse.Namespace, action: str, field: str) -
     return {"task": payload, "operation_id": args.operation_id}
 
 
+def cmd_config_check(client: Client, _args: argparse.Namespace) -> dict[str, Any]:
+    """Describe validated local configuration without making a request."""
+
+    config = client.config
+    return {
+        "origin": config.base_url,
+        "url_source": config.url_source,
+        "config_source": config.config_source,
+        "application_token_present": bool(config.token),
+        "cloudflare_pair_present": bool(config.cf_access_client_id and config.cf_access_client_secret),
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    config_check = subparsers.add_parser(
+        "config-check", help="Show safe local endpoint diagnostics without network requests"
+    )
+    config_check.set_defaults(handler=cmd_config_check)
 
     projects = subparsers.add_parser("projects", help="List visible projects")
     projects.set_defaults(handler=cmd_projects)

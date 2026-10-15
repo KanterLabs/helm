@@ -484,10 +484,13 @@ jobs:
     timeout-minutes: 40
     environment:
       name: production
-      url: https://tc.shanekanterman.dev
+      url: https://helm.home.shanekanterman.dev
     concurrency:
       group: helm-production
       cancel-in-progress: false
+    env:
+      HELM_DEPLOY_ENVIRONMENT: production-private
+      HELM_PUBLIC_ORIGIN: https://helm.home.shanekanterman.dev
     steps:
       - name: Connect protected deployment to the private tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
@@ -560,21 +563,18 @@ jobs:
           previous_sha=$(sed -n 's/^current_sha=//p' <<<"$status_output")
           [[ "$previous_sha" = none || "$previous_sha" =~ ^[0-9a-f]{40}$ ]]
           printf 'sha=%s\n' "$previous_sha" >> "$GITHUB_OUTPUT"
-      - name: Prepare Cloudflare Access and tunnel
+      - name: Prepare private production inputs without changing legacy routing
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.ROADMAP_CLOUDFLARE_API_TOKEN }}
-          HELM_REQUIRE_DURABLE_SERVICE_TOKEN_CAPTURE: "1"
+          HELM_ADMIN_EMAIL: ${{ secrets.ROADMAP_ADMIN_EMAIL }}
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN"
-          chmod 0755 deploy/*.sh deploy/helm-deploy-gateway
-          cloudflare_dir="$RUNNER_TEMP/helm-cloudflare"
-          install -d -m 0700 "$cloudflare_dir"
-          printf 'HELM_CLOUDFLARED_TOKEN_FILE=%s\n' "$cloudflare_dir/cloudflared.token" >> "$GITHUB_ENV"
-          printf 'HELM_OWNER_ENV_FILE=%s\n' "$cloudflare_dir/owner.env" >> "$GITHUB_ENV"
-          ./deploy/cloudflare.sh prepare \
-            "$cloudflare_dir/cloudflared.token" \
-            "$cloudflare_dir/owner.env" \
-            "$cloudflare_dir/helm-access-token.env"
+          private_dir="$RUNNER_TEMP/helm-private"
+          install -d -m 0700 "$private_dir"
+          python3 deploy/prepare-production-private.py \
+            --owner-env "$private_dir/owner.env" \
+            --tunnel-token "$private_dir/cloudflared.token"
+          printf 'HELM_OWNER_ENV_FILE=%s\n' "$private_dir/owner.env" >> "$GITHUB_ENV"
+          printf 'HELM_CLOUDFLARED_TOKEN_FILE=%s\n' "$private_dir/cloudflared.token" >> "$GITHUB_ENV"
       - name: Materialize release signing key
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.ROADMAP_RELEASE_SIGNING_KEY }}
@@ -587,33 +587,22 @@ jobs:
         env:
           HELM_RELEASE_SIGNING_KEY_FILE: ${{ runner.temp }}/helm-signing/private.pem
         run: ./deploy/deploy-ci.sh deploy "${GITHUB_SHA}"
-      - name: Publish DNS and validate live Access
+      - name: Validate private production readiness
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.ROADMAP_CLOUDFLARE_API_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.ROADMAP_CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.ROADMAP_CF_ACCESS_CLIENT_SECRET }}
-          HELM_REQUIRE_SERVICE_AUTH_PROBE: "1"
           PREVIOUS_RELEASE_SHA: ${{ steps.previous_release.outputs.sha }}
         run: |
-          if ./deploy/cloudflare.sh publish && ./deploy/validate-live.sh; then
+          if ./deploy/deploy-ci.sh private-ready; then
             exit 0
           fi
-          printf 'post-deploy live validation failed; attempting automatic rollback\n' >&2
           if [[ "$PREVIOUS_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            if ! ./deploy/deploy-ci.sh rollback "$PREVIOUS_RELEASE_SHA"; then
-              printf 'automatic rollback to %s failed\n' "$PREVIOUS_RELEASE_SHA" >&2
-            else
-              printf 'automatic rollback to %s completed; validation remains failed\n' "$PREVIOUS_RELEASE_SHA" >&2
-            fi
-          else
-            printf 'no previous retained release is available; automatic rollback skipped\n' >&2
+            ./deploy/deploy-ci.sh rollback "$PREVIOUS_RELEASE_SHA"
           fi
           exit 1
       - name: Remove deployment credentials
         if: ${{ always() }}
         run: |
           rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"
+          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare" "$RUNNER_TEMP/helm-private"
           rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env
 
   rollback:
@@ -622,10 +611,13 @@ jobs:
     timeout-minutes: 40
     environment:
       name: production
-      url: https://tc.shanekanterman.dev
+      url: https://helm.home.shanekanterman.dev
     concurrency:
       group: helm-production
       cancel-in-progress: false
+    env:
+      HELM_DEPLOY_ENVIRONMENT: production-private
+      HELM_PUBLIC_ORIGIN: https://helm.home.shanekanterman.dev
     steps:
       - name: Connect protected deployment to the private tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
@@ -671,16 +663,11 @@ jobs:
         run: |
           [[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]]
           ./deploy/deploy-ci.sh rollback "$ROLLBACK_SHA"
-      - name: Validate live Access after rollback
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.ROADMAP_CLOUDFLARE_API_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.ROADMAP_CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.ROADMAP_CF_ACCESS_CLIENT_SECRET }}
-          HELM_REQUIRE_SERVICE_AUTH_PROBE: "1"
-        run: ./deploy/validate-live.sh
+      - name: Validate private production after rollback
+        run: ./deploy/deploy-ci.sh private-ready
       - name: Remove deployment credentials
         if: ${{ always() }}
         run: |
           rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare"
+          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare" "$RUNNER_TEMP/helm-private"
           rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env

@@ -409,7 +409,7 @@ case "$ACTION" in
 	status)
 		[[ ${#args[@]} -eq 1 ]] || fail 'status takes no arguments' ;;
 	private-ready)
-		[[ "$PROFILE" = beta && ${#args[@]} -eq 1 ]] || fail 'private-ready is available only for beta' ;;
+		[[ ${#args[@]} -eq 1 ]] || fail 'private-ready takes no arguments' ;;
 	*) fail "unsupported command: $ACTION" ;;
 esac
 
@@ -435,7 +435,11 @@ if [[ "$ACTION" = private-ready ]]; then
 		sleep 1
 	done
 	pct exec "$CTID" -- true || fail 'Roadmap CT did not become ready'
-	pct exec "$CTID" -- /usr/local/sbin/helm-beta-private-ready
+	if [[ "$PROFILE" = beta ]]; then
+		pct exec "$CTID" -- /usr/local/sbin/helm-beta-private-ready
+	else
+		pct exec "$CTID" -- /usr/local/sbin/helm-private-ready --profile production-private
+	fi
 	printf 'private_ready=ok\n'
 	exit 0
 fi

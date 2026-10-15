@@ -11,6 +11,7 @@ CONFIG_DIR=/etc/roadmap
 LOCK_PATH="$STATE_DIR/deploy.lock"
 SERVICE_STOP_TIMEOUT=30
 PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
+PRIVATE_TLS_ADDR=10.0.0.39:8443
 PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101
 TAILNET_OWNER_ENV_SOURCE=/etc/roadmap/tailnet-owner.env
 TAILNET_ASSERTION_KEY_SOURCE=/etc/roadmap/tailnet.key
@@ -205,6 +206,16 @@ private_owner_value() {
 
 validate_private_profile() {
 	local owner_file=$1 value peers peer
+	if [[ "$PRIVATE_ORIGIN" = https://helm.home.shanekanterman.dev ]]; then
+		for key in HELM ROADMAP; do
+			[[ "$(private_owner_value "$owner_file" "${key}_ADDR")" = 127.0.0.1:8080 &&
+				"$(private_owner_value "$owner_file" "${key}_DB")" = /var/lib/roadmap/data/roadmap.db &&
+				"$(private_owner_value "$owner_file" "${key}_SECURE_COOKIES")" = true &&
+				"$(private_owner_value "$owner_file" "${key}_DEMO_SEED")" = false &&
+				"$(private_owner_value "$owner_file" "${key}_BETA_SWITCH_ENABLED")" = false &&
+				"$(private_owner_value "$owner_file" "${key}_LEGACY_ORIGIN")" = https://tc.shanekanterman.dev ]] || fail 'production private runtime invariants are invalid'
+		done
+	fi
 	for key in HELM_AUTH_MODE ROADMAP_AUTH_MODE HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN \
 		HELM_TAILNET_AUDIENCE ROADMAP_TAILNET_AUDIENCE \
 		HELM_TAILNET_ASSERTION_KEY_FILE ROADMAP_TAILNET_ASSERTION_KEY_FILE \
@@ -214,35 +225,39 @@ validate_private_profile() {
 		HELM_TAILNET_ALLOWED_PEER_IPS ROADMAP_TAILNET_ALLOWED_PEER_IPS \
 		HELM_ADMIN_EMAIL ROADMAP_ADMIN_EMAIL \
 		HELM_TAILNET_OWNER_LOGIN ROADMAP_TAILNET_OWNER_LOGIN; do
-		private_owner_value "$owner_file" "$key" >/dev/null || fail "private beta owner environment is missing or duplicates $key"
+		private_owner_value "$owner_file" "$key" >/dev/null || fail "private owner environment is missing or duplicates $key"
+	done
+	for key in ADMIN_EMAIL TAILNET_OWNER_LOGIN; do
+		value=$(private_owner_value "$owner_file" "HELM_$key")
+		[[ -n "$value" && "$value" = "$(private_owner_value "$owner_file" "ROADMAP_$key")" && "$value" != REPLACE_WITH_EXISTING_ADMIN_EMAIL ]] || fail 'private owner identity aliases must match an explicitly provisioned identity'
 	done
 	[[ "$(private_owner_value "$owner_file" HELM_AUTH_MODE)" = tailnet &&
 		"$(private_owner_value "$owner_file" ROADMAP_AUTH_MODE)" = tailnet ]] ||
-		fail 'private beta owner environment must select tailnet authentication'
+		fail 'private owner environment must select tailnet authentication'
 	for key in HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN HELM_TAILNET_AUDIENCE ROADMAP_TAILNET_AUDIENCE; do
-		[[ "$(private_owner_value "$owner_file" "$key")" = "$PRIVATE_ORIGIN" ]] || fail 'private beta owner environment has an unexpected private origin'
+		[[ "$(private_owner_value "$owner_file" "$key")" = "$PRIVATE_ORIGIN" ]] || fail 'private owner environment has an unexpected private origin'
 	done
 	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_ASSERTION_KEY_FILE)" = "$TAILNET_ASSERTION_KEY_RUNTIME" &&
 		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_ASSERTION_KEY_FILE)" = "$TAILNET_ASSERTION_KEY_RUNTIME" ]] ||
-		fail 'private beta owner environment has an unexpected assertion-key runtime path'
-	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_TLS_ADDR)" = 10.0.0.39:8443 &&
-		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_TLS_ADDR)" = 10.0.0.39:8443 ]] ||
-		fail 'private beta owner environment has an unexpected Tailnet listener address'
+		fail 'private owner environment has an unexpected assertion-key runtime path'
+	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_TLS_ADDR)" = "$PRIVATE_TLS_ADDR" &&
+		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_TLS_ADDR)" = "$PRIVATE_TLS_ADDR" ]] ||
+		fail 'private owner environment has an unexpected Tailnet listener address'
 	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_TLS_CERT_FILE)" = "$TAILNET_TLS_CERT_SOURCE" &&
 		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_TLS_CERT_FILE)" = "$TAILNET_TLS_CERT_SOURCE" ]] ||
-		fail 'private beta owner environment has an unexpected Tailnet certificate path'
+		fail 'private owner environment has an unexpected Tailnet certificate path'
 	[[ "$(private_owner_value "$owner_file" HELM_TAILNET_TLS_KEY_FILE)" = "$TAILNET_TLS_KEY_RUNTIME" &&
 		"$(private_owner_value "$owner_file" ROADMAP_TAILNET_TLS_KEY_FILE)" = "$TAILNET_TLS_KEY_RUNTIME" ]] ||
-		fail 'private beta owner environment has an unexpected Tailnet key runtime path'
+		fail 'private owner environment has an unexpected Tailnet key runtime path'
 	peers=$(private_owner_value "$owner_file" HELM_TAILNET_ALLOWED_PEER_IPS)
 	[[ "$peers" = "$(private_owner_value "$owner_file" ROADMAP_TAILNET_ALLOWED_PEER_IPS)" ]] ||
-		fail 'private beta owner environment has conflicting Tailnet peer lists'
+		fail 'private owner environment has conflicting Tailnet peer lists'
 	[[ "$peers" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] ||
-		fail 'private beta owner environment must allow only the homelab-edge LAN origin peer'
+		fail 'private owner environment must allow only the homelab-edge LAN origin peer'
 	IFS=, read -r -a peers <<<"$peers"
-	[[ ${#peers[@]} -gt 0 ]] || fail 'private beta owner environment has no Tailnet peers'
+	[[ ${#peers[@]} -gt 0 ]] || fail 'private owner environment has no Tailnet peers'
 	for peer in "${peers[@]}"; do
-		valid_ipv4 "$peer" || fail 'private beta owner environment contains an invalid Tailnet peer address'
+		valid_ipv4 "$peer" || fail 'private owner environment contains an invalid Tailnet peer address'
 	done
 }
 
@@ -260,6 +275,11 @@ validate_private_provisioning() {
 	[[ "$(stat -c '%s' -- "$TAILNET_ASSERTION_KEY_SOURCE")" -ge 32 ]] || fail 'Tailnet assertion key is too short'
 	private_file "$TAILNET_TLS_CERT_SOURCE" 'Tailnet TLS certificate' root:root 644
 	private_file "$TAILNET_TLS_KEY_SOURCE" 'Tailnet TLS key' roadmap:roadmap 600
+	command -v openssl >/dev/null || fail 'openssl is required for private origin TLS validation'
+	openssl x509 -in "$TAILNET_TLS_CERT_SOURCE" -noout -checkend 86400 >/dev/null || fail 'private origin TLS certificate expires within one day'
+	openssl x509 -in "$TAILNET_TLS_CERT_SOURCE" -noout -checkhost "${PRIVATE_ORIGIN#https://}" >/dev/null || fail 'private origin TLS certificate hostname is invalid'
+	[[ "$(openssl x509 -in "$TAILNET_TLS_CERT_SOURCE" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum)" =
+		"$(openssl pkey -in "$TAILNET_TLS_KEY_SOURCE" -pubout -outform DER | sha256sum)" ]] || fail 'private origin TLS certificate and key do not match'
 }
 
 install_tailnet_credentials() {
@@ -314,12 +334,24 @@ source /etc/os-release
 
 AUTH_MODE=$(private_owner_value "$RELEASE_DIR/roadmap.env" HELM_AUTH_MODE 2>/dev/null || true)
 PRIVATE_TAILNET_BETA=0
+PRIVATE_TAILNET_PROFILE=0
 if [[ "$AUTH_MODE" = tailnet ]]; then
-	[[ "$(private_owner_value "$RELEASE_DIR/roadmap.env" HELM_PUBLIC_ORIGIN 2>/dev/null || true)" = "$PRIVATE_ORIGIN" ]] ||
-		fail 'tailnet authentication is reserved for the private beta profile'
-	PRIVATE_TAILNET_BETA=1
+	case "$(private_owner_value "$RELEASE_DIR/roadmap.env" HELM_PUBLIC_ORIGIN 2>/dev/null || true)" in
+		https://beta-helm.home.shanekanterman.dev) PRIVATE_TAILNET_BETA=1 ;;
+		https://helm.home.shanekanterman.dev)
+			PRIVATE_ORIGIN=https://helm.home.shanekanterman.dev
+			PRIVATE_TLS_ADDR=10.0.0.38:8443
+			;;
+		*) fail 'tailnet authentication requires an exact approved private origin' ;;
+	esac
+	PRIVATE_TAILNET_PROFILE=1
 	validate_private_profile "$RELEASE_DIR/roadmap.env"
 	validate_private_provisioning
+	for key in HELM ROADMAP; do
+		for setting in AUTH_MODE PUBLIC_ORIGIN TAILNET_AUDIENCE TAILNET_ASSERTION_KEY_FILE TAILNET_TLS_ADDR TAILNET_TLS_CERT_FILE TAILNET_TLS_KEY_FILE TAILNET_ALLOWED_PEER_IPS ADMIN_EMAIL TAILNET_OWNER_LOGIN; do
+			[[ "$(private_owner_value "$RELEASE_DIR/roadmap.env" "${key}_$setting")" = "$(private_owner_value "$TAILNET_OWNER_ENV_SOURCE" "${key}_$setting")" ]] || fail "provisioned private owner environment conflicts for ${key}_$setting"
+		done
+	done
 fi
 
 RELEASE_FILES=(roadmap codex codex.sha256 roadmap.env roadmap.service roadmap-backup.service roadmap-backup.timer nftables.conf compose.yaml roadmap-backup.sh roadmap-restore.sh roadmap-rollback.sh release.sha roadmap.sha256 release.manifest release.manifest.sig)
@@ -327,11 +359,19 @@ if (( PRIVATE_TAILNET_BETA == 1 )); then
 	RELEASE_FILES+=(validate-beta-private.sh)
 else
 	RELEASE_FILES+=(cloudflared cloudflared.token cloudflared.service)
+	if (( PRIVATE_TAILNET_PROFILE == 1 )); then
+		RELEASE_FILES+=(validate-beta-private.sh)
+	fi
 fi
 for file in "${RELEASE_FILES[@]}"; do
 	[[ -f "$RELEASE_DIR/$file" && ! -L "$RELEASE_DIR/$file" ]] || fail "release member is missing: $file"
 done
 BETA_SWITCH_CONTROLLER=0
+if (( PRIVATE_TAILNET_BETA == 0 )); then
+	for file in helm-beta-switchd helm-beta-switchd.service release.ref release.subject; do
+		[[ ! -e "$RELEASE_DIR/$file" && ! -L "$RELEASE_DIR/$file" ]] || fail 'beta controller members are forbidden in production'
+	done
+fi
 if (( PRIVATE_TAILNET_BETA == 1 )); then
 	controller_members=0
 	for file in helm-beta-switchd helm-beta-switchd.service release.ref; do
@@ -470,8 +510,11 @@ if [[ -n "$previous_target" ]]; then
 	[[ "$previous_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'current release directory name is invalid'
 	previous_mode=$(private_owner_value "$previous_target/roadmap.env" HELM_AUTH_MODE 2>/dev/null || true)
 	previous_origin=$(private_owner_value "$previous_target/roadmap.env" HELM_PUBLIC_ORIGIN 2>/dev/null || true)
-	if [[ "$previous_mode" = tailnet && "$previous_origin" = "$PRIVATE_ORIGIN" ]]; then
-		previous_private_profile=1
+	if [[ "$previous_mode" = tailnet ]]; then
+		case "$previous_origin" in
+			https://beta-helm.home.shanekanterman.dev) previous_private_profile=1 ;;
+			https://helm.home.shanekanterman.dev) previous_private_profile=2 ;;
+		esac
 	fi
 fi
 
@@ -793,15 +836,16 @@ install_beta_switch_controller() {
 restore_previous() {
 	local app_unit=helm.service previous_profile=${previous_private_profile:-0}
 	[[ -n "$previous_target" ]] || return 1
-	if (( previous_profile == 0 )); then
+	if (( previous_profile != 1 )); then
 		stop_unit cloudflared.service || return 1
 	fi
 	stop_unit roadmap.service || return 1
 	stop_unit helm.service || return 1
 	install_release_env "$previous_target" "$previous_sha" || return 1
 	atomic_switch "$previous_target" || return 1
-	if (( previous_profile == 1 )); then
+	if (( previous_profile != 0 )); then
 		install_tailnet_credentials
+		if (( previous_profile == 2 )); then systemctl unmask cloudflared.service; fi
 		systemctl daemon-reload
 	else
 		systemctl unmask cloudflared.service 2>/dev/null || true
@@ -816,7 +860,7 @@ restore_previous() {
 	fi
 	healthy_revision "$previous_sha" || return 1
 	systemctl is-active --quiet "$app_unit" || return 1
-	if (( previous_profile == 0 )); then
+	if (( previous_profile != 1 )); then
 		systemctl start cloudflared.service || return 1
 		systemctl is-active --quiet cloudflared.service
 	fi
@@ -1047,12 +1091,16 @@ install_compat_symlink helm-rollback roadmap-rollback || fail 'could not install
 install -m 0644 -o root -g root "$RELEASE_DIR/roadmap.service" /etc/systemd/system/helm.service
 if (( PRIVATE_TAILNET_BETA == 0 )); then
 	install -m 0644 -o root -g root "$RELEASE_DIR/cloudflared.service" /etc/systemd/system/cloudflared.service
-else
-	if (( BETA_SWITCH_CONTROLLER == 1 )); then
-		install_beta_switch_controller
-	fi
+fi
+if (( BETA_SWITCH_CONTROLLER == 1 )); then
+	install_beta_switch_controller
+fi
+if (( PRIVATE_TAILNET_PROFILE == 1 )); then
 	install -m 0755 -o root -g root "$RELEASE_DIR/validate-beta-private.sh" /usr/local/sbin/helm-beta-private-ready
+	install -m 0755 -o root -g root "$RELEASE_DIR/validate-beta-private.sh" /usr/local/sbin/helm-private-ready
 	install_tailnet_credentials
+else
+	rm -f -- /etc/systemd/system/helm.service.d/tailnet-credentials.conf
 fi
 install -m 0644 -o root -g root "$RELEASE_DIR/roadmap-backup.service" /etc/systemd/system/helm-backup.service
 install -m 0644 -o root -g root "$RELEASE_DIR/roadmap-backup.timer" /etc/systemd/system/helm-backup.timer
@@ -1070,7 +1118,8 @@ if (( PRIVATE_TAILNET_BETA == 0 )); then
 	mv -T -- "$CONFIG_DIR/cloudflared.token.new" "$CONFIG_DIR/cloudflared.token"
 	install -m 0755 -o root -g root "$RELEASE_DIR/cloudflared" /usr/local/bin/cloudflared.new
 	mv -T -- /usr/local/bin/cloudflared.new /usr/local/bin/cloudflared
-else
+fi
+if (( PRIVATE_TAILNET_PROFILE == 1 )); then
 	install_private_nftables "$RELEASE_DIR/roadmap.env"
 fi
 
@@ -1092,6 +1141,7 @@ systemctl enable nftables.service
 systemctl restart nftables.service
 systemctl enable helm.service
 if (( PRIVATE_TAILNET_BETA == 0 )); then
+	systemctl unmask cloudflared.service
 	systemctl enable cloudflared.service
 elif (( BETA_SWITCH_CONTROLLER == 1 )); then
 	systemctl enable helm-beta-switchd.service
