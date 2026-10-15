@@ -582,3 +582,14 @@ an operation-specific protected public key before root installation. The
 ordinary production gateway signing key was preserved for protected CI.
 The operator private key is removed after installation; its public key,
 manifest verification and backup/rollback proofs are retained privately.
+
+### Legacy observation after private cutover
+
+The root-owned `helm-legacy-observation.timer` records bounded aggregate usage
+and backend readiness daily, without storing task content, headers or raw logs.
+Its private state is `/var/lib/roadmap/operations/legacy-origin-observation.json`.
+The earliest30-day retirement review is2026-11-14; it never removes routes.
+Require migrated callers, no unexplained legacy traffic, healthy private access
+and physical iPhone/PWA acceptance before TC-150 retires old API credentials.
+The private owner UI and actual protected tagged-machine bearer path were
+verified live. Physical iPhone installation remains an owner acceptance item.

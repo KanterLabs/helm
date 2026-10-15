@@ -69,7 +69,7 @@ managed root gateway verifier to be updated before the release is deployed.
 
 ## Infrastructure and hosted configuration
 
-- `tc.shanekanterman.dev` remains the production hostname.
+- `helm.home.shanekanterman.dev` is the private production hostname; `tc.shanekanterman.dev` is a temporary Cloudflare-protected bearer API compatibility route.
 - The Proxmox guest name/tag `roadmap`, CTID 103, its reviewed address, the
   `roadmap-homelab` tunnel, the `roadmap-deploy` account, and
   `/var/lib/roadmap-deploy` plus `/etc/roadmap-deploy` remain fixed allowlist

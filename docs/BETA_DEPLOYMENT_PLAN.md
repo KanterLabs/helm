@@ -16,7 +16,7 @@ promoting a tested beta revision requires an explicit pull request or merge to
 | Git branch | `main` | `beta` |
 | GitHub environment | `production` | `beta` |
 | Deploy lock | `helm-production` | `helm-beta` |
-| Origin | `https://tc.shanekanterman.dev` (public Cloudflare) | `https://beta-helm.home.shanekanterman.dev` (private Tailnet only; no public route) |
+| Origin | `https://helm.home.shanekanterman.dev` (private Tailnet; legacy public API retained temporarily) | `https://beta-helm.home.shanekanterman.dev` (private Tailnet only; no public route) |
 | Proxmox guest | CT 103, `roadmap`, `10.0.0.38` | CT 106, `helm-beta`, `10.0.0.39` |
 | Deploy account | `roadmap-deploy` | `helm-beta-deploy` |
 | Host state | `/var/lib/roadmap-deploy` | `/var/lib/helm-beta-deploy` |
