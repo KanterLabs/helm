@@ -9,7 +9,7 @@ def main():
  previous=json.loads(STATE.read_text()) if STATE.exists() else {}
  start=previous.get('started_at','2026-10-15T16:36:44+00:00')
  since=previous.get('checked_at',start)
- result=subprocess.run(['journalctl','--unit=helm.service','--since='+since,'--until='+now.isoformat(),'--output=json','--no-pager'],capture_output=True,text=True,check=True)
+ result=subprocess.run(['journalctl','--unit=helm.service','--since='+since,'--until='+now.isoformat(),'--output=json','--no-pager','--grep=legacy_hostname_request','--lines=10000'],capture_output=True,text=True,check=True)
  count=0;last=previous.get('last_legacy_request_at')
  for line in result.stdout.splitlines():
   try:
@@ -21,7 +21,7 @@ def main():
    count+=1;last=timestamp.isoformat()
   except (ValueError,TypeError,KeyError):continue
  with urllib.request.urlopen('http://127.0.0.1:8080/readyz',timeout=5) as response:ready=json.load(response).get('ready') is True
- status={'started_at':start,'checked_at':now.isoformat(),'not_before_retirement_review':(datetime.datetime.fromisoformat(start)+datetime.timedelta(days=30)).isoformat(),'legacy_requests':previous.get('legacy_requests',0)+count,'last_legacy_request_at':last,'backend_ready':ready,'retirement_requires_review':True,'routes_changed':False}
+ status={'started_at':start,'checked_at':now.isoformat(),'not_before_retirement_review':(datetime.datetime.fromisoformat(start)+datetime.timedelta(days=30)).isoformat(),'legacy_requests':previous.get('legacy_requests',0)+count,'last_legacy_request_at':last,'backend_ready':ready,'observation_complete':previous.get('observation_complete',True) and len(result.stdout.splitlines())<10000,'retirement_requires_review':True,'routes_changed':False}
  fd,tmp=tempfile.mkstemp(prefix='.legacy-',dir=ROOT)
  try:
   os.fchmod(fd,0o640)

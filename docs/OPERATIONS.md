@@ -570,14 +570,14 @@ file remains mode 0640 and owned by `root:cloudflared`.
 
 ### Existing production guest metadata
 
-CT103 currently has1024MiB and a16GiB volume on `sata-ssd`. Its root-owned,
-mode0600 `/etc/roadmap-deploy/target.env` sets `CT_MEMORY_MB=1024` and
+CT103 currently has 1024 MiB and a 16 GiB volume on `sata-ssd`. Its root-owned,
+mode 0600 `/etc/roadmap-deploy/target.env` sets `CT_MEMORY_MB=1024` and
 `CT_ROOTFS_STORAGE=sata-ssd`. The fixed production gateway validates these
 expectations without resizing or replacing the guest. Only those two metadata
 keys are permitted; CT identity, network and signing trust remain fixed.
 Beta uses its separate `/etc/helm-beta-deploy` directory and is unchanged.
 
-The October15 private cutover used an operator-signed archive verified against
+The October 15 private cutover used an operator-signed archive verified against
 an operation-specific protected public key before root installation. The
 ordinary production gateway signing key was preserved for protected CI.
 The operator private key is removed after installation; its public key,
@@ -588,7 +588,7 @@ manifest verification and backup/rollback proofs are retained privately.
 The root-owned `helm-legacy-observation.timer` records bounded aggregate usage
 and backend readiness daily, without storing task content, headers or raw logs.
 Its private state is `/var/lib/roadmap/operations/legacy-origin-observation.json`.
-The earliest30-day retirement review is2026-11-14; it never removes routes.
+The earliest 30-day retirement review is 2026-11-14; it never removes routes.
 Require migrated callers, no unexplained legacy traffic, healthy private access
 and physical iPhone/PWA acceptance before TC-150 retires old API credentials.
 The private owner UI and actual protected tagged-machine bearer path were
