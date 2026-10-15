@@ -9,7 +9,7 @@ def main():
  previous=json.loads(STATE.read_text()) if STATE.exists() else {}
  start=previous.get('started_at','2026-10-15T16:36:44+00:00')
  since=previous.get('checked_at',start)
- result=subprocess.run(['journalctl','--unit=helm.service','--since='+since,'--until='+now.isoformat(),'--output=json','--no-pager','--grep=legacy_hostname_request','--lines=10000'],capture_output=True,text=True,check=True)
+ result=subprocess.run(['journalctl','--unit=helm.service','--since=@'+str(datetime.datetime.fromisoformat(since).timestamp()),'--until=@'+str(now.timestamp()),'--output=json','--no-pager','--grep=legacy_hostname_request','--lines=10000'],capture_output=True,text=True,check=True)
  count=0;last=previous.get('last_legacy_request_at')
  for line in result.stdout.splitlines():
   try:
