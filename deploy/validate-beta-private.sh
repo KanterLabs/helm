@@ -123,7 +123,7 @@ regular_file "$TLS_KEY_SOURCE" Tailnet-TLS-key
 command -v openssl >/dev/null || fail 'openssl is required for private origin TLS validation'
 openssl x509 -in "$TLS_CERT_SOURCE" -noout -checkend 86400 >/dev/null || fail 'private origin TLS certificate expires within one day'
 openssl x509 -in "$TLS_CERT_SOURCE" -noout -checkhost "${PRIVATE_ORIGIN#https://}" >/dev/null || fail 'private origin TLS certificate hostname is invalid'
-[[ "$(openssl x509 -in "$TLS_CERT_SOURCE" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum)" =
+[[ "$(openssl x509 -in "$TLS_CERT_SOURCE" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum)" = \
 	"$(openssl pkey -in "$TLS_KEY_SOURCE" -pubout -outform DER | sha256sum)" ]] || fail 'private origin TLS certificate and key do not match'
 
 systemctl is-active --quiet helm.service || fail 'helm.service is not active'
