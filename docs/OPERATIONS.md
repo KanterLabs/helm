@@ -567,3 +567,18 @@ the two Access application paths and both audience tags before changing the
 tunnel route. If the tunnel is unhealthy, inspect
 `journalctl -u cloudflared.service` in the guest and confirm that the token
 file remains mode 0640 and owned by `root:cloudflared`.
+
+### Existing production guest metadata
+
+CT103 currently has1024MiB and a16GiB volume on `sata-ssd`. Its root-owned,
+mode0600 `/etc/roadmap-deploy/target.env` sets `CT_MEMORY_MB=1024` and
+`CT_ROOTFS_STORAGE=sata-ssd`. The fixed production gateway validates these
+expectations without resizing or replacing the guest. Only those two metadata
+keys are permitted; CT identity, network and signing trust remain fixed.
+Beta uses its separate `/etc/helm-beta-deploy` directory and is unchanged.
+
+The October15 private cutover used an operator-signed archive verified against
+an operation-specific protected public key before root installation. The
+ordinary production gateway signing key was preserved for protected CI.
+The operator private key is removed after installation; its public key,
+manifest verification and backup/rollback proofs are retained privately.
