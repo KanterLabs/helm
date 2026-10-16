@@ -1,0 +1,14 @@
+[Unit]
+Description=Verified backups of both Helm Coolify services
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/helm-coolify/backup.py
+User=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/srv/helm
+TimeoutStartSec=10min

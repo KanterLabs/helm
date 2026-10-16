@@ -1,0 +1,22 @@
+[Unit]
+Description=Bearer-only compatibility relay for retired Helm origin
+After=network-online.target
+Wants=network-online.target
+Conflicts=helm.service
+
+[Service]
+User=nobody
+Group=nogroup
+ExecStart=/usr/local/sbin/helm-legacy-relay
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+ReadOnlyPaths=/
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

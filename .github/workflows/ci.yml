@@ -5,11 +5,6 @@ on:
   push:
     branches: [main, beta]
   workflow_dispatch:
-    inputs:
-      rollback_sha:
-        description: Retained 40-character release SHA to roll back to (leave blank for a normal deploy)
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -23,6 +18,11 @@ concurrency:
   # canceled while it is carrying an environment deployment.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/beta' }}
 
+# Compatibility exception: retain the hosted-runner cutover from 92615c2.
+# Live ci-runner-partition-arc-cap admission policy forces all seven retired
+# pools, including homelab-heavy, to 0/0; ARC controllers are deliberately zero.
+# Restoring runners requires the separate single-job20261011B1H1 platform
+# migration. Hosted deployment jobs join the existing private tailnet below.
 jobs:
   checks:
     runs-on: ubuntu-24.04
@@ -61,6 +61,7 @@ jobs:
           GOSUMDB=sum.golang.org go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.10
           go vet ./...
           GOSUMDB=sum.golang.org go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+          python3 -m py_compile deploy/coolify-deploy.py
           bash -n deploy/*.sh deploy/helm-deploy-gateway
           ./deploy/test-deployment-security.sh
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/helm ./cmd/helm
@@ -150,6 +151,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     needs: checks
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,7 +164,7 @@ jobs:
         run: |
           image_dir="$RUNNER_TEMP/helm-container"
           install -d -m 0700 "$image_dir"
-          docker build --pull --tag "helm:${GITHUB_SHA}" .
+          docker build --pull --label org.opencontainers.image.source=https://github.com/KanterLabs/helm --tag "helm:${GITHUB_SHA}" .
           docker image inspect "helm:${GITHUB_SHA}" >/dev/null
           container_id=$(docker run --detach "helm:${GITHUB_SHA}")
           cleanup() { docker rm --force "$container_id" >/dev/null 2>&1 || true; }
@@ -195,6 +201,24 @@ jobs:
           gzip -n "$image_tar"
           image_archive=${image_tar##*/}.gz
           (cd "$image_dir" && sha256sum "$image_archive" > "$image_archive.sha256")
+      - name: Publish the tested image by immutable registry digest
+        id: publish
+        if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/main') }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          image=ghcr.io/kanterlabs/helm
+          docker_config=$(mktemp -d "$RUNNER_TEMP/helm-ghcr.XXXXXX")
+          cleanup_registry() { rm -rf -- "$docker_config"; }
+          trap cleanup_registry EXIT
+          export DOCKER_CONFIG="$docker_config"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag "helm:${GITHUB_SHA}" "$image:${GITHUB_SHA}"
+          docker push "$image:${GITHUB_SHA}"
+          digest=$(docker image inspect "$image:${GITHUB_SHA}" --format '{{range .RepoDigests}}{{println .}}{{end}}' | sed -n 's|^ghcr.io/kanterlabs/helm@||p')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'image=%s@%s\n' "$image" "$digest" >> "$GITHUB_OUTPUT"
       - name: Upload immutable image artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -210,10 +234,10 @@ jobs:
           retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
 
   beta_deploy:
-    if: ${{ github.ref == 'refs/heads/beta' && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) && vars.HELM_BETA_DEPLOY_PAUSED != 'true' }}
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/beta' && vars.HELM_BETA_DEPLOY_PAUSED != 'true' }}
     needs: [checks, browser, race, container]
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 30
     environment:
       name: beta
       url: https://beta-helm.home.shanekanterman.dev
@@ -221,267 +245,65 @@ jobs:
       group: helm-beta
       cancel-in-progress: false
     env:
-      HELM_DEPLOY_ENVIRONMENT: beta
-      HELM_PUBLIC_ORIGIN: https://beta-helm.home.shanekanterman.dev
-      HELM_RELEASE_REF: refs/heads/beta
-      HELM_BETA_SWITCH_ENABLED: 'true'
-      HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
+      COOLIFY_API_URL: ${{ vars.COOLIFY_API_URL }}
+      COOLIFY_PROJECT_UUID: ${{ vars.COOLIFY_PROJECT_UUID }}
+      COOLIFY_ENVIRONMENT_UUID: ${{ vars.COOLIFY_ENVIRONMENT_UUID }}
+      COOLIFY_SERVICE_UUID: ${{ vars.COOLIFY_SERVICE_UUID }}
+      COOLIFY_SERVICE_NAME: ${{ vars.COOLIFY_SERVICE_NAME }}
+      COOLIFY_SERVER_UUID: ${{ vars.COOLIFY_SERVER_UUID }}
+      HELM_SITE_URL: ${{ vars.HELM_SITE_URL }}
+      HELM_IMAGE: ${{ needs.container.outputs.image }}
+      HELM_RELEASE_SHA: ${{ github.sha }}
     steps:
-      - name: Connect protected deployment to the private tailnet
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:gha-helm-deploy
-          args: --accept-routes
-      # github.sha is the selected beta commit; pinning the checkout prevents
-      # a mutable branch ref from supplying deployment scripts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Build trusted beta switch controller
+      - name: Require the validated release to remain the branch tip
+        id: tip
+        env:
+          READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_REF: refs/heads/beta
         run: |
           set -Eeuo pipefail
-          [[ "$GITHUB_REF" = refs/heads/beta ]]
-          [[ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ]]
-          install -d dist
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/helm-beta-switchd ./cmd/helm-beta-switchd
-          test -x dist/helm-beta-switchd
-          sha256sum dist/helm-beta-switchd > dist/helm-beta-switchd.sha256
-      - name: Download immutable binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: helm-binary-${{ github.sha }}
-          path: dist
-      - name: Restore binary executable mode
-        run: |
-          test -f dist/helm
-          chmod 0755 dist/helm
-          test -x dist/helm
-      - name: Download tested Codex runtime
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: helm-image-${{ github.sha }}
-          path: dist/container
-      - name: Verify Codex runtime artifact
-        run: |
-          test -f dist/container/codex
-          test -f dist/container/codex.sha256
-          (cd dist/container && sha256sum --check --strict codex.sha256)
-          install -m 0755 dist/container/codex dist/codex
-      - name: Configure deploy identity
-        env:
-          DEPLOY_KEY: ${{ secrets.BETA_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.BETA_DEPLOY_KNOWN_HOSTS }}
-        run: |
-          test -n "$DEPLOY_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
-          [[ "$RUNNER_TEMP" = /* ]]
-          ssh_dir="$RUNNER_TEMP/helm-ssh"
-          install -d -m 0700 "$ssh_dir"
-          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/helm-deploy"
-          chmod 0600 "$ssh_dir/helm-deploy"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          chmod 0600 "$ssh_dir/known_hosts"
-          printf '%s\n' \
-            'Host 10.0.0.20' \
-            "  IdentityFile $ssh_dir/helm-deploy" \
-            "  UserKnownHostsFile $ssh_dir/known_hosts" \
-            '  IdentitiesOnly yes' \
-            '  BatchMode yes' \
-            '  StrictHostKeyChecking yes' \
-            > "$ssh_dir/config"
-          chmod 0600 "$ssh_dir/config"
-          printf 'HELM_SSH_CONFIG=%s\n' "$ssh_dir/config" >> "$GITHUB_ENV"
-      - name: Capture previous beta release for recovery
-        id: previous_release
-        run: |
-          status_output=$(./deploy/deploy-ci.sh status)
-          previous_sha=$(sed -n 's/^current_sha=//p' <<<"$status_output")
-          [[ "$previous_sha" = none || "$previous_sha" =~ ^[0-9a-f]{40}$ ]]
-          printf 'sha=%s\n' "$previous_sha" >> "$GITHUB_OUTPUT"
-      - name: Prepare private beta owner environment
-        env:
-          HELM_ADMIN_EMAIL: ${{ secrets.BETA_ADMIN_EMAIL }}
-          HELM_TAILNET_OWNER_LOGIN: ShaneKanterman04@github
-          # homelab-edge reaches CT 106 over the LAN; no tailscale interface
-          # is required inside the guest for the private HTTPS origin.
-          HELM_TAILNET_ALLOWED_PEER_IPS: 10.0.0.101
-          # Optional Coolify alert intake. Coolify webhooks authenticate only
-          # with a URL path secret, so it reaches the guest through this
-          # root-only owner environment.
-          HELM_COOLIFY_WEBHOOK_SECRET: ${{ secrets.BETA_COOLIFY_WEBHOOK_SECRET }}
-          HELM_COOLIFY_PROJECT: ${{ vars.BETA_COOLIFY_PROJECT }}
-        run: |
-          test -n "$HELM_ADMIN_EMAIL"
-          test -n "$HELM_TAILNET_OWNER_LOGIN"
-          [[ "$HELM_ADMIN_EMAIL" != *$'\n'* && "$HELM_ADMIN_EMAIL" != *$'\r'* ]]
-          [[ "$HELM_TAILNET_OWNER_LOGIN" != *$'\n'* && "$HELM_TAILNET_OWNER_LOGIN" != *$'\r'* ]]
-          chmod 0755 deploy/*.sh deploy/helm-deploy-gateway
-          private_dir="$RUNNER_TEMP/helm-private"
-          install -d -m 0700 "$private_dir"
-          owner_file="$private_dir/owner.env"
-          {
-            printf 'HELM_ADDR=127.0.0.1:8080\n'
-            printf 'HELM_DB=/var/lib/roadmap/data/roadmap.db\n'
-            printf 'HELM_LUNA_ENABLED=true\nHELM_LUNA_MODEL=gpt-5.6-luna\nHELM_LUNA_EFFORT=medium\n'
-            printf 'HELM_AUTH_MODE=tailnet\n'
-            printf 'HELM_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev\n'
-            printf 'HELM_ADMIN_EMAIL=%s\n' "$HELM_ADMIN_EMAIL"
-            printf 'HELM_TAILNET_OWNER_LOGIN=%s\n' "$HELM_TAILNET_OWNER_LOGIN"
-            printf 'HELM_TAILNET_AUDIENCE=https://beta-helm.home.shanekanterman.dev\n'
-            printf 'HELM_TAILNET_ASSERTION_KEY_FILE=/etc/roadmap/tailnet.key\n'
-            printf 'HELM_TAILNET_TLS_ADDR=10.0.0.39:8443\n'
-            printf 'HELM_TAILNET_TLS_CERT_FILE=/etc/roadmap/tailnet-origin.crt\n'
-            printf 'HELM_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key\n'
-            printf 'HELM_TAILNET_ALLOWED_PEER_IPS=%s\n' "$HELM_TAILNET_ALLOWED_PEER_IPS"
-            printf 'HELM_SECURE_COOKIES=true\nHELM_DEMO_SEED=false\n'
-            printf 'HELM_RELEASE_REF=%s\n' "$HELM_RELEASE_REF"
-            printf 'HELM_BETA_SWITCH_ENABLED=true\nHELM_BETA_SWITCH_SOCKET=%s\n' "$HELM_BETA_SWITCH_SOCKET"
-            printf 'ROADMAP_ADDR=127.0.0.1:8080\nROADMAP_DB=/var/lib/roadmap/data/roadmap.db\n'
-            printf 'ROADMAP_AUTH_MODE=tailnet\nROADMAP_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev\n'
-            printf 'ROADMAP_ADMIN_EMAIL=%s\n' "$HELM_ADMIN_EMAIL"
-            printf 'ROADMAP_TAILNET_OWNER_LOGIN=%s\n' "$HELM_TAILNET_OWNER_LOGIN"
-            printf 'ROADMAP_TAILNET_AUDIENCE=https://beta-helm.home.shanekanterman.dev\n'
-            printf 'ROADMAP_TAILNET_ASSERTION_KEY_FILE=/etc/roadmap/tailnet.key\n'
-            printf 'ROADMAP_TAILNET_TLS_ADDR=10.0.0.39:8443\n'
-            printf 'ROADMAP_TAILNET_TLS_CERT_FILE=/etc/roadmap/tailnet-origin.crt\n'
-            printf 'ROADMAP_TAILNET_TLS_KEY_FILE=/etc/roadmap/tailnet-origin.key\n'
-            printf 'ROADMAP_TAILNET_ALLOWED_PEER_IPS=%s\n' "$HELM_TAILNET_ALLOWED_PEER_IPS"
-            printf 'ROADMAP_SECURE_COOKIES=true\nROADMAP_DEMO_SEED=false\n'
-            printf 'ROADMAP_RELEASE_REF=%s\n' "$HELM_RELEASE_REF"
-            printf 'ROADMAP_BETA_SWITCH_ENABLED=true\nROADMAP_BETA_SWITCH_SOCKET=%s\n' "$HELM_BETA_SWITCH_SOCKET"
-          } > "$owner_file"
-          chmod 0600 "$owner_file"
-          if [[ -n "$HELM_COOLIFY_WEBHOOK_SECRET" || -n "$HELM_COOLIFY_PROJECT" ]]; then
-            [[ "$HELM_COOLIFY_WEBHOOK_SECRET" =~ ^[A-Za-z0-9_-]{32,256}$ ]]
-            [[ "$HELM_COOLIFY_PROJECT" =~ ^[A-Za-z0-9_-]{1,64}$ ]]
-            {
-              printf 'HELM_COOLIFY_WEBHOOK_SECRET=%s\n' "$HELM_COOLIFY_WEBHOOK_SECRET"
-              printf 'HELM_COOLIFY_PROJECT=%s\n' "$HELM_COOLIFY_PROJECT"
-              printf 'HELM_COOLIFY_ASSIGNEE=%s\n' "$HELM_ADMIN_EMAIL"
-            } >> "$owner_file"
-          fi
-          printf 'HELM_OWNER_ENV_FILE=%s\n' "$owner_file" >> "$GITHUB_ENV"
-      - name: Materialize beta release signing key
-        env:
-          RELEASE_SIGNING_KEY: ${{ secrets.BETA_RELEASE_SIGNING_KEY }}
-        run: |
-          test -n "$RELEASE_SIGNING_KEY"
-          install -d -m 0700 "$RUNNER_TEMP/helm-signing"
-          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/helm-signing/private.pem"
-          chmod 0600 "$RUNNER_TEMP/helm-signing/private.pem"
-      - name: Deploy to beta Proxmox guest
-        env:
-          HELM_RELEASE_SIGNING_KEY_FILE: ${{ runner.temp }}/helm-signing/private.pem
-          HELM_RELEASE_REF: refs/heads/beta
-          HELM_BETA_SWITCH_ENABLED: 'true'
-          HELM_BETA_SWITCH_SOCKET: /run/helm-beta-switcher/helm-beta-switchd.sock
-          HELM_BETA_SWITCHD_BINARY: ${{ github.workspace }}/dist/helm-beta-switchd
-        run: ./deploy/deploy-ci.sh deploy "${GITHUB_SHA}"
-      - name: Validate private beta Tailnet readiness
-        env:
-          PREVIOUS_RELEASE_SHA: ${{ steps.previous_release.outputs.sha }}
-        run: |
-          if ./deploy/deploy-ci.sh private-ready; then
-            exit 0
-          fi
-          printf 'post-deploy private beta readiness failed; attempting automatic rollback\n' >&2
-          if [[ "$PREVIOUS_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            if ! ./deploy/deploy-ci.sh rollback "$PREVIOUS_RELEASE_SHA"; then
-              printf 'automatic beta rollback to %s failed\n' "$PREVIOUS_RELEASE_SHA" >&2
-            else
-              printf 'automatic beta rollback to %s completed; validation remains failed\n' "$PREVIOUS_RELEASE_SHA" >&2
-            fi
+          [[ "$GITHUB_REF" = "$EXPECTED_REF" ]]
+          authorization=$(printf 'x-access-token:%s' "$READ_TOKEN" | base64 -w0)
+          tip=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $authorization" ls-remote --exit-code --refs origin "$EXPECTED_REF" | awk -v ref="$EXPECTED_REF" '$2 == ref { print $1 }')
+          [[ "$tip" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$tip" != "$GITHUB_SHA" ]]; then
+            printf 'The branch advanced; this validated release will not overwrite its successor.\n'
+            printf 'current=false\n' >> "$GITHUB_OUTPUT"
           else
-            printf 'no previous retained beta release is available; automatic rollback skipped\n' >&2
+            printf 'current=true\n' >> "$GITHUB_OUTPUT"
           fi
-          exit 1
-      - name: Remove beta deployment credentials
-        if: ${{ always() }}
-        run: |
-          rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-private"
-          rm -f -- dist/owner.env
-
-  beta_rollback:
-    if: ${{ github.ref == 'refs/heads/beta' && github.event_name == 'workflow_dispatch' && inputs.rollback_sha != '' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    environment:
-      name: beta
-      url: https://beta-helm.home.shanekanterman.dev
-    concurrency:
-      group: helm-beta
-      cancel-in-progress: false
-    env:
-      HELM_DEPLOY_ENVIRONMENT: beta
-      HELM_PUBLIC_ORIGIN: https://beta-helm.home.shanekanterman.dev
-    steps:
       - name: Connect protected deployment to the private tailnet
+        if: ${{ steps.tip.outputs.current == 'true' }}
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-helm-deploy
-          args: --accept-routes
-      # A manual rollback is beta-authorized only when dispatched from beta,
-      # and its scripts are pinned to the selected beta commit.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          # The action already passes --accept-routes; do not repeat it in args.
+      - name: Deploy exact Coolify service and verify private readiness
+        if: ${{ steps.tip.outputs.current == 'true' }}
+        env:
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          HELM_DEPLOY_EVIDENCE: ${{ runner.temp }}/helm-coolify-beta/deployment.json
+        run: python3 deploy/coolify-deploy.py
+      - name: Upload sanitized deployment and rollback evidence
+        if: ${{ always() && steps.tip.outputs.current == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Configure beta deploy identity
-        env:
-          DEPLOY_KEY: ${{ secrets.BETA_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.BETA_DEPLOY_KNOWN_HOSTS }}
-        run: |
-          test -n "$DEPLOY_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
-          [[ "$RUNNER_TEMP" = /* ]]
-          ssh_dir="$RUNNER_TEMP/helm-ssh"
-          install -d -m 0700 "$ssh_dir"
-          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/helm-deploy"
-          chmod 0600 "$ssh_dir/helm-deploy"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          chmod 0600 "$ssh_dir/known_hosts"
-          printf '%s\n' \
-            'Host 10.0.0.20' \
-            "  IdentityFile $ssh_dir/helm-deploy" \
-            "  UserKnownHostsFile $ssh_dir/known_hosts" \
-            '  IdentitiesOnly yes' \
-            '  BatchMode yes' \
-            '  StrictHostKeyChecking yes' \
-            > "$ssh_dir/config"
-          chmod 0600 "$ssh_dir/config"
-          printf 'HELM_SSH_CONFIG=%s\n' "$ssh_dir/config" >> "$GITHUB_ENV"
-      - name: Roll back retained beta release
-        env:
-          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
-        run: |
-          [[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]]
-          ./deploy/deploy-ci.sh rollback "$ROLLBACK_SHA"
-      - name: Validate private beta Tailnet after rollback
-        run: ./deploy/deploy-ci.sh private-ready
-      - name: Remove beta deployment credentials
-        if: ${{ always() }}
-        run: |
-          rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-private"
-          rm -f -- dist/owner.env
+          name: helm-coolify-beta-${{ github.sha }}
+          path: ${{ runner.temp }}/helm-coolify-beta/deployment.json
+          if-no-files-found: warn
+          retention-days: 14
 
   deploy:
-    if: ${{ github.ref == 'refs/heads/main' && ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[ci-hosted-cutover]')) || (github.event_name == 'workflow_dispatch' && inputs.rollback_sha == '')) }}
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.HELM_PRODUCTION_DEPLOY_PAUSED != 'true' }}
     needs: [checks, browser, race, container]
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 30
     environment:
       name: production
       url: https://helm.home.shanekanterman.dev
@@ -489,185 +311,56 @@ jobs:
       group: helm-production
       cancel-in-progress: false
     env:
-      HELM_DEPLOY_ENVIRONMENT: production-private
-      HELM_PUBLIC_ORIGIN: https://helm.home.shanekanterman.dev
+      COOLIFY_API_URL: ${{ vars.COOLIFY_API_URL }}
+      COOLIFY_PROJECT_UUID: ${{ vars.COOLIFY_PROJECT_UUID }}
+      COOLIFY_ENVIRONMENT_UUID: ${{ vars.COOLIFY_ENVIRONMENT_UUID }}
+      COOLIFY_SERVICE_UUID: ${{ vars.COOLIFY_SERVICE_UUID }}
+      COOLIFY_SERVICE_NAME: ${{ vars.COOLIFY_SERVICE_NAME }}
+      COOLIFY_SERVER_UUID: ${{ vars.COOLIFY_SERVER_UUID }}
+      HELM_SITE_URL: ${{ vars.HELM_SITE_URL }}
+      HELM_IMAGE: ${{ needs.container.outputs.image }}
+      HELM_RELEASE_SHA: ${{ github.sha }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require the validated release to remain the branch tip
+        id: tip
+        env:
+          READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_REF: refs/heads/main
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_REF" = "$EXPECTED_REF" ]]
+          authorization=$(printf 'x-access-token:%s' "$READ_TOKEN" | base64 -w0)
+          tip=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $authorization" ls-remote --exit-code --refs origin "$EXPECTED_REF" | awk -v ref="$EXPECTED_REF" '$2 == ref { print $1 }')
+          [[ "$tip" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$tip" != "$GITHUB_SHA" ]]; then
+            printf 'The branch advanced; this validated release will not overwrite its successor.\n'
+            printf 'current=false\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'current=true\n' >> "$GITHUB_OUTPUT"
+          fi
       - name: Connect protected deployment to the private tailnet
+        if: ${{ steps.tip.outputs.current == 'true' }}
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-helm-deploy
-          args: --accept-routes
-      # github.sha is the selected main commit; pinning the checkout prevents
-      # a mutable branch ref from supplying deployment scripts.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          # The action already passes --accept-routes; do not repeat it in args.
+      - name: Deploy exact Coolify service and verify private readiness
+        if: ${{ steps.tip.outputs.current == 'true' }}
+        env:
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          HELM_DEPLOY_EVIDENCE: ${{ runner.temp }}/helm-coolify-production/deployment.json
+        run: python3 deploy/coolify-deploy.py
+      - name: Upload sanitized deployment and rollback evidence
+        if: ${{ always() && steps.tip.outputs.current == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Download immutable binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: helm-binary-${{ github.sha }}
-          path: dist
-      - name: Restore binary executable mode
-        run: |
-          test -f dist/helm
-          chmod 0755 dist/helm
-          test -x dist/helm
-      - name: Download tested runtime binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: helm-image-${{ github.sha }}
-          path: dist/container
-      - name: Verify runtime artifacts
-        run: |
-          test -f dist/container/codex
-          test -f dist/container/codex.sha256
-          (cd dist/container && sha256sum --check --strict codex.sha256)
-          install -m 0755 dist/container/codex dist/codex
-          test -f dist/container/cloudflared
-          test -f dist/container/cloudflared.sha256
-          (cd dist/container && sha256sum --check --strict cloudflared.sha256)
-          install -m 0755 dist/container/cloudflared dist/cloudflared
-          install -m 0644 dist/container/cloudflared.sha256 dist/cloudflared.sha256
-      - name: Configure deploy identity
-        env:
-          DEPLOY_KEY: ${{ secrets.ROADMAP_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.ROADMAP_DEPLOY_KNOWN_HOSTS }}
-        run: |
-          test -n "$DEPLOY_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
-          [[ "$RUNNER_TEMP" = /* ]]
-          ssh_dir="$RUNNER_TEMP/helm-ssh"
-          install -d -m 0700 "$ssh_dir"
-          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/helm-deploy"
-          chmod 0600 "$ssh_dir/helm-deploy"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          chmod 0600 "$ssh_dir/known_hosts"
-          printf '%s\n' \
-            'Host 10.0.0.20' \
-            "  IdentityFile $ssh_dir/helm-deploy" \
-            "  UserKnownHostsFile $ssh_dir/known_hosts" \
-            '  IdentitiesOnly yes' \
-            '  BatchMode yes' \
-            '  StrictHostKeyChecking yes' \
-            > "$ssh_dir/config"
-          chmod 0600 "$ssh_dir/config"
-          printf 'HELM_SSH_CONFIG=%s\n' "$ssh_dir/config" >> "$GITHUB_ENV"
-      - name: Capture previous release for recovery
-        id: previous_release
-        run: |
-          status_output=$(./deploy/deploy-ci.sh status)
-          previous_sha=$(sed -n 's/^current_sha=//p' <<<"$status_output")
-          [[ "$previous_sha" = none || "$previous_sha" =~ ^[0-9a-f]{40}$ ]]
-          printf 'sha=%s\n' "$previous_sha" >> "$GITHUB_OUTPUT"
-      - name: Prepare private production inputs without changing legacy routing
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.ROADMAP_CLOUDFLARE_API_TOKEN }}
-          HELM_ADMIN_EMAIL: ${{ secrets.ROADMAP_ADMIN_EMAIL }}
-        run: |
-          private_dir="$RUNNER_TEMP/helm-private"
-          install -d -m 0700 "$private_dir"
-          python3 deploy/prepare-production-private.py \
-            --owner-env "$private_dir/owner.env" \
-            --tunnel-token "$private_dir/cloudflared.token"
-          printf 'HELM_OWNER_ENV_FILE=%s\n' "$private_dir/owner.env" >> "$GITHUB_ENV"
-          printf 'HELM_CLOUDFLARED_TOKEN_FILE=%s\n' "$private_dir/cloudflared.token" >> "$GITHUB_ENV"
-      - name: Materialize release signing key
-        env:
-          RELEASE_SIGNING_KEY: ${{ secrets.ROADMAP_RELEASE_SIGNING_KEY }}
-        run: |
-          test -n "$RELEASE_SIGNING_KEY"
-          install -d -m 0700 "$RUNNER_TEMP/helm-signing"
-          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/helm-signing/private.pem"
-          chmod 0600 "$RUNNER_TEMP/helm-signing/private.pem"
-      - name: Deploy to Proxmox
-        env:
-          HELM_RELEASE_SIGNING_KEY_FILE: ${{ runner.temp }}/helm-signing/private.pem
-        run: ./deploy/deploy-ci.sh deploy "${GITHUB_SHA}"
-      - name: Validate private production readiness
-        env:
-          PREVIOUS_RELEASE_SHA: ${{ steps.previous_release.outputs.sha }}
-        run: |
-          if ./deploy/deploy-ci.sh private-ready; then
-            exit 0
-          fi
-          if [[ "$PREVIOUS_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            ./deploy/deploy-ci.sh rollback "$PREVIOUS_RELEASE_SHA"
-          fi
-          exit 1
-      - name: Remove deployment credentials
-        if: ${{ always() }}
-        run: |
-          rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare" "$RUNNER_TEMP/helm-private"
-          rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env
-
-  rollback:
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.rollback_sha != '' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    environment:
-      name: production
-      url: https://helm.home.shanekanterman.dev
-    concurrency:
-      group: helm-production
-      cancel-in-progress: false
-    env:
-      HELM_DEPLOY_ENVIRONMENT: production-private
-      HELM_PUBLIC_ORIGIN: https://helm.home.shanekanterman.dev
-    steps:
-      - name: Connect protected deployment to the private tailnet
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:gha-helm-deploy
-          args: --accept-routes
-      # A manual rollback is production-authorized only when dispatched from
-      # main, and its scripts are pinned to the selected main commit.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Configure deploy identity
-        env:
-          DEPLOY_KEY: ${{ secrets.ROADMAP_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.ROADMAP_DEPLOY_KNOWN_HOSTS }}
-        run: |
-          test -n "$DEPLOY_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
-          [[ "$RUNNER_TEMP" = /* ]]
-          ssh_dir="$RUNNER_TEMP/helm-ssh"
-          install -d -m 0700 "$ssh_dir"
-          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/helm-deploy"
-          chmod 0600 "$ssh_dir/helm-deploy"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          chmod 0600 "$ssh_dir/known_hosts"
-          printf '%s\n' \
-            'Host 10.0.0.20' \
-            "  IdentityFile $ssh_dir/helm-deploy" \
-            "  UserKnownHostsFile $ssh_dir/known_hosts" \
-            '  IdentitiesOnly yes' \
-            '  BatchMode yes' \
-            '  StrictHostKeyChecking yes' \
-            > "$ssh_dir/config"
-          chmod 0600 "$ssh_dir/config"
-          printf 'HELM_SSH_CONFIG=%s\n' "$ssh_dir/config" >> "$GITHUB_ENV"
-      - name: Roll back retained release
-        env:
-          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
-        run: |
-          [[ "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]]
-          ./deploy/deploy-ci.sh rollback "$ROLLBACK_SHA"
-      - name: Validate private production after rollback
-        run: ./deploy/deploy-ci.sh private-ready
-      - name: Remove deployment credentials
-        if: ${{ always() }}
-        run: |
-          rm -f -- "$RUNNER_TEMP/helm-signing/private.pem"
-          rm -rf -- "$RUNNER_TEMP/helm-ssh" "$RUNNER_TEMP/helm-cloudflare" "$RUNNER_TEMP/helm-private"
-          rm -f -- dist/cloudflared.token dist/owner.env dist/helm-access-token.env
+          name: helm-coolify-production-${{ github.sha }}
+          path: ${{ runner.temp }}/helm-coolify-production/deployment.json
+          if-no-files-found: warn
+          retention-days: 14
