@@ -443,7 +443,8 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-helm-deploy
-          args: --accept-routes
+          # The action always passes --accept-routes; repeating it in args makes
+          # `tailscale up` reject the duplicate flag and the deploy fail.
       - name: Check out only the trusted beta event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

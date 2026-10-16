@@ -233,7 +233,8 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-helm-deploy
-          args: --accept-routes
+          # The action always passes --accept-routes; repeating it in args makes
+          # `tailscale up` reject the duplicate flag and the deploy fail.
       # github.sha is the selected beta commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -430,7 +431,8 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-helm-deploy
-          args: --accept-routes
+          # The action always passes --accept-routes; repeating it in args makes
+          # `tailscale up` reject the duplicate flag and the deploy fail.
       # A manual rollback is beta-authorized only when dispatched from beta,
       # and its scripts are pinned to the selected beta commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -495,7 +497,8 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-helm-deploy
-          args: --accept-routes
+          # The action always passes --accept-routes; repeating it in args makes
+          # `tailscale up` reject the duplicate flag and the deploy fail.
       # github.sha is the selected main commit; pinning the checkout prevents
       # a mutable branch ref from supplying deployment scripts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -633,7 +636,8 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-helm-deploy
-          args: --accept-routes
+          # The action always passes --accept-routes; repeating it in args makes
+          # `tailscale up` reject the duplicate flag and the deploy fail.
       # A manual rollback is production-authorized only when dispatched from
       # main, and its scripts are pinned to the selected main commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
