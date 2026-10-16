@@ -95,6 +95,8 @@ CT103 retains only `cloudflared` and `helm-legacy-relay.service` for the old
 bearer API URL. The relay accepts only bearer `/api/v1/` requests on loopback,
 removes cookies, verifies edge TLS and forwards through a source-restricted
 private edge listener to the authoritative Coolify production service. It
-has no database mount or writer. The private `.home` dashboard remains the
+has no database mount or writer. Install `cloudflared-legacy.service` as `cloudflared.service` so it
+requires the relay instead of the retired Helm writer. Dependencies cannot be
+removed using an empty assignment in a systemd drop-in. Existing Cloudflare service-access credentials still apply. The private `.home` dashboard remains the
 canonical user route. Origin certificates expire 2027-09-09; renew them in
 the Coolify `config` directories before expiry while retaining their CA/SNI.
