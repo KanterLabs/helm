@@ -91,9 +91,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   --lift-md: 0 12px 30px rgba(0, 0, 0, .44);
 }
 
+/* The sidebar scrolls on its own so a long project list never stretches the page. */
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
   width: 254px;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   display: flex;
   flex-direction: column;
   flex: 0 0 254px;
