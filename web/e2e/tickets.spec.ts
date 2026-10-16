@@ -181,11 +181,20 @@ test('Tickets keep durable membership, server counts and guarded human triage', 
   await expect(detail.locator('.ticket-note-list')).toContainText(`Checked the renewal job ${runID}`);
   await testInfo.attach('tickets-desktop.png', { contentType: 'image/png', body: await page.screenshot({ fullPage: true }) });
 
-  // Completing removes it from the open queue with an explicit notice.
+  // Completing removes it from the open queue with an explicit notice and
+  // releases the detail pane, since nothing else is left in this queue.
   await page.getByRole('tab', { name: /All open/ }).click();
   await detail.getByRole('button', { name: '✓ Complete' }).click();
-  await expect(page.locator('.ticket-moved')).toContainText(`moved to Completed`);
+  const moved = page.locator('.ticket-moved');
+  await expect(moved).toContainText(`moved to Completed`);
   await expect(page.locator(`[data-ticket-key="${manual.key}"]`)).toHaveCount(0);
+  await expect(detail).toHaveCount(0);
+  await expect(page.locator('.ticket-detail-empty')).toBeVisible();
+  await expect(page).not.toHaveURL(/ticket=/);
+  await moved.getByRole('button', { name: 'View' }).click();
+  await expect(detail.locator('[data-ticket-status]')).toHaveText('Completed');
+  await expect(moved).toHaveCount(0);
+
 
   // A delayed detail response for ticket A never renders into selected ticket B.
   await page.goto(`/tickets?project=${bulk.key}`);
@@ -233,6 +242,20 @@ test('Tickets keep durable membership, server counts and guarded human triage', 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await testInfo.attach('tickets-mobile-list.png', { contentType: 'image/png', body: await page.screenshot() });
+
+  // In a longer queue, completing advances to the next ticket instead.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`/tickets?project=${bulk.key}&queue=needs_triage`);
+  const triageRows = page.locator('[data-ticket-key]');
+  await expect(triageRows).toHaveCount(3);
+  const [firstTriage, secondTriage] = await triageRows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-ticket-key')));
+  await triageRows.first().click();
+  await expect(detail.locator('.task-key')).toHaveText(firstTriage as string);
+  await detail.getByRole('button', { name: '✓ Complete' }).click();
+  await expect(detail.locator('.task-key')).toHaveText(secondTriage as string);
+  await expect(detail.locator('h2')).toBeFocused();
+  await expect(page).toHaveURL(new RegExp(`ticket=${secondTriage}`));
+  await expect(triageRows).toHaveCount(2);
 });
 
 test('New tickets land in one queue and triage files them into a project', async ({ page, request }, testInfo) => {
