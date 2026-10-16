@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily verified Helm Coolify backup
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
