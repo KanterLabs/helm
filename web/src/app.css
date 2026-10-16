@@ -312,8 +312,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .board-loading-note { margin: -8px 0 18px; color: var(--muted); font-size: 10px; }
 
 .board { min-width: 0; display: grid; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); align-items: start; gap: 14px; overflow-x: auto; padding: 2px 1px 18px; }
-/* Ten measured cards determine the shared height; the page can exceed the viewport. */
-.board-column { min-width: 0; min-height: 0; height: var(--board-column-height, 1400px); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--surface-muted) 70%, transparent); transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-base) var(--ease-out); }
+/* boardCardHeight fits the shared height to content, capped at the viewport, so only column bodies scroll. */
+.board-column { min-width: 0; min-height: 0; height: var(--board-column-height, 70vh); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--surface-muted) 70%, transparent); transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-base) var(--ease-out); }
 .board-column > :not(.column-cards) { flex-shrink: 0; }
 .board-column.drop-target { border-color: color-mix(in srgb, var(--purple), var(--border) 40%); background: color-mix(in srgb, var(--purple-soft) 45%, var(--surface-muted)); }
 .board-column.drop-target .column-header { color: var(--purple); }
@@ -382,7 +382,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .comment-count { color: var(--muted); font-size: 11px; }
 .card-move { width: 28px; height: 28px; min-width: 24px; min-height: 24px; border-radius: 5px; color: var(--faint); font-size: 13px; }
 .card-move:hover:not(:disabled) { color: var(--purple); background: var(--purple-soft); }
-.column-empty { min-height: 115px; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px dashed var(--border-strong); border-radius: 8px; color: var(--faint); font-size: 11px; text-align: center; }
+.column-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px 10px; border: 1px dashed var(--border); border-radius: 9px; color: var(--faint); background: color-mix(in srgb, var(--surface) 45%, transparent); font-size: 11px; text-align: center; }
 .column-empty .text-button { font-size: 11px; }
 .quick-add-wrap { padding: 3px 9px 10px; }
 .quick-add-trigger { width: 100%; min-height: 31px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; font-size: 11px; text-align: left; }
@@ -1290,11 +1290,9 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .filter-group select { height: 44px; flex: 0 0 142px; }
   .clear-filters { min-height: 44px; padding: 0 8px; }
   .board { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(82vw, 1fr); gap: 12px; margin-right: -14px; overflow-x: auto; padding: 2px 14px 16px 0; scroll-snap-type: x mandatory; }
-  .board { --board-empty-card-height: 160px; }
   .board-column { scroll-margin-top: calc(70px + env(safe-area-inset-top)); scroll-snap-align: start; }
   .column-header { position: relative; z-index: 2; min-height: 52px; border-radius: 12px 12px 0 0; background: color-mix(in srgb, var(--surface-muted) 94%, transparent); backdrop-filter: blur(10px); }
   .column-cards { min-height: 0; }
-  .column-empty { min-height: 104px; }
   .task-main { min-height: 44px; padding: 13px 12px 10px; }
   .task-title { font-size: 13px; }
   .task-excerpt { font-size: 11px; }

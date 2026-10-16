@@ -103,12 +103,9 @@ async function measureColumnCards(column: Locator) {
       const rect = card.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height };
     });
-    const firstTen = cards.slice(0, 10);
     return {
       body: { top: body.top, bottom: body.bottom, left: body.left, right: body.right, width: body.width, height: body.height },
       cards,
-      firstTen,
-      firstTenStack: firstTen.length ? firstTen[firstTen.length - 1].bottom - firstTen[0].top : 0,
       cardsClientHeight: element.clientHeight,
       cardsScrollHeight: element.scrollHeight,
       cardsClientWidth: element.clientWidth,
@@ -151,7 +148,7 @@ async function loadAllCards(column: Locator, expectedCount: number): Promise<voi
   await expect(column.locator('.task-card')).toHaveCount(expectedCount);
 }
 
-test('sizes equal-height columns for ten cards while retaining independent board and body scrolling', async ({ page, request }) => {
+test('fits equal-height columns to the viewport so only board and column bodies scroll', async ({ page, request }) => {
   test.setTimeout(120_000);
 
   const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
@@ -199,7 +196,6 @@ test('sizes equal-height columns for ten cards while retaining independent board
       };
       const root = document.scrollingElement || document.documentElement;
       const style = getComputedStyle(element);
-      const boardRect = element.getBoundingClientRect();
       const columns = Array.from(element.querySelectorAll<HTMLElement>('.board-column')).map((column) => ({
         ...box(column),
         cards: (() => {
@@ -218,7 +214,6 @@ test('sizes equal-height columns for ten cards while retaining independent board
         bodyWidth: document.body.scrollWidth,
         bodyScrollHeight: root.scrollHeight,
         bodyClientHeight: root.clientHeight,
-        boardPageBottom: boardRect.bottom + window.scrollY,
         columns
       };
     });
@@ -238,9 +233,8 @@ test('sizes equal-height columns for ten cards while retaining independent board
     await settleLayout(page);
     const manyAtTop = await measureColumnCards(manyColumn);
     expect(manyAtTop.cards, `${viewport.name} should render all cards in the 100-card column`).toHaveLength(fixture.manyTaskCount);
-    expect(manyAtTop.firstTen, `${viewport.name} should render a ten-card capacity sample`).toHaveLength(10);
     expect(manyAtTop.cardsScrollTop, `${viewport.name} card body should start at scrollTop 0`).toBe(0);
-    expect(manyAtTop.firstTen.every((card) => card.top >= manyAtTop.body.top - 2 && card.bottom <= manyAtTop.body.bottom + 2), `${viewport.name} first ten cards should fit fully inside the card body`).toBeTruthy();
+    expect(manyAtTop.cards[0].top, `${viewport.name} first card should start inside the card body`).toBeGreaterThanOrEqual(manyAtTop.body.top - 2);
     expect(Math.min(...manyAtTop.cards.map((card) => card.height)), `${viewport.name} cards must keep their natural height`).toBeGreaterThan(24);
     expect(manyAtTop.cardsScrollHeight, `${viewport.name} more than ten cards should overflow inside the card body`).toBeGreaterThan(manyAtTop.cardsClientHeight + 100);
     expect(manyAtTop.cardsScrollWidth, `${viewport.name} card content should not create horizontal overflow`).toBeLessThanOrEqual(manyAtTop.cardsClientWidth + 2);
@@ -248,11 +242,10 @@ test('sizes equal-height columns for ten cards while retaining independent board
 
     const fewMetrics = await measureColumnCards(fewColumn);
     expect(fewMetrics.cards, `${viewport.name} few-card column should retain its sample cards`).toHaveLength(1);
-    expect(fewMetrics.firstTen.every((card) => card.top >= fewMetrics.body.top - 2 && card.bottom <= fewMetrics.body.bottom + 2), `${viewport.name} fewer than ten cards should fit inside the extrapolated body capacity`).toBeTruthy();
-    expect(fewMetrics.cardsScrollHeight, `${viewport.name} fewer than ten cards should not need inner scrolling`).toBeLessThanOrEqual(fewMetrics.cardsClientHeight + 2);
+    expect(fewMetrics.cardsScrollHeight, `${viewport.name} a short column should not need inner scrolling`).toBeLessThanOrEqual(fewMetrics.cardsClientHeight + 2);
 
     const emptyMetrics = await measureColumnCards(emptyColumn);
-    expect(Math.abs(emptyMetrics.body.height - manyAtTop.body.height), `${viewport.name} empty columns should share the populated ten-card capacity`).toBeLessThanOrEqual(2);
+    expect(Math.abs(emptyMetrics.body.height - manyAtTop.body.height), `${viewport.name} empty columns should share the populated column height`).toBeLessThanOrEqual(2);
 
     const columnBefore = await requireBoundingBox(manyColumn, `${viewport.name} many-card column should have a bounding box`);
     const header = manyColumn.locator('.column-header');
@@ -274,40 +267,44 @@ test('sizes equal-height columns for ten cards while retaining independent board
     expect(cardHeightDelta, `${viewport.name} card heights must not shrink while the body scrolls`).toBeLessThanOrEqual(1);
     expect(await emptyColumn.locator('.column-cards').evaluate((element) => element.scrollTop), `${viewport.name} empty column should keep its own scroll position`).toBe(0);
 
-    if (viewport.name === 'phone portrait') {
-      expect(boardMetrics.boardPageBottom, 'phone portrait board should naturally extend beyond the viewport').toBeGreaterThan(viewport.height);
-      expect(boardMetrics.bodyScrollHeight, 'phone portrait page should be taller than the viewport').toBeGreaterThan(boardMetrics.bodyClientHeight);
+    // Columns never exceed the viewport. On desktop they also end inside it,
+    // so the page stays still and only column bodies own vertical overflow.
+    // Phones and short landscapes spend most of the height on the heading and
+    // toolbar, so columns keep their minimum height and the page scrolls.
+    expect(Math.max(...columnHeights), `${viewport.name} columns should fit within the viewport height`).toBeLessThanOrEqual(boardMetrics.viewportHeight);
+    if (viewport.name === 'desktop') {
+      expect(boardMetrics.bodyScrollHeight, 'desktop page should not scroll vertically').toBeLessThanOrEqual(boardMetrics.bodyClientHeight + 1);
+      expect(Math.max(...boardMetrics.columns.map((column) => column.bottom)), 'desktop columns should end inside the viewport').toBeLessThanOrEqual(boardMetrics.viewportHeight + 1);
 
-      // A viewport-height change must not collapse a card-based column back to
-      // the viewport. The board may become more page-scrollable, but its shared
-      // column height remains driven by the card stack.
-      const heightBeforeResize = (await requireBoundingBox(manyColumn, 'phone portrait column should have a bounding box before height resize')).height;
-      await page.setViewportSize({ width: viewport.width, height: viewport.height - 180 });
+      // A shorter viewport shrinks the shared column height rather than
+      // pushing the board below the fold.
+      const heightBeforeResize = (await requireBoundingBox(manyColumn, 'desktop column should have a bounding box before height resize')).height;
+      await page.setViewportSize({ width: viewport.width, height: viewport.height - 100 });
       await settleLayout(page);
-      const heightAfterResize = (await requireBoundingBox(manyColumn, 'phone portrait column should have a bounding box after height resize')).height;
-      expect(Math.abs(heightAfterResize - heightBeforeResize), 'changing only viewport height must not change card-based column height').toBeLessThanOrEqual(1);
+      const heightAfterResize = (await requireBoundingBox(manyColumn, 'desktop column should have a bounding box after height resize')).height;
+      expect(Math.abs(heightBeforeResize - heightAfterResize - 100), 'a shorter viewport should shrink the column by the same amount').toBeLessThanOrEqual(2);
+      expect(await page.evaluate(() => {
+        const root = document.scrollingElement || document.documentElement;
+        return root.scrollHeight - root.clientHeight;
+      }), 'the shorter desktop page should still not scroll').toBeLessThanOrEqual(1);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await settleLayout(page);
+    }
 
-      // Changing width can alter card wrapping and therefore the measured ten-card
-      // capacity. Assert the remeasurement semantically, without requiring a
-      // particular pixel height from a browser font rasterizer.
+    if (viewport.name === 'phone portrait') {
       await manyBody.evaluate((element) => { element.scrollTop = 0; });
       const beforeResize = await measureColumnCards(manyColumn);
       await page.setViewportSize({ width: 601, height: viewport.height });
       await settleLayout(page);
       const afterResize = await measureColumnCards(manyColumn);
       expect(afterResize.body.width, 'resizing the viewport should resize the scoped column').not.toBe(beforeResize.body.width);
-      expect(afterResize.firstTen.every((card) => card.top >= afterResize.body.top - 2 && card.bottom <= afterResize.body.bottom + 2), 'resized ten-card sample should still fit inside the card body').toBeTruthy();
-      if (Math.abs(afterResize.firstTenStack - beforeResize.firstTenStack) > 1) {
-        expect(Math.abs(afterResize.body.height - beforeResize.body.height), 'a changed card stack should trigger column-height remeasurement').toBeGreaterThan(1);
-      }
+      expect(afterResize.body.height, 'resized columns should still fit within the viewport height').toBeLessThanOrEqual(viewport.height);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await settleLayout(page);
     }
 
-    // A short landscape viewport intentionally leaves the page itself
-    // scrollable because the board starts below the heading and toolbar. Body
+    // A short landscape viewport leaves too little room below the heading and
+    // toolbar, so columns keep their minimum height and the page scrolls. Body
     // scrolling must not consume or reset the column's independent scroll.
     if (viewport.name === 'short landscape') {
       expect(boardMetrics.bodyScrollHeight).toBeGreaterThan(boardMetrics.bodyClientHeight);
