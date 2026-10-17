@@ -231,11 +231,18 @@ test('filter count, disabled reasons and clear all preserve real board criteria'
   const filtersTrigger = page.locator('[data-board-filter-trigger]');
   await filtersTrigger.click();
   const panel = page.getByRole('dialog', { name: 'Board filters', exact: true });
+  // The URL changes before the debounced reload replaces the old cards.
+  const filteredPage = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === `/api/v1/projects/${state.project.id}/tasks` && url.searchParams.get('column') === state.ready.id && url.searchParams.get('priority') === 'normal';
+  });
   await panel.getByRole('combobox', { name: 'Filter by priority', exact: true }).selectOption('normal');
   await panel.getByRole('button', { name: 'Show results', exact: true }).click();
   await expect(filtersTrigger).toHaveAccessibleName(/1 active/);
   await expect(filtersTrigger).toBeFocused();
   await expect(page).toHaveURL(/priority=normal/);
+  expect((await filteredPage).ok()).toBeTruthy();
+  await expect(page.locator('.board-loading, .board-loading-note')).toHaveCount(0);
   await openMenu(page, state.moving);
   const first = menu(page, state.moving).locator('[data-card-action="first"]');
   await expect(first).toHaveAttribute('aria-disabled', 'true');
