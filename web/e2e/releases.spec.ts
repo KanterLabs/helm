@@ -280,6 +280,7 @@ test('does not inherit a completed focus filter when creating tasks or bugs', as
   await readyColumn.getByRole('button', { name: /Add task$/ }).click();
   await readyColumn.getByRole('textbox', { name: 'New task in Ready' }).fill(createdTitles.quick);
   await readyColumn.getByRole('button', { name: 'Add task', exact: true }).click();
+  await expect(readyColumn.getByRole('textbox', { name: 'New task in Ready' })).toBeHidden();
 
   await page.getByRole('button', { name: 'New task', exact: true }).click();
   const taskDialog = page.getByRole('dialog', { name: 'Create a task' });

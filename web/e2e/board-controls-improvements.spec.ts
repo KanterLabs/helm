@@ -183,14 +183,18 @@ test('all six movement commands persist and rejected moves restore focus', async
     await openMenu(page, state.moving);
     const command = menu(page, state.moving).locator(`[data-card-action="${id}"]`);
     await expect(command).toHaveAttribute('aria-disabled', 'false');
+    const saved = page.waitForResponse((response) => response.url().endsWith(`/api/v1/tasks/${state.moving.id}/reorder`) && response.request().method() === 'POST');
     await command.click();
+    expect((await saved).ok()).toBeTruthy();
     await expect.poll(async () => (await tasksFor(request, state.project)).filter((task) => task.column_id === state.ready.id).sort((a, b) => a.position - b.position).map((task) => task.id).indexOf(state.moving.id)).toBe(index);
     await expect(trigger(page, state.moving)).toBeFocused();
     evidence.push({ command: id, tasks: await tasksFor(request, state.project) });
   }
   for (const [id, destination] of [['left', state.backlog], ['right', state.ready]] as const) {
     await openMenu(page, state.moving);
+    const saved = page.waitForResponse((response) => response.url().endsWith(`/api/v1/tasks/${state.moving.id}/move`) && response.request().method() === 'POST');
     await menu(page, state.moving).locator(`[data-card-action="${id}"]`).click();
+    expect((await saved).ok()).toBeTruthy();
     await expect.poll(async () => (await tasksFor(request, state.project)).find((task) => task.id === state.moving.id)?.column_id).toBe(destination.id);
     await expect(trigger(page, state.moving)).toBeFocused();
     evidence.push({ command: id, tasks: await tasksFor(request, state.project) });
