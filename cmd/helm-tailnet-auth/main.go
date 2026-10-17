@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -116,17 +117,20 @@ func (c LocalAPIWhoIs) WhoIs(ctx context.Context, address string) (TailnetPeer, 
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return TailnetPeer{}, errors.New("invalid tailscaled WhoIs response")
 	}
-	if payload.Node == nil || payload.UserProfile == nil || strings.TrimSpace(payload.UserProfile.LoginName) == "" {
+	if payload.Node == nil {
 		return TailnetPeer{}, errUnknownPeer
 	}
-	if len(payload.Node.Tags) > 0 {
-		return TailnetPeer{}, errTaggedPeer
+	peer := TailnetPeer{Tags: append([]string(nil), payload.Node.Tags...)}
+	// Tagged machines may have no human UserProfile. Preserve their tags for
+	// the explicit transport admission policy; never infer an owner identity.
+	if payload.UserProfile != nil {
+		peer.LoginName = payload.UserProfile.LoginName
+		peer.DisplayName = payload.UserProfile.DisplayName
 	}
-	return TailnetPeer{
-		LoginName:   payload.UserProfile.LoginName,
-		DisplayName: payload.UserProfile.DisplayName,
-		Tags:        append([]string(nil), payload.Node.Tags...),
-	}, nil
+	if len(peer.Tags) == 0 && strings.TrimSpace(peer.LoginName) == "" {
+		return TailnetPeer{}, errUnknownPeer
+	}
+	return peer, nil
 }
 
 type localWhoIsResponse struct {
@@ -150,6 +154,7 @@ type handler struct {
 	Audience   string
 	WhoIs      WhoIs
 	Now        func() time.Time
+	AgentTags  map[string]struct{}
 }
 
 // NewHandler builds a strict loopback forward-auth handler. The returned
@@ -163,6 +168,19 @@ func NewHandler(key []byte, owner, audience string, resolver WhoIs) (http.Handle
 // existing Helm human actor's configured email. They are signed together so a
 // valid Tailnet node cannot select a different local actor.
 func NewHandlerWithAdminEmail(key []byte, owner, adminEmail, audience string, resolver WhoIs) (http.Handler, error) {
+	return NewHandlerWithAgentTags(key, owner, adminEmail, audience, resolver, nil)
+}
+
+// NewHandlerWithAgentTags opts in exact tagged machines for scoped bearer API
+// requests. This is network admission only: Helm still validates every token.
+func NewHandlerWithAgentTags(key []byte, owner, adminEmail, audience string, resolver WhoIs, tags []string) (http.Handler, error) {
+	agentTags := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, "tag:") || len(tag) <= 4 || strings.ContainsAny(tag, " ,\r\n\t*\x00") {
+			return nil, errors.New("agent tag must be an exact Tailnet tag")
+		}
+		agentTags[tag] = struct{}{}
+	}
 	if _, err := auth.NewTailnetJWTVerifier(key); err != nil {
 		return nil, err
 	}
@@ -180,7 +198,7 @@ func NewHandlerWithAdminEmail(key []byte, owner, adminEmail, audience string, re
 	if resolver == nil {
 		return nil, errors.New("tailnet WhoIs resolver is required")
 	}
-	return &handler{Signer: append([]byte(nil), key...), Owner: owner, AdminEmail: adminEmail, Audience: audience, WhoIs: resolver, Now: time.Now}, nil
+	return &handler{Signer: append([]byte(nil), key...), Owner: owner, AdminEmail: adminEmail, Audience: audience, WhoIs: resolver, Now: time.Now, AgentTags: agentTags}, nil
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +249,19 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(peer.Tags) > 0 {
-		writeHelperError(w, http.StatusUnauthorized, "tailnet identity could not be verified")
+		allowed := false
+		for _, tag := range peer.Tags {
+			if _, ok := h.AgentTags[tag]; ok {
+				allowed = true
+			}
+		}
+		if !allowed || !agentAPIRequest(r, requestURI) {
+			writeHelperError(w, http.StatusUnauthorized, "tailnet agent admission denied")
+			return
+		}
+		// Deliberately do not sign an assertion or mint a human session.
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if peer.LoginName != h.Owner {
@@ -261,6 +291,26 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(auth.TailnetAssertionHeader, assertion)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
+}
+
+func agentAPIRequest(r *http.Request, requestURI string) bool {
+	value, ok := singleHeader(r, "Authorization")
+	if !ok {
+		return false
+	}
+	parts := strings.Fields(value)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.ContainsAny(parts[1], ",\r\n\t") {
+		return false
+	}
+	parsed, err := url.ParseRequestURI(requestURI)
+	if err != nil || parsed.RawPath != "" || strings.Contains(parsed.Path, "%") || path.Clean(parsed.Path) != parsed.Path {
+		return false
+	}
+	if parsed.Path == "/api/v1/auth/me" {
+		method, ok := singleHeader(r, forwardedMethodHeader)
+		return ok && method == http.MethodGet
+	}
+	return strings.HasPrefix(parsed.Path, "/api/v1/") && parsed.Path != "/api/v1/auth" && !strings.HasPrefix(parsed.Path, "/api/v1/auth/")
 }
 
 func singleHeader(r *http.Request, name string) (string, bool) {
@@ -362,6 +412,7 @@ type helperOptions struct {
 	Owner      string
 	AdminEmail string
 	Audience   string
+	AgentTags  string
 }
 
 func parseOptions(args []string) (helperOptions, error) {
@@ -398,7 +449,11 @@ func parseOptions(args []string) (helperOptions, error) {
 			return helperOptions{}, err
 		}
 	}
-	defaults := helperOptions{Addr: addr, Socket: socket, KeyFile: keyFile, Owner: owner, AdminEmail: adminEmail, Audience: audience}
+	agentTags, err := envValue("", "HELM_TAILNET_AGENT_TAGS")
+	if err != nil {
+		return helperOptions{}, err
+	}
+	defaults := helperOptions{Addr: addr, Socket: socket, KeyFile: keyFile, Owner: owner, AdminEmail: adminEmail, Audience: audience, AgentTags: agentTags}
 	flags := flag.NewFlagSet("helm-tailnet-auth", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&defaults.Addr, "addr", defaults.Addr, "loopback listen address")
@@ -407,6 +462,7 @@ func parseOptions(args []string) (helperOptions, error) {
 	flags.StringVar(&defaults.Owner, "owner-login", defaults.Owner, "exact Tailnet owner login")
 	flags.StringVar(&defaults.AdminEmail, "admin-email", defaults.AdminEmail, "existing Helm administrator email")
 	flags.StringVar(&defaults.Audience, "audience", defaults.Audience, "exact private HTTPS origin")
+	flags.StringVar(&defaults.AgentTags, "agent-tags", defaults.AgentTags, "comma-separated exact Tailnet machine tags; disabled by default")
 	if err := flags.Parse(args); err != nil {
 		return helperOptions{}, err
 	}
@@ -457,7 +513,11 @@ func run(args []string) error {
 		return err
 	}
 	resolver := LocalAPIWhoIs{Socket: options.Socket, Timeout: whoIsTimeout}
-	handler, err := NewHandlerWithAdminEmail(key, options.Owner, options.AdminEmail, options.Audience, resolver)
+	var agentTags []string
+	if options.AgentTags != "" {
+		agentTags = strings.Split(options.AgentTags, ",")
+	}
+	handler, err := NewHandlerWithAgentTags(key, options.Owner, options.AdminEmail, options.Audience, resolver, agentTags)
 	if err != nil {
 		return err
 	}

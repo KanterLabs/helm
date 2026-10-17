@@ -22,13 +22,21 @@ OWNER_ENV_FILE=$(resolve_compat_var HELM_OWNER_ENV_FILE ROADMAP_OWNER_ENV_FILE "
 DEPLOY_ENVIRONMENT=${HELM_DEPLOY_ENVIRONMENT:-production}
 PRIVATE_TAILNET_ALLOWED_PEER=10.0.0.101
 case "$DEPLOY_ENVIRONMENT" in
-	production) PRIVATE_TAILNET_BETA=0 ;;
-	beta) PRIVATE_TAILNET_BETA=1 ;;
+	production) PRIVATE_TAILNET_BETA=0; PRIVATE_TAILNET_PROFILE=0 ;;
+	production-private) PRIVATE_TAILNET_BETA=0; PRIVATE_TAILNET_PROFILE=1 ;;
+	beta) PRIVATE_TAILNET_BETA=1; PRIVATE_TAILNET_PROFILE=1 ;;
 	*)
-		printf 'HELM_DEPLOY_ENVIRONMENT must be production or beta\n' >&2
+		printf 'HELM_DEPLOY_ENVIRONMENT must be production, production-private or beta\n' >&2
 		exit 1
 		;;
 esac
+
+PRIVATE_ORIGIN=https://beta-helm.home.shanekanterman.dev
+PRIVATE_TLS_ADDR=10.0.0.39:8443
+if [[ "$DEPLOY_ENVIRONMENT" = production-private ]]; then
+	PRIVATE_ORIGIN=https://helm.home.shanekanterman.dev
+	PRIVATE_TLS_ADDR=10.0.0.38:8443
+fi
 
 # A release ref is signed into beta bundles and later displayed/consumed by
 # the beta switch controller.  Keep it a canonical branch ref so it can never
@@ -227,6 +235,10 @@ if (( PRIVATE_TAILNET_BETA == 1 )); then
 else
 	PAYLOAD_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_PAYLOAD_MEMBERS[@]}")
 	BUNDLE_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_BUNDLE_MEMBERS[@]}")
+	if (( PRIVATE_TAILNET_PROFILE == 1 )); then
+		PAYLOAD_MEMBERS+=(validate-beta-private.sh)
+		BUNDLE_MEMBERS+=(validate-beta-private.sh)
+	fi
 fi
 
 if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -348,6 +360,18 @@ valid_ipv4() {
 
 validate_private_owner_env() {
 	local key value
+	if [[ "$DEPLOY_ENVIRONMENT" = production-private ]]; then
+		for key in HELM ROADMAP; do
+			[[ "$(single_owner_value "${key}_ADDR")" = 127.0.0.1:8080 &&
+				"$(single_owner_value "${key}_DB")" = /var/lib/roadmap/data/roadmap.db &&
+				"$(single_owner_value "${key}_SECURE_COOKIES")" = true &&
+				"$(single_owner_value "${key}_DEMO_SEED")" = false &&
+				"$(single_owner_value "${key}_BETA_SWITCH_ENABLED")" = false &&
+				"$(single_owner_value "${key}_LEGACY_ORIGIN")" = https://tc.shanekanterman.dev ]] || {
+				printf 'production private runtime invariants are invalid\n' >&2; exit 1;
+			}
+		done
+	fi
 	local -a peers
 	for key in \
 		HELM_AUTH_MODE ROADMAP_AUTH_MODE \
@@ -361,69 +385,76 @@ validate_private_owner_env() {
 		HELM_ADMIN_EMAIL ROADMAP_ADMIN_EMAIL \
 		HELM_TAILNET_OWNER_LOGIN ROADMAP_TAILNET_OWNER_LOGIN; do
 		value=$(single_owner_value "$key") || {
-			printf 'private beta owner environment is missing or duplicates %s\n' "$key" >&2
+			printf 'private owner environment is missing or duplicates %s\n' "$key" >&2
 			exit 1
 		}
 		[[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || {
-			printf 'private beta owner environment contains a control character\n' >&2
+			printf 'private owner environment contains a control character\n' >&2
 			exit 1
 		}
 	done
+	for key in ADMIN_EMAIL TAILNET_OWNER_LOGIN; do
+		value=$(single_owner_value "HELM_$key")
+		[[ -n "$value" && "$value" = "$(single_owner_value "ROADMAP_$key")" && "$value" != REPLACE_WITH_EXISTING_ADMIN_EMAIL ]] || {
+			printf 'private owner identity aliases must match an explicitly provisioned identity\n' >&2; exit 1;
+		}
+	done
 	[[ "$(single_owner_value HELM_AUTH_MODE)" = tailnet && "$(single_owner_value ROADMAP_AUTH_MODE)" = tailnet ]] || {
-		printf 'private beta owner environment must select tailnet authentication\n' >&2
+		printf 'private owner environment must select tailnet authentication\n' >&2
 		exit 1
 	}
 	for key in HELM_PUBLIC_ORIGIN ROADMAP_PUBLIC_ORIGIN HELM_TAILNET_AUDIENCE ROADMAP_TAILNET_AUDIENCE; do
-		[[ "$(single_owner_value "$key")" = https://beta-helm.home.shanekanterman.dev ]] || {
-			printf 'private beta owner environment has an unexpected private origin\n' >&2
+		[[ "$(single_owner_value "$key")" = "$PRIVATE_ORIGIN" ]] || {
+			printf 'private owner environment has an unexpected private origin\n' >&2
 			exit 1
 		}
 	done
 	[[ "$(single_owner_value HELM_TAILNET_ASSERTION_KEY_FILE)" = /etc/roadmap/tailnet.key ]] || {
-		printf 'private beta owner environment has an unexpected assertion-key path\n' >&2
+		printf 'private owner environment has an unexpected assertion-key path\n' >&2
 		exit 1
 	}
 	[[ "$(single_owner_value ROADMAP_TAILNET_ASSERTION_KEY_FILE)" = /etc/roadmap/tailnet.key ]] || {
-		printf 'private beta owner environment has an unexpected assertion-key path\n' >&2
+		printf 'private owner environment has an unexpected assertion-key path\n' >&2
 		exit 1
 	}
-	[[ "$(single_owner_value HELM_TAILNET_TLS_ADDR)" = 10.0.0.39:8443 && "$(single_owner_value ROADMAP_TAILNET_TLS_ADDR)" = 10.0.0.39:8443 ]] || {
-		printf 'private beta owner environment has an unexpected Tailnet listener address\n' >&2
+	[[ "$(single_owner_value HELM_TAILNET_TLS_ADDR)" = "$PRIVATE_TLS_ADDR" && "$(single_owner_value ROADMAP_TAILNET_TLS_ADDR)" = "$PRIVATE_TLS_ADDR" ]] || {
+		printf 'private owner environment has an unexpected Tailnet listener address\n' >&2
 		exit 1
 	}
 	[[ "$(single_owner_value HELM_TAILNET_TLS_CERT_FILE)" = /etc/roadmap/tailnet-origin.crt && "$(single_owner_value ROADMAP_TAILNET_TLS_CERT_FILE)" = /etc/roadmap/tailnet-origin.crt ]] || {
-		printf 'private beta owner environment has an unexpected Tailnet certificate path\n' >&2
+		printf 'private owner environment has an unexpected Tailnet certificate path\n' >&2
 		exit 1
 	}
 	[[ "$(single_owner_value HELM_TAILNET_TLS_KEY_FILE)" = /etc/roadmap/tailnet-origin.key && "$(single_owner_value ROADMAP_TAILNET_TLS_KEY_FILE)" = /etc/roadmap/tailnet-origin.key ]] || {
-		printf 'private beta owner environment has an unexpected Tailnet key path\n' >&2
+		printf 'private owner environment has an unexpected Tailnet key path\n' >&2
 		exit 1
 	}
 	peers=$(single_owner_value HELM_TAILNET_ALLOWED_PEER_IPS)
 	[[ "$peers" = "$(single_owner_value ROADMAP_TAILNET_ALLOWED_PEER_IPS)" ]] || {
-		printf 'private beta owner environment has conflicting Tailnet peer lists\n' >&2
+		printf 'private owner environment has conflicting Tailnet peer lists\n' >&2
 		exit 1
 	}
 	[[ "$peers" = "$PRIVATE_TAILNET_ALLOWED_PEER" ]] || {
-		printf 'private beta owner environment must allow only the homelab-edge LAN origin peer\n' >&2
+		printf 'private owner environment must allow only the homelab-edge LAN origin peer\n' >&2
 		exit 1
 	}
 	IFS=, read -r -a peers <<<"$peers"
 	[[ ${#peers[@]} -gt 0 ]] || {
-		printf 'private beta owner environment must allow at least one Tailnet peer\n' >&2
+		printf 'private owner environment must allow at least one Tailnet peer\n' >&2
 		exit 1
 	}
 	for value in "${peers[@]}"; do
 		valid_ipv4 "$value" || {
-			printf 'private beta owner environment contains an invalid Tailnet peer address\n' >&2
+			printf 'private owner environment contains an invalid Tailnet peer address\n' >&2
 			exit 1
 		}
 	done
 }
 
-if (( PRIVATE_TAILNET_BETA == 1 )); then
+if (( PRIVATE_TAILNET_PROFILE == 1 )); then
 	validate_private_owner_env
-else
+fi
+if (( PRIVATE_TAILNET_BETA == 0 )); then
 	safe_file "$CLOUDFLARED_TOKEN_FILE" cloudflared-token
 	chmod 0600 "$CLOUDFLARED_TOKEN_FILE"
 fi
@@ -449,7 +480,7 @@ if (( PRIVATE_TAILNET_BETA == 0 )); then
 fi
 install -m 0640 "$OWNER_ENV_FILE" "$BUNDLE_DIR/roadmap.env"
 install -m 0755 "$ROOT_DIR/deploy/install-inside-lxc.sh" "$BUNDLE_DIR/install-inside-lxc.sh"
-if (( PRIVATE_TAILNET_BETA == 1 )); then
+if (( PRIVATE_TAILNET_PROFILE == 1 )); then
 	install -m 0755 "$ROOT_DIR/deploy/validate-beta-private.sh" "$BUNDLE_DIR/validate-beta-private.sh"
 fi
 install -m 0755 "$ROOT_DIR/deploy/helm-backup.sh" "$BUNDLE_DIR/roadmap-backup.sh"

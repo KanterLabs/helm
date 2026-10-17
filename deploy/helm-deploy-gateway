@@ -45,6 +45,29 @@ if [[ "$GATEWAY_BASENAME" = helm-beta-deploy-gateway ]]; then
 	VERIFY_SCRIPT=/usr/local/sbin/helm-beta-verify-release
 	CT_TAGS='beta;service;lan'
 fi
+# Root-provisioned site metadata cannot change target identity or signing trust.
+TARGET_CONFIG=${SIGNING_PUBLIC_KEY%/*}/target.env
+if [[ -e "$TARGET_CONFIG" || -L "$TARGET_CONFIG" ]]; then
+    [[ -f "$TARGET_CONFIG" && ! -L "$TARGET_CONFIG" &&
+        "$(stat -c '%U:%G:%a' -- "$TARGET_CONFIG")" = root:root:600 ]] || {
+        printf 'invalid root-owned deployment target profile\n' >&2; exit 1;
+    }
+    target_memory_seen=0; target_storage_seen=0
+    while IFS= read -r target_line || [[ -n "$target_line" ]]; do
+        [[ -z "$target_line" || "$target_line" = \#* ]] && continue
+        target_key=${target_line%%=*}; target_value=${target_line#*=}
+        case "$target_key" in
+            CT_MEMORY_MB)
+                [[ $target_memory_seen -eq 0 && "$target_value" =~ ^[1-9][0-9]{2,4}$ ]] || { printf 'invalid target memory\n' >&2; exit 1; }
+                target_memory_seen=1; CT_MEMORY_MB=$target_value ;;
+            CT_ROOTFS_STORAGE)
+                [[ $target_storage_seen -eq 0 && "$target_value" =~ ^[A-Za-z][A-Za-z0-9_-]{0,63}$ ]] || { printf 'invalid target storage\n' >&2; exit 1; }
+                target_storage_seen=1; CT_ROOTFS_STORAGE=$target_value ;;
+            *) printf 'unapproved target profile setting\n' >&2; exit 1 ;;
+        esac
+    done < "$TARGET_CONFIG"
+fi
+
 CT_CONFIG_ERROR=''
 
 log() { printf '[helm-gateway] %s\n' "$*" >&2; }
@@ -409,7 +432,7 @@ case "$ACTION" in
 	status)
 		[[ ${#args[@]} -eq 1 ]] || fail 'status takes no arguments' ;;
 	private-ready)
-		[[ "$PROFILE" = beta && ${#args[@]} -eq 1 ]] || fail 'private-ready is available only for beta' ;;
+		[[ ${#args[@]} -eq 1 ]] || fail 'private-ready takes no arguments' ;;
 	*) fail "unsupported command: $ACTION" ;;
 esac
 
@@ -435,7 +458,11 @@ if [[ "$ACTION" = private-ready ]]; then
 		sleep 1
 	done
 	pct exec "$CTID" -- true || fail 'Roadmap CT did not become ready'
-	pct exec "$CTID" -- /usr/local/sbin/helm-beta-private-ready
+	if [[ "$PROFILE" = beta ]]; then
+		pct exec "$CTID" -- /usr/local/sbin/helm-beta-private-ready
+	else
+		pct exec "$CTID" -- /usr/local/sbin/helm-private-ready --profile production-private
+	fi
 	printf 'private_ready=ok\n'
 	exit 0
 fi

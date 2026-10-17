@@ -23,8 +23,8 @@ DEFAULT_CONFIG="$ROOT_DIR/.helm-deploy.env"
 if [[ "$DEPLOY_ENVIRONMENT" = beta ]]; then
 	DEPLOY_PROFILE=beta
 	DEFAULT_CONFIG="$ROOT_DIR/.helm-beta-deploy.env"
-elif [[ "$DEPLOY_ENVIRONMENT" != production ]]; then
-	printf 'HELM_DEPLOY_ENVIRONMENT must be production or beta\n' >&2
+elif [[ "$DEPLOY_ENVIRONMENT" != production && "$DEPLOY_ENVIRONMENT" != production-private ]]; then
+	printf 'HELM_DEPLOY_ENVIRONMENT must be production, production-private or beta\n' >&2
 	exit 1
 fi
 
@@ -93,8 +93,8 @@ case "$ACTION" in
 	status)
 		[[ -z "$SHA" && $# -eq 0 ]] || { printf 'usage: %s status\n' "$0" >&2; exit 64; } ;;
 	private-ready)
-		[[ -z "$SHA" && $# -eq 0 && "$DEPLOY_PROFILE" = beta ]] || {
-			printf 'private-ready is available only for beta and takes no arguments\n' >&2
+		[[ -z "$SHA" && $# -eq 0 && ( "$DEPLOY_PROFILE" = beta || "$DEPLOY_ENVIRONMENT" = production-private ) ]] || {
+			printf 'private-ready requires beta or production-private and takes no arguments\n' >&2
 			exit 64
 		} ;;
 	*) printf 'usage: %s [deploy|rollback] <40-character git sha> | status | private-ready\n' "$0" >&2; exit 64 ;;

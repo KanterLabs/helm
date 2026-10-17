@@ -233,6 +233,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.logRequest(requestID, r.Method, r.URL.Path, responseStatus(w), time.Since(started), identity, hasIdentity)
 	}()
+	if s.serveLegacyOrigin(w, r) {
+		return
+	}
 	// A disabled beta switcher is intentionally indistinguishable from an
 	// unknown route, including before authentication. This avoids turning the
 	// feature flag into an oracle and guarantees the broker is never called.

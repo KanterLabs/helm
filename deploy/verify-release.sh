@@ -63,6 +63,8 @@ COMMON_BUNDLE_MEMBERS=(
 )
 VERIFIER_BASENAME=${BASH_SOURCE[0]##*/}
 BETA_PROFILE=0
+PRODUCTION_PROFILE=0
+PRODUCTION_PRIVATE_PROFILE=0
 declare -a BETA_LEGACY_PAYLOAD_MEMBERS BETA_LEGACY_ALL_MEMBERS
 BETA_LEGACY_PAYLOAD_MEMBERS=("${COMMON_PAYLOAD_MEMBERS[@]}" validate-beta-private.sh)
 BETA_LEGACY_ALL_MEMBERS=("${COMMON_BUNDLE_MEMBERS[@]}" validate-beta-private.sh)
@@ -119,10 +121,15 @@ case "$VERIFIER_BASENAME" in
 		ALL_MEMBERS=("${BETA_SWITCH_ALL_MEMBERS[@]}")
 		;;
 	*)
+		PRODUCTION_PROFILE=1
 		PAYLOAD_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_PAYLOAD_MEMBERS[@]}")
 		ALL_MEMBERS=(cloudflared cloudflared.service cloudflared.token "${COMMON_BUNDLE_MEMBERS[@]}")
 		;;
 esac
+PRODUCTION_PUBLIC_PAYLOAD_MEMBERS=("${PAYLOAD_MEMBERS[@]}")
+PRODUCTION_PUBLIC_ALL_MEMBERS=("${ALL_MEMBERS[@]}")
+PRODUCTION_PRIVATE_PAYLOAD_MEMBERS=("${PAYLOAD_MEMBERS[@]}" validate-beta-private.sh)
+PRODUCTION_PRIVATE_ALL_MEMBERS=("${ALL_MEMBERS[@]}" validate-beta-private.sh)
 ARCHIVE_MAX_MEMBERS=${#ALL_MEMBERS[@]}
 BETA_SWITCH_PROFILE=0
 if (( BETA_PROFILE == 1 )); then
@@ -133,8 +140,9 @@ if (( BETA_PROFILE == 1 )); then
 	# narrows the trust boundary before any payload is extracted.
 	ALL_MEMBERS=("${BETA_LEGACY_ALL_MEMBERS[@]}" "${BETA_SWITCH_ALL_MEMBERS[@]}")
 else
-	ARCHIVE_MIN_MEMBERS=${#ALL_MEMBERS[@]}
-	ARCHIVE_MAX_MEMBERS=${#ALL_MEMBERS[@]}
+	ARCHIVE_MIN_MEMBERS=${#PRODUCTION_PUBLIC_ALL_MEMBERS[@]}
+	ARCHIVE_MAX_MEMBERS=${#PRODUCTION_PRIVATE_ALL_MEMBERS[@]}
+	ALL_MEMBERS=("${PRODUCTION_PRIVATE_ALL_MEMBERS[@]}")
 fi
 
 member_is_allowed() {
@@ -348,6 +356,19 @@ if (( BETA_PROFILE == 1 )); then
 	fi
 fi
 
+if (( PRODUCTION_PROFILE == 1 )); then
+	if member_set_matches PRODUCTION_PRIVATE_ALL_MEMBERS; then
+		PRODUCTION_PRIVATE_PROFILE=1
+		PAYLOAD_MEMBERS=("${PRODUCTION_PRIVATE_PAYLOAD_MEMBERS[@]}")
+		ALL_MEMBERS=("${PRODUCTION_PRIVATE_ALL_MEMBERS[@]}")
+	elif member_set_matches PRODUCTION_PUBLIC_ALL_MEMBERS; then
+		PAYLOAD_MEMBERS=("${PRODUCTION_PUBLIC_PAYLOAD_MEMBERS[@]}")
+		ALL_MEMBERS=("${PRODUCTION_PUBLIC_ALL_MEMBERS[@]}")
+	else
+		fail 'production release archive does not match a canonical public or private member set'
+	fi
+fi
+
 declare -A seen_members=()
 for member in "${tar_members[@]}"; do
 	member_key=
@@ -439,6 +460,21 @@ while IFS=$'\t' read -r name size digest extra; do
 done < <(tail -n +2 "$work/release.manifest")
 [[ "$payload_count" -eq "${#PAYLOAD_MEMBERS[@]}" ]] \
 	|| fail 'release manifest does not enumerate every payload member'
+
+# The root-owned verifier basename fixes the target environment. Only inspect
+# configuration after its signature and payload hash have passed.
+bounded_tar -xOf "$ARCHIVE" roadmap.env > "$work/roadmap.env" || fail 'release environment cannot be read'
+verified_auth_mode=$(awk -F= '$1 == "HELM_AUTH_MODE" { count++; value = substr($0, index($0, "=") + 1) } END { if (count > 1) exit 1; print value }' "$work/roadmap.env") || fail 'release authentication mode is duplicated'
+if [[ "$verified_auth_mode" = tailnet ]]; then
+	verified_origin=$(awk -F= '$1 == "HELM_PUBLIC_ORIGIN" { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$work/roadmap.env") || fail 'release private origin is invalid'
+	if (( PRODUCTION_PROFILE == 1 )); then
+		[[ "$verified_origin" = https://helm.home.shanekanterman.dev && "$PRODUCTION_PRIVATE_PROFILE" = 1 ]] || fail 'production verifier rejects a non-production private profile'
+	else
+		[[ "$verified_origin" = https://beta-helm.home.shanekanterman.dev ]] || fail 'beta verifier rejects a non-beta private profile'
+	fi
+elif (( PRODUCTION_PRIVATE_PROFILE == 1 )); then
+	fail 'production private envelope requires tailnet authentication'
+fi
 
 if (( BETA_SWITCH_PROFILE == 1 )); then
 	bounded_tar -xOf "$ARCHIVE" release.ref > "$work/release.ref" \

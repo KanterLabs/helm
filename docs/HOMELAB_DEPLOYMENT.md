@@ -5,14 +5,13 @@ required for running Helm yourself; see the README quick start.
 
 ## Beta and production deployment
 
-The intended homelab path is:
+The production private profile uses:
 
 ```text
-Cloudflare Access
-  → tc.shanekanterman.dev (UI and /api/v1/* applications)
-  → roadmap-homelab Tunnel (retained infrastructure identity)
-  → cloudflared in the Debian 12 `roadmap` LXC (retained guest identity)
-  → helm.service on 127.0.0.1:8080
+Tailnet owner/agent authorization at homelab-edge
+  → helm.home.shanekanterman.dev
+  → verified private origin TLS at 10.0.0.38:8443 (CT 103)
+  → helm.service (app also binds 127.0.0.1:8080)
   → /var/lib/roadmap/data/roadmap.db
 ```
 
@@ -28,7 +27,7 @@ beta branch
 
 explicit pull request or merge to main
   → production GitHub environment and ROADMAP_* secrets
-  → tc.shanekanterman.dev and the production `roadmap` LXC (CT 103)
+  → helm.home.shanekanterman.dev and the production `roadmap` LXC (CT 103)
 ```
 
 The guests do not share databases, backups, releases, tunnel tokens, deploy
@@ -43,8 +42,13 @@ compatibility identifiers. See
 [`docs/HELM_LEGACY_IDENTIFIERS.md`](HELM_LEGACY_IDENTIFIERS.md) for the
 reviewed allowlist.
 
-The production guest has no inbound application or SSH port; the application
-and connector communicate over loopback. The beta private profile permits only
+The production private listener admits only the approved homelab-edge LAN
+source (`10.0.0.101`); no app port 8080 or SSH port is exposed. The legacy
+`roadmap-homelab` tunnel and `cloudflared.service` remain for direct,
+Cloudflare-protected scoped bearer API compatibility at `tc.shanekanterman.dev`.
+The exact legacy-origin middleware redirects browser GET/HEAD requests to the
+new origin and rejects legacy browser writes. It never authenticates a browser
+through legacy Cloudflare identity. The beta private profile permits only
 the approved homelab-edge LAN source (`10.0.0.101`) to its TLS listener, masks
 `cloudflared.service`, and never performs public Cloudflare reconciliation. The
 guest does not require a Tailscale interface for this LAN ingress. Releases use
@@ -60,7 +64,9 @@ test. A successful `beta` push automatically deploys to the active private
 Tailnet target and validates its private readiness; public Cloudflare beta
 provisioning remains disabled. The selected target is
 `beta-helm.home.shanekanterman.dev`, while a `main` push may deploy only through the
-`production` environment and validate <https://tc.shanekanterman.dev>. Normal
+`production` environment. Its private bundle uses
+`HELM_DEPLOY_ENVIRONMENT=production-private`, the exact production owner
+profile, and private readiness plus real edge authorization checks. Normal
 production deployment requires the GitHub Actions
 secrets `ROADMAP_CLOUDFLARE_API_TOKEN`, `ROADMAP_DEPLOY_SSH_KEY`,
 `ROADMAP_DEPLOY_KNOWN_HOSTS`, `ROADMAP_RELEASE_SIGNING_KEY`,
@@ -68,7 +74,7 @@ secrets `ROADMAP_CLOUDFLARE_API_TOKEN`, `ROADMAP_DEPLOY_SSH_KEY`,
 values stay in GitHub or the approved operator secret store and are never
 placed in this README or the repository. Create the Cloudflare service token
 and save its one-time secret with the manual `cloudflare.sh prepare` procedure
-before enabling CI; CI refuses to create a token whose secret would remain
+before enabling legacy compatibility reconciliation; refuse to create a token whose secret would remain
 only on an ephemeral runner.
 
 Beta uses corresponding `BETA_*` environment secrets, including
