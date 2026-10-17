@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type APIResponse, type TestInfo } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse, type Page, type TestInfo } from '@playwright/test';
 
 type Project = { id: string; key: string; slug: string };
 type Column = { id: string; semantic_state: string };
@@ -22,6 +22,16 @@ async function createTask(request: APIRequestContext, project: Project, columnID
   }), `create ${title}`);
 }
 
+async function openBoardActions(page: Page) {
+  const trigger = page.locator('[data-board-actions-trigger]');
+  if (!await trigger.evaluate((element) => Boolean(element.closest('details')?.open))) await trigger.click();
+}
+
+async function closeBoardActions(page: Page) {
+  const trigger = page.locator('[data-board-actions-trigger]');
+  if (await trigger.evaluate((element) => Boolean(element.closest('details')?.open))) await trigger.click();
+}
+
 test('selects loaded tasks, preserves filtered selections, and reviews bulk results', async ({ page, request }) => {
   test.setTimeout(90_000);
   const runID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
@@ -43,7 +53,9 @@ test('selects loaded tasks, preserves filtered selections, and reviews bulk resu
   const selectLoaded = page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true });
   const firstCard = board.locator('.task-card').filter({ hasText: first.title });
   const secondCard = board.locator('.task-card').filter({ hasText: second.title });
+  await openBoardActions(page);
   await expect(selectLoaded).toBeVisible();
+  await closeBoardActions(page);
   await expect(firstCard).toBeVisible();
   await expect(secondCard).toBeVisible();
 
@@ -62,7 +74,9 @@ test('selects loaded tasks, preserves filtered selections, and reviews bulk resu
   await filteredTasksResponse;
   await expect(firstCard).toBeVisible();
   await expect(secondCard).toHaveCount(0);
+  await openBoardActions(page);
   await selectLoaded.click();
+  await closeBoardActions(page);
   await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
 
   const unfilteredTasksResponse = page.waitForResponse(
@@ -102,7 +116,9 @@ test('selects loaded tasks, preserves filtered selections, and reviews bulk resu
   expect(secondAfter.priority).toBe('urgent');
 
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await openBoardActions(page);
   await page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true }).click();
+  await closeBoardActions(page);
   await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
   await expect(page.locator('.bulk-selection-count')).toHaveCount(0);
@@ -216,7 +232,9 @@ test('reviews every selected task while a filtered board page is reloading', asy
 
   const search = page.getByRole('textbox', { name: 'Search tasks' });
   const selectLoaded = page.getByRole('button', { name: 'Select all loaded filtered tasks', exact: true });
+  await openBoardActions(page);
   await expect(selectLoaded).toBeVisible();
+  await closeBoardActions(page);
 
   let releaseFilteredMetadataGate!: () => void;
   const filteredMetadataGate = new Promise<void>((resolve) => { releaseFilteredMetadataGate = resolve; });
@@ -262,6 +280,7 @@ test('reviews every selected task while a filtered board page is reloading', asy
     await filteredMetadataRequest;
     await expect(firstCard).toBeVisible();
     await expect(secondCard).toHaveCount(0);
+    await openBoardActions(page);
     await expect(selectLoaded).toBeDisabled();
     selectDisabledDuringMetadata = true;
 
@@ -272,7 +291,9 @@ test('reviews every selected task while a filtered board page is reloading', asy
     await expect(firstCard).toBeVisible();
     await expect(secondCard).toHaveCount(0);
     await expect(selectLoaded).toBeEnabled();
+    await openBoardActions(page);
     await selectLoaded.click();
+    await closeBoardActions(page);
   } finally {
     releaseFilteredMetadata();
     if (filteredMetadataIntercepted) await filteredMetadataFinished;

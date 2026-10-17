@@ -12,6 +12,8 @@
   export let actorNames: Record<string, string> = {};
   export let onOpenTask: (task: Task) => void | Promise<void> = () => undefined;
   export let onChanged: () => void = () => undefined;
+  /** Unsaved ticket text/options exposed to the host's update guard. */
+  export let dirty = false;
 
   const queues: { value: TicketQueue; label: string }[] = [
     { value: 'open', label: 'All open' },
@@ -78,6 +80,10 @@
   let detailHeading: HTMLElement | null = null;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
+
+  $: dirty = Boolean(noteDraft
+    || (waitOpen && waitReason)
+    || (creating && (createTitle || createDescription || createPriority !== 'normal' || !createAssignMe)));
 
   // The ticket queue (docs/TICKET_QUEUE_PLAN.md): every new ticket lands
   // there; triage files it into a project when it belongs to one.
@@ -459,6 +465,7 @@
   });
 
   onDestroy(() => {
+    dirty = false;
     clearTimeout(searchTimer);
     clearInterval(refreshTimer);
     if (typeof window !== 'undefined') window.removeEventListener('popstate', handlePopState);

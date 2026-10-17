@@ -97,10 +97,11 @@ test.describe('Helm workspace', () => {
 
     // Move with the accessible next-column action, then verify the card's
     // rendered column changed after the API mutation completed.
-    const moveNext = createdCard.getByRole('button', {
-      name: `Move ${taskKey} to next column`
+    await createdCard.locator('[data-card-actions]').click();
+    const moveNext = page.getByRole('menuitem', {
+      name: `Move ${taskKey} to next column`, exact: true
     });
-    await expect(moveNext).toBeEnabled();
+    await expect(moveNext).toHaveAttribute('aria-disabled', 'false');
     await moveNext.click();
     await expect(readyColumn.locator('.task-card').filter({ hasText: taskTitle })).toBeVisible();
     await expect(backlogColumn.locator('.task-card').filter({ hasText: taskTitle })).toHaveCount(0);

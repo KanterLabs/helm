@@ -7,6 +7,10 @@ import {
   type Response as BrowserResponse
 } from '@playwright/test';
 
+// Browser fault injection must bypass SW interception; real SW coverage has its own suite.
+test.use({ serviceWorkers: 'block' });
+
+
 type Project = { id: string; key: string; name: string; slug: string };
 type Column = { id: string; name: string; semantic_state: string; position: number; ordering_version?: number };
 type Task = { id: string; key: string; title: string; column_id: string; version: number; position: number };
@@ -101,13 +105,31 @@ test('preserves precise filtered order with keyboard announcements and mobile co
 
   const moverCard = () => readyColumn.locator('.task-card').filter({ hasText: moving.title });
   const omegaCard = () => readyColumn.locator('.task-card').filter({ hasText: omega.title });
+  const waitForBoardPages = (query: string) => Promise.all(columns.map(async (column) => {
+    const response = await page.waitForResponse((candidate) => {
+      const url = new URL(candidate.url());
+      return candidate.request().method() === 'GET'
+        && url.pathname === `/api/v1/projects/${project.id}/tasks`
+        && url.searchParams.get('column') === column.id
+        && (url.searchParams.get('q') || '') === query;
+    }, { timeout: 30_000 });
+    await response.finished();
+    expect(response.ok(), `Board page for ${column.name} must load successfully`).toBeTruthy();
+  }));
+  // Local filtering updates the card list before the debounced request. Wait
+  // for real pages so a subsequent full reload cannot destroy the open menu.
+  const filteredPages = waitForBoardPages('Visible');
   await page.getByLabel('Search tasks').fill('Visible');
+  await filteredPages;
+  await expect(page.locator('.board-loading-note')).toBeHidden();
   await expect.poll(() => visibleKeys(readyColumn)).toEqual([moving.key, alpha.key, omega.key]);
-  const enabledNextMoveButton = readyColumn.getByRole('button', {
+  await moverCard().locator('[data-card-actions]').click();
+  const enabledNextMoveButton = page.getByRole('menuitem', {
     name: `Move ${moving.key} to next position`,
     exact: true
   });
-  await expect(enabledNextMoveButton).toBeEnabled({ timeout: 30_000 });
+  await expect(enabledNextMoveButton).toHaveAttribute('aria-disabled', 'false', { timeout: 30_000 });
+  await page.keyboard.press('Escape');
 
   // Hold the next metadata response so the loaded cards remain rendered while
   // a manual full refresh is active. The ordering gate must disable immediately
@@ -125,16 +147,27 @@ test('preserves precise filtered order with keyboard announcements and mobile co
     }
     await route.continue();
   });
+  const refreshedPages = waitForBoardPages('Visible');
   try {
+    const boardActions = page.locator('[data-board-actions-trigger]');
+    await boardActions.click();
     await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
+    if (await boardActions.evaluate((element) => Boolean(element.closest('details')?.open))) await boardActions.click();
     await expect.poll(() => metadataRefreshRequests).toBe(1);
-    const refreshingNextMoveButton = moverCard().locator('button.order-move').nth(2);
-    await expect(refreshingNextMoveButton).toBeDisabled();
-    await expect(refreshingNextMoveButton).toHaveAttribute('aria-label', /Unavailable: Precise ordering is unavailable while this board column is refreshing/);
+    await moverCard().locator('[data-card-actions]').click();
+    const refreshingNextMoveButton = page.getByRole('menu', { name: `Actions for ${moving.key}`, exact: true }).locator('[data-card-action="next"]');
+    await expect(refreshingNextMoveButton).toHaveAttribute('aria-disabled', 'true');
+    await expect(refreshingNextMoveButton).toContainText(/Precise ordering is unavailable while this board column is refreshing/);
   } finally {
     releaseMetadataRefresh();
   }
-  await expect(enabledNextMoveButton).toBeEnabled({ timeout: 30_000 });
+  await refreshedPages;
+  await expect(page.locator('.board-loading-note')).toBeHidden();
+  // A full refresh recreates column cards after accepting metadata. Open the
+  // current card's menu before checking its settled ordering availability.
+  await moverCard().locator('[data-card-actions]').click();
+  await expect(enabledNextMoveButton).toHaveAttribute('aria-disabled', 'false', { timeout: 30_000 });
+  await page.keyboard.press('Escape');
 
   // Dropping in the upper half of Omega asks the API for the visible gap
   // after Alpha/before Omega. The hidden card remains in that gap server-side.
@@ -173,7 +206,10 @@ test('preserves precise filtered order with keyboard announcements and mobile co
   expect(reordered.column_id).toBe(currentReady.id);
   await dataTransfer.dispose();
   await expect.poll(() => visibleKeys(readyColumn)).toEqual([alpha.key, moving.key, omega.key]);
+  const unfilteredPages = waitForBoardPages('');
   await page.getByLabel('Search tasks').fill('');
+  await unfilteredPages;
+  await expect(page.locator('.board-loading-note')).toBeHidden();
   await expect.poll(() => visibleKeys(readyColumn)).toEqual([alpha.key, moving.key, hidden.key, omega.key]);
 
   const liveAnnouncement = page.locator('div.sr-only[aria-live="polite"]').last();
@@ -206,8 +242,15 @@ test('preserves precise filtered order with keyboard announcements and mobile co
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
-  await expect(moverCard().getByRole('button', { name: `Move ${moving.key} to first position` })).toBeVisible();
-  await expect(moverCard().getByRole('button', { name: `Move ${moving.key} to previous position` })).toBeVisible();
-  await expect(moverCard().getByRole('button', { name: `Move ${moving.key} to next position` })).toBeVisible();
-  await expect(moverCard().getByRole('button', { name: `Move ${moving.key} to last position` })).toBeVisible();
+  await moverCard().locator('[data-card-actions]').click();
+  const movementMenu = page.getByRole('menu', { name: `Actions for ${moving.key}`, exact: true });
+  for (const placement of ['first', 'previous', 'next', 'last']) {
+    const command = movementMenu.getByRole('menuitem', { name: `Move ${moving.key} to ${placement} position`, exact: true });
+    await expect(command).toBeVisible();
+    const bounds = await command.boundingBox();
+    expect(bounds?.width).toBeGreaterThanOrEqual(44);
+    expect(bounds?.height).toBeGreaterThanOrEqual(44);
+  }
+  await page.keyboard.press('Escape');
+  await expect(moverCard().locator('[data-card-actions]')).toBeFocused();
 });

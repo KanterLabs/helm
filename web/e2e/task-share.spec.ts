@@ -69,14 +69,14 @@ test('copies stable task links and keys without changing the current route', asy
 
   const drawer = page.locator('.task-drawer');
   await expect(drawer).toBeVisible();
+  const drawerURL = page.url();
   await drawer.getByRole('button', { name: 'Copy task link', exact: true }).click();
   // The drawer has other live regions (dependency and hierarchy loading).
   await expect(drawer.getByRole('status').filter({ hasText: 'Task link copied' })).toBeVisible();
   const copied = await page.evaluate(() => (window as Window & { __taskShareCopied?: string }).__taskShareCopied);
   const origin = new URL(page.url()).origin;
   expect(copied).toBe(`${origin}/p/${encodeURIComponent(project.slug)}/tasks/${encodeURIComponent(task.key)}`);
-  expect(new URL(page.url()).search).toBe('?filter=secret');
-  expect(new URL(page.url()).hash).toBe('#not-a-task');
+  expect(page.url()).toBe(drawerURL);
 
   await page.evaluate(() => {
     (window as Window & { __taskShareClipboardMode?: string }).__taskShareClipboardMode = 'deny';

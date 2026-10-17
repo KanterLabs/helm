@@ -331,11 +331,17 @@ test('fits equal-height columns to the viewport so only board and column bodies 
         element.scrollTop = 120;
         element.dispatchEvent(new Event('scroll'));
       });
+      const boardActions = page.locator('[data-board-actions-trigger]');
+      await boardActions.click();
       await page.getByRole('button', { name: 'Refresh board', exact: true }).click();
+      if (await boardActions.evaluate((element) => Boolean(element.closest('details')?.open))) await boardActions.click();
       await expect(manyColumn.locator('.task-card')).toHaveCount(50);
       await expect.poll(() => manyColumn.locator('.column-cards').evaluate((element) => element.scrollTop)).toBe(120);
-      const priorityFilter = page.getByLabel('Filter by priority');
+      await page.locator('[data-board-filter-trigger]').click();
+      const filterPanel = page.getByRole('dialog', { name: 'Board filters', exact: true });
+      const priorityFilter = filterPanel.getByLabel('Filter by priority');
       await priorityFilter.selectOption('high');
+      await filterPanel.getByRole('button', { name: 'Show results', exact: true }).click();
       await expect.poll(() => manyColumn.locator('.column-cards').evaluate((element) => element.scrollTop)).toBe(0);
     }
   }

@@ -952,7 +952,11 @@ and bug detail text. Field filters are `key`, `title`, `description`, `label`,
 timestamps. `sort` accepts up to eight comma-separated `field:direction`
 terms (`updated_at`, `created_at`, `due_at`, `title`, `key`, `priority`,
 `state`, or `position`, with `asc` or `desc`). `view` applies a saved view
-before URL filters override matching fields. `next_cursor` is the same opaque
+before URL filters override matching fields. The optional `clear` parameter
+accepts a comma-separated list of `q`, `priority`, `state`, and `release_id`;
+these criteria are cleared before explicit overrides, without mutating the
+saved view or removing its project scope and other filters. Unsupported or
+empty criterion names return `400`. `next_cursor` is the same opaque
 offset cursor used by other collections and never counts inaccessible rows.
 When `q` is supplied, the response can also include matching visible `projects`
 and `views` for command-palette navigation.

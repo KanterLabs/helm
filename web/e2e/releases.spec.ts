@@ -202,7 +202,9 @@ test('plans, filters, completes, and reopens a dependency-aware focus', async ({
   await expect(page.getByText('Not ready', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Open filtered board' }).click();
-  await expect(page.getByLabel('Filter by focus')).toHaveValue(release!.id);
+  await page.locator('[data-board-filter-trigger]').click();
+  await expect(page.getByRole('dialog', { name: 'Board filters', exact: true }).getByLabel('Filter by focus')).toHaveValue(release!.id);
+  await page.getByRole('dialog', { name: 'Board filters', exact: true }).locator('.filter-panel-done').click();
   const board = page.locator('section.board');
   await expect(board.getByText(direct.title)).toBeVisible();
   await expect(board.getByText(prerequisite.title)).toHaveCount(0);
@@ -263,7 +265,9 @@ test('does not inherit a completed focus filter when creating tasks or bugs', as
 
   await page.goto(`/p/${project.slug}?release=${release.id}`);
   await expect(page.locator('section.board')).toBeVisible();
-  await expect(page.getByLabel('Filter by focus')).toHaveValue(release.id);
+  await page.locator('[data-board-filter-trigger]').click();
+  await expect(page.getByRole('dialog', { name: 'Board filters', exact: true }).getByLabel('Filter by focus')).toHaveValue(release.id);
+  await page.getByRole('dialog', { name: 'Board filters', exact: true }).locator('.filter-panel-done').click();
 
   const createdTitles = {
     quick: `Quick unassigned ${suffix}`,
@@ -322,13 +326,17 @@ test('clears invalid cross-project focus links before loading board pages', asyn
 
   await page.goto(`/p/${project.slug}?release=${encodeURIComponent(otherRelease.id)}`);
   await expect(page.locator('section.board')).toBeVisible();
-  await expect(page.getByLabel('Filter by focus')).toHaveValue('all');
+  await page.locator('[data-board-filter-trigger]').click();
+  await expect(page.getByRole('dialog', { name: 'Board filters', exact: true }).getByLabel('Filter by focus')).toHaveValue('all');
+  await page.getByRole('dialog', { name: 'Board filters', exact: true }).locator('.filter-panel-done').click();
   await expect(page).toHaveURL(new RegExp(`/p/${escapeRegExp(project.slug)}/?$`));
   await expect(page.locator('.content-alert.error')).toHaveCount(0);
 
   await page.goto(`/p/${project.slug}?release=missing-${suffix}`);
   await expect(page.locator('section.board')).toBeVisible();
-  await expect(page.getByLabel('Filter by focus')).toHaveValue('all');
+  await page.locator('[data-board-filter-trigger]').click();
+  await expect(page.getByRole('dialog', { name: 'Board filters', exact: true }).getByLabel('Filter by focus')).toHaveValue('all');
+  await page.getByRole('dialog', { name: 'Board filters', exact: true }).locator('.filter-panel-done').click();
   await expect(page).toHaveURL(new RegExp(`/p/${escapeRegExp(project.slug)}/?$`));
   await expect(page.locator('.content-alert.error')).toHaveCount(0);
 });

@@ -1,3 +1,6 @@
+import { writable } from 'svelte/store';
+export const pendingMutationCount = writable(0);
+
 import {
   ApiError,
   type ActivityEvent,
@@ -156,6 +159,7 @@ export interface MyWorkParams {
 }
 
 export interface SearchParams {
+  clear?: string;
   q?: string;
   key?: string;
   title?: string;
@@ -212,6 +216,16 @@ function asBody(body: unknown): BodyInit | undefined {
  * the API boundary easy to test without mounting the application.
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const mutation = !['GET', 'HEAD', 'OPTIONS'].includes((options.method || 'GET').toUpperCase());
+  if (mutation) pendingMutationCount.update((count) => count + 1);
+  try {
+    return await performRequest<T>(path, options);
+  } finally {
+    if (mutation) pendingMutationCount.update((count) => count - 1);
+  }
+}
+
+async function performRequest<T>(path: string, options: RequestOptions): Promise<T> {
   const {
     body,
     idempotencyKey,
@@ -473,8 +487,8 @@ export const api = {
   getReleaseQueue: (release: string, params: ReleaseWorkQueueParams = {}) =>
     api.getReleaseWorkQueue(release, params),
 
-  createProject: (input: { key: string; name: string; description?: string; color?: string; favorite?: boolean; checklist_completion_policy?: Project['checklist_completion_policy'] }) =>
-    request<Project>('/projects', { method: 'POST', body: input, idempotencyKey: key() }),
+  createProject: (input: { key: string; name: string; description?: string; color?: string; favorite?: boolean; checklist_completion_policy?: Project['checklist_completion_policy'] }, idempotencyKey = key()) =>
+    request<Project>('/projects', { method: 'POST', body: input, idempotencyKey }),
   getProject: (project: string) => request<Project>(`/projects/${encodeURIComponent(project)}`),
   patchProject: (project: string, input: Partial<Pick<Project, 'name' | 'description' | 'color' | 'favorite' | 'checklist_completion_policy'>> & { archived?: boolean }, version?: number) =>
     request<Project>(`/projects/${encodeURIComponent(project)}`, { method: 'PATCH', body: input, ifMatch: version, idempotencyKey: key() }),
@@ -589,12 +603,13 @@ export const api = {
       parent?: string | null;
       parent_id?: string | null;
       parent_task_id?: string | null;
-    }
+    },
+    idempotencyKey = key()
   ) =>
     request<Task>(`/projects/${encodeURIComponent(project)}/tasks`, {
       method: 'POST',
       body: input,
-      idempotencyKey: key()
+      idempotencyKey
     }),
   /** New tickets land in the ticket queue's Needs triage. */
   createTicket: (input: { title: string; description?: string; priority?: Task['priority']; assignee?: string | null }) =>
@@ -970,6 +985,7 @@ export const api = {
   search: (params: SearchParams = {}) =>
     request<SearchResponse>(
       pathWithQuery('/search', {
+        clear: params.clear,
         q: params.q,
         key: params.key,
         title: params.title,

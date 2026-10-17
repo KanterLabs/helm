@@ -8,13 +8,17 @@
   import { onMount } from 'svelte';
   import {
     applyPwaUpdate,
+    deferPwaUpdate,
     getPwaState,
     subscribePwa,
     type PwaState
   } from '../pwa';
 
-  /** Optional host-app guard for unsaved drafts. Returning false cancels reload. */
+  /** Final host-app guard for drafts and pending writes. False cancels activation. */
   export let beforeUpdate: PwaUpdateGuard | undefined = undefined;
+  /** Pending host writes defer activation; rechecked by the final host guard. */
+  export let updateBlocked = false;
+  export let updateBlockedReason = 'Wait for the current save to finish before updating.';
   /** Set false when a host layout supplies its own install education. */
   export let showInstallInstructions = true;
   /** Set false when the host wants only update/error notices. */
@@ -25,14 +29,15 @@
   let isStandalone = false;
   let showInstall = false;
   let installDismissed = false;
-  let updateError = '';
+  let updateChecking = false;
+
+  $: showUpdate = pwa.updateAvailable && !pwa.updateDeferred;
 
   const installDismissKey = 'helm:pwa-install-dismissed:v1';
 
   onMount(() => {
     const unsubscribe = subscribePwa((next) => {
       pwa = next;
-      if (!next.updateAvailable) updateError = '';
     });
 
     isIos = detectIos();
@@ -77,21 +82,28 @@
   }
 
   async function updateApp(): Promise<void> {
-    updateError = '';
+    if (updateBlocked || updateChecking || pwa.updateApplying) return;
+    updateChecking = true;
     try {
-      const accepted = beforeUpdate
-        ? await beforeUpdate()
-        : window.confirm('Reload to update Helm? Unsaved changes may be lost.');
-      if (!accepted) return;
-      const applied = await applyPwaUpdate();
-      if (!applied) updateError = 'The update is no longer waiting. Try refreshing Helm.';
-    } catch (error) {
-      updateError = error instanceof Error ? error.message : 'The update could not be applied.';
+      await applyPwaUpdate(async () => {
+        if (updateBlocked) return false;
+        const accepted = beforeUpdate
+          ? await beforeUpdate()
+          : window.confirm('Reload to update Helm? Unsaved changes may be lost.');
+        // A save may have started while confirmation was open.
+        return accepted && !updateBlocked;
+      });
+    } finally {
+      updateChecking = false;
     }
+  }
+
+  function later(): void {
+    deferPwaUpdate();
   }
 </script>
 
-{#if showInstall || ((showCacheStatus && (pwa.cacheReady && isStandalone || !pwa.online)) || Boolean(pwa.cacheError) || Boolean(pwa.error)) || pwa.updateAvailable || updateError}
+{#if showInstall || ((showCacheStatus && (pwa.cacheReady && isStandalone || !pwa.online)) || Boolean(pwa.cacheError) || Boolean(pwa.error)) || showUpdate}
   <aside class="pwa-status-host" aria-label="Helm app status">
     <div class="pwa-status-stack">
       {#if showInstall}
@@ -105,18 +117,19 @@
         </section>
       {/if}
 
-      {#if pwa.updateAvailable || updateError}
+      {#if showUpdate}
         <section class="pwa-card update-card" aria-live="polite" aria-labelledby="pwa-update-title">
           <div class="pwa-card-icon update-icon" aria-hidden="true">↻</div>
           <div class="pwa-card-copy">
             <strong id="pwa-update-title">A Helm update is ready</strong>
-            <p>{updateError || 'Reload when your current work is saved to use the latest version.'}</p>
+            <p>{updateBlocked ? updateBlockedReason : pwa.updateError || 'Reload when your current work is saved to use the latest version.'}</p>
           </div>
-          {#if pwa.updateAvailable}
-            <button class="pwa-action" type="button" disabled={pwa.updateApplying} on:click={updateApp}>
-              {pwa.updateApplying ? 'Updating…' : 'Reload'}
+          <div class="pwa-update-actions">
+            <button class="pwa-action pwa-later" type="button" disabled={pwa.updateApplying || updateChecking} on:click={later}>Later</button>
+            <button class="pwa-action" type="button" disabled={updateBlocked || pwa.updateApplying || updateChecking} on:click={updateApp}>
+              {pwa.updateApplying ? 'Updating…' : pwa.updateError ? 'Retry' : 'Reload'}
             </button>
-          {/if}
+          </div>
         </section>
       {/if}
 
@@ -145,20 +158,18 @@
 
 <style>
   .pwa-status-host {
-    position: fixed;
-    right: max(14px, env(safe-area-inset-right));
-    bottom: max(14px, env(safe-area-inset-bottom));
-    left: max(14px, env(safe-area-inset-left));
-    z-index: 95;
+    /* Participate in layout so save controls and navigation stay clear. */
+    position: relative;
     display: flex;
     justify-content: flex-end;
-    pointer-events: none;
+    flex: 0 0 auto;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
   }
 
   .pwa-status-stack {
     display: grid;
     gap: 8px;
-    width: min(410px, 100%);
+    width: 100%;
   }
 
   .pwa-card,
@@ -230,7 +241,7 @@
   .pwa-close:hover { color: var(--ink, #1d2433); background: var(--surface-muted, #f0f2f7); }
 
   .pwa-action {
-    min-height: 32px;
+    min-height: 44px;
     align-self: center;
     flex: 0 0 auto;
     padding: 0 10px;
@@ -241,6 +252,10 @@
     font-size: 11px;
     font-weight: 800;
   }
+
+  .pwa-update-actions { display: flex; align-self: center; gap: 6px; flex: 0 0 auto; }
+  .pwa-later { color: var(--muted, #596579); background: transparent; border-color: var(--border, #e5e8ef); }
+  .pwa-action:disabled { opacity: .55; cursor: default; }
 
   .pwa-action:hover:not(:disabled) { background: color-mix(in srgb, var(--purple-soft, #efedff) 78%, var(--surface, #fff)); }
 
@@ -266,14 +281,9 @@
   .pwa-cache-status.error small { color: var(--red, #dc626f); }
 
   @media (max-width: 600px) {
-    .pwa-status-host {
-      right: max(12px, env(safe-area-inset-right));
-      bottom: calc(76px + env(safe-area-inset-bottom));
-      left: max(12px, env(safe-area-inset-left));
-    }
-
-    .pwa-status-stack { width: 100%; }
-    .pwa-action { min-height: 40px; }
+    .pwa-card { flex-wrap: wrap; }
+    .pwa-update-actions { margin-left: 38px; }
+    .pwa-card-copy { flex-basis: calc(100% - 38px); }
   }
 
   @media (prefers-reduced-motion: reduce) {

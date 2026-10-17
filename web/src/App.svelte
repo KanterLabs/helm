@@ -317,6 +317,11 @@
     type BoardTaskSort
   } from './lib/boardOrdering';
   import { buildTaskShareUrl } from './lib/taskShare';
+  import { readBoardView, boardViewParams } from './lib/boardViewState';
+  import BoardCardActions, { type BoardCardAction } from './lib/components/BoardCardActions.svelte';
+  import BoardFilterPanel from './lib/components/BoardFilterPanel.svelte';
+  import { getPwaState } from './lib/pwa';
+  import { pendingMutationCount } from './lib/api';
 
   type View = CommandView | 'releases' | 'admin' | 'tickets';
   let ticketsWorkspace: TicketsWorkspace | null = null;
@@ -332,6 +337,7 @@
     title: string;
     message: string;
     confirmLabel: string;
+    cancelLabel?: string;
     fallbackSelector?: string;
     resolve: (confirmed: boolean) => void;
   };
@@ -623,9 +629,16 @@
     'my-work-assigned': new Map()
   };
   let dialogReturnFocus: DialogReturnFocus | null = null;
+  let dialogFocusRestoreRequest = 0;
   let confirmRequest: ConfirmRequest | null = null;
 
   let drawerTask: Task | null = null;
+  let editedCommentDirty = false;
+  let ticketsDirty = false;
+  let editedCommentPending = false;
+  let checklistDirty = false;
+  let checklistPending = false;
+  let pwaReloadApproved = false;
   let drawerDependencyPanel: { refreshRelationships: () => Promise<boolean> } | null = null;
   let drawerDependencyRefresh = 0;
   let drawerHierarchyPanel: { refreshRelationships: () => Promise<boolean> } | null = null;
@@ -719,6 +732,8 @@
   let searchColumnsByProject: Record<string, Column[]> = {};
   let searchSavedViews: SavedView[] = [];
   let searchViewId = '';
+  let searchRouteUsesSavedBaseline = false;
+  let searchRouteBaselineOverrides: URLSearchParams | null = null;
   let searchQuery = '';
   let searchPriority = 'all';
   let searchState = 'all';
@@ -781,6 +796,7 @@
   let agentsLoading = false;
   let agentsError = '';
   let agentNameDraft = '';
+  let agentSaving = false;
   let agentDescriptionDraft = '';
   let selectedAgentId = '';
   let tokenNameDraft = '';
@@ -827,6 +843,18 @@
   let projectNameDraft = '';
   let projectDescriptionDraft = '';
   let projectColorDraft = '#6d5efc';
+  type TaskCreation = { projectId: string; input: Parameters<typeof api.createTask>[1]; key: string };
+  let projectCreation: { input: Parameters<typeof api.createProject>[0]; key: string } | null = null;
+  let taskCreation: TaskCreation | null = null;
+  let bugCreation: TaskCreation | null = null;
+  let quickCreation: TaskCreation | null = null;
+  let pendingCreationRoute: { url: string; state: unknown } | null = null;
+  let quickAddCreating = false;
+  let quickAddError = '';
+  let projectModalInstance = 0;
+  let taskModalInstance = 0;
+  let bugModalInstance = 0;
+  let bugModalColumnsRequest = 0;
   let portableFileInput: HTMLInputElement;
   let portableBusy = false;
   let portablePreview: { archive: PortableArchive; fileName: string; report: PortableImportReport } | null = null;
@@ -1039,10 +1067,42 @@
     && (drawerTaskDraftDirty || drawerActionDraftFingerprintValue !== drawerSavedActionDraftFingerprint)
   );
   $: searchView = searchSavedViews.find((item) => item.id === searchViewId);
+  $: updateBlocked = Boolean($pendingMutationCount || projectCreating || taskModalCreating || bugModalCreating || quickAddCreating
+    || projectCreation || taskCreation || bugCreation || quickCreation || drawerSaving || commentSending
+    || editedCommentPending || checklistPending || taskActionLoading || releaseModalSaving || adminSaving || adminColumnSaving
+    || adminColumnCreating || tokenCreating || agentSaving || portableBusy || bulkSubmitting || savedViewSaving);
+  $: protectedDrafts = drawerDraftDirty || editedCommentDirty || checklistDirty || ticketsDirty || Boolean(
+    showTaskModal && (taskModalTitle || taskModalDescription || taskModalIdea || taskModalDueDate || taskModalAssignee || taskModalPriority !== 'normal' || taskModalReleaseId)
+    || showBugModal && (bugModalTitle || bugModalDescription || bugModalActual || bugModalExpected || bugModalReproduction || bugModalEnvironment || bugModalVersion || bugModalLabels || bugModalSeverity || bugModalPriority !== 'normal' || bugModalReleaseId)
+    || showProjectModal && (projectNameDraft || projectKeyDraft || projectDescriptionDraft || projectColorDraft !== '#6d5efc')
+    || Object.values(quickAddTitle).some((value) => value.trim())
+    || showReleaseModal && (releaseModalName || releaseModalDescription || releaseModalTargetDate)
+    || view === 'settings' && (agentNameDraft || agentDescriptionDraft || tokenNameDraft || adminColumnName
+      || adminProject && (adminProjectName !== adminProject.name || adminProjectDescription !== (adminProject.description || '') || adminProjectColor !== (adminProject.color || '#64748b') || adminChecklistPolicy !== (adminProject.checklist_completion_policy || 'warn')))
+  );
+
+  async function beforePwaUpdate(): Promise<boolean> {
+    if (updateBlocked || hasPendingCreation()) return false;
+    if (protectedDrafts || hasCreationDrafts()) {
+      const discard = await requestConfirm({ title: 'Update with unsaved changes?', message: 'Your unsaved edits will be discarded when Helm reloads. Keep editing to save them first.', confirmLabel: 'Discard and update', cancelLabel: 'Keep editing' });
+      if (!discard || updateBlocked || hasPendingCreation()) return false;
+    }
+    pwaReloadApproved = true;
+    return true;
+  }
+  $: boardFilterChips = makeBoardFilterChips(filters, boardWorkFilter, boardReleaseFilter, boardSort, boardOrder);
+  $: searchViewDirty = Boolean(searchView && JSON.stringify([
+    searchQuery.trim(), searchPriority, searchState, searchReleaseFilter, searchSortField, searchSortDirection, savedViewShared
+  ]) !== JSON.stringify([
+    searchView.filters?.q || searchView.filters?.query || '', searchView.filters?.priority || 'all', searchView.filters?.state || 'all',
+    searchView.filters?.release_id || 'all', searchView.sort?.[0]?.field || 'updated_at',
+    searchView.sort?.[0]?.direction || 'desc', searchView.shared
+  ]));
 
   let beforeUnloadAttached = false;
   function handleBeforeUnload(event: BeforeUnloadEvent) {
-    if (!drawerDraftDirty) return;
+    if (pwaReloadApproved && getPwaState().updateApplying) return;
+    if (!protectedDrafts && !updateBlocked) return;
     event.preventDefault();
     // Chromium and Firefox require returnValue to be assigned for the native
     // leave-page warning to appear. Browsers intentionally replace this text
@@ -1054,10 +1114,10 @@
   // listener only exists for the short period in which a drawer draft is
   // actually at risk of being discarded.
   $: if (typeof window !== 'undefined') {
-    if (drawerDraftDirty && !beforeUnloadAttached) {
+    if ((protectedDrafts || updateBlocked) && !beforeUnloadAttached) {
       window.addEventListener('beforeunload', handleBeforeUnload);
       beforeUnloadAttached = true;
-    } else if (!drawerDraftDirty && beforeUnloadAttached) {
+    } else if (!protectedDrafts && !updateBlocked && beforeUnloadAttached) {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       beforeUnloadAttached = false;
     }
@@ -1094,6 +1154,7 @@
     if (!node.hasAttribute('tabindex')) node.tabIndex = -1;
 
     const handleKeydown = (event: KeyboardEvent) => {
+      if (confirmRequest) return;
       if (event.key !== 'Tab') return;
       const focusable = focusableElements(node);
       if (!focusable.length) {
@@ -1358,6 +1419,7 @@
     boardFilterTimer = window.setTimeout(() => {
       boardFilterTimer = undefined;
       if (criteriaRevision === boardCriteriaRevision && view === 'board' && activeProject) {
+        syncBoardViewURL();
         void loadBoard({ criteriaRevision });
       } else if (criteriaRevision === boardCriteriaRevision) {
         boardCriteriaTransition = false;
@@ -1366,12 +1428,23 @@
   }
 
   function syncBoardReleaseURL() {
-    if (typeof window === 'undefined' || !activeProject || view !== 'board') return;
-    const params = new URLSearchParams(window.location.search);
-    if (boardReleaseFilter === 'all') params.delete('release');
-    else params.set('release', boardReleaseFilter);
-    const target = `/p/${encodeURIComponent(activeProject.slug)}${params.toString() ? `?${params.toString()}` : ''}`;
-    if (`${window.location.pathname}${window.location.search}` !== target) window.history.replaceState({}, '', target);
+    syncBoardViewURL();
+  }
+
+  function applyBoardRoute(params: URLSearchParams) {
+    const state = readBoardView(params);
+    filters = state.filters;
+    boardWorkFilter = state.work as WorkFilter;
+    boardReleaseFilter = state.release;
+    boardSort = state.sort as BoardSort;
+    boardOrder = state.order;
+    boardCriteriaRevision += 1;
+  }
+
+  function syncBoardViewURL() {
+    if (typeof window === 'undefined' || !activeProject || view !== 'board' || isTaskLocation()) return;
+    const params = boardViewParams(filters, boardWorkFilter, boardReleaseFilter, boardSort, boardOrder);
+    navigate(`/p/${encodeURIComponent(activeProject.slug)}${params.size ? `?${params}` : ''}`);
   }
 
   function mergeBoardPageTasks(
@@ -2208,7 +2281,11 @@
     }
   }
 
+  let authenticatedActorId = '';
   async function finishAuthentication() {
+    if (authenticatedActorId && authenticatedActorId !== user?.id) resetCreationSession();
+    authenticatedActorId = user?.id || '';
+
     // Every successful authentication starts a fresh client session. Any
     // request left behind by a previous session must fail its generation
     // check even when the browser logs back in as the same actor.
@@ -2268,6 +2345,11 @@
   }
 
   async function logout() {
+    if (hasPendingCreation()) {
+      toast('info', 'Finish or retry the pending submission before signing out.');
+      return;
+    }
+    resetCreationSession();
     // Invalidate reads before awaiting the network logout. Otherwise a poll
     // or list request can still resolve while the logout request is pending,
     // and its response could repopulate the session being cleared below.
@@ -2737,6 +2819,7 @@
       if (target) {
         activeProjectSlug = target.slug;
         const targetParams = new URL(window.location.href).searchParams;
+        if (!taskRoute && !isProjectRoadmapLocation() && !isProjectReleasesLocation()) applyBoardRoute(targetParams);
         canonicalizeProjectFocusLocation();
         if (!isProjectReleasesLocation()) {
           boardReleaseFilter = targetParams.get('release') || 'all';
@@ -3376,19 +3459,65 @@
   }
 
   function searchSortValue(): string {
-    return `${searchSortField}:${searchSortDirection}`;
+    return currentSearchSort().map((term) => `${term.field}:${term.direction}`).join(',');
+  }
+
+  function currentSearchSort() {
+    const saved = searchSavedViews.find((item) => item.id === searchViewId);
+    const first = saved?.sort?.[0];
+    if (first?.field === searchSortField && first?.direction === searchSortDirection) return saved!.sort;
+    return [{ field: searchSortField, direction: searchSortDirection }];
+  }
+
+  function currentSearchFilters(): SavedView['filters'] {
+    const result = { ...(searchSavedViews.find((item) => item.id === searchViewId)?.filters || {}) };
+    for (const key of ['q', 'query', 'priority', 'state', 'release_id']) delete result[key];
+    if (searchQuery.trim()) result.q = searchQuery.trim();
+    if (searchPriority !== 'all') result.priority = searchPriority;
+    if (searchState !== 'all') result.state = searchState;
+    if (searchReleaseFilter !== 'all') result.release_id = searchReleaseFilter;
+    return result;
   }
 
   function runSearch() {
-    searchViewId = '';
+    searchRouteUsesSavedBaseline = false;
+    navigate(searchURL());
+    void loadSearch();
+  }
+
+  function searchURL() {
     const params = new URLSearchParams();
+    if (searchViewId) {
+      params.set('view', searchViewId);
+      // An explicit criteria marker also represents intentionally empty fields.
+      params.set('criteria', '1');
+    }
     if (searchQuery.trim()) params.set('q', searchQuery.trim());
     if (searchPriority !== 'all') params.set('priority', searchPriority);
     if (searchState !== 'all') params.set('state', searchState);
     if (searchReleaseFilter !== 'all') params.set('release_id', searchReleaseFilter);
     params.set('sort', searchSortValue());
-    navigate(`/search${params.toString() ? `?${params.toString()}` : ''}`);
+    return `/search${params.size ? `?${params}` : ''}`;
+  }
+
+  function newSearch() {
+    if (savedViewSaving) return;
+    applySearchRouteFilters(new URLSearchParams());
+    savedViewName = '';
+    savedViewShared = false;
+    navigate('/search');
     void loadSearch();
+  }
+
+  function applySavedSearch(selected: SavedView) {
+    searchQuery = typeof selected.filters?.q === 'string' ? selected.filters.q : typeof selected.filters?.query === 'string' ? selected.filters.query : '';
+    searchPriority = typeof selected.filters?.priority === 'string' ? selected.filters.priority : 'all';
+    searchState = typeof selected.filters?.state === 'string' ? selected.filters.state : 'all';
+    searchReleaseFilter = typeof selected.filters?.release_id === 'string' ? selected.filters.release_id : 'all';
+    searchSortField = selected.sort?.[0]?.field || 'updated_at';
+    searchSortDirection = selected.sort?.[0]?.direction || 'desc';
+    savedViewShared = selected.shared;
+    savedViewName = selected.name;
   }
 
   async function loadSearch(append = false): Promise<boolean> {
@@ -3400,9 +3529,25 @@
     searchLoading = true;
     searchError = '';
     try {
-      const params = searchViewId
-        ? { view: searchViewId, cursor, limit: 200, release_id: releaseQueryValue(searchReleaseFilter) || (searchReleaseFilter === 'unassigned' ? searchReleaseFilter : undefined) }
-        : {
+      if (!searchSavedViews.length || searchRouteUsesSavedBaseline || searchViewId && !searchSavedViews.some((item) => item.id === searchViewId)) {
+        const savedViews = (await api.listAllSavedViews()).data;
+        if (requestId !== searchRequest || sessionGeneration !== requestedSession || view !== 'search') return false;
+        searchSavedViews = savedViews;
+        const selected = savedViews.find((item) => item.id === searchViewId);
+        if (searchRouteUsesSavedBaseline && selected) {
+          applySavedSearch(selected);
+          if (searchRouteBaselineOverrides) applySearchCriteria(searchRouteBaselineOverrides, true);
+        } else if (selected) {
+          savedViewName = selected.name;
+          savedViewShared = selected.shared;
+        }
+        if (searchViewId && !selected) throw new Error('This saved view is no longer available. Start a new search.');
+        searchRouteUsesSavedBaseline = false;
+        searchRouteBaselineOverrides = null;
+      }
+      const params = {
+            view: searchViewId || undefined,
+            clear: searchViewId ? 'q,priority,state,release_id' : undefined,
             q: searchQuery.trim() || undefined,
             priority: searchPriority === 'all' ? undefined : searchPriority,
             state: searchState === 'all' ? undefined : searchState,
@@ -3423,22 +3568,6 @@
       if (requestId !== searchRequest || sessionGeneration !== requestedSession || !user || view !== 'search') return false;
       searchColumnsByProject = Object.fromEntries(columnResults.map((result) => [result.projectId, result.columns]));
       void loadAccessibleReleases();
-      if (!searchViewId || !searchSavedViews.some((item) => item.id === searchViewId)) {
-        const savedViews = (await api.listAllSavedViews()).data;
-        if (requestId !== searchRequest || sessionGeneration !== requestedSession || !user || view !== 'search') return false;
-        searchSavedViews = savedViews;
-        const selected = savedViews.find((item) => item.id === searchViewId);
-        if (selected) {
-          searchQuery = typeof selected.filters?.q === 'string' ? selected.filters.q : '';
-          searchPriority = typeof selected.filters?.priority === 'string' ? selected.filters.priority : 'all';
-          searchState = typeof selected.filters?.state === 'string' ? selected.filters.state : 'all';
-          searchReleaseFilter = typeof selected.filters?.release_id === 'string' ? selected.filters.release_id : 'all';
-          const firstSort = selected.sort?.[0];
-          searchSortField = firstSort?.field || 'updated_at';
-          searchSortDirection = firstSort?.direction || 'desc';
-          savedViewShared = selected.shared;
-        }
-      }
       return true;
     } catch (error) {
       if (requestId === searchRequest && sessionGeneration === requestedSession && user) {
@@ -3451,6 +3580,7 @@
   }
 
   async function saveCurrentSearchView() {
+    if (savedViewSaving) return;
     const name = savedViewName.trim();
     if (!name) {
       searchError = 'Name the saved view before saving it.';
@@ -3458,7 +3588,7 @@
     }
     savedViewSaving = true;
     searchError = '';
-    const filters: Record<string, unknown> = {};
+    const filters: Record<string, unknown> = currentSearchFilters();
     if (searchQuery.trim()) filters.q = searchQuery.trim();
     if (searchPriority !== 'all') filters.priority = searchPriority;
     if (searchState !== 'all') filters.state = searchState;
@@ -3467,11 +3597,11 @@
       const created = await api.createSavedView({
         name,
         filters,
-        sort: [{ field: searchSortField, direction: searchSortDirection }],
+        sort: currentSearchSort(),
         shared: savedViewShared
       });
       searchSavedViews = [created, ...searchSavedViews.filter((item) => item.id !== created.id)];
-      savedViewName = '';
+      savedViewName = created.name;
       searchViewId = created.id;
       navigate(`/search?view=${encodeURIComponent(created.id)}`);
       await loadSearch();
@@ -3486,24 +3616,36 @@
   async function updateCurrentSearchView() {
     const current = searchSavedViews.find((item) => item.id === searchViewId);
     if (!current) return saveCurrentSearchView();
+    if (savedViewSaving || current.owner_id !== user?.id) return;
     savedViewSaving = true;
     searchError = '';
     try {
       const updated = await api.patchSavedView(current.id, {
-        filters: {
-          ...(searchQuery.trim() ? { q: searchQuery.trim() } : {}),
-          ...(searchPriority !== 'all' ? { priority: searchPriority } : {}),
-          ...(searchState !== 'all' ? { state: searchState } : {}),
-          ...(searchReleaseFilter !== 'all' ? { release_id: searchReleaseFilter } : {})
-        },
-        sort: [{ field: searchSortField, direction: searchSortDirection }],
+        filters: currentSearchFilters(),
+        sort: currentSearchSort(),
         shared: savedViewShared
       });
       searchSavedViews = searchSavedViews.map((item) => item.id === updated.id ? updated : item);
+      navigate(searchURL(), true);
       toast('success', `${updated.name} updated.`);
       await loadSearch();
     } catch (error) {
       searchError = friendlyError(error, 'The saved view could not be updated.');
+    } finally {
+      savedViewSaving = false;
+    }
+  }
+
+  async function renameCurrentSearchView() {
+    const current = searchSavedViews.find((item) => item.id === searchViewId);
+    if (!current || savedViewSaving || current.owner_id !== user?.id || !savedViewName.trim()) return;
+    savedViewSaving = true;
+    try {
+      const updated = await api.patchSavedView(current.id, { name: savedViewName.trim() });
+      searchSavedViews = searchSavedViews.map((item) => item.id === updated.id ? updated : item);
+      toast('success', `${updated.name} renamed.`);
+    } catch (error) {
+      searchError = friendlyError(error, 'The saved view could not be renamed.');
     } finally {
       savedViewSaving = false;
     }
@@ -4375,6 +4517,7 @@
     routeProject = projects.find((project) => project.slug === route.projectSlug)
   ): Promise<void> {
     if (!routeProject) return;
+    const requestedLocation = window.location.pathname + window.location.search;
     const candidate = [...tasks, ...myWorkTasks, ...roadmapLiveTasks, ...issueTasks]
       .find((task) => task.project_id === routeProject.id && (task.key === route.taskReference || task.id === route.taskReference || String(task.number) === route.taskReference));
     let task = candidate;
@@ -4387,22 +4530,28 @@
         // opened; the board error gives the person an actionable explanation.
       }
     }
+    if (window.location.pathname + window.location.search !== requestedLocation) return;
     if (!task) {
       boardError = `Task ${route.taskReference} could not be found in ${routeProject.name}.`;
       return;
     }
     taskRouteIntent = route.intent;
-    taskRouteOrigin = `/p/${encodeURIComponent(routeProject.slug)}`;
+    const retainedOrigin = window.history.state?.helmTaskOrigin;
+    taskRouteOrigin = typeof retainedOrigin === 'string' && retainedOrigin.startsWith('/') && !retainedOrigin.startsWith('//')
+      ? retainedOrigin : `/p/${encodeURIComponent(routeProject.slug)}`;
     await openTask(task, route.intent);
   }
 
   function navigate(path: string, replace = false) {
     if (`${window.location.pathname}${window.location.search}` !== path) {
-      window.history[replace ? 'replaceState' : 'pushState']({}, '', path);
+      dialogFocusRestoreRequest += 1;
+      const state = /\/tasks\//.test(path) && taskRouteOrigin ? { helmTaskOrigin: taskRouteOrigin } : {};
+      window.history[replace ? 'replaceState' : 'pushState'](state, '', path);
     }
   }
 
   async function selectProject(project: Project, push = true, routeReleaseFilter?: string) {
+    if (hasPendingCreation()) return;
     projectSwitchVersion += 1;
     boardTimelineRequest += 1;
     if (drawerTask && !closeDrawer()) return;
@@ -4412,7 +4561,8 @@
     activeProjectSlug = project.slug;
     auditIdFromRoute = '';
     roadmapProjectId = undefined;
-    boardReleaseFilter = routeReleaseFilter || 'all';
+    applyBoardRoute(push ? new URLSearchParams() : new URLSearchParams(window.location.search));
+    if (routeReleaseFilter) boardReleaseFilter = routeReleaseFilter;
     releaseSelectedId = '';
     releaseQueue = null;
     columns = [];
@@ -4441,7 +4591,9 @@
     await loadBoard();
   }
 
-  async function setView(next: View, push = true) {
+  async function setView(next: View, push = true): Promise<boolean> {
+    if (hasPendingCreation()) return false;
+    if (drawerTask && !closeDrawer(false, !push)) return false;
     view = next;
     projectSwitcherOpen = false;
     closeCommandPalette();
@@ -4462,7 +4614,7 @@
       if (push) navigate('/roadmap');
       await loadRoadmap();
     } else if (next === 'search') {
-      if (push) navigate(searchViewId ? `/search?view=${encodeURIComponent(searchViewId)}` : '/search');
+      if (push) navigate(searchURL());
       await loadSearch();
     } else if (next === 'timeline' && activeProject) {
       roadmapProjectId = undefined;
@@ -4487,9 +4639,10 @@
       if (push) navigate('/settings');
       await Promise.all([loadAgents(), loadCodexAccount(), loadProjectAdmin()]);
     } else if (activeProject) {
-      if (push) navigate(`/p/${encodeURIComponent(activeProject.slug)}`);
+      if (push) syncBoardViewURL();
       await loadBoard();
     }
+    return view === next;
   }
 
   function restoreDirtyTaskRoute() {
@@ -4497,7 +4650,7 @@
     const project = projectForTask(drawerTask);
     if (!project) return;
     const path = taskDeepLink(project.slug, drawerTask.key, taskRouteIntent);
-    window.history.replaceState({}, '', path);
+    navigate(path, true);
   }
 
   function handleRootRoute() {
@@ -4523,13 +4676,19 @@
       return;
     }
     view = 'board';
-    boardReleaseFilter = 'all';
+    applyBoardRoute(new URLSearchParams());
     releaseSelectedId = '';
     releaseQueue = null;
     void loadBoard();
   }
 
   function handlePopState() {
+    if (hasPendingCreation()) {
+      // The browser already changed the location. Keep the originating view,
+      // full URL and drawer return state while this operation is unresolved.
+      if (pendingCreationRoute) window.history.replaceState(pendingCreationRoute.state, '', pendingCreationRoute.url);
+      return;
+    }
     if (drawerTask && drawerDraftDirty) {
       if (!confirmDrawerDiscard()) {
         restoreDirtyTaskRoute();
@@ -4540,6 +4699,7 @@
       // destination route below.
       closeDrawer(true, true);
     }
+    if (drawerTask && !getTaskRouteFromLocation()) closeDrawer(true, true);
     const slug = getProjectSlugFromLocation();
     const taskRoute = getTaskRouteFromLocation();
     if (slug) {
@@ -4624,6 +4784,7 @@
   }
 
   function rememberDialogFocus(fallbackSelector = '') {
+    dialogFocusRestoreRequest += 1;
     if (typeof document !== 'undefined') {
       const active = document.activeElement instanceof HTMLElement && document.activeElement !== document.body
         ? document.activeElement
@@ -4635,11 +4796,20 @@
     }
   }
 
-  function restoreDialogFocus() {
+  function restoreDialogFocus(afterRender: Promise<unknown> = Promise.resolve()) {
     const record = dialogReturnFocus;
     dialogReturnFocus = null;
     if (!record) return;
-    void tick().then(() => {
+    const request = ++dialogFocusRestoreRequest;
+    const location = window.location.pathname + window.location.search;
+    const initialFocus = document.activeElement;
+    void afterRender.catch(() => undefined).then(() => tick()).then(() => {
+      if (request !== dialogFocusRestoreRequest || window.location.pathname + window.location.search !== location) return;
+      // A user can focus another control while the origin is loading. A
+      // detached dialog/trigger naturally falls back to body; keep an explicit
+      // later choice rather than moving focus away from it.
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== initialFocus && active !== record.element && active.isConnected) return;
       const target = record.element && record.element !== document.body && isFocusableVisible(record.element)
         ? record.element
         : record.fallbackSelector
@@ -4667,6 +4837,8 @@
   }
 
   function closeProjectModal() {
+    if (projectCreating || projectCreation) return;
+    projectModalInstance += 1;
     showProjectModal = false;
     restoreDialogFocus();
   }
@@ -4764,6 +4936,8 @@
   }
 
   function closeTaskModal() {
+    if (taskModalCreating || taskCreation) return;
+    taskModalInstance += 1;
     taskModalAssistController?.abort();
     taskModalAssistController = null;
     showTaskModal = false;
@@ -4773,6 +4947,9 @@
   }
 
   function closeBugModal() {
+    if (bugModalCreating || bugCreation) return;
+    bugModalInstance += 1;
+    bugModalColumnsRequest += 1;
     showBugModal = false;
     bugModalLoading = false;
     restoreDialogFocus();
@@ -4928,7 +5105,7 @@
       const returnFocus = dialogReturnFocus;
       closeCommandPaletteWithoutFocus();
       await tick();
-      await setView('issues');
+      if (!await setView('issues')) return;
       await openWorkTask(issueTasks.find((task) => task.id === choice.task.id) || choice.task, returnFocus);
     } else if (choice.kind === 'saved-view') {
       closeCommandPaletteWithoutFocus();
@@ -4938,12 +5115,19 @@
 
   function applySearchRouteFilters(params: URLSearchParams) {
     searchViewId = params.get('view') || '';
-    searchQuery = params.get('q') || '';
-    searchPriority = params.get('priority') || 'all';
-    searchState = params.get('state') || 'all';
-    searchReleaseFilter = params.get('release_id') || 'all';
+    searchRouteUsesSavedBaseline = Boolean(searchViewId && !params.has('criteria'));
+    searchRouteBaselineOverrides = searchRouteUsesSavedBaseline ? new URLSearchParams(params) : null;
+    applySearchCriteria(params);
+  }
+
+  function applySearchCriteria(params: URLSearchParams, onlyPresent = false) {
+    if (!onlyPresent || params.has('q')) searchQuery = params.get('q') || '';
+    if (!onlyPresent || params.has('priority')) searchPriority = params.get('priority') || 'all';
+    if (!onlyPresent || params.has('state')) searchState = params.get('state') || 'all';
+    if (!onlyPresent || params.has('release_id')) searchReleaseFilter = params.get('release_id') || 'all';
+    if (onlyPresent && !params.has('sort')) return;
     const sort = params.get('sort') || '';
-    const [field, direction] = sort.split(':', 2);
+    const [field, direction] = sort.split(',')[0].split(':', 2);
     const validFields = ['updated_at', 'created_at', 'due_at', 'title', 'key', 'priority', 'state', 'position'];
     if (validFields.includes(field) && (direction === 'asc' || direction === 'desc')) {
       searchSortField = field;
@@ -4955,15 +5139,19 @@
   }
 
   async function openSavedView(savedView: SavedView) {
+    if (savedViewSaving) return;
     commandOpen = false;
     searchViewId = savedView.id;
-    searchQuery = typeof savedView.filters?.q === 'string' ? savedView.filters.q : '';
+    searchQuery = typeof savedView.filters?.q === 'string' ? savedView.filters.q : typeof savedView.filters?.query === 'string' ? savedView.filters.query : '';
     searchPriority = typeof savedView.filters?.priority === 'string' ? savedView.filters.priority : 'all';
     searchState = typeof savedView.filters?.state === 'string' ? savedView.filters.state : 'all';
     searchReleaseFilter = typeof savedView.filters?.release_id === 'string' ? savedView.filters.release_id : 'all';
     const firstSort = savedView.sort?.[0];
     searchSortField = firstSort?.field || 'updated_at';
     searchSortDirection = firstSort?.direction || 'desc';
+    savedViewName = savedView.name;
+    savedViewShared = savedView.shared;
+    searchRouteUsesSavedBaseline = false;
     await setView('search');
   }
 
@@ -5002,7 +5190,73 @@
     navigate(path);
   }
 
+  function hasPendingCreation(): boolean {
+    return projectCreating || taskModalCreating || bugModalCreating || quickAddCreating
+      || Boolean(projectCreation || taskCreation || bugCreation || quickCreation);
+  }
+
+  function rememberCreationRoute() {
+    pendingCreationRoute = {
+      url: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      state: window.history.state
+    };
+  }
+
+  function resetCreationSession() {
+    // A real authentication change invalidates form instances. A temporary
+    // offline transition keeps the same actor and must retain unresolved keys.
+    projectModalInstance += 1;
+    taskModalInstance += 1;
+    bugModalInstance += 1;
+    taskModalColumnsRequest += 1;
+    bugModalColumnsRequest += 1;
+    cancelTaskAssist();
+    showProjectModal = showTaskModal = showBugModal = false;
+    projectCreating = taskModalCreating = bugModalCreating = quickAddCreating = false;
+    projectCreation = null;
+    taskCreation = bugCreation = quickCreation = null;
+    pendingCreationRoute = null;
+    quickAddColumn = '';
+  }
+
+  function hasCreationDrafts(): boolean {
+    return Boolean(
+      (showProjectModal && (projectNameDraft.trim() || projectKeyDraft.trim() || projectDescriptionDraft.trim() || projectColorDraft !== '#6d5efc'))
+      || (showTaskModal && (taskModalTitle.trim() || taskModalDescription.trim() || taskModalIdea.trim() || taskModalDueDate || taskModalAssignee.trim() || taskModalPriority !== 'normal' || taskModalReleaseId))
+      || (showBugModal && (bugModalTitle.trim() || bugModalActual.trim() || bugModalExpected.trim() || bugModalReproduction.trim() || bugModalEnvironment.trim() || bugModalVersion.trim() || bugModalDescription.trim() || bugModalLabels.trim() || bugModalSeverity || bugModalPriority !== 'normal' || bugModalReleaseId))
+      || (quickAddColumn && quickAddTitle[quickAddColumn]?.trim())
+    );
+  }
+
+  function ambiguousCreation(error: unknown): boolean {
+    return !(error instanceof ApiError) || error.status === 0 || error.status >= 500 || error.status === 408;
+  }
+
+  function creationOperationKey(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return `create-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  // Replay only the original operation. Browser cancellation cannot undo a
+  // committed create, so a lost response must never allocate a new key.
+  async function reconcileCreation<T>(commit: () => Promise<T>): Promise<T> {
+    try {
+      return await commit();
+    } catch (error) {
+      if (!ambiguousCreation(error)) throw error;
+      return await commit();
+    }
+  }
+
+  function creationError(error: unknown, fallback: string): string {
+    return ambiguousCreation(error)
+      ? 'The result is not confirmed. Keep this form open and retry to check the original submission safely.'
+      : friendlyError(error, fallback);
+  }
+
   function openProjectModal() {
+    if (hasPendingCreation()) return;
+    projectModalInstance += 1;
     rememberDialogFocus('[data-project-modal-trigger], [data-project-picker-trigger]');
     projectKeyDraft = '';
     projectNameDraft = '';
@@ -5014,31 +5268,49 @@
   }
 
   async function createProject() {
-    projectCreating = true;
+    if (projectCreating || !showProjectModal) return;
     projectFormError = '';
-    try {
+    if (!projectCreation) {
       const key = projectKeyDraft.trim().toUpperCase();
-      if (!/^[A-Z][A-Z0-9_-]{0,15}$/.test(key)) throw new Error('Use 1–16 uppercase letters or numbers for the project key.');
-      if (!projectNameDraft.trim()) throw new Error('Give the project a name.');
-      const project = await api.createProject({
-        key,
-        name: projectNameDraft.trim(),
-        description: projectDescriptionDraft.trim(),
-        color: projectColorDraft,
-        favorite: true
-      });
-      projects = [...projects, project];
+      if (!/^[A-Z][A-Z0-9_-]{0,15}$/.test(key)) {
+        projectFormError = 'Use 1–16 uppercase letters or numbers for the project key.';
+        return;
+      }
+      if (!projectNameDraft.trim()) {
+        projectFormError = 'Give the project a name.';
+        return;
+      }
+      rememberCreationRoute();
+      projectCreation = {
+        key: creationOperationKey(),
+        input: { key, name: projectNameDraft.trim(), description: projectDescriptionDraft.trim(), color: projectColorDraft, favorite: true }
+      };
+    }
+    const operation = projectCreation;
+    const instance = projectModalInstance;
+    const actor = user?.id;
+    projectCreating = true;
+    try {
+      const project = await reconcileCreation(() => api.createProject(operation.input, operation.key));
+      if (actor !== user?.id || instance !== projectModalInstance) return;
+      projects = [...projects.filter((item) => item.id !== project.id), project];
+      projectCreation = null;
+      projectCreating = false;
       closeProjectModal();
       toast('success', `${project.name} is ready to plan.`);
       await selectProject(project);
     } catch (error) {
-      projectFormError = friendlyError(error, 'The project could not be created.');
+      if (actor !== user?.id || instance !== projectModalInstance) return;
+      if (!ambiguousCreation(error)) projectCreation = null;
+      projectFormError = creationError(error, 'The project could not be created.');
     } finally {
-      projectCreating = false;
+      if (actor === user?.id && instance === projectModalInstance) projectCreating = false;
     }
   }
 
   async function openTaskModal(parentTaskId: string | null = null) {
+    if (hasPendingCreation()) return;
+    const instance = ++taskModalInstance;
     if (!navProjects.length) {
       openProjectModal();
       return;
@@ -5067,22 +5339,26 @@
     showTaskModal = true;
     projectSwitcherOpen = false;
     void loadCodexAccount();
+    const columnLoad = loadTaskModalColumns(taskModalProjectId);
+    const releaseRequest = taskModalColumnsRequest;
     const projectReleases = await loadProjectReleases(taskModalProjectId).catch(() => []);
-    if (showTaskModal && taskModalProjectId === requestedTaskModalProjectId) {
+    if (showTaskModal && taskModalInstance === instance && releaseRequest === taskModalColumnsRequest && taskModalProjectId === requestedTaskModalProjectId && !taskCreation) {
       const requestedRelease = inheritsParentRelease ? parentReleaseId : boardReleaseFilter;
       taskModalReleaseId = plannedReleaseIdForAssignment(requestedRelease, projectReleases);
     }
-    if (!taskModalColumns.length) await loadTaskModalColumns(taskModalProjectId);
-    else taskModalColumnId = taskModalColumns.find((column) => column.semantic_state === 'ready')?.id || taskModalColumns[0]?.id || '';
+    await columnLoad;
   }
 
   async function loadTaskModalColumns(projectId: string) {
-    if (!projectId) return;
     const requestId = ++taskModalColumnsRequest;
+    taskModalColumns = [];
+    taskModalColumnId = '';
+    taskModalError = '';
+    if (!projectId) return;
     const requestedProjectId = projectId;
     taskModalLoading = true;
     try {
-      const nextColumns = projectId === activeProject?.id ? [...columns] : (await api.listAllColumns(projectId)).data;
+      const nextColumns = projectId === activeProject?.id && columns.length ? [...columns] : (await api.listAllColumns(projectId)).data;
       if (requestId !== taskModalColumnsRequest || !showTaskModal || taskModalProjectId !== requestedProjectId) return;
       taskModalColumns = nextColumns;
       taskModalColumnId = taskModalColumns.find((column) => column.semantic_state === 'ready')?.id || taskModalColumns[0]?.id || '';
@@ -5096,6 +5372,8 @@
   }
 
 	function changeTaskModalProject() {
+		if (taskModalCreating || taskCreation) return;
+		cancelTaskAssist();
 		taskModalSuggestion = null;
 		taskModalNeedsCodex = false;
 		resetTaskModalSuggestionState();
@@ -5196,45 +5474,61 @@
   }
 
   async function createGlobalTask() {
-    if (!taskModalProjectId || !taskModalTitle.trim()) {
-      taskModalError = 'Choose a project and add a title.';
-      return;
+    if (taskModalCreating || !showTaskModal) return;
+    if (!taskCreation) {
+      if (taskModalLoading || !taskModalProjectId || !taskModalTitle.trim() || !taskModalColumns.some((column) => column.id === taskModalColumnId)) {
+        taskModalError = 'Choose a project, a valid column, and add a title.';
+        return;
+      }
+      cancelTaskAssist();
+      rememberCreationRoute();
+      taskCreation = {
+        projectId: taskModalProjectId,
+        key: creationOperationKey(),
+        input: {
+          title: taskModalTitle.trim(), description: taskModalDescription.trim(), priority: taskModalPriority,
+          column_id: taskModalColumnId, due_at: dateToIso(taskModalDueDate), assignee: taskModalAssignee.trim() || null,
+          release_id: plannedReleaseIdForAssignment(taskModalReleaseId, releasesByProject[taskModalProjectId] || []) || null,
+          parent_task_id: taskModalParentId
+        }
+      };
     }
+    const operation = taskCreation;
+    const instance = taskModalInstance;
+    const actor = user?.id;
     taskModalCreating = true;
     taskModalError = '';
     try {
-      const created = await api.createTask(taskModalProjectId, {
-        title: taskModalTitle.trim(),
-        description: taskModalDescription.trim(),
-        priority: taskModalPriority,
-        column_id: taskModalColumnId || undefined,
-        due_at: dateToIso(taskModalDueDate),
-        assignee: taskModalAssignee.trim() || null,
-        release_id: plannedReleaseIdForAssignment(taskModalReleaseId, releasesByProject[taskModalProjectId] || []) || null,
-        parent_task_id: taskModalParentId
-      });
+      const created = await reconcileCreation(() => api.createTask(operation.projectId, operation.input, operation.key));
+      if (actor !== user?.id || instance !== taskModalInstance) return;
       recordTaskMutation(created.id, 'upsert', ['board']);
-      if (taskModalProjectId === activeProject?.id) {
-        tasks = [...tasks, created];
+      if (operation.projectId === activeProject?.id) {
+        tasks = [...tasks.filter((task) => task.id !== created.id), created];
         syncBoardTaskPages(created);
       }
-      closeTaskModal();
-      toast('success', `${created.key} created in ${taskModalProject?.name || 'your project'}.`);
-    } catch (error) {
-      taskModalError = friendlyError(error, 'The task could not be created.');
-    } finally {
+      taskCreation = null;
       taskModalCreating = false;
+      closeTaskModal();
+      toast('success', `${created.key} created in ${projects.find((project) => project.id === operation.projectId)?.name || 'your project'}.`);
+    } catch (error) {
+      if (actor !== user?.id || instance !== taskModalInstance) return;
+      if (!ambiguousCreation(error)) taskCreation = null;
+      taskModalError = creationError(error, 'The task could not be created.');
+    } finally {
+      if (actor === user?.id && instance === taskModalInstance) taskModalCreating = false;
     }
   }
 
   async function openBugModal() {
+    if (hasPendingCreation()) return;
+    const instance = ++bugModalInstance;
     if (!navProjects.length) {
       openProjectModal();
       return;
     }
     bugModalProjectId = (activeProject && !activeProject.system_kind ? activeProject.id : '') || navProjects[0].id;
     bugModalColumnId = '';
-    bugModalColumns = activeProject?.id === bugModalProjectId ? [...columns] : [];
+    bugModalColumns = [];
     bugModalTitle = '';
     bugModalDescription = '';
     bugModalActual = '';
@@ -5247,93 +5541,104 @@
     bugModalPriority = 'normal';
     bugModalReleaseId = '';
     bugModalError = '';
-    const requestedBugModalProjectId = bugModalProjectId;
+    const projectId = bugModalProjectId;
     rememberDialogFocus('[data-report-bug-trigger]');
     showBugModal = true;
     projectSwitcherOpen = false;
-    const projectReleases = await loadProjectReleases(bugModalProjectId).catch(() => []);
-    if (showBugModal && bugModalProjectId === requestedBugModalProjectId) {
+    const columnLoad = loadBugModalColumns(projectId);
+    const releaseRequest = bugModalColumnsRequest;
+    const projectReleases = await loadProjectReleases(projectId).catch(() => []);
+    if (showBugModal && bugModalInstance === instance && releaseRequest === bugModalColumnsRequest && bugModalProjectId === projectId && !bugCreation) {
       bugModalReleaseId = plannedReleaseIdForAssignment(boardReleaseFilter, projectReleases);
     }
-    if (!bugModalColumns.length) {
-      bugModalLoading = true;
-      try {
-        bugModalColumns = bugModalProjectId === activeProject?.id
-          ? [...columns]
-          : (await api.listAllColumns(bugModalProjectId)).data;
-        bugModalColumnId = bugModalColumns.find((column) => column.semantic_state === 'ready')?.id || bugModalColumns[0]?.id || '';
-      } catch (error) {
-        bugModalError = friendlyError(error, 'This project’s columns could not be loaded.');
-      } finally {
-        bugModalLoading = false;
-      }
-    } else {
-      bugModalColumnId = bugModalColumns.find((column) => column.semantic_state === 'ready')?.id || bugModalColumns[0]?.id || '';
-    }
+    await columnLoad;
   }
 
   async function reportBug() {
-    if (!bugModalProjectId || !bugModalTitle.trim() || !bugModalActual.trim()) {
-      bugModalError = 'Choose a project, add a title, and describe what actually happened.';
+    if (bugModalCreating || !showBugModal) return;
+    if (!bugCreation && (bugModalLoading || !bugModalProjectId || !bugModalTitle.trim() || !bugModalActual.trim() || !bugModalColumns.some((column) => column.id === bugModalColumnId))) {
+      bugModalError = 'Choose a project, a valid column, add a title, and describe what actually happened.';
       return;
     }
+    const instance = bugModalInstance;
+    const actor = user?.id;
+    // Capture every field before label resolution yields to the browser.
+    const labelNames = bugModalLabels.split(',').map((value) => value.trim()).filter(Boolean);
+    const snapshot: TaskCreation = bugCreation || {
+      projectId: bugModalProjectId,
+      key: creationOperationKey(),
+      input: {
+        title: bugModalTitle.trim(), description: bugModalDescription.trim(), kind: 'bug', priority: bugModalPriority,
+        column_id: bugModalColumnId,
+        release_id: plannedReleaseIdForAssignment(bugModalReleaseId, releasesByProject[bugModalProjectId] || []) || null,
+        bug: {
+          actual_behavior: bugModalActual.trim(), expected_behavior: bugModalExpected.trim(),
+          reproduction_steps: bugModalReproduction.trim(), environment: bugModalEnvironment.trim(),
+          affected_version: bugModalVersion.trim(), severity: bugModalSeverity || undefined
+        }
+      }
+    };
+    if (!bugCreation) rememberCreationRoute();
     bugModalCreating = true;
     bugModalError = '';
     try {
-      const labelNames = bugModalLabels.split(',').map((value) => value.trim()).filter(Boolean);
-      const labelIds = await resolveTaskLabels(bugModalProjectId, labelNames);
-      const created = await api.createTask(bugModalProjectId, {
-        title: bugModalTitle.trim(),
-        description: bugModalDescription.trim(),
-        kind: 'bug',
-        priority: bugModalPriority,
-        column_id: bugModalColumnId || undefined,
-          labels: labelIds,
-          release_id: plannedReleaseIdForAssignment(bugModalReleaseId, releasesByProject[bugModalProjectId] || []) || null,
-          bug: {
-          actual_behavior: bugModalActual.trim(),
-          expected_behavior: bugModalExpected.trim(),
-          reproduction_steps: bugModalReproduction.trim(),
-          environment: bugModalEnvironment.trim(),
-          affected_version: bugModalVersion.trim(),
-          ...(bugModalSeverity ? { severity: bugModalSeverity } : {})
-        }
-      });
-      const createdScopes: TaskMutationScope[] = ['issues'];
-      if (bugModalProjectId === activeProject?.id) createdScopes.push('board');
+      if (!bugCreation) {
+        const labels = await resolveTaskLabels(snapshot.projectId, labelNames);
+        if (actor !== user?.id || instance !== bugModalInstance) return;
+        snapshot.input.labels = labels;
+        bugCreation = snapshot;
+      }
+      const created = await reconcileCreation(() => api.createTask(snapshot.projectId, snapshot.input, snapshot.key));
+      if (actor !== user?.id || instance !== bugModalInstance) return;
+      const createdScopes: TaskMutationScope[] = snapshot.projectId === activeProject?.id ? ['board', 'issues'] : ['issues'];
       recordTaskMutation(created.id, 'upsert', createdScopes);
       issueTasks = [...issueTasks.filter((task) => task.id !== created.id), created];
-      if (bugModalProjectId === activeProject?.id) {
-        tasks = [...tasks, created];
+      if (snapshot.projectId === activeProject?.id) {
+        tasks = [...tasks.filter((task) => task.id !== created.id), created];
         syncBoardTaskPages(created);
       }
+      bugCreation = null;
+      bugModalCreating = false;
       closeBugModal();
       toast('success', `${created.key} reported.`);
     } catch (error) {
-      bugModalError = friendlyError(error, 'The bug could not be reported.');
+      if (actor !== user?.id || instance !== bugModalInstance) return;
+      if (!ambiguousCreation(error)) bugCreation = null;
+      bugModalError = bugCreation
+        ? creationError(error, 'The bug could not be reported.')
+        : friendlyError(error, 'The bug could not be reported.');
     } finally {
-      bugModalCreating = false;
+      if (actor === user?.id && instance === bugModalInstance) bugModalCreating = false;
+    }
+  }
+
+  async function loadBugModalColumns(projectId: string) {
+    const requestId = ++bugModalColumnsRequest;
+    bugModalColumns = [];
+    bugModalColumnId = '';
+    bugModalError = '';
+    if (!projectId) return;
+    bugModalLoading = true;
+    try {
+      const nextColumns = projectId === activeProject?.id && columns.length
+        ? [...columns] : (await api.listAllColumns(projectId)).data;
+      if (requestId !== bugModalColumnsRequest || !showBugModal || bugModalProjectId !== projectId) return;
+      bugModalColumns = nextColumns;
+      bugModalColumnId = nextColumns.find((column) => column.semantic_state === 'ready')?.id || nextColumns[0]?.id || '';
+    } catch (error) {
+      if (requestId === bugModalColumnsRequest && showBugModal && bugModalProjectId === projectId) {
+        bugModalError = friendlyError(error, 'This project’s columns could not be loaded.');
+      }
+    } finally {
+      if (requestId === bugModalColumnsRequest) bugModalLoading = false;
     }
   }
 
   async function changeBugModalProject() {
-    bugModalColumns = [];
-    bugModalColumnId = '';
+    if (bugModalCreating || bugCreation) return;
     bugModalReleaseId = '';
-    bugModalError = '';
-    if (!bugModalProjectId) return;
     void loadProjectReleases(bugModalProjectId).catch(() => []);
-    bugModalLoading = true;
-    try {
-      bugModalColumns = bugModalProjectId === activeProject?.id
-        ? [...columns]
-        : (await api.listAllColumns(bugModalProjectId)).data;
-      bugModalColumnId = bugModalColumns.find((column) => column.semantic_state === 'ready')?.id || bugModalColumns[0]?.id || '';
-    } catch (error) {
-      bugModalError = friendlyError(error, 'This project’s columns could not be loaded.');
-    } finally {
-      bugModalLoading = false;
-    }
+    await loadBugModalColumns(bugModalProjectId);
   }
 
   async function toggleFavorite(event: MouseEvent, project: Project) {
@@ -5352,6 +5657,8 @@
 
   function clearFilters() {
     filters = { query: '', priority: 'all', label: 'all', assignee: 'all', state: 'all', dependency: 'all' };
+    boardSort = 'position';
+    boardOrder = 'asc';
     boardWorkFilter = 'all';
     boardReleaseFilter = 'all';
     syncBoardReleaseURL();
@@ -5986,15 +6293,44 @@
     return `Move ${task.key} to ${direction} column${reason ? `. Unavailable: ${reason}` : ''}`;
   }
 
-  function moveTaskBy(task: Task, offset: -1 | 1): void {
+  async function moveTaskBy(task: Task, offset: -1 | 1): Promise<void> {
     const destination = adjacentTaskColumn(task, offset);
-    if (destination) void moveTask(task, destination.id);
+    if (destination) await moveTask(task, destination.id);
   }
 
   function orderingPlacementLabel(placement: string): string {
     if (placement === 'first') return 'first';
     if (placement === 'last') return 'last';
     return 'the selected';
+  }
+
+  function boardCardActions(task: Task, ordered: Task[], gate: BoardOrderingGate, busy: boolean): BoardCardAction[] {
+    return [
+      ...(['first', 'previous', 'next', 'last'] as const).map((placement) => ({
+        id: placement, label: orderingMoveLabel(task, placement, gate),
+        disabled: orderingMoveDisabled(task, placement, ordered, gate, busy),
+        reason: orderingMoveUnavailableReason(placement, gate) || (busy ? 'A move is in progress.' : 'Already at this position.'),
+        run: () => moveTaskToPosition(task, placement)
+      })),
+      ...([-1, 1] as const).map((offset) => ({
+        id: offset < 0 ? 'left' : 'right', label: cardMoveLabel(task, offset),
+        disabled: !adjacentTaskColumn(task, offset) || Boolean(cardMoveReason(task, offset)) || busy,
+        reason: cardMoveReason(task, offset) || (busy ? 'A move is in progress.' : 'No adjacent column.'),
+        run: () => moveTaskBy(task, offset)
+      }))
+    ];
+  }
+
+  function makeBoardFilterChips(current: BoardFilters, work: string, release: string, sort: string, order: string) {
+    const chips: Array<{ id: string; label: string; clear: () => void }> = [];
+    for (const key of ['query', 'priority', 'state', 'label', 'assignee', 'dependency'] as const) {
+      const value = current[key];
+      if (value && value !== 'all') chips.push({ id: key, label: `${key === 'query' ? 'Search' : key}: ${key === 'label' ? labels.find((l) => l.id === value)?.name || value : value}`, clear: () => { filters = { ...filters, [key]: key === 'query' ? '' : 'all' }; scheduleBoardReload(); } });
+    }
+    if (work !== 'all') chips.push({ id: 'work', label: `Agent: ${work}`, clear: () => { boardWorkFilter = 'all'; scheduleBoardReload(); } });
+    if (release !== 'all') chips.push({ id: 'release', label: `Focus: ${activeProjectReleases.find((r) => r.id === release)?.name || release}`, clear: () => { boardReleaseFilter = 'all'; scheduleBoardReload(); } });
+    if (sort !== 'position' || order !== 'asc') chips.push({ id: 'sort', label: `Sort: ${sort} ${order}`, clear: () => { boardSort = 'position'; boardOrder = 'asc'; scheduleBoardReload(); } });
+    return chips;
   }
 
   function orderingMoveLabel(
@@ -6006,12 +6342,12 @@
     return `Move ${task.key} to ${placement} position${reason ? `. Unavailable: ${reason}` : ''}`;
   }
 
-  function moveTaskToPosition(task: Task, placement: 'first' | 'previous' | 'next' | 'last'): void {
+  async function moveTaskToPosition(task: Task, placement: 'first' | 'previous' | 'next' | 'last'): Promise<void> {
     const ordered = tasksByColumn[task.column_id] || [];
     const index = ordered.findIndex((item) => item.id === task.id);
     if (index < 0) return;
     const targetIndex = placement === 'first' ? 0 : placement === 'last' ? ordered.length : placement === 'previous' ? index - 1 : index + 2;
-    void reorderTaskAt(task, task.column_id, targetIndex, placement);
+    await reorderTaskAt(task, task.column_id, targetIndex, placement);
   }
 
   function replaceTask(updated: Task, localMutation = false, announceChanges = true) {
@@ -6084,6 +6420,8 @@
   }
 
   function openQuickAdd(columnId: string, trigger: HTMLButtonElement) {
+    if (hasPendingCreation()) return;
+    quickAddError = '';
     quickAddReturnFocus = trigger;
     quickAddColumn = columnId;
     void tick().then(() => {
@@ -6092,6 +6430,7 @@
   }
 
   function cancelQuickAdd() {
+    if (quickAddCreating || quickCreation) return;
     const columnId = quickAddColumn;
     const previousTrigger = quickAddReturnFocus;
     quickAddReturnFocus = null;
@@ -6105,27 +6444,44 @@
   }
 
   async function submitQuickAdd(columnId: string) {
+    if (quickAddCreating) return;
     const title = (quickAddTitle[columnId] || '').trim();
-    if (!title || !activeProject) return;
+    if (!quickCreation && (!title || !activeProject || !columns.some((column) => column.id === columnId))) return;
+    if (!quickCreation) {
+      rememberCreationRoute();
+      quickCreation = {
+        projectId: activeProject!.id,
+        key: creationOperationKey(),
+        input: { title, column_id: columnId, priority: 'normal', release_id: plannedReleaseIdForAssignment(boardReleaseFilter, activeProjectReleases) || null }
+      };
+    }
+    const operation = quickCreation;
+    const actor = user?.id;
+    quickAddCreating = true;
+    quickAddError = '';
     taskActionLoading = `create-${columnId}`;
     try {
-      const created = await api.createTask(activeProject.id, {
-        title,
-        column_id: columnId,
-        priority: 'normal',
-        release_id: plannedReleaseIdForAssignment(boardReleaseFilter, activeProjectReleases) || null
-      });
+      const created = await reconcileCreation(() => api.createTask(operation.projectId, operation.input, operation.key));
+      if (actor !== user?.id || quickCreation !== operation) return;
       recordTaskMutation(created.id, 'upsert', ['board']);
-      tasks = [...tasks, created];
-      syncBoardTaskPages(created);
+      if (operation.projectId === activeProject?.id) {
+        tasks = [...tasks.filter((task) => task.id !== created.id), created];
+        syncBoardTaskPages(created);
+      }
       quickAddTitle = { ...quickAddTitle, [columnId]: '' };
       quickAddColumn = '';
       quickAddReturnFocus = null;
+      quickCreation = null;
       toast('success', `${created.key} added to ${columns.find((column) => column.id === columnId)?.name || 'the board'}.`);
     } catch (error) {
-      toast('error', friendlyError(error, 'The task could not be created.'));
+      if (actor !== user?.id || quickCreation !== operation) return;
+      if (!ambiguousCreation(error)) quickCreation = null;
+      quickAddError = creationError(error, 'The task could not be created.');
     } finally {
-      taskActionLoading = '';
+      if (actor === user?.id) {
+        quickAddCreating = false;
+        if (taskActionLoading === `create-${columnId}`) taskActionLoading = '';
+      }
     }
   }
 
@@ -6213,7 +6569,7 @@
     const route = getTaskRouteFromLocation();
     if (route) {
       const path = taskDeepLink(route.projectSlug, route.taskReference, next);
-      if (`${window.location.pathname}${window.location.search}` !== path) window.history.replaceState({}, '', path);
+      if (`${window.location.pathname}${window.location.search}` !== path) navigate(path, true);
     }
     if (
       next === 'activity'
@@ -6254,8 +6610,16 @@
     options: OpenTaskOptions = {}
   ) {
     if (!options.skipDiscardGuard && !confirmDrawerTaskSwitch(task)) return;
+    const route = getTaskRouteFromLocation();
+    if (!route) {
+      const project = projectForTask(task);
+      if (project) {
+        taskRouteOrigin = window.location.pathname + window.location.search;
+        navigate(taskDeepLink(project.slug, task.key, intent));
+      }
+    }
     const requestId = ++taskDetailRequest;
-    rememberDialogFocus('[data-task-trigger], .work-row');
+    rememberDialogFocus(`[data-task-trigger="${CSS.escape(task.id)}"], .work-row`);
     if (options.returnFocus) dialogReturnFocus = options.returnFocus;
     taskRouteIntent = intent;
     drawerView = intent === 'activity' ? 'activity' : 'details';
@@ -6496,22 +6860,31 @@
     return JSON.stringify([...drawerTaskDraftValues(), ...drawerActionDraftValues()]);
   }
 
-  function restoreTaskRouteOrigin(origin: string) {
+  function restoreTaskRouteOrigin(origin: string): Promise<unknown> | void {
     const path = new URL(origin || '/', window.location.origin).pathname;
     if (/^\/my-work\/?$/.test(path)) {
       view = 'my-work';
-      void loadMyWork();
+      return loadMyWork();
     } else if (/^\/search\/?$/.test(path)) {
       applySearchRouteFilters(new URL(origin, window.location.origin).searchParams);
       view = 'search';
-      void loadSearch();
+      return loadSearch();
     } else if (/^\/issues\/?$/.test(path)) {
       applyIssueRouteFilters(new URL(origin, window.location.origin).searchParams);
       view = 'issues';
-      void loadIssues();
+      return loadIssues();
     } else if (/^\/roadmap\/?$/.test(path)) {
       view = 'roadmap';
-      void loadRoadmap();
+      return loadRoadmap();
+    } else if (/^\/p\/[^/]+\/roadmap\/?$/.test(path)) {
+      const slug = path.match(/^\/p\/([^/]+)\/roadmap\/?$/)?.[1];
+      const project = projects.find((item) => item.slug === decodeURIComponent(slug || ''));
+      if (project) {
+        activeProjectSlug = project.slug;
+        roadmapProjectId = project.id;
+      }
+      view = 'roadmap';
+      return loadRoadmap();
     } else if (/^\/p\/[^/]+\/(?:focus|releases)\/?$/.test(path)) {
       const releaseSlug = path.match(/^\/p\/([^/]+)\/(?:focus|releases)\/?$/)?.[1];
       const releaseProject = projects.find((project) => project.slug === decodeURIComponent(releaseSlug || ''));
@@ -6520,7 +6893,7 @@
         roadmapProjectId = undefined;
         view = 'releases';
         releaseSelectedId = new URL(origin, window.location.origin).searchParams.get('release') || releaseSelectedId;
-        void loadReleasesPage();
+        return loadReleasesPage();
       } else {
         view = 'releases';
       }
@@ -6540,12 +6913,18 @@
         activeProjectSlug = timelineProject.slug;
         roadmapProjectId = undefined;
         view = 'timeline';
-        if (boardTimelineProjectId !== timelineProject.id) void loadBoardTimeline(timelineProject.id, { reset: true });
+        if (boardTimelineProjectId !== timelineProject.id) return loadBoardTimeline(timelineProject.id, { reset: true });
       } else {
         view = 'timeline';
       }
     } else {
       view = 'board';
+      const url = new URL(origin || '/', window.location.origin);
+      const slug = url.pathname.match(/^\/p\/([^/]+)/)?.[1];
+      const project = projects.find((item) => item.slug === decodeURIComponent(slug || ''));
+      if (project) activeProjectSlug = project.slug;
+      applyBoardRoute(url.searchParams);
+      return loadBoard();
     }
   }
 
@@ -6630,6 +7009,10 @@
     taskDetailRequest += 1;
     drawerLivenessRequest += 1;
     drawerTask = null;
+    editedCommentDirty = false;
+    editedCommentPending = false;
+    checklistDirty = false;
+    checklistPending = false;
     drawerDependencyPanel = null;
     drawerHierarchyPanel = null;
     taskRouteOrigin = '';
@@ -6647,12 +7030,13 @@
     blockReasonOpen = false;
     drawerSavedTaskDraftFingerprint = '';
     drawerSavedActionDraftFingerprint = '';
+    let originRendered: Promise<unknown> = Promise.resolve();
     if (!skipRouteNavigation && isTaskLocation()) {
       const destination = routeOrigin || `/p/${encodeURIComponent(activeProjectSlug)}`;
       navigate(destination);
-      restoreTaskRouteOrigin(destination);
+      originRendered = Promise.resolve(restoreTaskRouteOrigin(destination));
     }
-    restoreDialogFocus();
+    restoreDialogFocus(originRendered);
     return true;
   }
 
@@ -7102,7 +7486,7 @@
       activeProjectSlug = project.slug;
       recentProjectIds = rememberProject(project.id, localStorage);
       view = 'board';
-      navigate(taskDeepLink(project.slug, task.key, 'details'));
+      navigate(taskDeepLink(project.slug, task.key, intent));
       await loadBoard();
     } else {
       // A task from a scoped/global search can outlive the project list cache.
@@ -7291,7 +7675,8 @@
   }
 
   async function createAgent() {
-    if (!agentNameDraft.trim()) return;
+    if (!agentNameDraft.trim() || agentSaving) return;
+    agentSaving = true;
     try {
       const agent = await api.createAgent({ name: agentNameDraft.trim(), description: agentDescriptionDraft.trim() });
       agents = [...agents, agent];
@@ -7302,6 +7687,8 @@
       toast('success', `${agent.name} was created.`);
     } catch (error) {
       agentsError = friendlyError(error, 'The agent could not be created.');
+    } finally {
+      agentSaving = false;
     }
   }
 
@@ -7376,7 +7763,7 @@
 <svelte:window />
 
 {#if user && !$offlineReadOnly}
-  <PwaStatus showCacheStatus={false} />
+  {#if !drawerTask && !showTaskModal && !showBugModal && !showProjectModal && !showReleaseModal}<PwaStatus showCacheStatus={false} beforeUpdate={beforePwaUpdate} {updateBlocked} />{/if}
 {/if}
 
 {#if $offlineReadOnly}
@@ -7631,12 +8018,13 @@
             {#if view === 'board'}
             <section class="board-toolbar" aria-label="Board filters">
               <div class="filter-search"><span aria-hidden="true">⌕</span><input bind:this={boardSearchInput} aria-label="Search tasks" bind:value={filters.query} on:input={scheduleBoardReload} placeholder="Search tasks…" /><kbd>/</kbd></div>
-              <div class="filter-group"><select aria-label="Filter by state" bind:value={filters.state} on:change={scheduleBoardReload}><option value="all">All states</option>{#each sortedColumns as column}<option value={column.semantic_state}>{stateLabels[column.semantic_state] || column.name}</option>{/each}</select><select aria-label="Filter by priority" bind:value={filters.priority} on:change={scheduleBoardReload}><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select><select aria-label="Filter by focus" bind:value={boardReleaseFilter} on:change={() => { syncBoardReleaseURL(); scheduleBoardReload(); }}><option value="all">All focus areas</option>{#each activeProjectReleases as release}<option value={release.id}>{release.name}{release.status === 'released' ? ' · Completed' : ''}</option>{/each}<option value="unassigned">No focus</option></select><select aria-label="Filter by agent work" bind:value={boardWorkFilter} on:change={scheduleBoardReload}><option value="all">All agent work</option><option value="action-needed">Action needed{boardWorkCounts.actionNeeded ? ` · ${boardWorkCounts.actionNeeded}` : ''}</option><option value="missing">Missing{boardWorkCounts.missing ? ` · ${boardWorkCounts.missing}` : ''}</option><option value="stale">Stale{boardWorkCounts.stale ? ` · ${boardWorkCounts.stale}` : ''}</option><option value="waiting">Waiting{boardWorkCounts.waiting ? ` · ${boardWorkCounts.waiting}` : ''}</option><option value="handoff">Handoff{boardWorkCounts.handoff ? ` · ${boardWorkCounts.handoff}` : ''}</option><option value="working">Working{boardWorkCounts.working ? ` · ${boardWorkCounts.working}` : ''}</option><option value="verifying">Verifying{boardWorkCounts.verifying ? ` · ${boardWorkCounts.verifying}` : ''}</option></select><select aria-label="Filter by dependency readiness" bind:value={filters.dependency} on:change={scheduleBoardReload}><option value="all">All dependencies</option><option value="blocked">Waiting on prerequisites</option><option value="ready">Prerequisites finished</option></select><select aria-label="Filter by label" bind:value={filters.label} on:change={scheduleBoardReload}><option value="all">All labels</option>{#each labels as label}<option value={label.id}>{label.name}</option>{/each}</select><select aria-label="Filter by assignee" bind:value={filters.assignee} on:change={scheduleBoardReload}><option value="all">All assignees</option>{#each Array.from(new Map(tasks.map((task) => [actorId(task.assignee), task.assignee])).entries()).filter(([id]) => id) as pair}<option value={pair[0]}>{actorName(pair[1]) || pair[0]}</option>{/each}</select><select aria-label="Sort tasks" bind:value={boardSort} on:change={scheduleBoardReload}><option value="position">Board order</option><option value="number">Task number</option><option value="priority">Priority</option><option value="title">Title</option><option value="created_at">Created</option><option value="updated_at">Updated</option></select><select aria-label="Sort direction" bind:value={boardOrder} on:change={scheduleBoardReload}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div>
+              <BoardFilterPanel activeCount={boardFilterChips.length} onClear={clearFilters}><div class="filter-group"><select aria-label="Filter by state" bind:value={filters.state} on:change={scheduleBoardReload}><option value="all">All states</option>{#each sortedColumns as column}<option value={column.semantic_state}>{stateLabels[column.semantic_state] || column.name}</option>{/each}</select><select aria-label="Filter by priority" bind:value={filters.priority} on:change={scheduleBoardReload}><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select><select aria-label="Filter by focus" bind:value={boardReleaseFilter} on:change={() => { syncBoardReleaseURL(); scheduleBoardReload(); }}><option value="all">All focus areas</option>{#each activeProjectReleases as release}<option value={release.id}>{release.name}{release.status === 'released' ? ' · Completed' : ''}</option>{/each}<option value="unassigned">No focus</option></select><select aria-label="Filter by agent work" bind:value={boardWorkFilter} on:change={scheduleBoardReload}><option value="all">All agent work</option><option value="action-needed">Action needed{boardWorkCounts.actionNeeded ? ` · ${boardWorkCounts.actionNeeded}` : ''}</option><option value="missing">Missing{boardWorkCounts.missing ? ` · ${boardWorkCounts.missing}` : ''}</option><option value="stale">Stale{boardWorkCounts.stale ? ` · ${boardWorkCounts.stale}` : ''}</option><option value="waiting">Waiting{boardWorkCounts.waiting ? ` · ${boardWorkCounts.waiting}` : ''}</option><option value="handoff">Handoff{boardWorkCounts.handoff ? ` · ${boardWorkCounts.handoff}` : ''}</option><option value="working">Working{boardWorkCounts.working ? ` · ${boardWorkCounts.working}` : ''}</option><option value="verifying">Verifying{boardWorkCounts.verifying ? ` · ${boardWorkCounts.verifying}` : ''}</option></select><select aria-label="Filter by dependency readiness" bind:value={filters.dependency} on:change={scheduleBoardReload}><option value="all">All dependencies</option><option value="blocked">Waiting on prerequisites</option><option value="ready">Prerequisites finished</option></select><select aria-label="Filter by label" bind:value={filters.label} on:change={scheduleBoardReload}><option value="all">All labels</option>{#each labels as label}<option value={label.id}>{label.name}</option>{/each}</select><select aria-label="Filter by assignee" bind:value={filters.assignee} on:change={scheduleBoardReload}><option value="all">All assignees</option>{#each Array.from(new Map(tasks.map((task) => [actorId(task.assignee), task.assignee])).entries()).filter(([id]) => id) as pair}<option value={pair[0]}>{actorName(pair[1]) || pair[0]}</option>{/each}</select><select aria-label="Sort tasks" bind:value={boardSort} on:change={scheduleBoardReload}><option value="position">Board order</option><option value="number">Task number</option><option value="priority">Priority</option><option value="title">Title</option><option value="created_at">Created</option><option value="updated_at">Updated</option></select><select aria-label="Sort direction" bind:value={boardOrder} on:change={scheduleBoardReload}><option value="asc">Ascending</option><option value="desc">Descending</option></select></div></BoardFilterPanel><button class="button primary" type="button" data-task-modal-trigger on:click={() => openTaskModal()}>Create task</button>
               {#if boardFiltersActive()}<button class="clear-filters" type="button" on:click={clearFilters}>Clear filters</button>{/if}
-              <div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={boardCriteriaTransition || boardLoading || !visibleTasks.length || allVisibleTasksSelected}>Select loaded tasks</button>{#if selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div>
-              <span class="toolbar-spacer"></span><span class="task-total">{visibleTasks.length}{boardPartial ? '+' : ''} {visibleTasks.length === 1 ? 'task' : 'tasks'}</span><button class="icon-button" type="button" aria-label="Refresh board" on:click={() => loadBoard()}>↻</button>
-            </section>
+              <details class="board-secondary-actions"><summary data-board-actions-trigger>Actions</summary><div class="board-secondary-panel"><div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={boardCriteriaTransition || boardLoading || !visibleTasks.length || allVisibleTasksSelected}>Select loaded tasks</button></div>
+              <button class="icon-button" type="button" aria-label="Refresh board" on:click={() => loadBoard()}>↻</button>
+            </div></details><div class="bulk-selection-actions">{#if selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div><span class="task-total">{visibleTasks.length} loaded {visibleTasks.length === 1 ? 'task' : 'tasks'}</span></section>
 
+            {#if boardFilterChips.length}<div class="board-filter-chips" aria-label="Active board filters">{#each boardFilterChips as chip (chip.id)}<button type="button" on:click={chip.clear} aria-label={`Remove ${chip.label} filter`}>{chip.label} <span aria-hidden="true">×</span></button>{/each}</div>{/if}
             {#if boardError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{boardError}</span><button class="text-button" type="button" on:click={() => loadBoard()}>Retry</button></div>{/if}
             {#if boardOffline}<div class="inline-alert warning content-alert" role="status"><span aria-hidden="true">⌁</span><span>You are offline. Showing the last loaded board pages.</span><button class="text-button" type="button" on:click={() => loadBoard()}>Retry</button></div>{/if}
             {#if Object.values(boardPages).some((page) => Boolean(page.error))}<div class="inline-alert warning content-alert" role="status"><span aria-hidden="true">…</span><span>Some board columns could not be loaded.</span><button class="text-button" type="button" on:click={() => loadBoard()}>Retry columns</button></div>{/if}
@@ -7690,7 +8078,7 @@
                               <span class="task-select-box" aria-hidden="true"></span>
                             </label>
                             <button class="task-drag-handle" type="button" draggable="true" aria-label={`Drag ${task.key}, ${task.title}`} title="Drag task" on:click|stopPropagation={() => undefined} on:dragstart|stopPropagation={(event) => dragStart(event, task)}>⠿</button>
-                            <button class="task-main" type="button" data-task-trigger aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
+                            <button class="task-main" type="button" data-task-trigger={task.id} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
                               <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{/if}{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if taskReleaseName(task)}<span class="release-chip" title={`Target focus: ${taskReleaseName(task)}`}>◈ {taskReleaseName(task)}</span>{/if}{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
                               <strong class="task-title">{task.title}</strong>
                               {#if task.description}<span class="task-excerpt">{task.description.replace(/[#*_`]/g, '').slice(0, 92)}{task.description.length > 92 ? '…' : ''}</span>{/if}
@@ -7701,7 +8089,7 @@
                             </button>
                             <button class="card-expand-toggle" type="button" aria-expanded={expandedBoardTaskIds.has(task.id)} aria-label={`${expandedBoardTaskIds.has(task.id) ? 'Hide' : 'Show'} details for ${task.key}`} on:click|stopPropagation={() => toggleBoardTaskExpanded(task.id)}>{expandedBoardTaskIds.has(task.id) ? '⌃ Hide details' : '⌄ Show details'}</button>
                             {#if showAgentPulse(task)}<AgentPulse {task} now={pulseClock} actorLabel={agentLabelForTask(task)} compact />{/if}
-                            <div class="task-card-footer"><span class={`due-date ${taskDueClass(task)}`}>{#if task.due_at}<span aria-hidden="true">◷</span>{formatDate(task.due_at)}{/if}</span><span class="card-footer-spacer"></span>{#if task.assignee}<span class="mini-avatar" title={`Assigned to ${actorName(task.assignee) || actorId(task.assignee)}`}>{(actorName(task.assignee) || actorId(task.assignee)).slice(0, 1).toUpperCase()}</span>{/if}{#if task.comment_count}<span class="comment-count" title={`${task.comment_count} comments`}>◌ {task.comment_count}</span>{/if}<button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'first', orderingGate)} title={orderingMoveTitle('first', orderingGate)} disabled={orderingMoveDisabled(task, 'first', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'first')}>⇈</button><button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'previous', orderingGate)} title={orderingMoveTitle('previous', orderingGate)} disabled={orderingMoveDisabled(task, 'previous', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'previous')}>↑</button><button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'next', orderingGate)} title={orderingMoveTitle('next', orderingGate)} disabled={orderingMoveDisabled(task, 'next', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'next')}>↓</button><button class="icon-button card-move order-move" type="button" aria-label={orderingMoveLabel(task, 'last', orderingGate)} title={orderingMoveTitle('last', orderingGate)} disabled={orderingMoveDisabled(task, 'last', orderedColumnTasks, orderingGate, taskActionLoading === task.id)} on:click={() => moveTaskToPosition(task, 'last')}>⇊</button><button class="icon-button card-move" type="button" aria-label={cardMoveLabel(task, -1)} title={cardMoveReason(task, -1) || undefined} disabled={!adjacentTaskColumn(task, -1) || Boolean(cardMoveReason(task, -1)) || taskActionLoading === task.id} on:click={() => moveTaskBy(task, -1)}>←</button><button class="icon-button card-move" type="button" aria-label={cardMoveLabel(task, 1)} title={cardMoveReason(task, 1) || undefined} disabled={!adjacentTaskColumn(task, 1) || Boolean(cardMoveReason(task, 1)) || taskActionLoading === task.id} on:click={() => moveTaskBy(task, 1)}>→</button></div>
+                            <div class="task-card-footer"><span class={`due-date ${taskDueClass(task)}`}>{#if task.due_at}<span aria-hidden="true">◷</span>{formatDate(task.due_at)}{/if}</span><span class="card-footer-spacer"></span>{#if task.assignee}<span class="mini-avatar" title={`Assigned to ${actorName(task.assignee) || actorId(task.assignee)}`}>{(actorName(task.assignee) || actorId(task.assignee)).slice(0, 1).toUpperCase()}</span>{/if}{#if task.comment_count}<span class="comment-count" title={`${task.comment_count} comments`}>◌ {task.comment_count}</span>{/if}<BoardCardActions taskKey={task.key} actions={boardCardActions(task, orderedColumnTasks, orderingGate, taskActionLoading === task.id)} /></div>
                           </article>
                         {/each}
                       {/if}
@@ -7713,7 +8101,7 @@
                     </div>
                     <div class="quick-add-wrap">
                       {#if quickAddColumn === column.id}
-                        <form class="quick-add-form" on:submit|preventDefault={() => submitQuickAdd(column.id)}><input bind:this={quickAddInput} bind:value={quickAddTitle[column.id]} aria-label={`New task in ${column.name}`} placeholder="What needs doing?" /><div><button class="text-button" type="button" on:click={cancelQuickAdd}>Cancel</button><button class="button primary compact-button" type="submit" disabled={!quickAddTitle[column.id]?.trim() || taskActionLoading === `create-${column.id}`}>Add task</button></div></form>
+                        <form class="quick-add-form" aria-busy={quickAddCreating} on:submit|preventDefault={() => submitQuickAdd(column.id)}><input bind:this={quickAddInput} bind:value={quickAddTitle[column.id]} disabled={quickAddCreating || Boolean(quickCreation)} aria-label={`New task in ${column.name}`} placeholder="What needs doing?" />{#if quickAddError}<p role="alert">{quickAddError}</p>{/if}{#if quickAddCreating}<p role="status">Saving…</p>{/if}<div><button class="text-button" type="button" disabled={quickAddCreating || Boolean(quickCreation)} on:click={cancelQuickAdd}>Cancel</button><button class="button primary compact-button" type="submit" disabled={quickAddCreating || (!quickCreation && !quickAddTitle[column.id]?.trim())}>{quickAddCreating ? 'Saving…' : quickCreation ? 'Retry original submission' : 'Add task'}</button></div></form>
                       {:else}<button class="quick-add-trigger" type="button" data-quick-add-trigger={column.id} on:click={(event) => openQuickAdd(column.id, event.currentTarget as HTMLButtonElement)}><span>＋</span> Add task</button>{/if}
                     </div>
                   </article>
@@ -7812,7 +8200,7 @@
         {:else if view === 'search'}
           <section class="page-heading search-heading">
             <div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Search</span>{#if searchView}<span>/</span><span>{searchView.name}</span>{/if}</div><h1>{searchView ? searchView.name : 'Search everything'}</h1><p>Find tasks across every project you can access, then open the board context in one click.</p></div>
-            <div class="heading-actions"><button class="button quiet-button" type="button" on:click={() => { searchViewId = ''; navigate('/search'); void loadSearch(); }}>New search</button><button class="button quiet-button" type="button" on:click={() => loadSearch()}>↻ Refresh</button></div>
+            <div class="heading-actions"><button class="button quiet-button" type="button" on:click={newSearch}>New search</button><button class="button quiet-button" type="button" on:click={() => loadSearch()}>↻ Refresh</button></div>
           </section>
           <section class="search-workspace" aria-label="Global task search">
               <form class="search-toolbar" on:submit|preventDefault={runSearch}>
@@ -7824,7 +8212,7 @@
               <button class="button primary" type="submit">Search</button>
             </form>
             <section class="saved-view-panel" aria-label="Saved views">
-              <div class="saved-view-heading"><div><span class="eyebrow">Reusable filters</span><h2>Saved views</h2><p>Save this search and share it with your workspace.</p></div><div class="saved-view-save"><input aria-label="Saved view name" bind:value={savedViewName} placeholder="Name this view" /><label class="check-label"><input type="checkbox" bind:checked={savedViewShared} /><span>Share</span></label><button class="button quiet-button" type="button" disabled={savedViewSaving} on:click={searchViewId ? updateCurrentSearchView : saveCurrentSearchView}>{searchViewId ? 'Update view' : 'Save view'}</button></div></div>
+              <div class="saved-view-heading"><div><span class="eyebrow">Reusable filters</span><h2>Saved views</h2><p>Save this search and share it with your workspace.</p></div><div class="saved-view-save"><input aria-label="Saved view name" bind:value={savedViewName} placeholder="Name this view" /><label class="check-label"><input type="checkbox" bind:checked={savedViewShared} /><span>Share</span></label>{#if searchView}<span role="status">{searchViewDirty ? 'Unsaved changes' : 'Saved'}</span>{#if searchView.owner_id === user?.id}<button class="button quiet-button" type="button" disabled={savedViewSaving || !searchViewDirty} on:click={updateCurrentSearchView}>Update view</button><button class="button quiet-button" type="button" disabled={savedViewSaving || !savedViewName.trim() || savedViewName.trim() === searchView.name} on:click={renameCurrentSearchView}>Rename</button>{/if}{/if}<button class="button quiet-button" type="button" disabled={savedViewSaving} on:click={saveCurrentSearchView}>{searchView ? 'Save as' : 'Save view'}</button></div></div>
               {#if searchSavedViews.length}<div class="saved-view-list">{#each searchSavedViews as saved (saved.id)}<div class="saved-view-item"><button class:active={searchViewId === saved.id} class="saved-view-chip" type="button" on:click={() => openSavedView(saved)}><span>☆</span><span><strong>{saved.name}</strong><small>{saved.shared ? 'Shared' : 'Private'}</small></span></button>{#if saved.owner_id === user?.id}<button class="saved-view-delete" type="button" aria-label={`Delete saved view ${saved.name}`} on:click={() => removeCurrentSearchView(saved)}>×</button>{/if}</div>{/each}</div>{/if}
             </section>
             {#if searchError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{searchError}</span><button class="text-button" type="button" on:click={() => loadSearch()}>Retry</button></div>{/if}
@@ -7916,7 +8304,7 @@
           {#if roadmapError}<div class="inline-alert error content-alert" role="alert"><span>!</span>{roadmapError}<button class="text-button" type="button" on:click={() => loadRoadmap(roadmapProjectId)}>Retry</button></div>{/if}
           {#if roadmapLoading}<div class="roadmap-skeleton"><div></div><div></div><div></div></div>{:else}<section class="roadmap-content"><div class="roadmap-hero"><div class="hero-copy"><span class="eyebrow">Workspace pulse</span><h2>Momentum, at a glance.</h2><p>Progress is calculated from each project's semantic board state.</p></div><div class="hero-progress"><div class="progress-ring" style={`--progress: ${roadmapCompletion}%`}><span>{Math.round(roadmapCompletion)}<small>%</small></span></div><div><strong>{roadmapTotal} total tasks</strong><span>{roadmap?.completed_count ?? Math.round(roadmapTotal * roadmapCompletion / 100)} completed</span></div></div></div><div class="metric-grid"><div class="metric-card"><span class="metric-icon purple">◒</span><span class="metric-label">Completion</span><strong>{Math.round(roadmapCompletion)}%</strong><span class="metric-note">Across all projects</span></div><div class="metric-card"><span class="metric-icon red">!</span><span class="metric-label">Overdue</span><strong>{roadmap?.overdue_count ?? 0}</strong><span class="metric-note">Need attention</span></div><div class="metric-card"><span class="metric-icon amber">◷</span><span class="metric-label">Due soon</span><strong>{roadmap?.due_soon_count ?? 0}</strong><span class="metric-note">Next 7 days</span></div><div class="metric-card"><span class="metric-icon green">✓</span><span class="metric-label">Completed</span><strong>{roadmap?.completed_count ?? 0}</strong><span class="metric-note">Shipped so far</span></div></div>{#if !roadmapProject}<section class="project-intelligence-panel" aria-labelledby="project-intelligence-heading"><div class="roadmap-panel-heading"><div><h2 id="project-intelligence-heading">Smart project attention</h2><p>{projectIntelligence?.source === 'luna' ? 'Luna analysis from your last manual run.' : 'Metric-based ordering. Luna runs only when you click Analyze.'}</p></div>{#if projectIntelligence}<span class={`intelligence-source ${projectIntelligence.source}`}>{projectIntelligence.source === 'luna' ? 'Luna' : 'Metrics'}</span>{/if}</div>{#if projectIntelligenceError}<div class="inline-alert error" role="alert"><span>!</span>{projectIntelligenceError}</div>{/if}{#if projectIntelligence?.workspace_insights.length}<div class="intelligence-insights">{#each projectIntelligence.workspace_insights as insight}<article><span>{insight.kind.replaceAll('_', ' ')}</span><p>{insight.summary}</p></article>{/each}</div>{:else if projectIntelligenceLoading}<div class="roadmap-live-loading"><span class="spinner"></span>Loading metric snapshot…</div>{:else}<p class="intelligence-empty">No cross-project insight yet. Smart order still uses the deterministic metrics above.</p>{/if}</section>{/if}<RoadmapLiveWork tasks={roadmapLiveTasks} {projects} columnsByProject={roadmapLiveColumnsByProject} actors={roadmapActors} now={pulseClock} loading={roadmapLiveLoading} error={roadmapLiveError} onOpen={openRoadmapTask} onViewAll={() => setView('my-work')} /><div class="roadmap-columns"><section class="roadmap-panel project-progress-panel"><div class="panel-heading"><div><h2>Project progress</h2><p>Where each project stands today.</p></div><button class="icon-button" type="button" aria-label="Refresh progress" on:click={() => loadRoadmap(roadmapProjectId)}>↻</button></div>{#if roadmapProjectRows.length}{#each roadmapProjectRows as row}<button class="project-progress-row" type="button" on:click={() => selectProject(row.project)}><span class="project-dot" style={`--project-color: ${row.project.color || '#6d5efc'}`}>{projectInitials(row.project)}</span><span class="project-progress-name"><strong>{row.project.name}</strong><small>{row.project.key}</small></span>{#if projectOrderMode === 'smart' && projectIntelligenceById.get(row.project.id)}<span class={`attention-pill ${projectIntelligenceById.get(row.project.id)?.attention}`}>{projectAttentionLabel(projectIntelligenceById.get(row.project.id))}</span>{/if}<span class="progress-track"><span style={`width: ${row.total_tasks ? (row.completed_tasks / row.total_tasks) * 100 : 0}%; --project-color: ${row.project.color || '#6d5efc'}`}></span></span><span class="progress-number">{row.total_tasks ? Math.round((row.completed_tasks / row.total_tasks) * 100) : 0}%</span><span>→</span></button>{/each}{:else}<div class="panel-empty">Create a project to see progress here.</div>{/if}</section><section class="roadmap-panel upcoming-panel"><div class="panel-heading"><div><h2>Coming up</h2><p>Tasks with the nearest due dates.</p></div></div>{#if roadmap?.upcoming_tasks?.length}{#each roadmap.upcoming_tasks.slice(0, 5) as task}<button class="upcoming-row" type="button" on:click={() => openWorkTask(task)}><span class="upcoming-key">{task.key}</span><span class="upcoming-title">{task.title}</span><span class={`upcoming-date ${taskDueClass(task)}`}>{formatDate(task.due_at)}</span></button>{/each}{:else}<div class="panel-empty">No upcoming deadlines. Nice breathing room.</div>{/if}</section></div><RoadmapActivity events={roadmapActivityEvents} tasksById={roadmapActivityTasks} {projects} actors={roadmapActors} filter={roadmapActivityFilter} loading={roadmapActivityLoading} error={roadmapActivityError} onFilterChange={(next) => roadmapActivityFilter = next} onOpen={openRoadmapActivity} /></section>{/if}
         {:else if view === 'tickets'}
-          <TicketsWorkspace bind:this={ticketsWorkspace} {user} {projects} actorNames={Object.fromEntries(agents.map((agent) => [agent.id, agent.name]))} onOpenTask={(task) => openWorkTask(task)} onChanged={() => { void loadSidebarCounts(); }} />
+          <TicketsWorkspace bind:this={ticketsWorkspace} bind:dirty={ticketsDirty} {user} {projects} actorNames={Object.fromEntries(agents.map((agent) => [agent.id, agent.name]))} onOpenTask={(task) => openWorkTask(task)} onChanged={() => { void loadSidebarCounts(); }} />
         {:else if view === 'admin'}
           {#if user?.admin}<AdminMetrics />{:else}<div class="empty-state"><div class="empty-icon">◎</div><h3>Administrator access required</h3><p>Ask a workspace administrator for access to metrics.</p></div>{/if}
         {:else}
@@ -7964,7 +8352,7 @@
     {#if drawerTask}
       <div class="drawer-backdrop" role="presentation" on:click={() => closeDrawer()}></div>
       <div class="task-drawer" role="dialog" aria-modal="true" aria-label={`${drawerTask.key}: ${drawerTask.title}`} use:focusTrap>
-        <div class="drawer-focus-target sr-only" tabindex="-1" data-dialog-initial-focus aria-label="Task details"></div>
+        <PwaStatus showCacheStatus={false} beforeUpdate={beforePwaUpdate} {updateBlocked} /><div class="drawer-focus-target sr-only" tabindex="-1" data-dialog-initial-focus aria-label="Task details"></div>
         <div class="drawer-header"><div><span class="drawer-key">{drawerTask.key}</span><span class="issue-kind-badge" class:task-kind={drawerTask.kind !== 'bug'}>{drawerTask.kind === 'bug' ? 'Bug' : 'Task'}</span>{#if drawerTask.kind === 'bug'}<span class:untriaged={!drawerTask.bug?.severity} class="severity-badge">{drawerTask.bug?.severity ? severityLabels[drawerTask.bug.severity] : 'Untriaged'}</span>{/if}<span class={`priority-pill priority-${drawerTask.priority}`}>{priorityLabels[drawerTask.priority]}</span>{#if taskReleaseName(drawerTask)}<span class="release-chip">{taskReleaseName(drawerTask)}</span>{/if}</div><TaskWatchToggle task={drawerTask} sessionKey={`${user.id}:${sessionGeneration}`} disabled={drawerSaving || drawerLoading} /><button class="icon-button" type="button" aria-label="Close task details" on:click={() => closeDrawer()}>×</button></div>
         {#if drawerLoading}<div class="drawer-loading"><span class="spinner"></span><span>Loading task details…</span></div>{/if}
         {#if drawerError}<div class="inline-alert error drawer-alert" role="alert"><span>!</span>{drawerError}</div>{/if}
@@ -8009,6 +8397,8 @@
                   onRefreshTask={refreshDependencyTask}
                 />
 	                <TaskChecklist
+                  bind:dirty={checklistDirty}
+                  bind:pendingWrites={checklistPending}
 	                  task={drawerTask}
 	                  onTaskUpdated={handleChecklistTaskUpdated}
 	                  onRefreshTask={refreshDependencyTask}
@@ -8037,6 +8427,8 @@
                 <button class="icon-button comment-send" type="submit" disabled={!commentBody.trim() || commentSending} aria-label="Add comment">↑</button>
               </form>
               <TaskActivityTimeline
+                bind:dirty={editedCommentDirty}
+                bind:pendingWrites={editedCommentPending}
                 items={drawerTimelineItems}
                 filter={drawerTimelineFilter}
                 loading={drawerTimelineLoading}
@@ -8084,10 +8476,10 @@
 
     {#if showTaskModal}
       <div class="modal-backdrop" role="presentation" on:click={closeTaskModal}></div>
-      <div class="modal task-create-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title" use:focusTrap>
-        <div class="modal-header"><div><span class="eyebrow">Capture an idea</span><h2 id="task-modal-title">Create a task</h2></div><button class="icon-button" type="button" aria-label="Close" on:click={closeTaskModal}>×</button></div>
+      <div class="modal task-create-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title" use:focusTrap><PwaStatus showCacheStatus={false} beforeUpdate={beforePwaUpdate} {updateBlocked} />
+        <div class="modal-header"><div><span class="eyebrow">Capture an idea</span><h2 id="task-modal-title">Create a task</h2></div><button class="icon-button" type="button" aria-label="Close" disabled={taskModalCreating || Boolean(taskCreation)} on:click={closeTaskModal}>×</button></div>
         {#if taskModalError}<div class="inline-alert error" role="alert"><span>!</span>{taskModalError}</div>{/if}
-		<form on:submit|preventDefault={createGlobalTask}>
+		<form aria-busy={taskModalCreating} on:submit|preventDefault={createGlobalTask}><fieldset disabled={taskModalCreating || Boolean(taskCreation)} style="border: 0; padding: 0; margin: 0; min-width: 0;">
 		  <div class="form-row task-destination-row"><label>Project<select bind:value={taskModalProjectId} on:change={changeTaskModalProject}>{#each navProjects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label><label>Column<select bind:value={taskModalColumnId} disabled={taskModalLoading || !taskModalColumns.length}>{#each taskModalColumns as column}<option value={column.id}>{column.name}</option>{/each}</select></label></div>
 		  {#if taskModalParentId && drawerTask?.id === taskModalParentId}<p class="task-parent-note">This task will be created as a child of <strong>{drawerTask.key}</strong>.</p>{/if}
 		  <section class="luna-assist-panel" aria-labelledby="luna-assist-heading" aria-describedby="luna-assist-description">
@@ -8118,17 +8510,17 @@
             <label>Assignee <span class="optional">Optional</span><input bind:value={taskModalAssignee} placeholder="Actor ID" /></label>
             <label>Focus <span class="optional">Optional</span><select aria-label="Focus" bind:value={taskModalReleaseId}><option value="">No focus</option>{#each (releasesByProject[taskModalProjectId] || []).filter((release) => release.status === 'planned') as release}<option value={release.id}>{release.name}</option>{/each}</select></label>
           </section>
-          <div class="modal-actions"><button class="text-button" type="button" on:click={closeTaskModal}>Cancel</button><button class="button primary" type="submit" disabled={taskModalCreating || taskModalLoading || !taskModalTitle.trim()}>{#if taskModalCreating}<span class="button-spinner"></span>{/if}Create task</button></div>
+          </fieldset>{#if taskModalCreating}<p role="status">Saving… Keep this form open while the result is confirmed.</p>{/if}<div class="modal-actions"><button class="text-button" type="button" disabled={taskModalCreating || Boolean(taskCreation)} on:click={closeTaskModal}>Cancel</button><button class="button primary" type="submit" disabled={taskModalCreating || (!taskCreation && (taskModalLoading || !taskModalTitle.trim() || !taskModalColumns.some((column) => column.id === taskModalColumnId)))}>{#if taskModalCreating}<span class="button-spinner"></span>{/if}{taskModalCreating ? 'Saving…' : taskCreation ? 'Retry original submission' : 'Create task'}</button></div>
         </form>
       </div>
     {/if}
 
     {#if showBugModal}
       <div class="modal-backdrop" role="presentation" on:click={closeBugModal}></div>
-      <div class="modal bug-create-modal" role="dialog" aria-modal="true" aria-labelledby="bug-modal-title" use:focusTrap>
-        <div class="modal-header"><div><span class="eyebrow">Capture a regression</span><h2 id="bug-modal-title">Report a bug</h2></div><button class="icon-button" type="button" aria-label="Close" on:click={closeBugModal}>×</button></div>
+      <div class="modal bug-create-modal" role="dialog" aria-modal="true" aria-labelledby="bug-modal-title" use:focusTrap><PwaStatus showCacheStatus={false} beforeUpdate={beforePwaUpdate} {updateBlocked} />
+        <div class="modal-header"><div><span class="eyebrow">Capture a regression</span><h2 id="bug-modal-title">Report a bug</h2></div><button class="icon-button" type="button" aria-label="Close" disabled={bugModalCreating || Boolean(bugCreation)} on:click={closeBugModal}>×</button></div>
         {#if bugModalError}<div class="inline-alert error" role="alert"><span>!</span>{bugModalError}</div>{/if}
-        <form on:submit|preventDefault={reportBug}>
+        <form aria-busy={bugModalCreating} on:submit|preventDefault={reportBug}><fieldset disabled={bugModalCreating || Boolean(bugCreation)} style="border: 0; padding: 0; margin: 0; min-width: 0;">
           <div class="form-row task-destination-row"><label>Project<select bind:value={bugModalProjectId} on:change={() => void changeBugModalProject()}>{#each navProjects as project}<option value={project.id}>{project.key} · {project.name}</option>{/each}</select></label><label>Column<select bind:value={bugModalColumnId} disabled={bugModalLoading || !bugModalColumns.length}>{#each bugModalColumns as column}<option value={column.id}>{column.name}</option>{/each}</select></label></div>
           <label>Bug title<input data-dialog-initial-focus bind:value={bugModalTitle} placeholder="What went wrong?" /></label>
           <label>Actual behavior<textarea rows="3" bind:value={bugModalActual} placeholder="What happened?" required></textarea></label>
@@ -8139,14 +8531,14 @@
           <div class="form-row"><label>Severity <span class="optional">Optional · triage later</span><select aria-label="Initial bug severity" bind:value={bugModalSeverity}><option value="">Untriaged</option><option value="s1">{severityLabels.s1}</option><option value="s2">{severityLabels.s2}</option><option value="s3">{severityLabels.s3}</option><option value="s4">{severityLabels.s4}</option></select></label><label>Priority<select bind:value={bugModalPriority}><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label></div>
           <label>Description <span class="optional">Optional · Markdown supported</span><textarea rows="2" bind:value={bugModalDescription} placeholder="Add context beyond the reproduction details."></textarea></label>
           <label>Labels <span class="optional">Optional · comma separated</span><input bind:value={bugModalLabels} placeholder="frontend, regression" /></label>
-          <div class="modal-actions"><button class="text-button" type="button" on:click={closeBugModal}>Cancel</button><button class="button primary" type="submit" disabled={bugModalCreating || bugModalLoading || !bugModalTitle.trim() || !bugModalActual.trim()}>{#if bugModalCreating}<span class="button-spinner"></span>{/if}Report bug</button></div>
+          </fieldset>{#if bugModalCreating}<p role="status">Saving… Keep this form open while the result is confirmed.</p>{/if}<div class="modal-actions"><button class="text-button" type="button" disabled={bugModalCreating || Boolean(bugCreation)} on:click={closeBugModal}>Cancel</button><button class="button primary" type="submit" disabled={bugModalCreating || (!bugCreation && (bugModalLoading || !bugModalTitle.trim() || !bugModalActual.trim() || !bugModalColumns.some((column) => column.id === bugModalColumnId)))}>{#if bugModalCreating}<span class="button-spinner"></span>{/if}{bugModalCreating ? 'Saving…' : bugCreation ? 'Retry original submission' : 'Report bug'}</button></div>
         </form>
       </div>
     {/if}
 
     {#if showReleaseModal}
       <div class="modal-backdrop" role="presentation" on:click={closeReleaseModal}></div>
-      <div class="modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-modal-title" use:focusTrap>
+      <div class="modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-modal-title" use:focusTrap><PwaStatus showCacheStatus={false} beforeUpdate={beforePwaUpdate} {updateBlocked} />
         <div class="modal-header"><div><span class="eyebrow">Focused work</span><h2 id="release-modal-title">{releaseEditingId ? 'Edit a focus' : 'Create a focus'}</h2></div><button class="icon-button" type="button" aria-label="Close focus dialog" on:click={closeReleaseModal}>×</button></div>
         {#if releaseModalError}<div class="inline-alert error" role="alert"><span>!</span>{releaseModalError}</div>{/if}
         <form class="release-form" on:submit|preventDefault={saveRelease}>
@@ -8216,7 +8608,7 @@
 
     {#if showProjectModal}
       <div class="modal-backdrop" role="presentation" on:click={closeProjectModal}></div>
-      <div class="modal project-modal" role="dialog" aria-modal="true" aria-labelledby="project-modal-title" use:focusTrap><div class="modal-header"><div><span class="eyebrow">New workspace</span><h2 id="project-modal-title">Create a project</h2></div><button class="icon-button" type="button" aria-label="Close" on:click={closeProjectModal}>×</button></div>{#if projectFormError}<div class="inline-alert error" role="alert"><span>!</span>{projectFormError}</div>{/if}<form on:submit|preventDefault={createProject}><div class="project-form-title"><span class="project-dot huge" style={`--project-color: ${projectColorDraft}`}>{projectInitials({ name: projectNameDraft || 'New project', key: projectKeyDraft || 'NP' })}</span><div><label>Project name<input data-dialog-initial-focus bind:value={projectNameDraft} placeholder="Product launch" /></label></div></div><div class="form-row"><label>Project key<input maxlength="16" bind:value={projectKeyDraft} placeholder="PROD" /></label><label>Accent color<input class="color-input" type="color" bind:value={projectColorDraft} /></label></div><label>Description <span class="optional">Optional</span><textarea rows="3" bind:value={projectDescriptionDraft} placeholder="A short note about what this project is for."></textarea><span class="field-hint">Helm will add Backlog, Ready, In progress, Blocked, and Done columns automatically.</span></label><div class="modal-actions"><button class="text-button" type="button" on:click={closeProjectModal}>Cancel</button><button class="button primary" type="submit" disabled={projectCreating || !projectNameDraft.trim() || !projectKeyDraft.trim()}>{#if projectCreating}<span class="button-spinner"></span>{/if}Create project</button></div></form></div>
+      <div class="modal project-modal" role="dialog" aria-modal="true" aria-labelledby="project-modal-title" use:focusTrap><PwaStatus showCacheStatus={false} beforeUpdate={beforePwaUpdate} {updateBlocked} /><div class="modal-header"><div><span class="eyebrow">New workspace</span><h2 id="project-modal-title">Create a project</h2></div><button class="icon-button" type="button" aria-label="Close" disabled={projectCreating || Boolean(projectCreation)} on:click={closeProjectModal}>×</button></div>{#if projectFormError}<div class="inline-alert error" role="alert"><span>!</span>{projectFormError}</div>{/if}<form aria-busy={projectCreating} on:submit|preventDefault={createProject}><fieldset disabled={projectCreating || Boolean(projectCreation)} style="border: 0; padding: 0; margin: 0; min-width: 0;"><div class="project-form-title"><span class="project-dot huge" style={`--project-color: ${projectColorDraft}`}>{projectInitials({ name: projectNameDraft || 'New project', key: projectKeyDraft || 'NP' })}</span><div><label>Project name<input data-dialog-initial-focus bind:value={projectNameDraft} placeholder="Product launch" /></label></div></div><div class="form-row"><label>Project key<input maxlength="16" bind:value={projectKeyDraft} placeholder="PROD" /></label><label>Accent color<input class="color-input" type="color" bind:value={projectColorDraft} /></label></div><label>Description <span class="optional">Optional</span><textarea rows="3" bind:value={projectDescriptionDraft} placeholder="A short note about what this project is for."></textarea><span class="field-hint">Helm will add Backlog, Ready, In progress, Blocked, and Done columns automatically.</span></label></fieldset>{#if projectCreating}<p role="status">Saving… Keep this form open while the result is confirmed.</p>{/if}<div class="modal-actions"><button class="text-button" type="button" disabled={projectCreating || Boolean(projectCreation)} on:click={closeProjectModal}>Cancel</button><button class="button primary" type="submit" disabled={projectCreating || (!projectCreation && (!projectNameDraft.trim() || !projectKeyDraft.trim()))}>{#if projectCreating}<span class="button-spinner"></span>{/if}{projectCreating ? 'Saving…' : projectCreation ? 'Retry original submission' : 'Create project'}</button></div></form></div>
     {/if}
 
     {#if confirmRequest}
@@ -8224,6 +8616,7 @@
         title={confirmRequest.title}
         message={confirmRequest.message}
         confirmLabel={confirmRequest.confirmLabel}
+        cancelLabel={confirmRequest.cancelLabel || 'Cancel'}
         onConfirm={() => settleConfirm(true)}
         onCancel={() => settleConfirm(false)}
       />
