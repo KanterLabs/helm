@@ -82,14 +82,14 @@ describe('AgentPulse accessible state text', () => {
     expect(pulse).toContain('Working');
     expect(pulse).toContain('1 of 2 checkpoints');
     expect(pulse).toContain('agent agent-1');
-    expect(pulse).toContain('updated 1m ago');
+    expect(pulse).toContain('last check-in 1m ago');
     expect(pulse).toContain('2026-08-28T11:59:00.000Z');
   });
 
   it('keeps waiting visible while calling out a stale update', () => {
     const pulse = render(task({ state: 'waiting', updated_at: '2026-08-28T11:00:00Z', stale: false }));
     expect(pulse).toContain('Waiting');
-    expect(pulse).toContain('Waiting update is stale');
+    expect(pulse).toContain('Stale check-in');
   });
 
   it('identifies verifying work', () => {
@@ -101,7 +101,7 @@ describe('AgentPulse accessible state text', () => {
   it('identifies stale working work separately from fresh work', () => {
     const pulse = render(task({ updated_at: '2026-08-28T11:44:00Z', stale: false }));
     expect(pulse).toContain('Stale');
-    expect(pulse).toContain('Working update is stale');
+    expect(pulse).toContain('Stale check-in');
     expect(pulse).toContain('Stale');
   });
 
@@ -122,15 +122,15 @@ describe('AgentPulse accessible state text', () => {
     expect(pulse?.getAttribute('role')).not.toBe('img');
     expect(pulse?.getAttribute('aria-label')).toBeNull();
     expect(pulse?.textContent).toContain('Progress: 1 of 2 checkpoints (50%)');
-    expect(pulse?.textContent).toContain('Updated 1m ago');
+    expect(pulse?.textContent).toContain('Last check-in 1m ago');
     expect(pulse?.textContent).toContain('2026-08-28T11:59:00.000Z');
   });
 
-  it('uses only the visible status label for a compact badge', () => {
+  it('uses the visible state and freshness labels for a compact badge', () => {
     const value = task({});
     mountedComponents.push(mount(AgentPulse, { target: document.body, props: { task: value, now, compact: true } }));
     const pulse = document.querySelector<HTMLElement>('[data-agent-pulse]');
-    expect(pulse?.getAttribute('aria-labelledby')).toBe(`agent-pulse-${value.id}-state`);
+    expect(pulse?.getAttribute('aria-labelledby')).toBe(`agent-pulse-${value.id}-state agent-pulse-${value.id}-freshness`);
     expect(pulse?.getAttribute('aria-describedby')).toBeNull();
     expect(pulse?.textContent).toContain('Working');
     expect(pulse?.querySelector('.agent-pulse-copy')).toBeNull();

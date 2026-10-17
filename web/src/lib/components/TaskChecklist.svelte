@@ -17,13 +17,15 @@
 </script>
 
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { api } from '../api';
   import { ApiError, type Task, type TaskChecklistItem } from '../types';
 
   export let task: Task;
   export let onTaskUpdated: (updated: Task) => void = () => undefined;
   export let onRefreshTask: () => void | Promise<void> = () => undefined;
+  export let dirty = false;
+  export let pendingWrites = false;
 
   let newText = '';
   let adding = false;
@@ -34,6 +36,14 @@
   let syncedVersion = 0;
   let announcement = '';
   let destroyed = false;
+  let taskScope = 0;
+
+  onDestroy(() => {
+    destroyed = true;
+    taskScope += 1;
+    dirty = false;
+    pendingWrites = false;
+  });
 
   $: items = task?.checklist || [];
   $: summary = task?.checklist_summary || {
@@ -45,11 +55,22 @@
     warning: false
   };
   $: if (task?.id && (task.id !== syncedTaskID || task.version !== syncedVersion)) {
+    if (task.id !== syncedTaskID) {
+      taskScope += 1;
+      newText = '';
+      adding = false;
+      pending = {};
+      errors = {};
+      announcement = '';
+    }
     syncedTaskID = task.id;
     syncedVersion = task.version;
     draftTexts = Object.fromEntries(items.map((item) => [item.id, item.text]));
   }
   $: busy = adding || Object.values(pending).some(Boolean);
+  $: dirty = Boolean(newText.trim())
+    || items.some((item) => (draftTexts[item.id] ?? item.text) !== item.text);
+  $: pendingWrites = busy;
 
   function errorMessage(error: unknown, fallback: string): string {
     if (error instanceof ApiError && error.code === 'stale_task') return 'This task changed elsewhere. Refreshing the checklist…';
@@ -82,47 +103,49 @@
     const text = newText.trim();
     if (!text || busy) return;
     const taskID = task.id;
+    const scope = taskScope;
     adding = true;
     setError('new', '');
     try {
       const updated = await api.addTaskChecklistItem(taskID, { text }, task.version);
-      if (destroyed || task.id !== taskID) return;
+      if (destroyed || task.id !== taskID || scope !== taskScope) return;
       onTaskUpdated(updated);
       newText = '';
       announcement = `Added checklist item: ${text}`;
       await tick();
       document.getElementById('checklist-new-item')?.focus();
     } catch (error) {
-      if (!destroyed && task.id === taskID) {
+      if (!destroyed && task.id === taskID && scope === taskScope) {
         const message = errorMessage(error, 'The checklist item could not be added.');
         setError('new', message);
         announcement = message;
         await recover(error);
       }
     } finally {
-      if (!destroyed && task.id === taskID) adding = false;
+      if (!destroyed && task.id === taskID && scope === taskScope) adding = false;
     }
   }
 
   async function updateItem(item: TaskChecklistItem, input: { text?: string; completed?: boolean }): Promise<void> {
     if (busy) return;
     const taskID = task.id;
+    const scope = taskScope;
     setPending(item.id, true);
     setError(item.id, '');
     try {
       const updated = await api.updateTaskChecklistItem(taskID, item.id, input, task.version);
-      if (destroyed || task.id !== taskID) return;
+      if (destroyed || task.id !== taskID || scope !== taskScope) return;
       onTaskUpdated(updated);
       announcement = input.completed === undefined ? `Updated checklist item: ${item.text}` : input.completed ? `Completed checklist item: ${item.text}` : `Reopened checklist item: ${item.text}`;
     } catch (error) {
-      if (!destroyed && task.id === taskID) {
+      if (!destroyed && task.id === taskID && scope === taskScope) {
         const message = errorMessage(error, 'The checklist item could not be updated.');
         setError(item.id, message);
         announcement = message;
         await recover(error);
       }
     } finally {
-      if (!destroyed && task.id === taskID) setPending(item.id, false);
+      if (!destroyed && task.id === taskID && scope === taskScope) setPending(item.id, false);
     }
   }
 
@@ -135,22 +158,23 @@
   async function removeItem(item: TaskChecklistItem): Promise<void> {
     if (busy) return;
     const taskID = task.id;
+    const scope = taskScope;
     setPending(item.id, true);
     setError(item.id, '');
     try {
       const updated = await api.deleteTaskChecklistItem(taskID, item.id, task.version);
-      if (destroyed || task.id !== taskID) return;
+      if (destroyed || task.id !== taskID || scope !== taskScope) return;
       onTaskUpdated(updated);
       announcement = `Removed checklist item: ${item.text}`;
     } catch (error) {
-      if (!destroyed && task.id === taskID) {
+      if (!destroyed && task.id === taskID && scope === taskScope) {
         const message = errorMessage(error, 'The checklist item could not be removed.');
         setError(item.id, message);
         announcement = message;
         await recover(error);
       }
     } finally {
-      if (!destroyed && task.id === taskID) setPending(item.id, false);
+      if (!destroyed && task.id === taskID && scope === taskScope) setPending(item.id, false);
     }
   }
 
@@ -159,22 +183,23 @@
     const order = checklistMove(items, item.id, offset);
     if (order.join(',') === items.map((entry) => entry.id).join(',')) return;
     const taskID = task.id;
+    const scope = taskScope;
     setPending(item.id, true);
     setError(item.id, '');
     try {
       const updated = await api.reorderTaskChecklist(taskID, order, task.version);
-      if (destroyed || task.id !== taskID) return;
+      if (destroyed || task.id !== taskID || scope !== taskScope) return;
       onTaskUpdated(updated);
       announcement = `Moved checklist item: ${item.text}`;
     } catch (error) {
-      if (!destroyed && task.id === taskID) {
+      if (!destroyed && task.id === taskID && scope === taskScope) {
         const message = errorMessage(error, 'The checklist could not be reordered.');
         setError(item.id, message);
         announcement = message;
         await recover(error);
       }
     } finally {
-      if (!destroyed && task.id === taskID) setPending(item.id, false);
+      if (!destroyed && task.id === taskID && scope === taskScope) setPending(item.id, false);
     }
   }
 

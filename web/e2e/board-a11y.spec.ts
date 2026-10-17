@@ -388,7 +388,8 @@ test.describe('board accessibility regressions', () => {
     await expect(pulse).not.toHaveAttribute('role', 'img');
     await expect(pulse).not.toHaveAttribute('aria-label');
     await expect(pulse).not.toHaveAttribute('aria-describedby');
-    await expect(pulse.locator('.agent-pulse-badge-label')).toHaveText('Stale');
+    await expect(pulse.locator('.agent-pulse-badge-label')).toHaveText('Working');
+    await expect(pulse.locator('.agent-pulse-freshness')).toContainText('Stale check-in');
     await expect(pulse.locator('.agent-pulse-copy')).toHaveCount(0);
 
     await card.locator('[data-task-trigger]').click();
@@ -402,28 +403,44 @@ test.describe('board accessibility regressions', () => {
     await expect(workPanel.locator('.agent-work-details')).toContainText('Review the result.');
 
     const detailedPulse = workPanel.locator('.agent-pulse');
-    await expect(detailedPulse).toContainText('Updated');
+    await expect(detailedPulse).toContainText('Last check-in');
     await expect(detailedPulse).toContainText('2026-09-03T23:00:00.000Z');
     await expect(detailedPulse).toContainText('Claimed by Build bot');
     await expect(detailedPulse).toContainText('2030-01-02T03:04:05.000Z');
   });
 
-  test('keeps drag and move controls at least 24px on mobile', async ({ page }) => {
+  test('keeps drag and movement menu controls at least 44px on mobile', async ({ page }, testInfo) => {
     const state = fixture(3);
     await installFixture(page, state);
     await page.setViewportSize({ width: 390, height: 844 });
     await openBoard(page, state);
     const card = page.locator('.task-card').filter({ hasText: state.task.title });
-    for (const selector of ['.task-drag-handle', '.card-move']) {
+    for (const selector of ['.task-drag-handle', '[data-card-actions]']) {
       const boxes = await card.locator(selector).evaluateAll((elements) => elements.map((element) => {
         const box = element.getBoundingClientRect();
         return { width: box.width, height: box.height };
       }));
+      expect(boxes.length, `${selector} must expose a touch target`).toBeGreaterThan(0);
       for (const box of boxes) {
-        expect(box.width).toBeGreaterThanOrEqual(24);
-        expect(box.height).toBeGreaterThanOrEqual(24);
+        expect(box.width).toBeGreaterThanOrEqual(44);
+        expect(box.height).toBeGreaterThanOrEqual(44);
       }
     }
+    await card.locator('[data-card-actions]').click();
+    const movementMenu = page.getByRole('menu', { name: `Actions for ${state.task.key}`, exact: true });
+    await expect(movementMenu.getByRole('menuitem')).toHaveCount(6);
+    const bounds = await movementMenu.getByRole('menuitem').evaluateAll((elements) => elements.map((element) => {
+      const box = element.getBoundingClientRect();
+      return { width: box.width, height: box.height };
+    }));
+    for (const box of bounds) {
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    await testInfo.attach('mobile-movement-target-bounds.json', { body: JSON.stringify(bounds, null, 2), contentType: 'application/json' });
+    await testInfo.attach('mobile-movement-menu.png', { body: await page.screenshot(), contentType: 'image/png' });
+    await page.keyboard.press('Escape');
+    await expect(card.locator('[data-card-actions]')).toBeFocused();
   });
 
   test('keeps meaningful board text at a readable minimum', async ({ page }) => {

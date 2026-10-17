@@ -116,6 +116,27 @@ func (s *Server) parseSearchFilter(r *http.Request, identity auth.Identity, view
 		}
 		filter.Cursor, filter.Limit = offset, limit
 	}
+	// A saved view can be refined without changing its stored definition. Clear
+	// only the explicitly named editable criteria; retain project scope and all
+	// other saved filters. Explicit values below can then replace cleared fields.
+	if clear, present, parseErr := queryValue(r, "clear"); parseErr != nil {
+		return store.SearchFilter{}, parseErr
+	} else if present {
+		for _, name := range strings.Split(clear, ",") {
+			switch name {
+			case "q":
+				filter.Query = ""
+			case "priority":
+				filter.Priority = ""
+			case "state":
+				filter.State = ""
+			case "release_id":
+				filter.ReleaseID = ""
+			default:
+				return store.SearchFilter{}, fmt.Errorf("unsupported clear criterion %q", name)
+			}
+		}
+	}
 	// Explicit query parameters override matching saved-view filters. This
 	// makes a view URL useful as a starting point without mutating the view.
 	if value, present, parseErr := searchTermValue(r, "q"); parseErr != nil {

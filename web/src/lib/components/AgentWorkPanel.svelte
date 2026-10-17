@@ -1,28 +1,75 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
+  import { api } from '../api';
   import type { Task } from '../types';
   import AgentPulse, { type AgentWorkLike } from './AgentPulse.svelte';
+  import { agentPulseExactTimestamp, agentPulsePresentation } from './agentPulseText';
 
   export let task: Task;
   export let now = Date.now();
   export let actorLabel = '';
 
+  let lastProgress = '';
+  let progressLoading = false;
+  let progressRequest = 0;
+  let progressIdentity = '';
+  let progressRequestKey = '';
+  onDestroy(() => { progressRequest += 1; });
+
   $: work = readWork(task);
-  $: state = work?.state || '';
   $: phase = work?.phase || '';
   $: summary = work?.summary || '';
   $: nextAction = work?.next_action || '';
   $: started = work?.started_at || '';
   $: updated = work?.updated_at || '';
   $: progress = readProgress(work);
-  $: stale = Boolean(work && (work.stale || staleByAge(updated, now)));
-  $: stateLabel = state
-    ? stale && state !== 'waiting'
-      ? 'Stale'
-      : state.charAt(0).toUpperCase() + state.slice(1)
-    : 'No live pulse';
+  $: ({ stale, stateLabel, freshnessLabel } = agentPulsePresentation(task, now));
   $: panelLabel = work
-    ? `${actorLabel || work.actor_id || 'Agent'} work, ${stateLabel}${phase ? `, ${phase}` : ''}`
+    ? `${actorLabel || work.actor_id || 'Agent'} work, ${stateLabel}, ${freshnessLabel}${phase ? `, ${phase}` : ''}`
     : 'No live agent work pulse';
+  // Only the detail panel reads progress evidence. A heartbeat may cause a
+  // re-read, but never supplies or substitutes the milestone timestamp.
+  $: loadLastProgress(task.id, work?.operation_id || '', work?.actor_id || '', updated, task.version);
+
+  async function loadLastProgress(taskID: string, operationID: string, actorID: string, checkIn: string, version: number): Promise<void> {
+    const key = JSON.stringify([taskID, operationID, actorID, checkIn, version]);
+    if (key === progressRequestKey) return;
+    progressRequestKey = key;
+    const request = ++progressRequest;
+    const identity = `${taskID}/${operationID}/${actorID}`;
+    if (identity !== progressIdentity) lastProgress = '';
+    progressIdentity = identity;
+    progressLoading = Boolean(operationID);
+    if (!operationID) {
+      lastProgress = '';
+      return;
+    }
+    try {
+      let before: string | undefined;
+      // Bound both the response size and number of reads when older operations
+      // dominate history. Absence within this window remains unavailable.
+      for (let page = 0; page < 3; page += 1) {
+        const timeline = await api.listTaskTimeline(taskID, { kind: 'agent_progress', limit: 50, before });
+        if (request !== progressRequest) return;
+        const match = timeline.data.find((item) => item.kind === 'agent_progress'
+          && item.task_id === taskID
+          && item.progress?.operation_id === operationID
+          && (!actorID || item.progress.actor_id === actorID)
+          && Number.isFinite(Date.parse(item.created_at)));
+        if (match) {
+          lastProgress = match.created_at;
+          return;
+        }
+        if (!timeline.next_cursor || timeline.next_cursor === before) break;
+        before = timeline.next_cursor;
+      }
+      lastProgress = '';
+    } catch {
+      if (request === progressRequest) lastProgress = '';
+    } finally {
+      if (request === progressRequest) progressLoading = false;
+    }
+  }
 
   function readWork(value: Task): AgentWorkLike | null {
     const candidate = (value as Task & { agent_work?: unknown }).agent_work;
@@ -43,12 +90,6 @@
 
   function firstNumber(...values: Array<number | null | undefined>): number | undefined {
     return values.find((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  }
-
-  function staleByAge(value: string, timestamp: number): boolean {
-    if (!value) return false;
-    const parsed = Date.parse(value);
-    return !Number.isNaN(parsed) && timestamp - parsed >= 15 * 60 * 1000;
   }
 
   function formatDateTime(value: string): string {
@@ -75,14 +116,15 @@
   </div>
   {#if work}
     <AgentPulse {task} {now} {actorLabel} compact={false} />
-    {#if stale}<p class="agent-work-stale">{state === 'waiting' ? 'Waiting update is stale.' : 'This agent update is stale and needs attention.'}</p>{/if}
+    {#if stale}<p class="agent-work-stale">{stateLabel} check-in is stale and needs attention.</p>{/if}
     <dl class="agent-work-details">
       {#if phase}<div><dt>Phase</dt><dd>{phase}</dd></div>{/if}
       {#if progress}<div><dt>Progress</dt><dd>{progress.completed} of {progress.total} checkpoints ({progress.percent}%)</dd></div>{/if}
       {#if summary}<div><dt>Summary</dt><dd>{summary}</dd></div>{/if}
       {#if nextAction}<div><dt>Next</dt><dd>{nextAction}</dd></div>{/if}
       {#if started}<div><dt>Started</dt><dd><time datetime={started}>{formatDateTime(started)}</time></dd></div>{/if}
-      {#if updated}<div><dt>Updated</dt><dd><time datetime={updated}>{formatDateTime(updated)}</time></dd></div>{/if}
+      <div><dt>Last check-in</dt><dd data-agent-last-check-in>{#if updated}<time datetime={updated} title={agentPulseExactTimestamp(updated)}>{formatDateTime(updated)}</time>{:else}Unavailable{/if}</dd></div>
+      <div><dt>Last progress</dt><dd data-agent-last-progress>{#if lastProgress}<time datetime={lastProgress} title={agentPulseExactTimestamp(lastProgress)}>{formatDateTime(lastProgress)}</time>{:else}{progressLoading ? 'Loading…' : 'Unavailable'}{/if}</dd></div>
     </dl>
   {:else}
     <p class="agent-work-empty">This task has no reported agent progress. A live pulse will appear when an agent checks in.</p>

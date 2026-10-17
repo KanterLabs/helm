@@ -129,8 +129,10 @@ test.describe('routing and draft regressions', () => {
     await dialog.accept();
     await reloadPromise;
 
-    await expect(page).toHaveURL(new RegExp(`/p/${project.slug}/?$`));
-    await expect(page.locator('.task-drawer')).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/p/${project.slug}/tasks/${task.key}$`));
+    await expect(page.locator('.task-drawer')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Task title', exact: true })).toHaveValue(task.title);
+    await expect(page.locator('.task-drawer textarea.description-input')).toHaveValue(task.description || '');
     const persisted = await json<Task>(await request.get(`/api/v1/tasks/${task.id}`), 'reload dirty-draft task');
     expect(persisted.title).toBe(task.title);
     expect(persisted.description).toBe(task.description);

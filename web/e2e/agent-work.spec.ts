@@ -342,10 +342,15 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   await expect(completedCard).toBeVisible();
   await expect(completedCard.locator('.agent-pulse'), 'completed cards hide retained live-work snapshots').toHaveCount(0);
   const boardWorkFilter = page.getByLabel('Filter by agent work');
-  await boardWorkFilter.selectOption('working');
+  const selectBoardWorkFilter = async (value: string) => {
+    await page.locator('[data-board-filter-trigger]').click();
+    await boardWorkFilter.selectOption(value);
+    await page.locator('.board-filter-panel .filter-panel-done').click();
+  };
+  await selectBoardWorkFilter('working');
   await expect(workingCard).toBeVisible();
   await expect(missingCard, 'a task without an agent pulse is not live working work').toBeHidden();
-  await boardWorkFilter.selectOption('missing');
+  await selectBoardWorkFilter('missing');
   await expect(missingCard).toBeVisible();
   const missingPulse = missingCard.locator('.agent-pulse');
   await expect(missingPulse).toBeHidden();
@@ -354,11 +359,11 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   await expect(missingPulse).toHaveAccessibleName('No live pulse');
   await expect(workingCard).toBeHidden();
   await expect(completedCard).toBeHidden();
-  await boardWorkFilter.selectOption('stale');
+  await selectBoardWorkFilter('stale');
   await expect(completedCard, 'completed work does not match the stale filter').toBeHidden();
-  await boardWorkFilter.selectOption('action-needed');
+  await selectBoardWorkFilter('action-needed');
   await expect(completedCard, 'completed work does not match the action-needed filter').toBeHidden();
-  await boardWorkFilter.selectOption('all');
+  await selectBoardWorkFilter('all');
 
   await completedCard.locator('[data-task-trigger]').click();
   const completedDrawer = page.locator('.task-drawer');
@@ -380,8 +385,9 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   await expect(workPanel.locator('.agent-work-details')).toContainText('1 of 2 checkpoints (50%)');
   await expect(workPanel.locator('.agent-work-details')).toContainText('The live working pulse is visible on the board.');
   await expect(workPanel.locator('.agent-work-details')).toContainText('Wait for the remote progress event.');
-  await expect(workPanel.locator('.agent-work-details dt')).toHaveText(['Phase', 'Progress', 'Summary', 'Next', 'Started', 'Updated']);
-  await expect(workPanel.locator('.agent-work-details time')).toHaveCount(2);
+  await expect(workPanel.locator('.agent-work-details dt')).toHaveText(['Phase', 'Progress', 'Summary', 'Next', 'Started', 'Last check-in', 'Last progress']);
+  await expect(workPanel.locator('[data-agent-last-progress] time')).toHaveCount(1);
+  await expect(workPanel.locator('.agent-work-details time')).toHaveCount(3);
 
   // A remote progress write creates task.progressed/comment.created events.
   // The draft must survive the event poll and authoritative detail refresh.
@@ -441,19 +447,19 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   await rowIn(actionGroup, staleTask.title, projectBName, activeB.name);
   await rowIn(actionGroup, staleWaitingTask.title, projectBName, activeB.name);
   await expect(rowFor(actionGroup, waitingTask.title).locator('.agent-pulse')).toContainText('Waiting');
-  await expect(rowFor(actionGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleName('Stale');
-  await expect(rowFor(actionGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Working update is stale/);
-  await expect(rowFor(actionGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Waiting');
-  await expect(rowFor(actionGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Stale update/);
+  await expect(rowFor(actionGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleName('Working Stale check-in');
+  await expect(rowFor(actionGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Stale check-in/);
+  await expect(rowFor(actionGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Waiting Stale check-in');
+  await expect(rowFor(actionGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Stale check-in/);
 
   await liveFilters.getByRole('button', { name: 'Stale', exact: true }).click();
   const staleGroup = page.locator('section[aria-labelledby="stale-heading"]');
   await rowIn(staleGroup, staleTask.title, projectBName, activeB.name);
   await rowIn(staleGroup, staleWaitingTask.title, projectBName, activeB.name);
-  await expect(rowFor(staleGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleName('Stale');
-  await expect(rowFor(staleGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Working update is stale/);
-  await expect(rowFor(staleGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Waiting');
-  await expect(rowFor(staleGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Stale update/);
+  await expect(rowFor(staleGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleName('Working Stale check-in');
+  await expect(rowFor(staleGroup, staleTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Stale check-in/);
+  await expect(rowFor(staleGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Waiting Stale check-in');
+  await expect(rowFor(staleGroup, staleWaitingTask.title).locator('.agent-pulse')).toHaveAccessibleDescription(/Stale check-in/);
 
   // The fixture's claim is expired only in browser reads. The drawer must
   // offer a fresh claim instead of incorrectly offering claim renewal.
@@ -467,17 +473,17 @@ test('shows live agent work across the board, drawer, and My Work', async ({ pag
   await liveFilters.getByRole('button', { name: 'Waiting', exact: true }).click();
   const waitingGroup = page.locator('section[aria-labelledby="waiting-heading"]');
   await rowIn(waitingGroup, waitingTask.title, projectAName, blockedA.name);
-  await expect(rowFor(waitingGroup, waitingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Waiting');
+  await expect(rowFor(waitingGroup, waitingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Waiting Fresh check-in');
 
   await liveFilters.getByRole('button', { name: 'Verifying', exact: true }).click();
   const verifyingGroup = page.locator('section[aria-labelledby="verifying-heading"]');
   await rowIn(verifyingGroup, verifyingTask.title, projectBName, readyB.name);
-  await expect(rowFor(verifyingGroup, verifyingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Verifying');
+  await expect(rowFor(verifyingGroup, verifyingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Verifying Fresh check-in');
 
   await liveFilters.getByRole('button', { name: 'Working', exact: true }).click();
   const workingGroup = page.locator('section[aria-labelledby="working-heading"]');
   await rowIn(workingGroup, workingTask.title, projectAName, activeA.name);
-  await expect(rowFor(workingGroup, workingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Working');
+  await expect(rowFor(workingGroup, workingTask.title).locator('.agent-pulse')).toHaveAccessibleName('Working Fresh check-in');
 
   await liveFilters.getByRole('button', { name: 'All', exact: true }).click();
   for (const heading of ['Action needed', 'Stale', 'Waiting', 'Verifying', 'Working']) {

@@ -168,6 +168,12 @@ paths:
           description: Saved view ID to use as the initial filter set.
           schema:
             $ref: '#/components/schemas/Identifier'
+        - name: clear
+          in: query
+          description: Clear these saved criteria before applying explicit overrides, without changing the saved view or its project scope.
+          schema:
+            type: string
+            pattern: '^(q|priority|state|release_id)(,(q|priority|state|release_id))*$'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -385,6 +391,12 @@ paths:
       tags:
         - Search
       parameters:
+        - name: clear
+          in: query
+          description: Clear selected saved criteria before explicit overrides.
+          schema:
+            type: string
+            pattern: '^(q|priority|state|release_id)(,(q|priority|state|release_id))*$'
         - $ref: '#/components/parameters/SearchQuery'
         - $ref: '#/components/parameters/ReleaseIDFilter'
         - $ref: '#/components/parameters/Cursor'

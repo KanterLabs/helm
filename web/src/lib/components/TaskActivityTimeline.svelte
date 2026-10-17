@@ -15,6 +15,8 @@
   export let canManageComments = false;
   /** Stable owner identity used to keep comment drafts isolated between tasks. */
   export let taskId = '';
+  export let dirty = false;
+  export let pendingWrites = false;
   export let onEditComment: (comment: Comment, body: string) => void | Promise<void> = () => undefined;
   export let onConfirmDelete: (comment: Comment) => boolean | Promise<boolean> = () => true;
   export let onDeleteComment: (comment: Comment) => void | Promise<void> = () => undefined;
@@ -40,6 +42,9 @@
   let pendingCommentMutations = new Map<string, PendingCommentMutation>();
   let commentMutationErrors = new Map<string, string>();
   let editingGuardMessage = '';
+  $: dirty = Boolean(editingCommentId && editingBody !== editingOriginalBody)
+    || Array.from(draftsByTask.values()).some((drafts) => Array.from(drafts.values()).some((draft) => draft.body !== draft.originalBody));
+  $: pendingWrites = pendingCommentMutations.size > 0;
 
   const filterOptions: Array<{ value: TaskTimelineFilter; label: string }> = [
     { value: 'all', label: 'All' },

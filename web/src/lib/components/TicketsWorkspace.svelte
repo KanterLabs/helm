@@ -12,6 +12,8 @@
   export let actorNames: Record<string, string> = {};
   export let onOpenTask: (task: Task) => void | Promise<void> = () => undefined;
   export let onChanged: () => void = () => undefined;
+  /** Unsaved ticket text/options exposed to the host's update guard. */
+  export let dirty = false;
 
   const queues: { value: TicketQueue; label: string }[] = [
     { value: 'open', label: 'All open' },
@@ -59,6 +61,7 @@
   let actionPending = false;
   let actionStatus: { kind: 'pending' | 'saved' | 'conflict' | 'error'; message: string } | null = null;
   let movedNotice = '';
+  let movedKey = '';
   let waitOpen = false;
   let waitReason = '';
   let creating = false;
@@ -77,6 +80,10 @@
   let detailHeading: HTMLElement | null = null;
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
+
+  $: dirty = Boolean(noteDraft
+    || (waitOpen && waitReason)
+    || (creating && (createTitle || createDescription || createPriority !== 'normal' || !createAssignMe)));
 
   // The ticket queue (docs/TICKET_QUEUE_PLAN.md): every new ticket lands
   // there; triage files it into a project when it belongs to one.
@@ -226,6 +233,7 @@
 
   async function selectTicket(task: Task, focusDetail = false) {
     movedNotice = '';
+    movedKey = '';
     if (selectedKey !== task.key) {
       selectedKey = task.key;
       writeURL(true);
@@ -280,15 +288,19 @@
       const updated = await run(before);
       if (request !== detailRequest) return;
       detail = updated;
+      const position = tickets.findIndex((task) => task.id === updated.id);
       tickets = tickets.map((task) => task.id === updated.id ? updated : task);
       actionStatus = { kind: 'saved', message: `${label} saved` };
-      if (!inQueue(updated, queue)) {
+      const left = !inQueue(updated, queue);
+      if (left) {
         movedNotice = `${updated.key} moved to ${statusLabels[ticketStatus(updated)]}.`;
+        movedKey = updated.key;
       }
       waitOpen = false;
       waitReason = '';
       onChanged();
       await loadList({ quiet: true });
+      if (left && request === detailRequest) await advancePast(updated, position);
     } catch (error) {
       if (request !== detailRequest) return;
       if (isConflict(error)) {
@@ -303,8 +315,19 @@
         actionStatus = { kind: 'error', message: errorMessage(error, `${label} failed.`) };
       }
     } finally {
-      if (request === detailRequest) actionPending = false;
+      actionPending = false;
     }
+  }
+
+  /** A ticket that left the queue gives way to its neighbour, or the empty pane. */
+  async function advancePast(moved: Task, position: number) {
+    const remaining = tickets.filter((task) => task.id !== moved.id);
+    const next = remaining[Math.min(Math.max(position, 0), remaining.length - 1)];
+    selectedKey = next?.key || '';
+    writeURL();
+    await loadDetail(selectedKey);
+    await tick();
+    if (next) detailHeading?.focus();
   }
 
   async function moveTo(status: TicketStatus, label: string) {
@@ -327,6 +350,7 @@
       selectedKey = detail.key;
       writeURL();
       movedNotice = `${before} is now ${detail.key} in ${project.name}.`;
+      movedKey = '';
     }
     // A failed filing leaves the ticket where it was; show that again.
     fileProject = detail ? filedProject(detail)?.id || '' : '';
@@ -441,6 +465,7 @@
   });
 
   onDestroy(() => {
+    dirty = false;
     clearTimeout(searchTimer);
     clearInterval(refreshTimer);
     if (typeof window !== 'undefined') window.removeEventListener('popstate', handlePopState);
@@ -488,7 +513,7 @@
     <label><span class="sr-only">Project</span><select aria-label="Project filter" bind:value={projectFilter} on:change={changeFilters}><option value="">All tickets</option>{#if ticketQueue}<option value={ticketQueue.key}>Not filed</option>{/if}{#each workProjects as project (project.id)}<option value={project.key}>{project.key} · {project.name}</option>{/each}</select></label>
   </div>
 
-  {#if movedNotice}<div class="inline-alert ticket-moved" role="status"><span>✓</span>{movedNotice}</div>{/if}
+  {#if movedNotice}<div class="inline-alert ticket-moved" role="status"><span>✓</span>{movedNotice}{#if movedKey && movedKey !== selectedKey}<button class="text-button" type="button" on:click={() => openReference(movedKey)}>View</button>{/if}</div>{/if}
 
   <div class="tickets-layout">
     <div class="tickets-list-pane">

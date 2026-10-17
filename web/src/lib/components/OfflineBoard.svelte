@@ -24,7 +24,7 @@
 
   const safeBoardCardHeight = (node: HTMLElement) => {
     // jsdom and older embedded web views may not expose ResizeObserver. The
-    // CSS fallback still gives those environments a useful ten-card viewport.
+    // CSS fallback still gives those environments natural-height columns.
     if (typeof ResizeObserver === 'undefined') return {};
     return boardCardHeight(node);
   };
@@ -546,7 +546,6 @@
   .offline-scope-note { margin: 8px 0 12px; color: var(--offline-muted); font-size: 12px; line-height: 1.45; }
 
   .offline-board-columns {
-    --board-empty-card-height: 154px;
     min-width: 0;
     display: grid;
     grid-auto-flow: column;

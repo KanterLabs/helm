@@ -91,9 +91,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   --lift-md: 0 12px 30px rgba(0, 0, 0, .44);
 }
 
+/* The sidebar scrolls on its own so a long project list never stretches the page. */
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
   width: 254px;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   display: flex;
   flex-direction: column;
   flex: 0 0 254px;
@@ -312,8 +319,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .board-loading-note { margin: -8px 0 18px; color: var(--muted); font-size: 10px; }
 
 .board { min-width: 0; display: grid; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); align-items: start; gap: 14px; overflow-x: auto; padding: 2px 1px 18px; }
-/* Ten measured cards determine the shared height; the page can exceed the viewport. */
-.board-column { min-width: 0; min-height: 0; height: var(--board-column-height, 1400px); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--surface-muted) 70%, transparent); transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-base) var(--ease-out); }
+/* boardCardHeight fits the shared height to content, capped at the viewport, so only column bodies scroll. */
+.board-column { min-width: 0; min-height: 0; height: var(--board-column-height, 70vh); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--surface-muted) 70%, transparent); transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-base) var(--ease-out); }
 .board-column > :not(.column-cards) { flex-shrink: 0; }
 .board-column.drop-target { border-color: color-mix(in srgb, var(--purple), var(--border) 40%); background: color-mix(in srgb, var(--purple-soft) 45%, var(--surface-muted)); }
 .board-column.drop-target .column-header { color: var(--purple); }
@@ -382,7 +389,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .comment-count { color: var(--muted); font-size: 11px; }
 .card-move { width: 28px; height: 28px; min-width: 24px; min-height: 24px; border-radius: 5px; color: var(--faint); font-size: 13px; }
 .card-move:hover:not(:disabled) { color: var(--purple); background: var(--purple-soft); }
-.column-empty { min-height: 115px; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px dashed var(--border-strong); border-radius: 8px; color: var(--faint); font-size: 11px; text-align: center; }
+.column-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px 10px; border: 1px dashed var(--border); border-radius: 9px; color: var(--faint); background: color-mix(in srgb, var(--surface) 45%, transparent); font-size: 11px; text-align: center; }
 .column-empty .text-button { font-size: 11px; }
 .quick-add-wrap { padding: 3px 9px 10px; }
 .quick-add-trigger { width: 100%; min-height: 31px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; font-size: 11px; text-align: left; }
@@ -1290,11 +1297,9 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .filter-group select { height: 44px; flex: 0 0 142px; }
   .clear-filters { min-height: 44px; padding: 0 8px; }
   .board { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(82vw, 1fr); gap: 12px; margin-right: -14px; overflow-x: auto; padding: 2px 14px 16px 0; scroll-snap-type: x mandatory; }
-  .board { --board-empty-card-height: 160px; }
   .board-column { scroll-margin-top: calc(70px + env(safe-area-inset-top)); scroll-snap-align: start; }
   .column-header { position: relative; z-index: 2; min-height: 52px; border-radius: 12px 12px 0 0; background: color-mix(in srgb, var(--surface-muted) 94%, transparent); backdrop-filter: blur(10px); }
   .column-cards { min-height: 0; }
-  .column-empty { min-height: 104px; }
   .task-main { min-height: 44px; padding: 13px 12px 10px; }
   .task-title { font-size: 13px; }
   .task-excerpt { font-size: 11px; }
@@ -1628,4 +1633,42 @@ legend { margin-bottom: 8px; color: var(--ink-soft); font-size: 11px; font-weigh
   .board-timeline-exact-time { display: none; }
   .board-timeline-load-more { align-items: stretch; flex-direction: column; }
   .board-timeline-load-more .button { width: 100%; }
+}
+
+/* Responsive board controls keep actions reachable without a hidden scroll strip. */
+.board-toolbar { flex-wrap: wrap; overflow: visible; gap: 10px; }
+.board-toolbar > .filter-search { flex: 1 1 200px; min-width: 120px; }
+.board-toolbar > button, .board-secondary-actions > summary { min-height: 44px; }
+.board-secondary-actions { position: relative; }
+.board-secondary-actions > summary { display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.board-secondary-panel { position: absolute; right: 0; top: 100%; z-index: 25; width: min(300px, 85vw); padding: 12px; border: 1px solid var(--border); background: var(--surface, #fff); border-radius: 12px; box-shadow: 0 12px 36px #0002; }
+.board-secondary-panel .bulk-selection-actions { display: flex; flex-wrap: wrap; }
+.board-secondary-panel button { min-height: 44px; }
+.board-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 0 12px; }
+.board-filter-chips button { min-height: 44px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--border); border-radius: 20px; color: var(--text); background: var(--surface, #fff); overflow-wrap: anywhere; }
+.agent-pulse-freshness { color: var(--text-muted); font-size: 11px; }
+.agent-pulse-freshness.stale { color: var(--warning, #9a5700); }
+.agent-pulse { max-width: 100%; }
+.modal form > fieldset { display: grid; gap: 14px; min-width: 0; border: 0; margin: 0; padding: 0; }
+.project-modal form > fieldset > label, .task-create-modal form > fieldset > label { display: grid; gap: 7px; }
+.task-create-modal form > fieldset > input, .task-create-modal form > fieldset > textarea { width: 100%; box-sizing: border-box; }
+.saved-view-save { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .board-toolbar { display: flex; flex-wrap: wrap; overflow: visible; }
+  .board-toolbar > .filter-search { flex-basis: 100%; }
+  .task-card .task-drag-handle, .task-card .task-select, .task-card .card-expand-toggle { min-width: 44px; min-height: 44px; }
+  .task-card .task-select { top: 0; left: 4px; }
+  .task-card .task-drag-handle { top: 0; right: 4px; }
+  .task-card .task-main { padding: 0 12px; }
+  .task-card .task-card-top { min-height: 44px; margin-bottom: 0; padding: 0 40px; overflow: hidden; }
+  .task-card .task-key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-card .priority-dot { flex-shrink: 0; }
+  .task-card:not(.expanded) .task-main { height: 82px; overflow: hidden; }
+  .task-card:not(.expanded) .task-title { -webkit-line-clamp: 2; }
+  .task-card:not(.expanded) .card-expand-toggle { left: 6px; right: auto; bottom: 0; max-width: 96px; padding: 0 6px; }
+  .task-card:not(.expanded) .task-card-footer { position: absolute; right: 0; bottom: 0; left: 0; height: 44px; min-height: 44px; padding: 0 92px 0 104px; }
+  .task-card:not(.expanded) .task-card-footer > .due-date,
+  .task-card:not(.expanded) .task-card-footer > .comment-count { min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; }
+  .task-card:not(.expanded) [data-card-actions] { position: absolute; right: 6px; bottom: 0; z-index: 2; }
+  .board-secondary-panel { left: 0; right: auto; }
 }

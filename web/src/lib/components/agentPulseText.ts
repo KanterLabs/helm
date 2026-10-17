@@ -21,6 +21,24 @@ function staleByAge(value: string, now: number): boolean {
   return Number.isFinite(age) && age >= staleAfterMs;
 }
 
+/** Work state, check-in freshness, and claim validity are separate facts.
+ * Keep the existing action-needed/liveness rules independent of claim expiry.
+ */
+export function agentPulsePresentation(task: Task, now: number) {
+  const work = task.agent_work;
+  const state = work?.state || '';
+  const stale = Boolean(work && (work.stale || staleByAge(work.updated_at || '', now)));
+  const actionNeeded = Boolean(work && (work.action_needed || stale || state === 'waiting' || state === 'handoff'));
+  const hasCheckIn = Boolean(work?.updated_at && Number.isFinite(Date.parse(work.updated_at)));
+  return {
+    stateLabel: stateLabels[state] || (work ? 'Agent update' : 'No live pulse'),
+    freshnessLabel: stale ? 'Stale check-in' : hasCheckIn ? 'Fresh check-in' : 'Check-in unavailable',
+    stale,
+    actionNeeded,
+    live: Boolean(work && !stale && !actionNeeded && state === 'working')
+  };
+}
+
 function firstNumber(...values: Array<number | null | undefined>): number | undefined {
   return values.find((value): value is number => typeof value === 'number' && Number.isFinite(value));
 }
@@ -89,13 +107,9 @@ export function agentPulseRelativeTimestamp(value: string, now: number): string 
 export function agentPulseAccessibleLabel(task: Task, now: number, actorLabel = ''): string {
   const work = task.agent_work;
   if (task.completed_at) return 'Completed task, no live agent work';
-  const state = work?.state || '';
   const missing = !work;
-  const baseLabel = stateLabels[state] || (missing ? 'No live pulse' : 'Agent update');
   const updatedAt = work?.updated_at || '';
-  const stale = Boolean(work && (work.stale || staleByAge(updatedAt, now)));
-  const stateLabel = stale && state !== 'waiting' ? 'Stale' : baseLabel;
-  const actionNeeded = Boolean(work && (work.action_needed || stale || state === 'waiting' || state === 'handoff'));
+  const { stateLabel, freshnessLabel, actionNeeded } = agentPulsePresentation(task, now);
   const progress = progressLabel(work);
   const owner = actorFromTask(task);
   const agent = actorLabel || work?.actor_id || '';
@@ -106,13 +120,14 @@ export function agentPulseAccessibleLabel(task: Task, now: number, actorLabel = 
   const claimExact = task.claim_expires_at ? agentPulseExactTimestamp(task.claim_expires_at) : '';
   const parts = [
     stateLabel,
-    stale ? (state === 'waiting' ? 'Waiting update is stale' : `${baseLabel} update is stale`) : '',
-    actionNeeded && !stale ? 'action needed' : '',
+    work ? freshnessLabel : '',
+    actionNeeded ? 'action needed' : '',
     work?.phase || '',
+    work?.next_action ? `next action: ${work.next_action}` : '',
     progress,
     agent ? `agent ${agent}` : '',
     owner ? `claimed by ${owner}` : '',
-    updateRelative ? `updated ${updateRelative} (${updateExact})` : '',
+    updateRelative ? `last check-in ${updateRelative} (${updateExact})` : '',
     countdown ? (claimExpired ? 'claim expired' : `claim ${countdown}`) : '',
     claimExact ? `claim expires ${claimExact}` : '',
     claimExpiresSoon(task.claim_expires_at || '', now) ? 'claim expiring soon' : '',

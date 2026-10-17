@@ -1,39 +1,55 @@
 import { tick } from 'svelte';
 
-export const visibleBoardCards = 10;
+/** Shortest shared column height, so cramped viewports keep a usable card body. */
+export const minBoardColumnHeight = 280;
 
-/** Reserve ten natural-height cards, estimating unused slots from the loaded sample. */
-export function tenCardColumnHeight(heights: number[], gap: number, padding: number, chrome: number, fallback = 120) {
-  const sample = heights.slice(0, visibleBoardCards);
-  const total = sample.reduce((sum, height) => sum + height, 0);
-  const average = sample.length ? total / sample.length : fallback;
-  return Math.ceil(total + average * (visibleBoardCards - sample.length)
-    + gap * (visibleBoardCards - 1) + padding + chrome);
+/**
+ * Columns share the tallest natural stack, capped to the viewport space below the
+ * board so the page itself stays still and only column bodies scroll.
+ */
+export function boardColumnHeight(natural: number[], available: number, minimum = minBoardColumnHeight) {
+  const tallest = natural.length ? Math.max(...natural) : 0;
+  return Math.ceil(Math.min(Math.max(tallest, minimum), Math.max(available, minimum)));
 }
 
-/** Keep columns aligned using the tallest ten-card stack, independent of viewport height. */
+/** Natural height of a column: fixed chrome plus every card-body child at full size. */
+function naturalColumnHeight(column: HTMLElement, body: HTMLElement) {
+  const style = getComputedStyle(body);
+  const children = Array.from(body.children) as HTMLElement[];
+  const gap = parseFloat(style.rowGap) || 0;
+  const content = children.reduce((sum, child) => sum + child.offsetHeight, 0) + gap * Math.max(0, children.length - 1);
+  const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+  return column.offsetHeight - body.offsetHeight + padding + content;
+}
+
+/** Space reserved beneath the columns: board padding, its scrollbar, and ancestor bottom padding. */
+function trailingSpace(node: HTMLElement) {
+  const own = getComputedStyle(node);
+  let space = parseFloat(own.paddingBottom) + parseFloat(own.borderBottomWidth) + (node.offsetHeight - node.clientHeight
+    - parseFloat(own.borderTopWidth) - parseFloat(own.borderBottomWidth));
+  for (let parent = node.parentElement; parent && parent !== document.documentElement; parent = parent.parentElement) {
+    const style = getComputedStyle(parent);
+    space += parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth);
+  }
+  return space;
+}
+
+/** Keep columns aligned at one height that fits the viewport, so the page does not scroll. */
 export function boardCardHeight(node: HTMLElement) {
   let frame = 0;
   const measure = () => {
     frame = 0;
-    const populated: number[] = [];
-    const empty: number[] = [];
-    const fallback = parseFloat(getComputedStyle(node).getPropertyValue('--board-empty-card-height')) || 120;
+    const natural: number[] = [];
+    let top = Infinity;
     for (const column of node.querySelectorAll<HTMLElement>(':scope > .board-column')) {
       const body = column.querySelector<HTMLElement>('.column-cards');
       if (!body) continue;
-      const cards = Array.from(body.querySelectorAll<HTMLElement>(':scope > .task-card')).slice(0, visibleBoardCards);
-      const style = getComputedStyle(body);
-      const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-      const chrome = column.getBoundingClientRect().height - body.getBoundingClientRect().height;
-      const height = tenCardColumnHeight(cards.map((card) => card.getBoundingClientRect().height),
-        parseFloat(style.rowGap) || 0, padding, chrome, fallback);
-      (cards.length ? populated : empty).push(height);
+      natural.push(naturalColumnHeight(column, body));
+      top = Math.min(top, column.getBoundingClientRect().top + window.scrollY);
     }
-    // Empty columns share the populated columns' capacity, not a competing estimate.
-    const heights = populated.length ? populated : empty;
-    if (!heights.length) return;
-    const value = `${Math.max(...heights)}px`;
+    if (!natural.length) return;
+    const available = window.innerHeight - top - trailingSpace(node);
+    const value = `${boardColumnHeight(natural, available)}px`;
     if (node.style.getPropertyValue('--board-column-height') !== value) {
       node.style.setProperty('--board-column-height', value);
     }
@@ -45,15 +61,14 @@ export function boardCardHeight(node: HTMLElement) {
   const observeLayout = () => {
     resize.disconnect();
     resize.observe(node);
+    // Alerts or toolbar wrapping above the board move it without resizing it.
+    const content = node.closest('.content');
+    if (content) resize.observe(content);
     for (const column of node.querySelectorAll<HTMLElement>(':scope > .board-column')) {
       for (const child of column.children) {
         if (!child.classList.contains('column-cards')) resize.observe(child);
       }
-      // Only the visible-capacity sample needs observation, even on very large boards.
-      const cards = column.querySelectorAll('.column-cards > .task-card');
-      for (let index = 0; index < Math.min(cards.length, visibleBoardCards); index += 1) {
-        resize.observe(cards[index]);
-      }
+      for (const child of column.querySelectorAll(':scope > .column-cards > *')) resize.observe(child);
     }
     schedule();
   };

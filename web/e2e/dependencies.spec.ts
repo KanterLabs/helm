@@ -130,11 +130,17 @@ test('orders dependent work across drawer, board, filters, polling, and mobile',
   const dependentCard = card(dependent.title);
   await expect(dependentCard).toHaveClass(/dependency-blocked/);
   await expect(dependentCard.locator('.dependency-badge.blocked')).toContainText('1 waiting');
-  const readinessFilter = page.getByLabel('Filter by dependency readiness');
-  await readinessFilter.selectOption('blocked');
+  const selectReadiness = async (value: string) => {
+    await page.locator('[data-board-filter-trigger]').click();
+    const panel = page.getByRole('dialog', { name: 'Board filters', exact: true });
+    await panel.getByLabel('Filter by dependency readiness').selectOption(value);
+    await panel.locator('.filter-panel-done').click();
+    await expect(panel).toBeHidden();
+  };
+  await selectReadiness('blocked');
   await expect(dependentCard).toBeVisible();
   await expect(card(prerequisite.title)).toHaveCount(0);
-  await readinessFilter.selectOption('all');
+  await selectReadiness('all');
 
   await card(bug.title).locator('.task-main').click();
   await expect(drawer.getByRole('button', { name: /Triage issue|Update triage/ })).toBeDisabled();
@@ -159,11 +165,11 @@ test('orders dependent work across drawer, board, filters, polling, and mobile',
   // board poll must accept the derived summaries without losing card state.
   await expect(card(dependent.title).locator('.dependency-badge.ready')).toContainText('1 ready', { timeout: 20_000 });
   await expect(card(dependent.title)).not.toHaveClass(/dependency-blocked/);
-  await readinessFilter.selectOption('ready');
+  await selectReadiness('ready');
   await expect(card(dependent.title)).toBeVisible();
   await expect(card(bug.title)).toBeVisible();
   await expect(card(prerequisite.title)).toHaveCount(0);
-  await readinessFilter.selectOption('all');
+  await selectReadiness('all');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await card(dependent.title).locator('.task-main').click();

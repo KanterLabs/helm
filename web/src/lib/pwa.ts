@@ -32,6 +32,12 @@ export type PwaState = {
   error: string;
   /** Whether the explicit update action is currently waiting for activation. */
   updateApplying: boolean;
+  /** Page-local identity of the exact waiting worker, stable across UI remounts. */
+  updateId: string;
+  /** Whether Later was selected for this exact waiting worker. */
+  updateDeferred: boolean;
+  /** Activation failure, separate from offline shell/registration errors. */
+  updateError: string;
 };
 
 export type RegisterPwaOptions = {
@@ -58,13 +64,45 @@ let state: PwaState = {
   online: typeof navigator === 'undefined' ? true : navigator.onLine,
   controlled: serviceWorkerSupported && Boolean(navigator.serviceWorker.controller),
   error: '',
-  updateApplying: false
+  updateApplying: false,
+  updateId: '',
+  updateDeferred: false,
+  updateError: ''
 };
 
 let registration: ServiceWorkerRegistration | null = null;
 let registrationPromise: Promise<ServiceWorkerRegistration | null> | null = null;
 let listenersAttached = false;
 const listeners = new Set<PwaListener>();
+const workerIds = new WeakMap<ServiceWorker, string>();
+let nextWorkerId = 0;
+let deferredUpdateId = '';
+let updateInProgress = false;
+
+function reportWaitingWorker(worker: ServiceWorker | null): void {
+  if (!worker || worker.state !== 'installed') {
+    publish({ updateAvailable: false, updateId: '', updateDeferred: false, updateError: '' });
+    return;
+  }
+  let id = workerIds.get(worker);
+  if (!id) {
+    id = `waiting-${++nextWorkerId}`;
+    workerIds.set(worker, id);
+  }
+  publish({
+    updateAvailable: true,
+    updateId: id,
+    updateDeferred: deferredUpdateId === id,
+    ...(state.updateId !== id ? { updateError: '' } : {})
+  });
+}
+
+/** Defer this worker only. A later installation receives a different identity. */
+export function deferPwaUpdate(): void {
+  if (!state.updateAvailable || state.updateApplying) return;
+  deferredUpdateId = state.updateId;
+  publish({ updateDeferred: true });
+}
 
 function publish(next: Partial<PwaState>): void {
   state = { ...state, ...next };
@@ -98,7 +136,10 @@ function attachLifecycleListeners(): void {
   window.addEventListener('offline', setOffline);
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    publish({ controlled: Boolean(navigator.serviceWorker.controller), updateAvailable: false });
+    // Another tab may activate the worker. Report the new controller without
+    // reloading this tab: its forms still belong to the user.
+    publish({ controlled: Boolean(navigator.serviceWorker.controller), updateApplying: updateInProgress && state.updateApplying });
+    reportWaitingWorker(registration?.waiting ?? null);
   });
 
   navigator.serviceWorker.addEventListener('message', (event: MessageEvent<unknown>) => {
@@ -139,7 +180,7 @@ function monitorInstallingWorker(reg: ServiceWorkerRegistration): void {
     // The first install is safe to use immediately. A later install stays in
     // `waiting` until applyPwaUpdate() sends the user-approved message.
     if (navigator.serviceWorker.controller) {
-      publish({ updateAvailable: true });
+      reportWaitingWorker(installing);
     } else {
       publish({ appReady: true });
     }
@@ -150,9 +191,9 @@ function monitorRegistration(reg: ServiceWorkerRegistration): void {
   registration = reg;
   publish({
     registered: true,
-    controlled: Boolean(navigator.serviceWorker.controller),
-    updateAvailable: Boolean(reg.waiting)
+    controlled: Boolean(navigator.serviceWorker.controller)
   });
+  reportWaitingWorker(reg.waiting);
   reg.addEventListener('updatefound', () => monitorInstallingWorker(reg));
   monitorInstallingWorker(reg);
 }
@@ -224,55 +265,71 @@ export function registerPwa(options: RegisterPwaOptions = {}): Promise<ServiceWo
   return registrationPromise;
 }
 
-function waitForControllerChange(timeoutMs = 7000): Promise<boolean> {
-  if (!serviceWorkerSupported) return Promise.resolve(false);
-  return new Promise((resolve) => {
+function waitForControllerChange(worker: ServiceWorker, timeoutMs = 7000): { result: Promise<boolean>; cancel: () => void } {
+  let cancel = () => {};
+  const result = new Promise<boolean>((resolve) => {
     let settled = false;
     const finish = (changed: boolean) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timeout);
       navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      worker.removeEventListener('statechange', onStateChange);
       resolve(changed);
     };
-    const onControllerChange = () => finish(true);
+    const onControllerChange = () => {
+      // An unrelated activation must never authorize this tab's reload.
+      if (navigator.serviceWorker.controller === worker) finish(true);
+    };
+    const onStateChange = () => { if (worker.state === 'redundant') finish(false); };
     const timeout = window.setTimeout(() => finish(false), timeoutMs);
-    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange, { once: true });
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    worker.addEventListener('statechange', onStateChange);
+    cancel = () => finish(false);
   });
+  return { result, cancel: () => cancel() };
 }
 
 /**
- * Activate a waiting worker only after the caller has obtained user consent.
- * The reload is intentional and happens after controllerchange; a native
- * beforeunload handler on the host app still gets the opportunity to protect
- * unsaved drafts.
+ * The host guard owns the final activation decision. It runs inside this
+ * operation so cancellation or pending writes cannot send SKIP_WAITING.
+ * Only the worker approved here may trigger this tab's intentional reload.
  */
 export async function applyPwaUpdate(beforeUpdate?: PwaUpdateGuard): Promise<boolean> {
   const waiting = registration?.waiting;
-  if (!waiting) return false;
-
-  if (beforeUpdate && !(await beforeUpdate())) return false;
-  publish({ updateApplying: true });
+  if (!waiting || updateInProgress) return false;
+  updateInProgress = true;
+  let activation: ReturnType<typeof waitForControllerChange> | undefined;
 
   try {
-    const changed = waitForControllerChange();
+    if (beforeUpdate && !(await beforeUpdate())) return false;
+    // Consent was for this exact version. A replacement installed while the
+    // guard was open needs a fresh decision; never activate it implicitly.
+    if (registration?.waiting !== waiting || waiting.state !== 'installed') {
+      reportWaitingWorker(registration?.waiting ?? null);
+      return false;
+    }
+    publish({ updateApplying: true, updateError: '' });
+    activation = waitForControllerChange(waiting);
     waiting.postMessage({ type: 'SKIP_WAITING' });
-    if (!(await changed)) {
+    if (!(await activation.result)) {
+      reportWaitingWorker(registration?.waiting ?? null);
       publish({
         updateApplying: false,
-        updateAvailable: true,
-        error: 'The new Helm version did not become active. Try again when online.'
+        updateError: 'The new Helm version did not become active. Your work is still here. Retry when ready.'
       });
       return false;
     }
-    if (typeof window !== 'undefined') window.location.reload();
+    window.location.reload();
     return true;
   } catch (error) {
+    activation?.cancel();
     publish({
       updateApplying: false,
-      updateAvailable: true,
-      error: errorMessage(error, 'Helm could not apply the available update.')
+      updateError: errorMessage(error, 'Helm could not apply the available update. Your work is still here.')
     });
     return false;
+  } finally {
+    updateInProgress = false;
   }
 }
