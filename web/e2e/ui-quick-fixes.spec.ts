@@ -98,8 +98,8 @@ test.describe('UI quick fixes', () => {
     await page.evaluate(() => localStorage.setItem('helm.theme', 'light'));
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-    await expect(page.getByRole('button', { name: 'Use dark theme' })).toBeVisible();
-    await page.getByRole('button', { name: 'Use dark theme' }).click();
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+    await page.getByRole('menu', { name: 'Account' }).getByRole('menuitemradio', { name: 'Dark theme', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     expect(await page.evaluate(() => localStorage.getItem('helm.theme'))).toBe('dark');
   });
