@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { api } from '../api';
-  import { formatRelative } from '../state';
   import type { AdminMetrics, EmailIntakeView, PublicEndpointView } from '../types';
+  import AdminActivityTables from './AdminActivityTables.svelte';
+  import AdminPublicAccessBanner from './AdminPublicAccessBanner.svelte';
+  import MetricsPanel from './MetricsPanel.svelte';
 
   const windows = [7, 30, 90];
   const chartHeight = 140;
@@ -15,17 +17,9 @@
   let dailyHover = -1;
   let hourlyHover = -1;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
-  // Whether this Helm is reachable from the internet is a security fact
-  // administrators should not have to dig for.
   let publicAccess: PublicEndpointView | null = null;
   let publicAccessUnavailable = false;
   let emailAccess: EmailIntakeView | null = null;
-
-  function publicAccessDetail(access: PublicEndpointView): string {
-    const connector = access.connector.state === 'connected' ? 'live' : access.connector.state;
-    const test = access.last_test ? ` · last test ${access.last_test.ok ? 'passed' : 'failed'} ${formatRelative(access.last_test.checked_at)}` : '';
-    return `· connector ${connector}${test}`;
-  }
 
   async function loadPublicAccess() {
     try {
@@ -127,24 +121,7 @@
   </section>
 
   {#if publicAccess && !publicAccessUnavailable}
-    {@const active = publicAccess.active}
-    {@const pending = publicAccess.history.filter((item) => item.cleanup_pending).length}
-    {@const emailPending = emailAccess?.history.filter((item) => item.cleanup_pending).length || 0}
-    {@const email = emailAccess?.active}
-    <section class="public-access" class:is-public={Boolean(active)} aria-label="Public access" data-admin-public-access>
-      <div>
-        <strong>Public access</strong>
-        {#if active}
-          <span>Webhook paths are public at <code>https://{active.hostname}</code>{' '}{publicAccessDetail(publicAccess)}</span>
-        {:else}
-          <span>No public URL. This Helm is reachable only at its own address.</span>
-        {/if}
-        {#if email}<span data-admin-email-access>Email addresses on at <code>{email.local_part}+…@{email.domain}</code></span>{/if}
-        {#if pending}<span class="public-access-warning">{pending} removed public URL{pending === 1 ? ' still has' : 's still have'} resources in Cloudflare.</span>{/if}
-        {#if emailPending}<span class="public-access-warning">{emailPending} removed email setup{emailPending === 1 ? ' still has' : 's still have'} a Worker in Cloudflare.</span>{/if}
-      </div>
-      <a class="button quiet-button" href="/tickets?connect=1">{active || pending || emailPending ? 'Manage' : 'Set up'}</a>
-    </section>
+    <AdminPublicAccessBanner {publicAccess} {emailAccess} />
   {/if}
 
   {#if error}
@@ -166,11 +143,8 @@
     </div>
 
     <div class="chart-grid">
-      <section class="panel">
-        <div class="panel-title">
-          <div><h2>Tasks per day</h2><p>Created vs. completed, UTC days</p></div>
-          <div class="legend"><span><i class="swatch a"></i>Created</span><span><i class="swatch b"></i>Completed</span></div>
-        </div>
+      <MetricsPanel title="Tasks per day" subtitle="Created vs. completed, UTC days">
+        <div slot="legend" class="legend"><span><i class="swatch a"></i>Created</span><span><i class="swatch b"></i>Completed</span></div>
         <div class="chart" role="img" aria-label={`Tasks created and completed per day over the last ${metrics.window_days} days`}>
           <div class="axis-labels"><span>{fmt(dailyMax)}</span><span>{fmt(dailyMax / 2)}</span><span>0</span></div>
           <svg role="presentation" viewBox={`0 0 100 ${chartHeight}`} preserveAspectRatio="none" on:mouseleave={() => (dailyHover = -1)}>
@@ -196,13 +170,10 @@
             {#each daily as day, index}<span style={`left: ${(index + 0.5) * dailySlot}%`}>{index % dailyLabelEvery === 0 ? shortDate(day.date) : ''}</span>{/each}
           </div>
         </div>
-      </section>
+      </MetricsPanel>
 
-      <section class="panel">
-        <div class="panel-title">
-          <div><h2>API requests, last 24h</h2><p>Hourly, updated about once a minute</p></div>
-          <div class="legend"><span><i class="swatch a"></i>Agents</span><span><i class="swatch b"></i>Humans</span></div>
-        </div>
+      <MetricsPanel title="API requests, last 24h" subtitle="Hourly, updated about once a minute">
+        <div slot="legend" class="legend"><span><i class="swatch a"></i>Agents</span><span><i class="swatch b"></i>Humans</span></div>
         <div class="chart" role="img" aria-label="API requests per hour over the last 24 hours, split by agents and humans">
           <div class="axis-labels"><span>{fmt(hourlyMax)}</span><span>{fmt(hourlyMax / 2)}</span><span>0</span></div>
           <svg role="presentation" viewBox={`0 0 100 ${chartHeight}`} preserveAspectRatio="none" on:mouseleave={() => (hourlyHover = -1)}>
@@ -230,57 +201,11 @@
             {#each hourly as hour, index}<span style={`left: ${(index + 0.5) * hourlySlot}%`}>{index % 6 === 0 ? hourLabel(hour.hour) : ''}</span>{/each}
           </div>
         </div>
-      </section>
+      </MetricsPanel>
     </div>
 
     <div class="chart-grid">
-      <section class="panel">
-        <div class="panel-title"><div><h2>Agents</h2><p>Recorded activity in the last {metrics.window_days} days</p></div></div>
-        {#if metrics.agents.length}
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th scope="col">Agent</th><th scope="col" class="num">Actions</th><th scope="col" class="num">Claims</th><th scope="col" class="num">Completed</th><th scope="col">Last active</th></tr></thead>
-              <tbody>
-                {#each metrics.agents as agent}
-                  <tr class:disabled={agent.disabled}>
-                    <td><span class="agent-name">{agent.name}</span>{#if agent.disabled}<span class="tag">disabled</span>{/if}</td>
-                    <td class="num">{fmt(agent.events)}</td>
-                    <td class="num">{fmt(agent.claims)}</td>
-                    <td class="num">{fmt(agent.completions)}</td>
-                    <td class="muted">{agent.last_event_at ? formatRelative(agent.last_event_at) : agent.token_last_used_at ? `token used ${formatRelative(agent.token_last_used_at)}` : 'Never'}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {:else}
-          <div class="panel-empty">No agents yet. Create one in Settings to start tracking agent activity.</div>
-        {/if}
-      </section>
-
-      <section class="panel">
-        <div class="panel-title"><div><h2>Top API callers</h2><p>Requests in the last {metrics.window_days} days</p></div></div>
-        {#if requests.top_actors.length}
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th scope="col">Actor</th><th scope="col" class="num">Requests</th><th scope="col" class="num">Errors</th><th scope="col" class="num">Avg</th><th scope="col">Last seen</th></tr></thead>
-              <tbody>
-                {#each requests.top_actors as actor}
-                  <tr>
-                    <td><span class="agent-name">{actor.name || 'Unknown actor'}</span><span class="tag" class:agent={actor.kind === 'agent'}>{actor.kind}</span></td>
-                    <td class="num">{fmt(actor.requests)}</td>
-                    <td class="num">{fmt(actor.errors)}</td>
-                    <td class="num">{fmt(actor.avg_ms)} ms</td>
-                    <td class="muted">{formatRelative(actor.last_seen_at)}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {:else}
-          <div class="panel-empty">No authenticated requests in this window.</div>
-        {/if}
-      </section>
+      <AdminActivityTables {metrics} {fmt} />
     </div>
 
     <p class="footnote">
@@ -295,35 +220,25 @@
 <style>
   .admin-metrics { --series-a: #6d5efc; --series-b: #23875f; display: grid; gap: 18px; }
   :global(.app-shell.dark-mode) .admin-metrics { --series-a: #7d70ff; --series-b: #3aa982; }
-  .beta-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--purple-soft); color: var(--purple); font-size: 12px; font-weight: 600; vertical-align: middle; }
+  .beta-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--purple-soft); color: var(--purple); font-size: var(--text-xs); font-weight: 600; vertical-align: middle; }
   .window-picker { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-  .window-picker button { padding: 5px 11px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+  .window-picker button { padding: 5px 11px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: var(--text-sm); cursor: pointer; }
   .window-picker button.active { background: var(--purple-soft); color: var(--purple); font-weight: 600; }
   .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-  .public-access { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); font-size: 13px; }
-  .public-access > div { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; min-width: 0; }
-  .public-access.is-public { border-color: color-mix(in srgb, var(--semantic-amber), var(--border) 60%); background: var(--amber-soft); }
-  .public-access code { overflow-wrap: anywhere; }
-  .public-access-warning { color: var(--semantic-red); font-weight: 700; }
-  .public-access a.button { text-decoration: none; }
   .stat { display: grid; gap: 3px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
-  .stat-label { color: var(--muted); font-size: 12.5px; font-weight: 600; }
-  .stat strong { color: var(--ink); font-size: 26px; font-variant-numeric: tabular-nums; }
-  .stat strong small { color: var(--muted); font-size: 16px; font-weight: 500; }
-  .stat-note { color: var(--faint); font-size: 12px; }
+  .stat-label { color: var(--muted); font-size: var(--text-xs); font-weight: 600; }
+  .stat strong { color: var(--ink); font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+  .stat strong small { color: var(--muted); font-size: var(--text-md); font-weight: 500; }
+  .stat-note { color: var(--faint); font-size: var(--text-xs); }
   .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; }
-  .panel { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
-  .panel-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
-  .panel-title h2 { margin: 0; font-size: 15px; }
-  .panel-title p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
-  .legend { display: flex; gap: 12px; color: var(--ink-soft); font-size: 12px; white-space: nowrap; }
+  .legend { display: flex; gap: 12px; color: var(--ink-soft); font-size: var(--text-xs); white-space: nowrap; }
   .legend span, .tooltip span { display: inline-flex; align-items: center; gap: 6px; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
   .swatch.a { background: var(--series-a); }
   .swatch.b { background: var(--series-b); }
   .chart { position: relative; padding-left: 34px; padding-bottom: 22px; }
   .chart svg { display: block; width: 100%; height: 140px; overflow: visible; }
-  .axis-labels { position: absolute; top: -6px; left: 0; bottom: 16px; display: flex; flex-direction: column; justify-content: space-between; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .axis-labels { position: absolute; top: -6px; left: 0; bottom: 16px; display: flex; flex-direction: column; justify-content: space-between; color: var(--faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
   .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
   .baseline { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
   .bar { transition: opacity 120ms ease; }
@@ -332,22 +247,11 @@
   .bar.dim { opacity: 0.35; }
   .hit { fill: transparent; }
   .x-labels { position: absolute; left: 34px; right: 0; bottom: 0; height: 16px; }
-  .x-labels span { position: absolute; transform: translateX(-50%); color: var(--faint); font-size: 11px; white-space: nowrap; }
-  .tooltip { position: absolute; top: -8px; z-index: 2; display: grid; gap: 3px; min-width: 150px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-raised); box-shadow: 0 6px 20px rgb(0 0 0 / 0.12); color: var(--ink); font-size: 12px; pointer-events: none; transform: translateX(-50%); }
+  .x-labels span { position: absolute; transform: translateX(-50%); color: var(--faint); font-size: var(--text-xs); white-space: nowrap; }
+  .tooltip { position: absolute; top: -8px; z-index: 2; display: grid; gap: 3px; min-width: 150px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-raised); box-shadow: 0 6px 20px rgb(0 0 0 / 0.12); color: var(--ink); font-size: var(--text-xs); pointer-events: none; transform: translateX(-50%); }
   .tooltip b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
   .muted { color: var(--muted); }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; }
-  td { padding: 8px; border-bottom: 1px solid var(--border); color: var(--ink); }
-  tr:last-child td { border-bottom: 0; }
-  tr.disabled td { opacity: 0.6; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .agent-name { font-weight: 600; }
-  .tag { margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 11px; }
-  .tag.agent { background: var(--purple-soft); color: var(--purple); }
-  .panel-empty { padding: 18px 0; color: var(--muted); font-size: 13px; }
-  .footnote { margin: 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
+  .footnote { margin: 0; color: var(--faint); font-size: var(--text-xs); line-height: 1.5; }
   @media (max-width: 1100px) { .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 720px) { .chart-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .bar { transition: none; } }

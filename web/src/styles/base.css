@@ -12,8 +12,6 @@
   --text-lg: 20px;
   --text-xl: 24px;
   --text-2xl: 30px;
-  /* Legacy alias for components not yet migrated to the scale. */
-  --font-display: var(--font-sans);
   font-family: var(--font-sans);
   color: #1d2433;
   background: #f8fafc;
