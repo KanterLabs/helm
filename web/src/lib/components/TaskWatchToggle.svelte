@@ -141,8 +141,8 @@
 
 <style>
   .task-watch-toggle { display: flex; align-items: center; gap: .4rem; min-width: 0; }
-  .task-watch-button { display: inline-flex; align-items: center; gap: .35rem; min-height: 2rem; padding: .3rem .55rem; border: 1px solid var(--border, #dedbe8); border-radius: .4rem; background: transparent; color: var(--muted, #706b7f); font-size: .7rem; white-space: nowrap; }
+  .task-watch-button { display: inline-flex; align-items: center; gap: .35rem; min-height: 2rem; padding: .3rem .55rem; border: 1px solid var(--border, #dedbe8); border-radius: .4rem; background: transparent; color: var(--muted, #706b7f); font-size: var(--text-xs); white-space: nowrap; }
   .task-watch-button[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent, #6558d8) 55%, var(--border, #dedbe8)); background: color-mix(in srgb, var(--accent, #6558d8) 10%, transparent); color: var(--accent, #6558d8); }
   .task-watch-button:disabled { cursor: wait; opacity: .6; }
-  .task-watch-error { max-width: 11rem; color: var(--danger, #b33d4b); font-size: .62rem; overflow-wrap: anywhere; }
+  .task-watch-error { max-width: 11rem; color: var(--danger, #b33d4b); font-size: var(--text-2xs); overflow-wrap: anywhere; }
 </style>
