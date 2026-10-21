@@ -139,7 +139,6 @@
   .task-card .task-key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .task-card .priority-dot { flex-shrink: 0; }
   .task-card:not(.expanded) .task-main { height: 82px; overflow: hidden; }
-  .task-card:not(.expanded) .task-title { -webkit-line-clamp: 2; }
   .task-card:not(.expanded) .card-expand-toggle { left: 6px; right: auto; bottom: 0; max-width: 96px; padding: 0 6px; }
   .task-card:not(.expanded) .task-card-footer { position: absolute; right: 0; bottom: 0; left: 0; height: 44px; min-height: 44px; padding: 0 92px 0 104px; }
   .task-card:not(.expanded) .task-card-footer > .due-date,

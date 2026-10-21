@@ -102,9 +102,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .priority-dot.priority-low { background: #92a0b4; box-shadow: 0 0 0 3px var(--surface-muted); }
 .claim-mini { color: var(--green); font-size: 8px; }
 .task-title { display: -webkit-box; overflow: hidden; font-size: var(--text-xs); line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+/* Collapsed cards keep two title lines so the details toggle never covers text. */
+.task-card:not(.expanded) .task-title { -webkit-line-clamp: 2; }
 .task-excerpt { display: -webkit-box; margin-top: 6px; overflow: hidden; color: var(--muted); font-size: var(--text-xs); line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .task-card:not(.expanded) .task-excerpt, .task-card:not(.expanded) .task-labels, .task-card:not(.expanded) .checklist-card-progress, .task-card:not(.expanded) .hierarchy-badge, .task-card:not(.expanded) .agent-pulse { display: none; }
-.card-expand-toggle { position: absolute; right: 9px; bottom: 34px; z-index: 2; padding: 2px 5px; border: 0; border-radius: 4px; color: var(--muted); background: var(--surface-muted); font-size: var(--text-2xs); font-weight: 600; }
+.card-expand-toggle { position: absolute; left: 36px; bottom: 34px; z-index: 2; padding: 2px 5px; border: 0; border-radius: 4px; color: var(--muted); background: var(--surface-muted); font-size: var(--text-2xs); font-weight: 600; }
 .card-expand-toggle:hover, .card-expand-toggle:focus-visible { color: var(--purple); background: var(--purple-soft); }
 .task-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 9px; }
 .label-chip { display: inline-block; max-width: 92px; overflow: hidden; padding: 3px 6px; border-radius: 4px; color: var(--label-color); background: color-mix(in srgb, var(--label-color), transparent 87%); font-size: var(--text-xs); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
