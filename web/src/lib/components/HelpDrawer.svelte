@@ -64,20 +64,20 @@
 <style>
   .help-backdrop { position: fixed; inset: 0; z-index: 80; background: rgb(15 18 30 / 0.28); }
   .help-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 81; display: grid; grid-template-rows: auto 1fr; width: min(640px, 100vw); border-left: 1px solid var(--border); background: var(--surface); box-shadow: -12px 0 32px rgb(15 18 30 / 0.18); }
-  header { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--border); font-weight: 800; }
-  .help-body { overflow-y: auto; padding: 8px 22px 40px; font-size: 14px; line-height: 1.6; color: var(--ink); }
-  .help-body :global(h2) { margin: 18px 0 10px; font-size: 21px; }
-  .help-body :global(h3) { margin: 26px 0 8px; font-size: 17px; scroll-margin-top: 8px; }
-  .help-body :global(h4) { margin: 20px 0 6px; font-size: 15px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .help-body { overflow-y: auto; padding: 8px 22px 40px; font-size: var(--text-base); line-height: 1.6; color: var(--ink); }
+  .help-body :global(h2) { margin: 18px 0 10px; font-size: var(--text-lg); }
+  .help-body :global(h3) { margin: 26px 0 8px; font-size: var(--text-lg); scroll-margin-top: 8px; }
+  .help-body :global(h4) { margin: 20px 0 6px; font-size: var(--text-md); }
   .help-body :global(p), .help-body :global(ul), .help-body :global(ol) { margin: 8px 0; }
   .help-body :global(li) { margin: 3px 0; }
-  .help-body :global(code) { padding: 1px 4px; border-radius: 4px; background: var(--surface-muted); font-size: 12.5px; overflow-wrap: anywhere; }
+  .help-body :global(code) { padding: 1px 4px; border-radius: 4px; background: var(--surface-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
   .help-body :global(pre) { overflow-x: auto; padding: 10px 12px; border-radius: 8px; background: var(--surface-muted); }
   .help-body :global(pre code) { padding: 0; background: none; }
   .help-body :global(.help-table) { overflow-x: auto; }
-  .help-body :global(table) { width: 100%; margin: 10px 0; border-collapse: collapse; font-size: 13px; }
+  .help-body :global(table) { width: 100%; margin: 10px 0; border-collapse: collapse; font-size: var(--text-sm); }
   .help-body :global(th), .help-body :global(td) { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
-  .help-body :global(th) { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .help-body :global(th) { color: var(--muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em; }
   .help-body :global(a) { color: var(--purple); font-weight: 600; }
   .help-error { color: var(--semantic-red); }
 </style>

@@ -165,7 +165,7 @@
     border-radius: 7px;
     color: var(--ink-soft, #4e586a);
     background: var(--surface, #fff);
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 600;
     white-space: nowrap;
   }
@@ -198,11 +198,11 @@
     background: transparent;
     text-align: left;
     overflow-wrap: anywhere;
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.4;
   }
   .card-action-item:hover, .card-action-item:focus-visible { background: var(--surface-hover, #f4f5fa); }
   .card-action-item[aria-disabled="true"] { color: var(--muted, #596579); cursor: default; }
-  .card-action-item small { display: block; margin-top: 3px; font-size: 11px; line-height: 1.4; }
+  .card-action-item small { display: block; margin-top: 3px; font-size: var(--text-xs); line-height: 1.4; }
   .card-actions-trigger:focus-visible, .card-action-item:focus-visible { outline: 2px solid var(--purple, #6d5efc); outline-offset: -2px; }
 </style>

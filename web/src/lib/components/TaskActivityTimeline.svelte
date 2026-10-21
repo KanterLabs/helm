@@ -1,6 +1,22 @@
 <script lang="ts">
   import { renderMarkdown } from '../markdown';
+  import TaskTimelineEntrySummary from './TaskTimelineEntrySummary.svelte';
   import type { Comment, TaskTimelineFilter, TaskTimelineItem } from '../types';
+  import {
+    actorInitial,
+    actorKind,
+    actorName,
+    filterLabel,
+    filterOptions,
+    formatDateTime,
+    formatRelative,
+    kindLabel,
+    mutationKey,
+    withEntry,
+    withoutDraft,
+    type CommentDraft,
+    type PendingCommentMutation
+  } from './taskActivityTimeline';
 
   export let items: TaskTimelineItem[] = [];
   export let filter: TaskTimelineFilter = 'all';
@@ -21,18 +37,6 @@
   export let onConfirmDelete: (comment: Comment) => boolean | Promise<boolean> = () => true;
   export let onDeleteComment: (comment: Comment) => void | Promise<void> = () => undefined;
 
-  interface CommentDraft {
-    comment: Comment;
-    body: string;
-    originalBody: string;
-  }
-
-  interface PendingCommentMutation {
-    taskId: string;
-    commentId: string;
-    body: string;
-  }
-
   let editingCommentId: string | null = null;
   let editingBody = '';
   let editingOriginalBody = '';
@@ -46,13 +50,6 @@
     || Array.from(draftsByTask.values()).some((drafts) => Array.from(drafts.values()).some((draft) => draft.body !== draft.originalBody));
   $: pendingWrites = pendingCommentMutations.size > 0;
 
-  const filterOptions: Array<{ value: TaskTimelineFilter; label: string }> = [
-    { value: 'all', label: 'All' },
-    { value: 'agent_progress', label: 'Agent' },
-    { value: 'comment', label: 'Comments' },
-    { value: 'task_change', label: 'Changes' }
-  ];
-
   // Prefer the explicit task identity because the host clears rows before a
   // task refresh completes. The fallback keeps the component safe for small
   // embedders/tests that only provide timeline items.
@@ -65,10 +62,6 @@
     : null;
   $: activeDraftComment = activeCommentItem?.comment || editingCommentSnapshot;
   $: activeDraftHidden = Boolean(editingCommentId && (!activeCommentItem || !visibleItems.some((item) => item.id === activeCommentItem?.id)));
-
-  function mutationKey(ownerTaskId: string, commentId: string): string {
-    return `${ownerTaskId}\u0000${commentId}`;
-  }
 
   function taskForComment(comment: Comment): string {
     return comment.task_id || activeTaskId;
@@ -93,29 +86,15 @@
   }
 
   function setPendingMutation(key: string, mutation: PendingCommentMutation | null): void {
-    const next = new Map(pendingCommentMutations);
-    if (mutation) next.set(key, mutation);
-    else next.delete(key);
-    pendingCommentMutations = next;
+    pendingCommentMutations = withEntry(pendingCommentMutations, key, mutation);
   }
 
   function setCommentError(key: string, message: string): void {
-    const next = new Map(commentMutationErrors);
-    if (message) next.set(key, message);
-    else next.delete(key);
-    commentMutationErrors = next;
+    commentMutationErrors = withEntry(commentMutationErrors, key, message);
   }
 
   function removeDraft(ownerTaskId: string, commentId: string): void {
-    if (!ownerTaskId) return;
-    const existing = draftsByTask.get(ownerTaskId);
-    if (!existing?.has(commentId)) return;
-    const nextByTask = new Map(draftsByTask);
-    const next = new Map(existing);
-    next.delete(commentId);
-    if (next.size) nextByTask.set(ownerTaskId, next);
-    else nextByTask.delete(ownerTaskId);
-    draftsByTask = nextByTask;
+    draftsByTask = withoutDraft(draftsByTask, ownerTaskId, commentId);
   }
 
   function persistActiveDraft(): void {
@@ -171,81 +150,6 @@
     // Keep the task-scoped copy current if the host switches tasks in the same
     // event loop turn as an input update.
     persistActiveDraft();
-  }
-
-  function actorName(item: TaskTimelineItem): string {
-    return item.actor?.name || item.progress?.actor_id || item.comment?.actor_id || 'Unknown actor';
-  }
-
-  function actorKind(item: TaskTimelineItem): string {
-    return item.actor?.kind === 'agent' ? 'Agent' : item.actor?.kind === 'human' ? 'Human' : 'Actor';
-  }
-
-  function actorInitial(item: TaskTimelineItem): string {
-    return (actorName(item).trim().slice(0, 1) || '?').toUpperCase();
-  }
-
-  function kindLabel(kind: TaskTimelineItem['kind']): string {
-    if (kind === 'agent_progress') return 'Agent update';
-    if (kind === 'comment') return 'Comment';
-    return 'Task change';
-  }
-
-  function changeLabel(item: TaskTimelineItem): string {
-    const type = item.change?.event_type || 'task.updated';
-    const labels: Record<string, string> = {
-      'task.created': 'created the task',
-      'task.updated': 'updated the task',
-      'task.moved': 'moved the task',
-      'task.completed': 'completed the task',
-      'task.blocked': 'blocked the task',
-      'task.claimed': 'claimed the task',
-      'task.released': 'released the task',
-      'task.renewed': 'renewed the claim',
-      'task.claim_renewed': 'renewed the claim',
-      'bug.triaged': 'triaged the bug',
-      'bug.resolved': 'resolved the bug',
-      'bug.reopened': 'reopened the bug',
-      'alert.repeated': 'received a repeat alert',
-      'comment.updated': 'edited a comment',
-      'comment.deleted': 'deleted a comment'
-    };
-    return labels[type] || type.replace(/[._-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-  }
-
-  function changeContext(item: TaskTimelineItem): string {
-    const payload = item.change?.payload || {};
-    const values = ['summary', 'reason', 'note', 'column', 'column_name', 'state', 'resolution', 'phase']
-      .map((key) => payload[key])
-      .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
-      .map(String);
-    return values.join(' · ');
-  }
-
-  function formatRelative(value: string): string {
-    const timestamp = Date.parse(value);
-    if (!Number.isFinite(timestamp)) return 'Unknown time';
-    const minutes = Math.round((timestamp - Date.now()) / 60000);
-    const absolute = Math.abs(minutes);
-    if (absolute < 1) return 'just now';
-    if (absolute < 60) return `${absolute}m ${minutes < 0 ? 'ago' : 'from now'}`;
-    const hours = Math.round(absolute / 60);
-    if (hours < 24) return `${hours}h ${minutes < 0 ? 'ago' : 'from now'}`;
-    const days = Math.round(hours / 24);
-    return `${days}d ${minutes < 0 ? 'ago' : 'from now'}`;
-  }
-
-  function formatDateTime(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZoneName: 'short'
-    }).format(date);
   }
 
   function canEditComment(comment: Comment): boolean {
@@ -327,10 +231,6 @@
   function showActiveDraft(): void {
     if (activeCommentItem) onFilterChange('all');
   }
-
-  function filterLabel(value: TaskTimelineFilter): string {
-    return filterOptions.find((option) => option.value === value)?.label || value;
-  }
 </script>
 
 <section class="task-timeline" aria-labelledby="task-activity-heading">
@@ -401,14 +301,7 @@
                 <span class="task-timeline-actor-kind">{actorKind(item)}</span>
                 <span class={`task-timeline-kind ${item.kind}`}>{kindLabel(item.kind)}</span>
               </div>
-              {#if item.kind === 'agent_progress' && item.progress}
-                <p class="task-timeline-summary">{item.progress.summary}</p>
-                <dl class="task-timeline-details">
-                  {#if item.progress.phase}<div><dt>Phase</dt><dd>{item.progress.phase}</dd></div>{/if}
-                  {#if item.progress.next_action}<div><dt>Next</dt><dd>{item.progress.next_action}</dd></div>{/if}
-                  {#if item.progress.checkpoint_total !== null && item.progress.checkpoint_total !== undefined}<div><dt>Checkpoints</dt><dd>{item.progress.checkpoint_completed ?? 0} of {item.progress.checkpoint_total}</dd></div>{/if}
-                </dl>
-              {:else if item.kind === 'comment' && item.comment}
+              {#if item.kind === 'comment' && item.comment}
                 {@const comment = item.comment}
                 {#if editingCommentId === comment.id}
                   <div class="task-timeline-comment-edit">
@@ -432,8 +325,8 @@
                 {/if}
                 {#if commentError(comment, commentMutationErrors)}<div class="task-timeline-comment-error" role="alert">{commentError(comment, commentMutationErrors)}</div>{/if}
                 {#if editingCommentId === comment.id && editingGuardMessage}<div class="task-timeline-comment-error" role="alert">{editingGuardMessage}</div>{/if}
-              {:else if item.kind === 'task_change' && item.change}
-                <p class="task-timeline-summary">{changeLabel(item)}{#if changeContext(item)}<span> · {changeContext(item)}</span>{/if}</p>
+              {:else}
+                <TaskTimelineEntrySummary {item} />
               {/if}
               <time datetime={item.created_at} title={formatDateTime(item.created_at)}>{formatRelative(item.created_at)}</time>
             </div>
@@ -471,13 +364,13 @@
 
   .task-timeline-draft-recovery-heading strong {
     color: var(--ink-soft);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 
   .task-timeline-draft-recovery-heading p {
     margin: 3px 0 0;
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.4;
   }
 
@@ -486,13 +379,13 @@
     border-radius: 6px;
     color: var(--amber, #986e19);
     background: var(--amber-soft);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.4;
   }
 
   .task-timeline-draft-lock {
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.4;
   }
 </style>

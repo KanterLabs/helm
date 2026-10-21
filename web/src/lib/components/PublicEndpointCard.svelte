@@ -4,6 +4,7 @@
   import { openHelp } from '../help';
   import { formatRelative } from '../state';
   import { ApiError, type PublicEndpoint, type PublicEndpointView } from '../types';
+  import PublicEndpointManualSetup from './PublicEndpointManualSetup.svelte';
 
   export let onChanged: () => void = () => undefined;
 
@@ -27,8 +28,6 @@
   let error = '';
   let notice = '';
   let noticeKind: 'success' | 'warning' = 'success';
-  let hostname = '';
-  let token = '';
   let saving = false;
   let testing = false;
   let disableOpen = false;
@@ -36,7 +35,6 @@
   let cleanupId = '';
   let cleanupToken = '';
   let copied = '';
-  let hostnameSuggestion = '';
   let poll: ReturnType<typeof setTimeout> | undefined;
   let destroyed = false;
 
@@ -79,24 +77,21 @@
     schedule();
   }
 
-  async function create() {
-    if (!hostname.trim() || !token.trim() || saving) return;
+  async function create(hostname: string, token: string): Promise<boolean> {
     saving = true;
     error = '';
     notice = '';
     try {
-      view = await api.createPublicEndpoint({ hostname: hostname.trim(), api_token: token.trim() });
+      view = await api.createPublicEndpoint({ hostname, api_token: token });
       notice = `Public URL ready: https://${view.active?.hostname}. New webhook URLs use it.`;
       noticeKind = 'success';
-      hostname = '';
       onChanged();
       schedule();
+      return true;
     } catch (cause) {
       error = message(cause, 'The public endpoint could not be created.');
-      // A bare domain is the most common mistake: offer the subdomain.
-      hostnameSuggestion = /^[a-z0-9-]+\.[a-z0-9-]+$/i.test(hostname.trim()) ? `hooks.${hostname.trim().toLowerCase()}` : '';
+      return false;
     } finally {
-      token = '';
       saving = false;
     }
   }
@@ -261,25 +256,7 @@
   {:else if view}
     <p>Not set up. <strong>Connect Cloudflare</strong> above does it for you; experts can set it up by hand.</p>
     {#if !view.connector_available}<div class="inline-alert warning" role="note"><span>!</span>cloudflared is not installed on this server, so a public URL cannot run here. The Docker image includes it; other installs need it on PATH or HELM_CLOUDFLARED_BINARY.</div>{/if}
-    <details class="manual-setup" data-manual-public>
-      <summary>Set up manually</summary>
-      <ol class="manual-steps">
-        <li>Create a Cloudflare API token with the permissions below (the <strong>Create token on Cloudflare</strong> button in Connect Cloudflare pre-selects them).</li>
-        <li>Enter a <strong>new subdomain</strong> such as <code>hooks.example.com</code>, not the domain itself: Helm creates a DNS record for it.</li>
-        <li>Paste the token and select <strong>Create public URL</strong>. The token is used once and never stored.</li>
-      </ol>
-      <form class="public-form" on:submit|preventDefault={create}>
-        <label>Hostname<input aria-label="Public hostname" bind:value={hostname} placeholder="hooks.example.com" autocomplete="off" required /></label>
-        <label>Cloudflare API token<input aria-label="Cloudflare API token" type="password" bind:value={token} autocomplete="off" required /></label>
-        <button class="button primary" type="submit" disabled={!hostname.trim() || !token.trim() || saving}>{saving ? 'Creating tunnel…' : 'Create public URL'}</button>
-      </form>
-      {#if hostnameSuggestion}<button class="text-button" type="button" data-hostname-suggestion on:click={() => { hostname = hostnameSuggestion; hostnameSuggestion = ''; error = ''; }}>Use {hostnameSuggestion} instead</button>{/if}
-      <details>
-        <summary>Token permissions</summary>
-        <ul>{#each view.required_permissions as permission}<li>{permission}</li>{/each}</ul>
-        <p class="optional">Exposed paths: {exposedPaths(view.exposed_paths).join(' and ')}. The server needs outbound access to Cloudflare (port 7844) and the <code>cloudflared</code> binary.</p>
-      </details>
-    </details>
+    <PublicEndpointManualSetup {view} {saving} {exposedPaths} onCreate={create} onClearError={() => { error = ''; }} />
   {/if}
 
   {#if earlier.length}
@@ -319,47 +296,44 @@
   .public-endpoint { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
   .public-heading { display: flex; align-items: center; gap: 8px; }
   .learn-more { margin-left: auto; }
-  .manual-setup { display: grid; gap: 8px; }
-  .manual-setup[open] > summary { margin-bottom: 8px; }
-  .manual-steps { margin: 0 0 8px; padding-left: 20px; font-size: 13px; line-height: 1.5; }
-  .public-endpoint h3 { margin: 0; font-size: 14px; }
-  .public-endpoint p { margin: 0; font-size: 13px; line-height: 1.5; }
-  .status-badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+  .public-endpoint h3 { margin: 0; font-size: var(--text-base); }
+  .public-endpoint p { margin: 0; font-size: var(--text-sm); line-height: 1.5; }
+  .status-badge { padding: 2px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; }
   .badge-connected { color: var(--semantic-green); background: var(--green-soft); }
   .badge-starting { color: var(--semantic-amber); background: var(--amber-soft); }
   .badge-restarting, .badge-error { color: var(--semantic-red); background: var(--red-soft); }
   .badge-stopped, .badge-off { color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
   .public-url-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
-  .public-url-row a { font-size: 15px; font-weight: 800; color: var(--ink); overflow-wrap: anywhere; }
-  .hook-base code { overflow-wrap: anywhere; font-size: 12px; }
+  .public-url-row a { font-size: var(--text-md); font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+  .hook-base code { overflow-wrap: anywhere; font-size: var(--text-xs); }
   .public-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
   .public-facts > div { display: grid; align-content: start; gap: 3px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-  dt { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
-  dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
-  .connector-state { font-weight: 800; }
+  dt { color: var(--muted); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+  .connector-state { font-weight: 600; }
   .state-connected { color: var(--semantic-green); }
   .state-starting { color: var(--semantic-amber); }
   .state-restarting, .state-error { color: var(--semantic-red); }
-  .connector-error { color: var(--semantic-red); font-size: 12px; }
-  .test-ok { color: var(--semantic-green); font-weight: 800; }
-  .test-failed { color: var(--semantic-red); font-weight: 800; }
+  .connector-error { color: var(--semantic-red); font-size: var(--text-xs); }
+  .test-ok { color: var(--semantic-green); font-weight: 600; }
+  .test-failed { color: var(--semantic-red); font-weight: 600; }
   .public-resources dl { display: grid; gap: 6px; margin: 8px 0 0; }
   .public-resources dl > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; align-items: baseline; }
   .public-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
-  .public-form label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
+  .public-form label { display: grid; gap: 5px; font-size: var(--text-xs); font-weight: 600; }
   .public-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .danger-button { color: var(--semantic-red); border-color: color-mix(in srgb, var(--semantic-red), var(--border) 60%); background: var(--red-soft); }
   .path-list { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
   .notice-success { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
   .notice-success > span:first-child { background: var(--semantic-green); }
-  .optional { color: var(--muted); font-size: 12px; font-weight: 400; }
-  details { font-size: 12px; }
-  details summary { cursor: pointer; font-weight: 700; }
+  .optional { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+  details { font-size: var(--text-xs); }
+  details summary { cursor: pointer; font-weight: 600; }
   details ul { margin: 6px 0; padding-left: 18px; }
   .public-history ul { display: grid; gap: 8px; padding: 0; list-style: none; }
   .public-history li { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   .history-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .history-host { font-weight: 800; overflow-wrap: anywhere; }
+  .history-host { font-weight: 600; overflow-wrap: anywhere; }
   .cleanup-count { color: var(--semantic-red); }
   @media (max-width: 760px) {
     .public-form, .public-facts { grid-template-columns: minmax(0, 1fr); }

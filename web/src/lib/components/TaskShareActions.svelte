@@ -154,8 +154,8 @@
     border-radius: 7px;
     color: var(--muted);
     background: var(--surface-muted);
-    font-size: 10px;
-    font-weight: 800;
+    font-size: var(--text-2xs);
+    font-weight: 600;
   }
 
   .task-share-copy:hover:not(:disabled),
@@ -182,14 +182,14 @@
     border-radius: 7px;
     color: var(--ink-soft);
     background: var(--surface-muted);
-    font-size: 10px;
-    font-weight: 700;
+    font-size: var(--text-2xs);
+    font-weight: 600;
     line-height: 1.35;
   }
 
   .task-share-feedback > span {
     flex: 0 0 auto;
-    font-weight: 900;
+    font-weight: 600;
   }
 
   .task-share-feedback.success {
@@ -212,7 +212,7 @@
     padding-top: 6px;
     border-top: 1px dashed var(--border-strong);
     color: var(--ink-soft);
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
 
   .task-share-fallback input {
@@ -227,14 +227,14 @@
     border-radius: 8px;
     color: var(--ink);
     background: var(--surface);
-    font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: var(--text-xs) var(--font-mono);
     user-select: text;
   }
 
   .task-share-fallback p {
     margin: 0;
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.4;
   }
 

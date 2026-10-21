@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import { api } from '../api';
   import { ApiError, type Notification, type NotificationPreferences, type Project, type Watch } from '../types';
-
-  type PreferenceKey = 'assignments' | 'mentions' | 'blockers' | 'state_changes';
+  import NotificationItem from './NotificationItem.svelte';
+  import NotificationPreferencesPanel from './NotificationPreferencesPanel.svelte';
+  import NotificationWatchSection from './NotificationWatchSection.svelte';
+  import { friendlyError, notificationLabel, unreadLabel, type PreferenceKey } from './notificationsInbox';
 
   export let pollIntervalMs = 60 * 1000;
   /** Changes whenever the authenticated actor/session changes. */
@@ -12,12 +14,6 @@
   export let onOpenNotification: (notification: Notification) => void | Promise<void> = () => undefined;
 
   const pageSize = 25;
-  const preferenceOptions: Array<{ key: PreferenceKey; label: string }> = [
-    { key: 'assignments', label: 'Assignments' },
-    { key: 'mentions', label: 'Mentions' },
-    { key: 'blockers', label: 'Blockers' },
-    { key: 'state_changes', label: 'State changes' }
-  ];
 
   let open = false;
   let loading = false;
@@ -57,7 +53,7 @@
 
   $: if (mounted && sessionKey !== observedSessionKey) {
     observedSessionKey = sessionKey;
-    resetSessionState();
+    clearSessionState(false);
     void loadNotifications(true);
   }
 
@@ -77,7 +73,7 @@
       if (disposed || loading || loadingOlder || saving || sessionInvalidated) return;
       void loadNotifications(true);
     };
-    const authInvalidated = () => invalidateSession();
+    const authInvalidated = () => clearSessionState(true);
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && open) {
         open = false;
@@ -110,40 +106,19 @@
     loadingOlder = false;
   }
 
-  function resetSessionState(): void {
+  /** Drops all session-scoped state; an invalidated session stays unavailable until the key changes. */
+  function clearSessionState(invalidated: boolean): void {
     listRequest += 1;
     mutationRequest += 1;
     preferenceRequest += 1;
     watchRequest += 1;
     watchMutationRequest += 1;
-    sessionInvalidated = false;
+    sessionInvalidated = invalidated;
     notifications = [];
     nextCursor = null;
     loading = false;
     loadingOlder = false;
-    error = '';
-    savingNotificationId = '';
-    savingAll = false;
-    preferenceSavingKey = '';
-    preferences = null;
-    preferencesOpen = false;
-    preferencesLoading = false;
-    preferencesError = '';
-    resetWatchState();
-  }
-
-  function invalidateSession(): void {
-    listRequest += 1;
-    mutationRequest += 1;
-    preferenceRequest += 1;
-    watchRequest += 1;
-    watchMutationRequest += 1;
-    sessionInvalidated = true;
-    notifications = [];
-    nextCursor = null;
-    loading = false;
-    loadingOlder = false;
-    error = 'Notifications are unavailable until your session is renewed.';
+    error = invalidated ? 'Notifications are unavailable until your session is renewed.' : '';
     savingNotificationId = '';
     savingAll = false;
     preferenceSavingKey = '';
@@ -344,34 +319,6 @@
       if (isLiveSession(expectedSession) && requestId === preferenceRequest) preferenceSavingKey = '';
     }
   }
-
-  function friendlyError(reason: unknown, fallback: string): string {
-    return reason instanceof ApiError && reason.message ? reason.message : reason instanceof Error && reason.message ? reason.message : fallback;
-  }
-
-  function notificationTime(notification: Notification): string {
-    const parsed = Date.parse(notification.created_at);
-    if (Number.isNaN(parsed)) return 'Unknown time';
-    const minutes = Math.round((parsed - Date.now()) / 60000);
-    const absolute = Math.abs(minutes);
-    if (absolute < 1) return 'just now';
-    if (absolute < 60) return `${absolute}m ${minutes < 0 ? 'ago' : 'from now'}`;
-    const hours = Math.round(absolute / 60);
-    if (hours < 24) return `${hours}h ${minutes < 0 ? 'ago' : 'from now'}`;
-    return `${Math.round(hours / 24)}d ${minutes < 0 ? 'ago' : 'from now'}`;
-  }
-
-  function notificationLabel(count: number): string {
-    return count ? `Open notifications, ${count} unread` : 'Open notifications';
-  }
-
-  function unreadLabel(invalidated: boolean, busy: boolean, count: number, total: number, cursor: string | null, failure: string): string {
-    if (invalidated) return 'Session expired';
-    if (busy && !total) return 'Loading…';
-    if (failure) return 'Inbox needs attention';
-    if (!count) return cursor ? 'No unread on this page' : 'All caught up';
-    return `${count} unread on this page`;
-  }
 </script>
 
 <div class="notifications-inbox">
@@ -404,13 +351,7 @@
       {:else if notifications.length}
         <div class="notifications-list" aria-busy={loading || loadingOlder}>
           {#each notifications as notification (notification.id)}
-            <article class:unread={!notification.read_at} class="notification-item">
-              <button class="notification-open" type="button" data-notification-open={notification.id} disabled={saving} aria-label={`Open notification: ${notification.title}`} on:click={() => void activateNotification(notification)}>
-                <span class="notification-dot" aria-hidden="true"></span>
-                <span class="notification-copy"><strong>{notification.title}</strong><span>{notification.body}</span><time datetime={notification.created_at}>{notificationTime(notification)}</time></span>
-              </button>
-              <button class="notification-state-button" type="button" data-notification-read-toggle={notification.id} disabled={saving} aria-label={notification.read_at ? `Mark ${notification.title} unread` : `Mark ${notification.title} read`} on:click={() => void setNotificationRead(notification, !notification.read_at)}>{notification.read_at ? 'Unread' : 'Read'}</button>
-            </article>
+            <NotificationItem {notification} {saving} onOpen={activateNotification} onToggleRead={setNotificationRead} />
           {/each}
         </div>
         {#if nextCursor}
@@ -419,31 +360,10 @@
       {/if}
 
       {#if activeProject}
-        <div class="notifications-watch" aria-label="Notification watches">
-          <div class="notifications-watch-heading"><strong>Watch</strong>{#if watchesLoading}<span>Updating…</span>{/if}</div>
-          {#if watchesError}<div class="notifications-watch-error" role="alert">{watchesError}<button class="text-button" type="button" on:click={() => void loadWatches()}>Retry</button></div>{/if}
-          <div class="notifications-watch-actions">
-            <button class="watch-toggle" type="button" aria-pressed={Boolean(projectWatch)} disabled={saving || watchesLoading} on:click={() => void toggleWatch()}><span aria-hidden="true">◉</span>{projectWatch ? 'Unwatch project' : 'Watch project'}</button>
-          </div>
-        </div>
+        <NotificationWatchSection watched={Boolean(projectWatch)} loading={watchesLoading} error={watchesError} {saving} onToggle={toggleWatch} onRetry={loadWatches} />
       {/if}
 
-      <div class="notifications-preferences">
-        <button class="notifications-preferences-trigger" type="button" aria-expanded={preferencesOpen} aria-controls="notifications-preferences-panel" on:click={togglePreferences}>Notification preferences <span aria-hidden="true">{preferencesOpen ? '⌃' : '⌄'}</span></button>
-        {#if preferencesOpen}
-          <div id="notifications-preferences-panel" class="notifications-preferences-panel">
-            {#if preferencesLoading}<div class="notifications-status" role="status">Loading preferences…</div>{:else if preferences}
-              <fieldset disabled={saving}>
-                <legend class="sr-only">Notification preferences</legend>
-                {#each preferenceOptions as option}
-                  <label><input type="checkbox" checked={preferences[option.key]} on:change={() => void setPreference(option.key)} /><span>{option.label}</span></label>
-                {/each}
-              </fieldset>
-            {/if}
-            {#if preferencesError}<div class="notifications-alert" role="alert">{preferencesError}<button class="text-button" type="button" on:click={() => void loadPreferences()}>Retry</button></div>{/if}
-          </div>
-        {/if}
-      </div>
+      <NotificationPreferencesPanel open={preferencesOpen} loading={preferencesLoading} {preferences} error={preferencesError} {saving} onToggle={togglePreferences} onSetPreference={setPreference} onRetry={loadPreferences} />
     </div>
   {/if}
 </div>
@@ -451,46 +371,20 @@
 <style>
   .notifications-inbox { position: relative; }
   .notifications-trigger { position: relative; }
-  .notifications-trigger > span:first-child { font-size: 1.05rem; line-height: 1; }
-  .notifications-badge { position: absolute; top: -3px; right: -3px; min-width: 1rem; padding: 0 .2rem; border: 2px solid var(--surface, #fff); border-radius: 999px; background: var(--danger, #d85555); color: #fff; font-size: .58rem; font-weight: 700; line-height: 1rem; text-align: center; }
+  .notifications-trigger > span:first-child { font-size: var(--text-md); line-height: 1; }
+  .notifications-badge { position: absolute; top: -3px; right: -3px; min-width: 1rem; padding: 0 .2rem; border: 2px solid var(--surface, #fff); border-radius: 999px; background: var(--danger, #d85555); color: #fff; font-size: var(--text-2xs); font-weight: 600; line-height: 1rem; text-align: center; }
   .notifications-panel { position: absolute; z-index: 20; top: calc(100% + .55rem); right: 0; display: grid; width: min(25rem, calc(100vw - 1.5rem)); max-height: min(38rem, calc(100vh - 5rem)); overflow: auto; border: 1px solid var(--border, #dedbe8); border-radius: .8rem; background: var(--surface, #fff); box-shadow: 0 .8rem 2.5rem rgba(25, 22, 42, .18); color: var(--text, #28233b); }
   .notifications-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; padding: .85rem 1rem .7rem; border-bottom: 1px solid var(--border, #dedbe8); }
-  .notifications-heading h2 { margin: 0; font-size: .95rem; }
-  .notifications-heading p { margin: .2rem 0 0; color: var(--muted, #706b7f); font-size: .72rem; }
+  .notifications-heading h2 { margin: 0; font-size: var(--text-md); }
+  .notifications-heading p { margin: .2rem 0 0; color: var(--muted, #706b7f); font-size: var(--text-xs); }
   .notifications-heading-actions { display: flex; align-items: center; gap: .45rem; }
-  .notifications-panel .text-button { padding: .2rem; color: var(--accent, #6558d8); font-size: .7rem; }
-  .notifications-alert, .notifications-status, .notifications-empty { padding: .75rem 1rem; color: var(--muted, #706b7f); font-size: .75rem; }
-  .notifications-alert { display: flex; align-items: center; gap: .5rem; color: var(--danger, #b33d4b); }
-  .notifications-alert .text-button { margin-left: auto; }
+  .notifications-panel :global(.text-button) { padding: .2rem; color: var(--accent, #6558d8); font-size: var(--text-xs); }
+  /* Shared with NotificationPreferencesPanel, so these reach into child components. */
+  .notifications-panel :global(.notifications-alert), .notifications-panel :global(.notifications-status), .notifications-empty { padding: .75rem 1rem; color: var(--muted, #706b7f); font-size: var(--text-xs); }
+  .notifications-panel :global(.notifications-alert) { display: flex; align-items: center; gap: .5rem; color: var(--danger, #b33d4b); }
+  .notifications-panel :global(.notifications-alert .text-button) { margin-left: auto; }
   .notifications-list { border-bottom: 1px solid var(--border, #dedbe8); }
-  .notification-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .35rem; align-items: center; padding: .1rem .65rem .1rem .85rem; border-bottom: 1px solid color-mix(in srgb, var(--border, #dedbe8) 65%, transparent); }
-  .notification-item:last-child { border-bottom: 0; }
-  .notification-item.unread { background: color-mix(in srgb, var(--accent, #6558d8) 6%, transparent); }
-  .notification-open { display: grid; grid-template-columns: .45rem minmax(0, 1fr); gap: .55rem; min-width: 0; padding: .58rem 0; border: 0; background: transparent; color: inherit; text-align: left; }
-  .notification-open:disabled { opacity: .6; }
-  .notification-dot { width: .42rem; height: .42rem; margin-top: .34rem; border-radius: 50%; background: transparent; }
-  .notification-item.unread .notification-dot { background: var(--accent, #6558d8); }
-  .notification-copy { display: grid; min-width: 0; gap: .12rem; }
-  .notification-copy strong, .notification-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .notification-copy strong { font-size: .75rem; }
-  .notification-copy > span { color: var(--muted, #706b7f); font-size: .7rem; }
-  .notification-copy time { color: var(--muted, #706b7f); font-size: .65rem; }
-  .notification-state-button { padding: .2rem; border: 0; background: transparent; color: var(--muted, #706b7f); font-size: .65rem; }
-  .notification-state-button:hover, .notification-state-button:focus-visible { color: var(--accent, #6558d8); }
-  .notifications-more { width: 100%; padding: .55rem; border: 0; border-bottom: 1px solid var(--border, #dedbe8); background: transparent; color: var(--accent, #6558d8); font-size: .72rem; }
-  .notifications-watch { padding: .7rem .85rem; border-bottom: 1px solid var(--border, #dedbe8); }
-  .notifications-watch-heading { display: flex; justify-content: space-between; margin-bottom: .4rem; font-size: .72rem; }
-  .notifications-watch-heading span { color: var(--muted, #706b7f); font-size: .65rem; }
-  .notifications-watch-error { display: flex; gap: .35rem; align-items: center; margin-bottom: .35rem; color: var(--danger, #b33d4b); font-size: .68rem; }
-  .notifications-watch-error .text-button { margin-left: auto; }
-  .notifications-watch-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
-  .watch-toggle { padding: .3rem .5rem; border: 1px solid var(--border, #dedbe8); border-radius: .35rem; background: transparent; color: var(--text, #28233b); font-size: .68rem; }
-  .watch-toggle[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent, #6558d8) 55%, var(--border, #dedbe8)); background: color-mix(in srgb, var(--accent, #6558d8) 10%, transparent); color: var(--accent, #6558d8); }
-  .notifications-preferences-trigger { display: flex; justify-content: space-between; width: 100%; padding: .7rem .85rem; border: 0; background: transparent; color: inherit; font-size: .72rem; text-align: left; }
-  .notifications-preferences-panel { padding: 0 .85rem .8rem; }
-  .notifications-preferences-panel fieldset { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; margin: 0; padding: 0; border: 0; }
-  .notifications-preferences-panel label { display: flex; align-items: center; gap: .35rem; color: var(--muted, #706b7f); font-size: .68rem; }
-  .notifications-preferences-panel input { margin: 0; accent-color: var(--accent, #6558d8); }
+  .notifications-more { width: 100%; padding: .55rem; border: 0; border-bottom: 1px solid var(--border, #dedbe8); background: transparent; color: var(--accent, #6558d8); font-size: var(--text-xs); }
   @media (max-width: 600px) {
     .notifications-panel { position: fixed; top: 4.1rem; right: .75rem; left: .75rem; width: auto; max-height: calc(100vh - 5rem); }
   }

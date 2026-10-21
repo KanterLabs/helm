@@ -248,41 +248,41 @@
 
 <style>
   .ticket-integrations { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-  .integrations-heading h2 { margin: 0; font: 800 18px var(--font-display); }
-  .integrations-heading p, .webhook-guide p { margin: 6px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+  .integrations-heading h2 { margin: 0; font: 600 var(--text-lg) var(--font-sans); }
+  .integrations-heading p, .webhook-guide p { margin: 6px 0 0; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.5; }
   .webhook-reveal { display: grid; gap: 8px; padding: 12px; border: 1px solid color-mix(in srgb, var(--amber), var(--border) 60%); border-radius: 10px; background: var(--amber-soft); }
-  .webhook-reveal p { margin: 0; font-size: 12px; }
+  .webhook-reveal p { margin: 0; font-size: var(--text-xs); }
   .webhook-url-row { display: flex; gap: 8px; }
-  .webhook-url-row input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 12px; }
+  .webhook-url-row input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--text-xs); }
   .webhook-reveal .text-button { justify-self: start; }
   .webhook-create { display: grid; grid-template-columns: 2fr 1.2fr auto auto; gap: 10px; align-items: end; }
-  .webhook-create label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
+  .webhook-create label { display: grid; gap: 5px; font-size: var(--text-xs); font-weight: 600; }
   .webhook-check { display: flex !important; align-items: center; gap: 6px !important; min-height: 36px; }
-  .webhook-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .webhook-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
   .webhook-table th, .webhook-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
-  .webhook-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .webhook-table th { color: var(--muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .04em; }
   .webhook-table tr.disabled { color: var(--muted); }
   .webhook-actions { display: flex; gap: 10px; justify-content: flex-end; }
   .danger { color: var(--semantic-red); }
-  .webhook-test-row td { font-size: 12px; color: var(--ink-soft); }
-  .webhook-test-row a { margin-left: 6px; font-weight: 700; }
-  .test-ok { color: var(--semantic-green); font-weight: 800; }
-  .test-failed { color: var(--semantic-red); font-weight: 800; }
-  .webhooks-heading { margin: 4px 0 0; font-size: 15px; }
+  .webhook-test-row td { font-size: var(--text-xs); color: var(--ink-soft); }
+  .webhook-test-row a { margin-left: 6px; font-weight: 600; }
+  .test-ok { color: var(--semantic-green); font-weight: 600; }
+  .test-failed { color: var(--semantic-red); font-weight: 600; }
+  .webhooks-heading { margin: 4px 0 0; font-size: var(--text-md); }
   .webhook-guide { display: grid; gap: 10px; }
   .webhook-guide > summary { cursor: pointer; }
-  .webhook-guide h3 { display: inline; margin: 0; font-size: 14px; }
+  .webhook-guide h3 { display: inline; margin: 0; font-size: var(--text-base); }
   .webhook-guide[open] > summary { margin-bottom: 10px; }
   .guide-link { justify-self: start; }
   .webhook-actions { align-items: center; flex-wrap: wrap; }
   .row-menu { position: relative; }
-  .row-menu > summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 12px; font-weight: 700; }
+  .row-menu > summary { cursor: pointer; list-style: none; color: var(--muted); font-size: var(--text-xs); font-weight: 600; }
   .row-menu > summary::-webkit-details-marker { display: none; }
   .row-menu-items { position: absolute; right: 0; z-index: 5; display: grid; gap: 6px; min-width: 130px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 20px rgb(15 18 30 / 0.12); }
   .webhook-code { display: grid; gap: 6px; justify-items: start; }
-  .webhook-code pre { width: 100%; margin: 0; padding: 12px; overflow-x: auto; border-radius: 8px; background: var(--surface-muted); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+  .webhook-code pre { width: 100%; margin: 0; padding: 12px; overflow-x: auto; border-radius: 8px; background: var(--surface-muted); font-size: var(--text-xs); line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
   .webhook-fields td:first-child { white-space: nowrap; }
-  .optional { color: var(--muted); font-size: 12px; }
+  .optional { color: var(--muted); font-size: var(--text-xs); }
   @media (max-width: 760px) {
     .webhook-create { grid-template-columns: minmax(0, 1fr); }
     .webhook-table thead { display: none; }
