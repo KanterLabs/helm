@@ -5,6 +5,10 @@ User-visible changes after v0.2.1 belong here, newest first. Latest release:
 
 ## Features
 
+- **Guided releases:** `make prepare-release VERSION=vX.Y.Z` prepares a
+  production release PR from the verified, deployed beta. After the main
+  deployment passes, `make finish-release VERSION=vX.Y.Z` publishes matching
+  version tags and release notes on both repository hosts.
 - **New Helm identity:** A circular H mark, shaped like board columns,
   accompanies the redesigned desktop sidebar and phone navigation. The
   favicon and home-screen icons use the same identity, with a lighter
