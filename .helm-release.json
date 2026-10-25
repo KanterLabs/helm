@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "version": "v0.2.2",
+  "beta_sha": "30c26489d7dab311d1d7af97fdccc94b06b8f704",
+  "main_sha": "82840a43ec4419bf6613f8cb8a62b74da1b13fb1",
+  "beta_run_id": 40244327027,
+  "beta_image": "ghcr.io/kanterlabs/helm@sha256:f323d0614b369a20c02887926f1b90d1d681129d37bce5252ce19a31c31f5fef",
+  "notes": "docs/releases/v0.2.2.md"
+}
