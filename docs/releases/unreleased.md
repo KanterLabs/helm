@@ -5,6 +5,10 @@ User-visible changes after v0.2.0 belong here, newest first. Latest release:
 
 ## Features
 
+- **New Helm identity:** A circular H mark, shaped like board columns,
+  accompanies the redesigned desktop sidebar and phone navigation. The
+  favicon and home-screen icons use the same identity, with a lighter
+  favicon color for dark browser themes.
 - **Redesigned navigation:** The sidebar now nests the current project's
   **Board**, **Timeline**, **Focus**, **Progress** and **Audits** under the
   project, so project views no longer sit as buttons in the board header.
