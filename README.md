@@ -247,6 +247,7 @@ also works on headless servers. Credentials stay in per-user directories under
 | Public access: Connect Cloudflare, public URL, email addresses | [`docs/PUBLIC_ACCESS.md`](docs/PUBLIC_ACCESS.md) |
 | Operations, backups, and restore | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
 | How the maintainers deploy Helm | [`docs/HOMELAB_DEPLOYMENT.md`](docs/HOMELAB_DEPLOYMENT.md) |
+| Prepare beta for a versioned production release | [`docs/RELEASING.md`](docs/RELEASING.md) |
 
 <a id="development"></a>
 
@@ -258,6 +259,7 @@ make test vet lint  # Go checks
 make web-check web-test
 make openapi        # regenerate openapi.json after editing openapi.yaml
 make openapi-check
+make prepare-release VERSION=vX.Y.Z # prepare tested beta as a release PR into main
 ```
 
 For frontend-only work, run `cd web && npm ci && npm run dev`. The Playwright
