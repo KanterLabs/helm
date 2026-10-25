@@ -164,6 +164,8 @@ test.describe('owner beta build switcher', () => {
     await page.setViewportSize({ width: 320, height: 700 });
     await openFixture(page);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    // On phones the build switcher lives in the navigation drawer opened from More.
+    await page.locator('.mobile-nav').getByRole('button', { name: 'More', exact: true }).click();
     const trigger = page.locator('[data-beta-switcher] > button');
     await expect(trigger).toBeVisible();
     await trigger.click();

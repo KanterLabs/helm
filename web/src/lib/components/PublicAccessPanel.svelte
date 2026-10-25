@@ -136,23 +136,23 @@
 <style>
   .public-access { display: grid; gap: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--purple), var(--border) 65%); border-radius: 12px; background: var(--surface); }
   header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-  h3 { margin: 0; font-size: 15px; }
-  header p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
+  h3 { margin: 0; font-size: var(--text-md); }
+  header p { margin: 4px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-soft); }
   .public-access-actions { display: flex; flex: 0 0 auto; gap: 10px; align-items: center; }
-  .status-badge { padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .status-badge { padding: 2px 9px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; white-space: nowrap; }
   .badge-live { color: var(--semantic-green); background: var(--green-soft); }
   .badge-warn { color: var(--semantic-amber); background: var(--amber-soft); }
   .badge-off { color: var(--muted); background: var(--surface-muted); border: 1px solid var(--border); }
   .public-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
   .public-summary > div { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
-  dt { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
-  dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+  dt { color: var(--muted); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
   .public-access > p { margin: 0; }
   .public-details { display: grid; gap: 10px; }
-  .public-details > summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+  .public-details > summary { cursor: pointer; font-size: var(--text-xs); font-weight: 600; color: var(--ink-soft); }
   .public-details[open] > summary { margin-bottom: 10px; }
   .public-details :global(.public-endpoint), .public-details :global(.email-intake) { margin-bottom: 10px; }
   .cancel-setup { justify-self: start; }
-  .optional { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .optional { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
   @media (max-width: 760px) { header { flex-direction: column; } .public-summary { grid-template-columns: minmax(0, 1fr); } }
 </style>
