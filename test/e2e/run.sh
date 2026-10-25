@@ -194,7 +194,8 @@ if grep -rlF -e "$coolify_secret" -e "$fake_cf_token" "$artifact_dir" "$work_dir
   exit 1
 fi
 
-if rg -n 'WARNING: DATA RACE' "$work_dir"/*.log; then
+# CI images provide grep; do not silently skip this gate when rg is absent.
+if grep -nF 'WARNING: DATA RACE' "$work_dir"/*.log; then
   printf 'Go race detector reported a data race\n' >&2
   exit 1
 fi

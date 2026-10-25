@@ -167,6 +167,9 @@ test.describe('Helm workspace', () => {
     const commandDialog = page.getByRole('dialog', { name: 'Search Helm' });
     const commandInput = commandDialog.getByRole('combobox', { name: 'Search projects and views, tasks, issues, and actions' });
     await expect(commandInput).toBeFocused();
+    // Search appends results asynchronously. Wait for the final option set
+    // before asserting that Shift+Tab then Tab wraps through its last item.
+    await expect(commandDialog.getByRole('listbox', { name: 'Command results' })).toHaveAttribute('aria-busy', 'false');
     await page.keyboard.press('Shift+Tab');
     await expect(commandDialog.getByRole('option').last()).toBeFocused();
     await page.keyboard.press('Tab');
