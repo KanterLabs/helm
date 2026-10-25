@@ -314,4 +314,7 @@ test('keeps state, freshness, claim validity, and durable progress independent',
   await testInfo.attach('agent-status-phone.png', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   const viewport = await page.evaluate(() => ({ width: window.innerWidth, document: document.documentElement.scrollWidth }));
   expect(viewport.document).toBeLessThanOrEqual(viewport.width);
+  // Polling can still be inside route.fetch/json when the assertions finish.
+  // Drain those handlers before Playwright disposes their response bodies.
+  await page.unrouteAll({ behavior: 'wait' });
 });

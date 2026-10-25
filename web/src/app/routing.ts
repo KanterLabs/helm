@@ -162,6 +162,9 @@ export async function selectProject(project: Project, push = true, routeReleaseF
 export async function setView(next: View, push = true): Promise<boolean> {
   if (hasPendingCreation()) return false;
   if (drawer.drawerTask && !closeDrawer(false, !push)) return false;
+  // A view selection supersedes startup's pending route restoration, just
+  // like a project selection. Late bootstrap reads must not erase drafts.
+  workspace.projectSwitchVersion += 1;
   workspace.view = next;
   nav.projectSwitcherOpen = false;
   nav.mobileNavOpen = false;
