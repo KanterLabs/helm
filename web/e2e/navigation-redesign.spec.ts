@@ -19,6 +19,7 @@ test.describe('Sidebar and site navigation', () => {
     await page.goto(`/p/${project.slug}`);
 
     const sidebar = page.locator('nav.sidebar');
+    await expect(sidebar.locator('.helm-mark path')).toHaveCSS('fill', 'rgb(255, 255, 255)');
     const projectRow = sidebar.getByRole('button', { name: project.name, exact: true });
     await expect(projectRow).toHaveAttribute('aria-expanded', 'true');
     const views = sidebar.getByRole('group', { name: `${project.name} views` });
@@ -94,6 +95,7 @@ test.describe('Sidebar and site navigation', () => {
     await expect(accountMenu.getByRole('menuitem', { name: 'Sign out', exact: true })).toBeVisible();
     await accountMenu.getByRole('menuitemradio', { name: 'Dark theme', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('nav.sidebar .helm-mark path')).toHaveCSS('fill', 'rgb(255, 255, 255)');
     expect(await page.evaluate(() => localStorage.getItem('helm.theme'))).toBe('dark');
     await page.keyboard.press('Escape');
     await expect(accountMenu).toBeHidden();

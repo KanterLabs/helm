@@ -24,7 +24,7 @@
 .brand-lockup:hover { background: var(--surface-hover); }
 .brand-lockup > span:last-child { display: flex; flex-direction: column; line-height: 1.15; }
 .brand-lockup strong { font: 600 var(--text-md) var(--font-sans); letter-spacing: -.02em; }
-.brand-mark { width: 30px; height: 30px; display: inline-grid; place-items: center; flex: 0 0 auto; border-radius: 10px; color: #fff; background: linear-gradient(145deg, #8276ff, #5c4ced); box-shadow: 0 5px 13px rgba(109, 94, 252, .25); font: 600 var(--text-md) var(--font-sans); }
+.brand-mark { --helm-mark-color: #fff; width: 30px; height: 30px; display: inline-grid; place-items: center; flex: 0 0 auto; border-radius: 10px; color: #fff; background: linear-gradient(145deg, #8276ff, #5c4ced); box-shadow: 0 5px 13px rgba(109, 94, 252, .25); font: 600 var(--text-md) var(--font-sans); }
 .brand-mark-large { width: 46px; height: 46px; border-radius: 15px; font-size: var(--text-xl); }
 .sidebar-collapse { flex: 0 0 auto; }
 .sidebar-top .mobile-nav-close { display: none; }

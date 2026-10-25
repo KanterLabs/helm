@@ -110,7 +110,7 @@
 .auth-panel { width: min(850px, 100%); display: grid; grid-template-columns: 1.08fr .92fr; overflow: hidden; border: 1px solid #e5e8ef; border-radius: 18px; background: #fff; box-shadow: 0 20px 60px rgba(48, 55, 78, .1); }
 .auth-intro { position: relative; display: flex; flex-direction: column; justify-content: center; min-height: 535px; padding: 58px; overflow: hidden; color: #fff; background: linear-gradient(145deg, #7568f6, #5648d9); }
 .auth-intro::after { content: ''; position: absolute; right: -80px; bottom: -100px; width: 300px; height: 300px; border: 1px solid rgba(255,255,255,.16); border-radius: 50%; box-shadow: 0 0 0 35px rgba(255,255,255,.04), 0 0 0 70px rgba(255,255,255,.03); }
-.auth-intro .brand-mark { margin-bottom: 53px; color: #6253df; background: #fff; box-shadow: 0 7px 14px rgba(37, 27, 118, .18); }
+.auth-intro .brand-mark { --helm-mark-color: #6253df; margin-bottom: 53px; color: #6253df; background: #fff; box-shadow: 0 7px 14px rgba(37, 27, 118, .18); }
 .auth-intro .eyebrow { color: #d9d5ff; }
 .auth-intro h1 { position: relative; z-index: 1; max-width: 280px; margin: 0; font: 600 var(--text-2xl)/1.12 var(--font-sans); letter-spacing: -.02em; }
 .auth-intro p { position: relative; z-index: 1; max-width: 305px; margin: 15px 0 28px; color: #dedbff; font-size: var(--text-sm); line-height: 1.6; }
