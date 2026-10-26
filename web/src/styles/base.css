@@ -1,0 +1,104 @@
+/* Design tokens, element resets and shared primitives. */
+:root {
+  /* Type system: one sans family, mono for keys and IDs. Only weights
+     400/500/600 are loaded, so heavier requests render at 600. */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  font-family: var(--font-sans);
+  color: #1d2433;
+  background: #f8fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; max-width: 100%; min-width: 320px; min-height: 100%; margin: 0; }
+body { min-height: 100vh; min-height: 100dvh; overflow-x: hidden; overflow-x: clip; background: #f8fafc; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+button, input, textarea, select { outline: none; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid rgba(109, 94, 252, .25); outline-offset: 2px; animation: focus-in var(--dur-fast) var(--ease-out); }
+@keyframes focus-in { from { outline-offset: 5px; outline-color: transparent; } }
+
+.app-shell {
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-muted: #f0f2f7;
+  --surface-hover: #f4f5fa;
+  --ink: #1d2433;
+  --ink-soft: #4e586a;
+  --muted: #596579;
+  --faint: #626b7d;
+  --border: #e5e8ef;
+  --border-strong: #d9dde7;
+  --purple: #6d5efc;
+  --purple-soft: #efedff;
+  --green: #2ea879;
+  --green-soft: #e7f7f0;
+  --red: #dc626f;
+  --red-soft: #fff0f1;
+  --amber: #d49534;
+  --amber-soft: #fff7e8;
+  /* Semantic foregrounds stay readable on light soft-status surfaces. */
+  --semantic-green: #176f4d;
+  --semantic-red: #a12535;
+  --semantic-amber: #855400;
+  --shadow-sm: 0 2px 8px rgba(35, 42, 61, .04), 0 1px 2px rgba(35, 42, 61, .04);
+  --shadow-md: 0 14px 40px rgba(29, 36, 51, .12), 0 3px 10px rgba(29, 36, 51, .04);
+  /* Motion tokens: entrances use --ease-out, exits use --ease-in and stay
+     under ~300ms. Only transform/opacity animate on hot paths. */
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 280ms;
+  --ease-out: cubic-bezier(.2, .8, .3, 1);
+  --ease-in: cubic-bezier(.5, 0, .75, .4);
+  --ease-spring: cubic-bezier(.3, 1.35, .45, 1);
+  --lift-sm: 0 4px 12px rgba(29, 36, 51, .10);
+  --lift-md: 0 10px 26px rgba(29, 36, 51, .14);
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  color: var(--ink);
+  background: var(--bg);
+  transition: color var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out);
+}
+
+.app-shell.dark-mode {
+  --bg: #111219;
+  --surface: #191b25;
+  --surface-raised: #20222e;
+  --surface-muted: #252835;
+  --surface-hover: #252836;
+  --ink: #f0f1f6;
+  --ink-soft: #c0c4d0;
+  --muted: #aab1c0;
+  --faint: #969eaf;
+  --border: #2c2f3c;
+  --border-strong: #3a3e4c;
+  --purple: #958aff;
+  --purple-soft: #292641;
+  --green: #4bc494;
+  --green-soft: #1e342e;
+  --red: #f0828d;
+  --red-soft: #3d242b;
+  --amber: #e4ad53;
+  --amber-soft: #392f20;
+  --semantic-green: var(--green);
+  --semantic-red: var(--red);
+  --semantic-amber: var(--amber);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, .18), 0 1px 2px rgba(0, 0, 0, .16);
+  --shadow-md: 0 18px 45px rgba(0, 0, 0, .38), 0 4px 15px rgba(0, 0, 0, .22);
+  --lift-sm: 0 4px 12px rgba(0, 0, 0, .32);
+  --lift-md: 0 12px 30px rgba(0, 0, 0, .44);
+}

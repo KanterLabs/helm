@@ -94,7 +94,7 @@
     border-radius: 6px;
     color: var(--ink-soft);
     background: var(--surface);
-    font-size: 15px;
+    font-size: var(--text-md);
     line-height: 1;
     box-shadow: var(--shadow-sm);
   }

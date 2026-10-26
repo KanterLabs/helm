@@ -90,7 +90,7 @@ if [[ -z "$binary" ]]; then
       --volume "$root:/src:ro" \
       --volume "$work_dir:/out" \
       --workdir /src \
-      golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c \
+      golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 \
       go build "${go_flags[@]}" -buildvcs=false -trimpath -o /out/helm ./cmd/helm
   else
     printf 'Helm E2E requires Go or Docker to build the application\n' >&2
@@ -194,7 +194,8 @@ if grep -rlF -e "$coolify_secret" -e "$fake_cf_token" "$artifact_dir" "$work_dir
   exit 1
 fi
 
-if rg -n 'WARNING: DATA RACE' "$work_dir"/*.log; then
+# CI images provide grep; do not silently skip this gate when rg is absent.
+if grep -nF 'WARNING: DATA RACE' "$work_dir"/*.log; then
   printf 'Go race detector reported a data race\n' >&2
   exit 1
 fi

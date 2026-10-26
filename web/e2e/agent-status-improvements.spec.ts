@@ -14,47 +14,13 @@
  * and failures are applied only to synthetic fixture read responses because
  * the public API intentionally offers no backdating endpoint.
  */
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { json, origin, post, type Column, type Project, type Task, type Timeline } from './support/agentStatusFixture';
 
 // This fixture rewrites clock reads and injects history failures. A service
 // worker can forward API requests outside page.route (observed in WebKit),
 // bypassing those adjustments. The separate PWA suite exercises real workers.
 test.use({ serviceWorkers: 'block' });
-
-type Project = { id: string; key: string; name: string; slug: string };
-type Column = { id: string; semantic_state: string };
-type Work = {
-  operation_id: string;
-  actor_id: string;
-  state: 'working' | 'waiting' | 'verifying' | 'handoff';
-  updated_at: string;
-};
-type Task = {
-  id: string; key: string; title: string; version: number;
-  claimed_by?: unknown; claim_expires_at?: string; completed_at?: string | null;
-  agent_work?: Work;
-};
-type Timeline = {
-  data: Array<{ id: string; task_id: string; kind: string; created_at: string; progress?: { operation_id: string } }>;
-  next_cursor?: string | null;
-};
-const origin = new URL(process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080').origin;
-
-async function json<T>(response: APIResponse): Promise<T> {
-  expect(response.ok(), `HTTP ${response.status()} for ${new URL(response.url()).pathname}`).toBeTruthy();
-  return response.json() as Promise<T>;
-}
-
-async function post<T>(request: APIRequestContext, path: string, data: unknown, task?: Task): Promise<T> {
-  return json<T>(await request.post(path, {
-    data,
-    headers: {
-      Origin: origin,
-      'Idempotency-Key': `agent-status-${crypto.randomUUID()}`,
-      ...(task ? { 'If-Match': `"v${task.version}"` } : {})
-    }
-  }));
-}
 
 test('keeps state, freshness, claim validity, and durable progress independent', async ({ page, request }, testInfo) => {
   test.setTimeout(150_000);
@@ -314,4 +280,9 @@ test('keeps state, freshness, claim validity, and durable progress independent',
   await testInfo.attach('agent-status-phone.png', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   const viewport = await page.evaluate(() => ({ width: window.innerWidth, document: document.documentElement.scrollWidth }));
   expect(viewport.document).toBeLessThanOrEqual(viewport.width);
+  // All assertions, the held-response check, and artifacts are complete.
+  // Discard only late background-poll callback errors during teardown: routes
+  // can already be handled when their upstream fetch finishes. Waiting alone
+  // propagates that cleanup error as a failure of the completed acceptance flow.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });

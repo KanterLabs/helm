@@ -83,12 +83,12 @@
     border-radius: 7px;
     color: var(--ink-soft, #4e586a);
     background: var(--surface, #fff);
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-weight: 600;
   }
   .filter-panel-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex-shrink: 0; padding: 0 12px; }
   .filter-panel-trigger:hover, .filter-panel-trigger[aria-expanded="true"] { color: var(--purple, #6d5efc); background: var(--purple-soft, #efedff); }
-  .filter-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--purple-soft, #efedff); color: var(--purple, #6d5efc); font-size: 11px; }
+  .filter-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--purple-soft, #efedff); color: var(--purple, #6d5efc); font-size: var(--text-xs); }
   .board-filter-panel {
     position: fixed;
     inset: var(--panel-top, 80px) auto auto var(--panel-left, 8px);
@@ -110,12 +110,12 @@
   .board-filter-panel::backdrop { background: rgb(20 25 40 / 24%); }
   header, footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 12px; padding: 12px 16px; }
   header { border-bottom: 1px solid var(--border, #e5e8ef); }
-  h2 { margin: 0; font: 700 16px var(--font-display, inherit); }
-  .filter-panel-close { font-size: 24px !important; line-height: 1; }
+  h2 { margin: 0; font: 600 var(--text-md) var(--font-sans); }
+  .filter-panel-close { font-size: var(--text-xl) !important; line-height: 1; }
   .filter-panel-fields { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
   .filter-panel-fields :global(.filter-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; min-width: 0; overflow: visible; }
   .filter-panel-fields :global(select), .filter-panel-fields :global(input), .filter-panel-fields :global(button) { min-width: 0; width: 100%; min-height: 44px; max-width: 100%; }
-  .filter-panel-fields :global(label) { display: grid; gap: 6px; min-width: 0; color: var(--ink-soft, #4e586a); font-size: 12px; }
+  .filter-panel-fields :global(label) { display: grid; gap: 6px; min-width: 0; color: var(--ink-soft, #4e586a); font-size: var(--text-xs); }
   .filter-panel-fields :global(select) { padding: 10px 8px; border: 1px solid var(--border-strong, #d9dde7); border-radius: 6px; color: var(--ink, #1d2433); background: var(--surface, #fff); }
   footer { border-top: 1px solid var(--border, #e5e8ef); }
   footer button { padding: 0 14px; }

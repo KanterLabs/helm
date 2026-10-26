@@ -9,7 +9,7 @@ NPM ?= npm
 SHA ?= $(shell git rev-parse HEAD 2>/dev/null || true)
 
 .PHONY: all web-install web-check web-test web-build openapi openapi-check frontend build test e2e vet lint \
-	docker-build compose-up compose-down bundle clean
+	docker-build compose-up compose-down bundle clean release-status publish-beta prepare-release finish-release release-test
 
 all: build
 
@@ -78,3 +78,21 @@ bundle: build
 
 clean:
 	rm -rf $(DIST_DIR) $(FRONTEND_DIST) $(FRONTEND_COMPAT_DIST)
+
+# Preparation creates a PR into main; only its reviewed merge deploys production.
+release-status:
+	python3 deploy/release.py status
+
+publish-beta:
+	python3 deploy/release.py beta
+
+prepare-release:
+	@test -n "$(VERSION)" || { echo 'Use make prepare-release VERSION=vX.Y.Z' >&2; exit 64; }
+	python3 deploy/release.py prepare "$(VERSION)"
+
+finish-release:
+	@test -n "$(VERSION)" || { echo 'Use make finish-release VERSION=vX.Y.Z' >&2; exit 64; }
+	python3 deploy/release.py finish "$(VERSION)"
+
+release-test:
+	python3 test/release-pipeline/run.py

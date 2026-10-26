@@ -64,31 +64,15 @@
 >
   {#if accessibility.label}<title>{accessibility.label}</title>{/if}
 
-  <!-- Eight spokes and their grips keep the helm recognizable at 20px. -->
-  <g stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M24 24V4" />
-    <path d="M24 24V44" />
-    <path d="M24 24H4" />
-    <path d="M24 24H44" />
-    <path d="M24 24 9.86 9.86" />
-    <path d="M24 24 38.14 9.86" />
-    <path d="M24 24 9.86 38.14" />
-    <path d="M24 24 38.14 38.14" />
-  </g>
-
-  <circle cx="24" cy="24" r="14" stroke="currentColor" stroke-width="3" />
-
-  <g fill="currentColor">
-    <circle cx="24" cy="4" r="2.6" />
-    <circle cx="24" cy="44" r="2.6" />
-    <circle cx="4" cy="24" r="2.6" />
-    <circle cx="44" cy="24" r="2.6" />
-    <circle cx="9.86" cy="9.86" r="2.6" />
-    <circle cx="38.14" cy="9.86" r="2.6" />
-    <circle cx="9.86" cy="38.14" r="2.6" />
-    <circle cx="38.14" cy="38.14" r="2.6" />
-    <circle cx="24" cy="24" r="4.8" />
-  </g>
+  <!--
+    A helm's hub seen head-on: a 34-unit disc cut by an H-shaped channel into
+    three equal 9-unit board columns, with the centre column split into two
+    stacked cards. Every channel is 3.5 units wide so the H stays open at 20px.
+  -->
+  <path
+    fill="currentColor"
+    d="M16 9A17 17 0 0 0 16 39ZM32 9A17 17 0 0 1 32 39ZM19.5 7.606V20.75A1.5 1.5 0 0 0 21 22.25H27A1.5 1.5 0 0 0 28.5 20.75V7.606A17 17 0 0 0 19.5 7.606ZM19.5 40.394V27.25A1.5 1.5 0 0 1 21 25.75H27A1.5 1.5 0 0 1 28.5 27.25V40.394A17 17 0 0 1 19.5 40.394Z"
+  />
 </svg>
 
 <style>

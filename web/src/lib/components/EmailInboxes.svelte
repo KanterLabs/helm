@@ -176,26 +176,26 @@
 <style>
   .inboxes { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
   header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-  h3 { margin: 0; font-size: 15px; }
-  header p { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
+  h3 { margin: 0; font-size: var(--text-md); }
+  header p { margin: 4px 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-soft); }
   .inbox-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
   .inbox-list li { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
   .inbox-list li.fresh { border-color: var(--purple); }
-  .inbox-main { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 13px; }
+  .inbox-main { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: var(--text-sm); }
   .inbox-address { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
-  .inbox-address code { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+  .inbox-address code { font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
   .inbox-meta { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
   .inbox-create { display: grid; grid-template-columns: 2fr auto auto; gap: 10px; align-items: end; }
-  .inbox-create label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
+  .inbox-create label { display: grid; gap: 5px; font-size: var(--text-xs); font-weight: 600; }
   .inbox-check { display: flex !important; align-items: center; gap: 6px !important; min-height: 36px; }
   .inbox-check input { width: auto; height: auto; padding: 0; }
   .row-menu { position: relative; }
-  .row-menu > summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 12px; font-weight: 700; }
+  .row-menu > summary { cursor: pointer; list-style: none; color: var(--muted); font-size: var(--text-xs); font-weight: 600; }
   .row-menu > summary::-webkit-details-marker { display: none; }
   .row-menu-items { position: absolute; right: 0; z-index: 5; display: grid; gap: 6px; min-width: 140px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 20px rgb(15 18 30 / 0.12); }
   .danger { color: var(--semantic-red); }
   .notice-success { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
   .notice-success > span:first-child { background: var(--semantic-green); }
-  .optional { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .optional { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
   @media (max-width: 760px) { header { flex-direction: column; } .inbox-create { grid-template-columns: minmax(0, 1fr); } }
 </style>

@@ -95,9 +95,9 @@
 <style>
   .agent-notes{border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--surface-subtle)}
   .heading,.note-top,.actions,.form-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
-  h2{font-size:14px;margin:0} h2 span,.heading p,.empty,label span,.evidence,.note-top span{color:var(--text-muted);font-size:12px}
+  h2{font-size:var(--text-base);margin:0} h2 span,.heading p,.empty,label span,.evidence,.note-top span{color:var(--text-muted);font-size:var(--text-xs)}
   .heading p{margin:3px 0 0}.text-button{white-space:nowrap}ul{display:grid;gap:8px;list-style:none;margin:12px 0 0;padding:0}
-  li{border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:11px}li p{font-size:13px;line-height:1.45;margin:7px 0;white-space:pre-wrap}
-  .note-top strong{font-size:11px;letter-spacing:.04em;text-transform:uppercase}.evidence{overflow-wrap:anywhere}.actions{justify-content:flex-end;margin-top:7px}.resolve{color:var(--danger)}
-  form{display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}label{display:grid;gap:5px;font-size:12px;font-weight:600}select,input,textarea{width:100%;box-sizing:border-box}.form-actions{justify-content:flex-end}.note-error{margin-top:10px;color:var(--danger);font-size:12px}.empty{margin:12px 0 0}
+  li{border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:11px}li p{font-size:var(--text-sm);line-height:1.45;margin:7px 0;white-space:pre-wrap}
+  .note-top strong{font-size:var(--text-xs);letter-spacing:.04em;text-transform:uppercase}.evidence{overflow-wrap:anywhere}.actions{justify-content:flex-end;margin-top:7px}.resolve{color:var(--danger)}
+  form{display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}label{display:grid;gap:5px;font-size:var(--text-xs);font-weight:600}select,input,textarea{width:100%;box-sizing:border-box}.form-actions{justify-content:flex-end}.note-error{margin-top:10px;color:var(--danger);font-size:var(--text-xs)}.empty{margin:12px 0 0}
 </style>

@@ -232,33 +232,33 @@
   .email-heading { display: flex; align-items: center; gap: 8px; }
   .learn-more { margin-left: auto; }
   .manual-setup { display: grid; gap: 8px; }
-  .email-intake h3 { margin: 0; font-size: 14px; }
-  .email-intake h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-  .email-intake p { margin: 0; font-size: 13px; line-height: 1.5; }
-  .status-badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .email-intake h3 { margin: 0; font-size: var(--text-base); }
+  .email-intake h4 { margin: 0 0 6px; font-size: var(--text-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .email-intake p { margin: 0; font-size: var(--text-sm); line-height: 1.5; }
+  .status-badge { padding: 2px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; white-space: nowrap; }
   .badge-on, .outcome-created, .outcome-repeated, .outcome-retained { color: var(--semantic-green); background: var(--green-soft); }
   .badge-off { color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
   .badge-pending, .outcome-unknown_recipient, .outcome-unreadable, .outcome-too_large { color: var(--semantic-red); background: var(--red-soft); }
   .email-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
   .email-facts > div { display: grid; align-content: start; gap: 3px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-  dt { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
-  dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+  dt { color: var(--muted); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
   .recent ul, .email-history ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-  .recent li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; }
-  .receipt-subject { font-weight: 700; overflow-wrap: anywhere; }
+  .recent li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: var(--text-sm); }
+  .receipt-subject { font-weight: 600; overflow-wrap: anywhere; }
   .receipt-meta, .receipt-reason { flex-basis: 100%; }
   .receipt-reason { color: var(--semantic-red); }
   .email-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
   .email-setup { grid-template-columns: 1fr 1fr 1fr 1fr auto; }
-  .email-form label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
+  .email-form label { display: grid; gap: 5px; font-size: var(--text-xs); font-weight: 600; }
   .consent { display: flex !important; align-items: center; gap: 6px; margin: 6px 0; }
   .email-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .danger-button { color: var(--semantic-red); border-color: color-mix(in srgb, var(--semantic-red), var(--border) 60%); background: var(--red-soft); }
   .notice-success { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
   .notice-success > span:first-child { background: var(--semantic-green); }
-  .optional { color: var(--muted); font-size: 12px; font-weight: 400; }
-  details { font-size: 12px; }
-  details summary { cursor: pointer; font-weight: 700; }
+  .optional { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+  details { font-size: var(--text-xs); }
+  details summary { cursor: pointer; font-weight: 600; }
   details ul { margin: 6px 0; padding-left: 18px; }
   .email-history li { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
   .history-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

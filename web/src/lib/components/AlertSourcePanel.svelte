@@ -62,7 +62,7 @@
 <style>
   .alert-source-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 16px; margin: 0; }
   .alert-source-facts div { min-width: 0; }
-  .alert-source-facts dt { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .alert-source-facts dt { color: var(--muted); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
   .alert-source-facts dd { margin: 2px 0 0; overflow-wrap: anywhere; }
-  .alert-source-facts code { font-size: 12px; }
+  .alert-source-facts code { font-size: var(--text-xs); }
 </style>

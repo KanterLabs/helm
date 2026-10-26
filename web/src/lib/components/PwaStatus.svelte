@@ -198,8 +198,8 @@
     border-radius: 8px;
     color: #fff;
     background: var(--purple, #6d5efc);
-    font-size: 16px;
-    font-weight: 800;
+    font-size: var(--text-md);
+    font-weight: 600;
   }
 
   .update-icon { background: var(--green, #2ea879); }
@@ -212,8 +212,8 @@
   .pwa-card-copy strong,
   .pwa-cache-status strong {
     display: block;
-    font-size: 12px;
-    font-weight: 800;
+    font-size: var(--text-xs);
+    font-weight: 600;
     line-height: 1.3;
   }
 
@@ -222,7 +222,7 @@
     display: block;
     margin: 4px 0 0;
     color: var(--muted, #596579);
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.45;
   }
 
@@ -234,7 +234,7 @@
     border-radius: 7px;
     color: var(--muted, #596579);
     background: transparent;
-    font-size: 18px;
+    font-size: var(--text-lg);
     line-height: 1;
   }
 
@@ -249,8 +249,8 @@
     border-radius: 7px;
     color: var(--purple, #6d5efc);
     background: var(--purple-soft, #efedff);
-    font-size: 11px;
-    font-weight: 800;
+    font-size: var(--text-xs);
+    font-weight: 600;
   }
 
   .pwa-update-actions { display: flex; align-self: center; gap: 6px; flex: 0 0 auto; }
