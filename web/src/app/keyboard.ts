@@ -9,6 +9,7 @@ import { closeBulkModal } from './bulk';
 import { closeProjectModal } from './creation';
 import { settleConfirm } from './dialogs';
 import { closeDrawer } from './drawer/drafts';
+import { exitExplore, stepExploreZoom } from './explore';
 import { closeMobileNav, closeNavMenus, toggleSidebarCollapsed } from './nav/sidebar';
 import { closeCommandPalette, openCommandPalette } from './palette';
 import { closeReleaseModal, closeReleaseReopen } from './releases/edit';
@@ -21,6 +22,7 @@ import { bulk } from './state/bulk.svelte';
 import { creation } from './state/creation.svelte';
 import { dialogs } from './state/dialogs.svelte';
 import { drawer } from './state/drawer.svelte';
+import { explore } from './state/explore.svelte';
 import { issues } from './state/issues.svelte';
 import { nav } from './state/nav.svelte';
 import { palette } from './state/palette.svelte';
@@ -102,5 +104,19 @@ export function handleKeydown(event: KeyboardEvent) {
     else if (bulk.showBulkModal) closeBulkModal();
     else if (settings.revealedToken) closeTokenReveal();
     else if (drawer.drawerTask) closeDrawer();
+    else if (explore.active && workspace.view === 'roadmap') void exitExplore();
+  } else if (
+    (event.key === '=' || event.key === '+' || event.key === '-')
+    && explore.active
+    && workspace.view === 'roadmap'
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !isEditableTarget(event.target)
+    && !palette.commandOpen
+    && !drawer.drawerTask
+  ) {
+    event.preventDefault();
+    stepExploreZoom(event.key === '-' ? -1 : 1);
   }
 }

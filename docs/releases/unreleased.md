@@ -5,6 +5,12 @@ User-visible changes after v0.2.2 belong here, newest first. Latest release:
 
 ## Features
 
+- **Roadmap explore mode:** select **Explore** on a roadmap to hide the sidebar,
+  top bar and page heading and enlarge the roadmap. Zoom from 100% to 175% with
+  the controls or `+`/`-`, optionally go full screen, and leave with **Exit
+  explore** or `Esc`. The mode stays on through a reload and after opening a task.
+  Roadmaps on phones no longer scroll sideways.
+
 - **Roomier project boards:** wider columns and larger three-line titles improve
   readability. Centred cards, separate bug metadata, and quieter footer controls
   make tasks easier to scan. Expanded details keep their controls within reach.

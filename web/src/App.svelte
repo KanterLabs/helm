@@ -7,6 +7,7 @@
   import { onMount, untrack } from 'svelte';
   import { retainSelectedTaskSnapshots } from './app/bulk';
   import { openWorkTask } from './app/drawer/open';
+  import { readExploreZoom, syncExploreFromLocation } from './app/explore';
   import { toast } from './app/feedback';
   import { syncIssueViewURL } from './app/issues';
   import { handleKeydown } from './app/keyboard';
@@ -21,6 +22,7 @@
   import { bulk } from './app/state/bulk.svelte';
   import { creation } from './app/state/creation.svelte';
   import { drawer } from './app/state/drawer.svelte';
+  import { explore } from './app/state/explore.svelte';
   import { issues } from './app/state/issues.svelte';
   import { live } from './app/state/live.svelte';
   import { myWork } from './app/state/myWork.svelte';
@@ -71,6 +73,10 @@
   });
   $effect.pre(() => { if (workspace.view === 'issues') syncIssueViewURL(issues.issueFilters, issues.issueProjectFilter); });
   $effect.pre(() => { if (!nav.sidebarRail) nav.railTip = null; });
+  // Explore mode follows the URL whenever the view changes (route restore,
+  // returning from a task, leaving the roadmap).
+  $effect.pre(() => { void workspace.view; untrack(syncExploreFromLocation); });
+  const exploring = $derived(explore.active && workspace.view === 'roadmap');
   $effect.pre(() => { if (palette.commandIndex >= palette.commandChoices.length) palette.commandIndex = Math.max(0, palette.commandChoices.length - 1); });
 
   // Keep clean pages eligible for the browser back/forward cache. The
@@ -91,6 +97,7 @@
     workspace.theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : systemTheme();
     palette.commandShortcut = platformShortcut(browserPlatform());
     applyTheme();
+    readExploreZoom(localStorage);
     workspace.recentProjectIds = loadRecentProjects(localStorage);
     const storedProjectOrder = localStorage.getItem(helmStorageKeys.projectOrder);
     workspace.projectOrderMode = storedProjectOrder === 'recent' || storedProjectOrder === 'alphabetical' ? storedProjectOrder : 'smart';
@@ -132,6 +139,7 @@
     window.addEventListener('keydown', keyHandler);
     window.addEventListener('pointerdown', handleProjectSwitcherPointerDown);
     window.addEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', syncExploreFromLocation);
     nav.sidebarCollapsed = readSidebarCollapsed(localStorage);
     const narrowQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 820px)') : null;
     const syncNarrow = () => {
@@ -145,6 +153,7 @@
       window.removeEventListener('keydown', keyHandler);
       window.removeEventListener('pointerdown', handleProjectSwitcherPointerDown);
       window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('popstate', syncExploreFromLocation);
       narrowQuery?.removeEventListener('change', syncNarrow);
     };
   });
@@ -170,7 +179,7 @@
 {:else if !session.user}
   <AuthPage />
 {:else}
-  <div class="app-shell" class:dark-mode={workspace.theme === 'dark'}>
+  <div class="app-shell" class:dark-mode={workspace.theme === 'dark'} class:explore-mode={exploring} style:--explore-zoom={exploring ? explore.zoom : undefined}>
     {#if nav.mobileNavOpen}
       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
       <div class="mobile-nav-scrim" aria-hidden="true" on:click={() => closeMobileNav()}></div>

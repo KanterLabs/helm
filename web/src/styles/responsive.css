@@ -20,7 +20,7 @@
   .toolbar-spacer { display: none; }
   .task-total { margin-left: auto; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
-  .roadmap-columns { grid-template-columns: 1fr; }
+  .roadmap-columns { grid-template-columns: minmax(0, 1fr); }
   .roadmap-live-row { grid-template-columns: auto minmax(0, 1fr) auto; }
   .roadmap-live-row-status { grid-column: 2 / -1; }
   .roadmap-live-row > .row-arrow { grid-column: 3; grid-row: 1; }
