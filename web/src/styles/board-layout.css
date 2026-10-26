@@ -1,0 +1,45 @@
+/* Board page composition: the heading row, the toolbar row and the frame
+   around the columns, at every breakpoint. Cards live in board-cards.css and
+   touch-sized toolbar controls in board-controls.css.
+
+   The page reads top-down and left-anchored: title and page actions share one
+   row, every board control (search through column arrows) shares the next, and
+   the columns start directly beneath with an even margin on every side. */
+
+/* Page actions sit on the title's row; the description runs beneath the title. */
+.board-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 24px; margin-bottom: 20px; }
+.board-heading > div:first-child { display: contents; }
+.board-heading > div:first-child > * { grid-column: 1; min-width: 0; }
+.board-heading .heading-actions { grid-column: 2; grid-row: 1; max-width: 100%; flex-wrap: wrap; }
+
+/* Search and controls start at the left; the task count follows them and the
+   column arrows close the row above the columns they move. */
+.board-toolbar { min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; overflow: visible; }
+.board-toolbar > .filter-search { flex: 1 1 240px; min-width: 120px; max-width: 480px; height: 44px; border-radius: 10px; }
+.board-toolbar-meta { min-width: 0; display: flex; flex: 1 0 auto; align-items: center; justify-content: space-between; gap: 12px; }
+.board-toolbar-meta .task-total { margin-left: 0; white-space: nowrap; }
+
+/* The space beneath the columns (board scrollbar padding plus this) matches the side gutter. */
+.content:has(> .board-toolbar) { padding-bottom: 16px; }
+
+@media (max-width: 1100px) {
+  .content:has(> .board-toolbar) { padding-bottom: 6px; }
+}
+
+/* Narrow layouts stack the heading and start every row at the content edge. */
+@media (max-width: 820px) {
+  .board-heading { grid-template-columns: minmax(0, 1fr); margin-bottom: 18px; }
+  .board-heading .heading-actions { grid-column: 1; grid-row: auto; width: 100%; margin-top: 14px; }
+  .board-heading .heading-actions .button.primary { order: -1; }
+  .board-toolbar > .filter-search { flex-basis: 100%; max-width: none; }
+}
+
+@media (max-width: 600px) {
+  .board-heading { margin-bottom: 16px; }
+  .board-heading .heading-actions { width: calc(100% + 28px); flex-wrap: nowrap; margin: 12px -14px 0; padding: 0 14px 3px; overflow-x: auto; scrollbar-width: none; }
+  .board-heading .heading-actions::-webkit-scrollbar { display: none; }
+  .board-heading .heading-actions .button { flex: 0 0 auto; white-space: nowrap; }
+  .board-toolbar { margin-bottom: 12px; }
+  /* The fixed navigation bar already sits beneath the board. */
+  .content:has(> .board-toolbar) { padding-bottom: 4px; }
+}

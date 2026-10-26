@@ -97,8 +97,11 @@ test('fits equal-height columns to the viewport so only board and column bodies 
     expect(fewMetrics.cards, `${viewport.name} few-card column should retain its sample cards`).toHaveLength(1);
     expect(fewMetrics.cardsScrollHeight, `${viewport.name} a short column should not need inner scrolling`).toBeLessThanOrEqual(fewMetrics.cardsClientHeight + 2);
 
-    const emptyMetrics = await measureColumnCards(emptyColumn);
-    expect(Math.abs(emptyMetrics.body.height - manyAtTop.body.height), `${viewport.name} empty columns should share the populated column height`).toBeLessThanOrEqual(2);
+    // Card bodies hug their cards so Add task follows them; the columns
+    // themselves still share one height.
+    const emptyBox = await requireBoundingBox(emptyColumn, `${viewport.name} empty column should have a bounding box`);
+    const manyBox = await requireBoundingBox(manyColumn, `${viewport.name} many-card column should have a bounding box`);
+    expect(Math.abs(emptyBox.height - manyBox.height), `${viewport.name} empty columns should share the populated column height`).toBeLessThanOrEqual(2);
 
     const columnBefore = await requireBoundingBox(manyColumn, `${viewport.name} many-card column should have a bounding box`);
     const header = manyColumn.locator('.column-header');

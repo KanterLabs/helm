@@ -63,8 +63,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--purple); }
 .column-count { min-width: 19px; padding: 2px 5px; border-radius: 8px; color: var(--muted); background: var(--surface); font-size: var(--text-xs); font-weight: 600; text-align: center; }
 .column-progress { height: 2px; margin: 0 13px; overflow: hidden; border-radius: 3px; background: var(--border); }
 .column-progress span { display: block; height: 100%; border-radius: 3px; background: var(--column-color); opacity: .8; transition: width var(--dur-base) var(--ease-out); }
-/* The right padding gives back the measured scrollbar gutter so cards sit centred. */
-.column-cards { min-height: 0; display: flex; flex: 1; flex-direction: column; gap: 12px; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; scrollbar-width: thin; padding: 14px max(2px, calc(12px - var(--column-gutter, 0px))) 10px 12px; contain: layout paint; }
+/* The right padding gives back the measured scrollbar gutter so cards sit centred.
+   Bodies take only the height their cards need, so Add task follows the last card
+   (or the empty placeholder) instead of sinking to the column floor; long columns
+   still shrink the body and scroll it with Add task pinned beneath. */
+.column-cards { min-height: 0; display: flex; flex: 0 1 auto; flex-direction: column; gap: 12px; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; scrollbar-width: thin; padding: 14px max(2px, calc(12px - var(--column-gutter, 0px))) 10px 12px; contain: layout paint; }
 /* Cards and paging controls must overflow, never shrink into clipped border lines. */
 .column-cards > * { flex-shrink: 0; }
 .load-more-tasks { width: 100%; padding: 8px 9px; border: 1px dashed var(--border-strong); border-radius: 7px; color: var(--purple); background: var(--surface); font-size: var(--text-2xs); font-weight: 600; }

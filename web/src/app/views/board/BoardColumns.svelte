@@ -9,6 +9,7 @@
   import AgentPulse from '../../../lib/components/AgentPulse.svelte';
   import BoardCardActions from '../../../lib/components/BoardCardActions.svelte';
   import BoardOverflowNavigation from '../../../lib/components/BoardOverflowNavigation.svelte';
+  import type { BoardOverflowDirection, BoardOverflowState } from '../../../lib/boardOverflowNavigation';
   import TaskDependencyStatus from '../../../lib/components/TaskDependencyStatus.svelte';
   import { dependencyBlocked } from '../../../lib/dependencies';
   import { hierarchyBadgeLabel } from '../../../lib/hierarchy';
@@ -28,6 +29,9 @@
   import { workspace } from '../../state/workspace.svelte';
   import { agentLabelForTask, showAgentPulse, taskDueClass, taskReleaseName } from '../../taskQueries';
 
+  // Column arrows render in the toolbar; this reports when the board overflows.
+  let { onOverflow }: { onOverflow?: (state: BoardOverflowState, move: ((direction: BoardOverflowDirection) => void) | null) => void } = $props();
+
   // Rendered only while workspace.activeProject is set (guarded by the parent).
   const boardProject = $derived(workspace.activeProject!);
 </script>
@@ -37,7 +41,7 @@
 {:else if !board.sortedColumns.length}
   <div class="empty-state board-empty"><div class="empty-icon">◇</div><h2>Your board is almost ready</h2><p>Columns will appear here once this project has been initialized.</p><button class="button primary" type="button" on:click={() => loadBoard()}>Refresh board</button></div>
 {:else}
-  <BoardOverflowNavigation label={`${boardProject.name} board columns`}>
+  <BoardOverflowNavigation label={`${boardProject.name} board columns`} onChange={onOverflow}>
   <section class="board" data-board-overflow-scroll use:boardCardHeight aria-label={`${boardProject.name} board`}>
     {#each board.sortedColumns as column (column.id)}
     {@const orderingGate = makeBoardOrderingGate({

@@ -1,7 +1,6 @@
-/* Board toolbar, filter chips and touch-sized card controls across breakpoints. */
-/* Responsive board controls keep actions reachable without a hidden scroll strip. */
-.board-toolbar { flex-wrap: wrap; overflow: visible; gap: 10px; }
-.board-toolbar > .filter-search { flex: 1 1 200px; min-width: 120px; }
+/* Board toolbar controls, filter chips and touch-sized card controls across breakpoints. */
+/* Responsive board controls keep actions reachable without a hidden scroll strip.
+   The toolbar's row layout lives in board-layout.css. */
 .board-toolbar > button, .board-secondary-actions > summary { min-height: 44px; }
 .board-secondary-actions { position: relative; }
 .board-secondary-actions > summary { display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--ink-soft); background: var(--surface); font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
@@ -18,8 +17,6 @@
 .task-create-modal form > fieldset > input, .task-create-modal form > fieldset > textarea { width: 100%; box-sizing: border-box; }
 .saved-view-save { flex-wrap: wrap; }
 @media (max-width: 700px) {
-  .board-toolbar { display: flex; flex-wrap: wrap; overflow: visible; }
-  .board-toolbar > .filter-search { flex-basis: 100%; }
   .task-card .task-drag-handle, .task-card .task-select { min-width: 44px; min-height: 44px; }
   .task-card .task-select { top: 0; left: 4px; }
   .task-card .task-drag-handle { top: 0; right: 4px; }

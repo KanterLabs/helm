@@ -13,8 +13,6 @@
   .content { padding-top: 25px; }
   .page-heading { align-items: flex-start; flex-direction: column; gap: 17px; margin-bottom: 21px; }
   .heading-actions { width: 100%; flex-wrap: wrap; }
-  .board-heading .heading-actions .button.primary { margin-left: auto; }
-  .board-toolbar { flex-wrap: wrap; }
   .filter-search { width: 100%; }
   .filter-group { width: 100%; overflow-x: auto; }
   .board-toolbar .filter-group { flex-basis: 100%; }
@@ -84,15 +82,11 @@
   .page-heading p { font-size: var(--text-xs); }
   .heading-actions { flex-wrap: wrap; gap: 8px; }
   .heading-actions .button { min-height: 44px; flex: 1 1 calc(50% - 4px); }
-  .board-heading .heading-actions { width: calc(100% + 28px); flex-wrap: nowrap; margin-right: -14px; margin-left: -14px; padding: 0 14px 3px; overflow-x: auto; scrollbar-width: none; }
-  .board-heading .heading-actions::-webkit-scrollbar, .filter-group::-webkit-scrollbar { display: none; }
-  .board-heading .heading-actions .button { flex: 0 0 auto; white-space: nowrap; }
-  .board-heading .heading-actions .button.primary { order: -1; }
+  .filter-group::-webkit-scrollbar { display: none; }
   .button { min-height: 44px; }
   input, select { min-height: 44px; }
   .filter-search { height: 44px; }
   .filter-search input { min-height: 0; }
-  .board-toolbar { gap: 9px; margin-bottom: 15px; }
   .filter-group { gap: 7px; scrollbar-width: none; }
   .filter-group select { height: 44px; flex: 0 0 142px; }
   .clear-filters { min-height: 44px; padding: 0 8px; }

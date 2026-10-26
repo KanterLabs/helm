@@ -20,7 +20,19 @@ function naturalColumnHeight(column: HTMLElement, body: HTMLElement) {
   const gap = parseFloat(style.rowGap) || 0;
   const content = children.reduce((sum, child) => sum + child.offsetHeight, 0) + gap * Math.max(0, children.length - 1);
   const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-  return column.offsetHeight - body.offsetHeight + padding + content;
+  // Card bodies hug their content, so unused column space is not chrome.
+  // Measure fixed siblings explicitly or a previously tall column can never
+  // shrink again after details collapse or the result set gets smaller.
+  const columnStyle = getComputedStyle(column);
+  const chrome = Array.from(column.children).reduce((sum, child) => {
+    if (child === body) return sum;
+    const childStyle = getComputedStyle(child);
+    return sum + (child as HTMLElement).offsetHeight
+      + (parseFloat(childStyle.marginTop) || 0) + (parseFloat(childStyle.marginBottom) || 0);
+  }, 0);
+  const frame = parseFloat(columnStyle.paddingTop) + parseFloat(columnStyle.paddingBottom)
+    + parseFloat(columnStyle.borderTopWidth) + parseFloat(columnStyle.borderBottomWidth);
+  return chrome + frame + padding + content;
 }
 
 /** Space reserved beneath the columns: board padding, its scrollbar, and ancestor bottom padding. */

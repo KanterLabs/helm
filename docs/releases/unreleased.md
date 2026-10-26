@@ -8,6 +8,8 @@ User-visible changes after v0.2.2 belong here, newest first. Latest release:
 - **Roomier project boards:** wider columns and larger three-line titles improve
   readability. Centred cards, separate bug metadata, and quieter footer controls
   make tasks easier to scan. Expanded details keep their controls within reach.
+  A compact heading and toolbar bring the board higher on the page, align mobile
+  actions to the left, and keep Add task beside the work in each column.
 
 - **Bugs intake connected to ticket triage:** classify an existing ticket as a bug,
   keep its comments and history, and file it into a project's Bugs column.

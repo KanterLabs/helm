@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import {
     boardOverflowNavigation,
     defaultBoardOverflowState,
@@ -8,6 +9,8 @@
   } from '../boardOverflowNavigation';
 
   export let label = 'Board columns';
+  /** Reports overflow so the toolbar can render the column arrows beside its controls. */
+  export let onChange: ((state: BoardOverflowState, move: ((direction: BoardOverflowDirection) => void) | null) => void) | undefined = undefined;
 
   let state: BoardOverflowState = defaultBoardOverflowState;
   let navigationRoot: HTMLElement;
@@ -15,11 +18,14 @@
 
   function updateState(next: BoardOverflowState): void {
     state = next;
+    onChange?.(next, move);
   }
 
   function move(direction: BoardOverflowDirection): void {
-    scrollBoardColumn(navigationRoot, direction);
+    if (navigationRoot) scrollBoardColumn(navigationRoot, direction);
   }
+
+  onDestroy(() => onChange?.(defaultBoardOverflowState, null));
 </script>
 
 <div
@@ -34,33 +40,6 @@
   use:boardOverflowNavigation={overflowOptions}
   bind:this={navigationRoot}
 >
-  {#if state.hasOverflow}
-    <nav class="board-overflow-controls" aria-label="Board column navigation">
-      <button
-        class="board-overflow-button"
-        data-testid="board-overflow-previous"
-        type="button"
-        aria-label="Show previous columns"
-        title="Show previous columns"
-        disabled={!state.canPrevious}
-        on:click={() => move('previous')}
-      >
-        <span aria-hidden="true">←</span>
-      </button>
-      <button
-        class="board-overflow-button"
-        data-testid="board-overflow-next"
-        type="button"
-        aria-label="Show next columns"
-        title="Show next columns"
-        disabled={!state.canNext}
-        on:click={() => move('next')}
-      >
-        <span aria-hidden="true">→</span>
-      </button>
-    </nav>
-  {/if}
-
   <slot />
 
   {#if state.hasOverflow}
@@ -75,46 +54,10 @@
     min-width: 0;
   }
 
-  .board-overflow-controls {
-    min-height: 38px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 3px;
-    padding: 0 9px 4px;
-  }
-
-  .board-overflow-button {
-    width: 30px;
-    height: 30px;
-    display: inline-grid;
-    place-items: center;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    color: var(--ink-soft);
-    background: var(--surface);
-    font-size: var(--text-md);
-    line-height: 1;
-    box-shadow: var(--shadow-sm);
-  }
-
-  .board-overflow-button:hover:not(:disabled),
-  .board-overflow-button:focus-visible {
-    color: var(--purple);
-    border-color: var(--border-strong);
-    background: var(--purple-soft);
-  }
-
-  .board-overflow-button:disabled {
-    color: var(--faint);
-    cursor: default;
-    opacity: .48;
-  }
-
+  /* The edges cover the columns, not the board's scrollbar padding beneath them. */
   .board-overflow-edge {
     position: absolute;
-    top: 42px;
+    top: 2px;
     bottom: 18px;
     z-index: 3;
     width: 24px;
@@ -135,23 +78,6 @@
   .board-overflow-edge-end {
     right: 0;
     background: linear-gradient(270deg, color-mix(in srgb, var(--purple-soft) 86%, var(--surface)), transparent);
-  }
-
-  @media (max-width: 600px) {
-    .board-overflow-controls {
-      min-height: 46px;
-      padding-right: 8px;
-      padding-left: 8px;
-    }
-
-    .board-overflow-button {
-      width: 38px;
-      height: 38px;
-    }
-
-    .board-overflow-edge {
-      top: 50px;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {
