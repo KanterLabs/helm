@@ -244,6 +244,7 @@ type PortableArchive struct {
 	Actors        []PortableActorReference `json:"actors,omitempty"`
 	Relationships PortableRelationships    `json:"relationships"`
 	Activity      PortableActivity         `json:"activity"`
+	Github        *PortableGithubArchive   `json:"github,omitempty"`
 
 	TaskLabels       []PortableTaskLabel        `json:"task_labels,omitempty"`
 	Dependencies     []PortableDependency       `json:"dependencies,omitempty"`

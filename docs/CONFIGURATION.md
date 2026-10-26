@@ -61,6 +61,20 @@ Never distribute assertion or TLS signing keys to owner/agent clients.
 
 See [LUNA_TASK_ASSIST.md](LUNA_TASK_ASSIST.md).
 
+## GitHub beta
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `HELM_GITHUB_ENABLED` | `false` | Enable optional read-only GitHub integration and server audit evidence. Missing credentials leave it unconfigured without affecting normal Helm readiness. |
+| `HELM_GITHUB_TOKEN_FILE` | empty | Absolute path to a protected regular file containing a fine-grained read-only token. The provider reads it directly; group/other permission bits must be unset. Never supply a raw token in an environment variable. |
+| `HELM_GITHUB_REPOSITORIES` | empty | Comma-separated `owner/name` allowlist, normalized and deduplicated, at most 50 repositories. Project administrators select at most ten allowed repository/ref pairs. |
+
+The API origin is fixed to `https://api.github.com`; runtime configuration
+cannot redirect authenticated requests to another origin. Audit start also
+requires the requesting human's personal AI connection. See the
+[GitHub beta API](GITHUB_BETA_API.md) for readiness, PR linking, audit jobs
+and explicit portable v3 history.
+
 ## Public access and alert intake
 
 Public URLs, email addresses and guided Cloudflare setup are configured by

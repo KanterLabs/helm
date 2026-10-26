@@ -1,0 +1,41 @@
+paths:
+  /api/v1/artifact-summaries:
+    get:
+      operationId: listArtifactSummaries
+      summary: Get batched task PR badges
+      description: Requires tasks:read and access to every requested task. One local query returns
+        summaries without per-card upstream requests. Any inaccessible requested task rejects the
+        request; missing tasks return 404. Failure and pending evidence prevent a false all-clear.
+      tags:
+        - GitHub
+      externalDocs:
+        description: GitHub beta API guide
+        url: docs/GITHUB_BETA_API.md
+      parameters:
+        - name: task_ids
+          in: query
+          required: true
+          description: One comma-separated list of 1–200 immutable task IDs. Whitespace and empty IDs are
+            rejected; duplicate IDs are deduplicated.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubArtifactSummaryCollection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

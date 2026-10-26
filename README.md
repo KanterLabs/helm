@@ -237,6 +237,7 @@ also works on headless servers. Credentials stay in per-user directories under
 | Topic | Doc |
 | --- | --- |
 | Full API contract | [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) · [`openapi.yaml`](openapi.yaml) (served at `/openapi.json`) |
+| GitHub beta PR links, server audits, and portable v3 | [`docs/GITHUB_BETA_API.md`](docs/GITHUB_BETA_API.md) |
 | Focus, bug, live-work, and audit workflows | [`docs/AGENT_WORKFLOWS.md`](docs/AGENT_WORKFLOWS.md) |
 | Notifications and watches | [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) |
 | Moving data between installations | [`docs/PORTABILITY.md`](docs/PORTABILITY.md) |

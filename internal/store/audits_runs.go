@@ -164,6 +164,9 @@ func (s *Store) FinalizeAuditRun(ctx context.Context, id string, args ...string)
 		return AuditRun{}, invalid("audit status must be complete, partial, or failed", nil)
 	}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
+		if err := s.RequireExternalAudit(ctx, tx, id); err != nil {
+			return err
+		}
 		timestamp := now()
 		result, err := tx.ExecContext(ctx, `UPDATE audit_runs SET status=?, finalized_at=?, updated_at=? WHERE id=? AND status IN ('queued', 'running')`, requestedStatus, timestamp, timestamp, id)
 		if err != nil {

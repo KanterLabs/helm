@@ -1,0 +1,40 @@
+paths:
+  /api/v1/audits/{audit}/evidence:
+    parameters:
+      - $ref: "#/components/parameters/AuditPath"
+    get:
+      operationId: getGithubAuditEvidence
+      summary: Read immutable audit evidence
+      description: Requires tasks:read and project access. Revalidates current selected repository/ref
+        identity and provider access before returning immutable private evidence. Revoked or
+        unavailable access yields evidence_unavailable (409 or 503); retained contents remain
+        stored. Captured tasks do not depend on board pagination.
+      tags:
+        - GitHub
+        - Audits
+      externalDocs:
+        description: GitHub beta API guide
+        url: docs/GITHUB_BETA_API.md
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubAuditEvidence"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

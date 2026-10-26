@@ -44,6 +44,12 @@ func portableEventFieldsEqualIgnoringID(a, b PortableEvent) bool {
 
 func portableEventPayloadTargets(key, parentKey, eventType string, maps portableEventPayloadMaps) map[string]string {
 	switch key {
+	case "artifact_id":
+		return maps.artifacts
+	case "audit_id":
+		return maps.audits
+	case "finding_id":
+		return maps.findings
 	case "project_id":
 		return maps.projects
 	case "release_id", "previous_release_id", "new_release_id", "old_release_id":
@@ -63,6 +69,12 @@ func portableEventPayloadTargets(key, parentKey, eventType string, maps portable
 		// *_id field. Only remap an ambiguous id when its object type makes the
 		// entity unambiguous.
 		switch parentKey {
+		case "artifact":
+			return maps.artifacts
+		case "audit":
+			return maps.audits
+		case "finding":
+			return maps.findings
 		case "project":
 			return maps.projects
 		case "release":

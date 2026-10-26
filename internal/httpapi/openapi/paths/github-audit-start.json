@@ -1,0 +1,98 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/github-audits": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "post": {
+        "operationId": "startProjectGithubAudit",
+        "summary": "Queue a server GitHub audit",
+        "description": "Requires a signed-in human with project access and a connected personal AI account. Starts a durable job with selected/allowed repository refs and captured task scope; analysis never moves tasks. One active actor/project job is allowed; an active-run conflict includes its authorized audit_id. GitHub/AI readiness is revalidated before start.",
+        "tags": [
+          "GitHub",
+          "Audits"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub beta API guide",
+          "url": "docs/GITHUB_BETA_API.md"
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required non-whitespace key, at most 200 characters. The originating actor/project and identical scope/retry source reuse the existing durable run. A different request under the same key conflicts. This is durable run identity, not a cached private evidence response.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": ".*\\S.*"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubAuditStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubAuditStartResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

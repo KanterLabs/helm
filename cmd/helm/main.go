@@ -122,6 +122,7 @@ func main() {
 		betaSwitchClient = client
 	}
 	api := httpapi.NewWithBetaSwitch(data, manager, cfg, betaSwitchClient, codexManager)
+	api.StartGithubServices(ctx)
 	var hooksServer *http.Server
 	if cfg.PublicEndpoints.HooksAddr != "" {
 		api.PublicEndpoints = publicendpoint.NewManager(publicendpoint.Config{
@@ -203,6 +204,9 @@ func main() {
 		if err := privateServer.Shutdown(shutdownCtx); err != nil {
 			errorLog("tailnet private listener shutdown failed", err)
 		}
+	}
+	if err := api.StopGithubServices(shutdownCtx); err != nil {
+		errorLog("GitHub background services shutdown failed", err)
 	}
 	if err := codexManager.Close(shutdownCtx); err != nil {
 		errorLog("Codex shutdown failed", err)

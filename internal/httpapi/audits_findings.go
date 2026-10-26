@@ -26,6 +26,9 @@ func (s *Server) auditFindings(w http.ResponseWriter, r *http.Request, identity 
 			s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to this project", nil)
 			return
 		}
+		if !s.githubAuditSourceRead(w, r, run.ID, run.ProjectID) {
+			return
+		}
 		limit, offset, err := parsePagination(r, 50)
 		if err != nil {
 			s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
@@ -177,6 +180,14 @@ func (s *Server) auditFinding(w http.ResponseWriter, r *http.Request, identity a
 	}
 	if !identity.CanProject(projectID) {
 		s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to this project", nil)
+		return
+	}
+	finding, err := s.Store.GetAuditFinding(r.Context(), findingID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if !s.githubAuditSourceRead(w, r, finding.AuditID, projectID) {
 		return
 	}
 	if s.idempotencyReplay(w, r, identity) {

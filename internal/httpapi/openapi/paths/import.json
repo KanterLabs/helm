@@ -4,7 +4,7 @@
       "post": {
         "operationId": "importPortableArchive",
         "summary": "Validate or import a portable archive",
-        "description": "The archive is fully validated before any write. Set `dry_run` to true\nfor a report without mutation. `conflict` defaults to `remap`; use\n`fail` to reject destination identifier conflicts. Stable IDs are kept\nwhenever possible and every remap is listed in the report. Imports\ninsert records transactionally and never replace or delete the\ndestination database.\n",
+        "description": "The archive is fully validated before any write. Set `dry_run` to true\nfor a report without mutation. `conflict` defaults to `remap`; use\n`fail` to reject destination identifier conflicts. Stable IDs are kept\nwhenever possible and every remap is listed in the report. Imports\ninsert records transactionally and never replace or delete the\ndestination database.\n Accepts portable versions 1, 2 and 3. Version 3 github history is validated and remapped transactionally with core records; imported terminal history and evidence do not restore credentials, repository selection, running jobs or source access.",
         "tags": [
           "Projects"
         ],

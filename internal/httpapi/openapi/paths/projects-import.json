@@ -9,7 +9,7 @@
       "post": {
         "operationId": "importPortableArchiveIntoProject",
         "summary": "Validate or import an archive into this project",
-        "description": "Imports a one-project archive into the selected project without replacing existing records; use `dry_run` for a validation report.",
+        "description": "Imports a one-project archive into the selected project without replacing existing records; use `dry_run` for a validation report. Accepts portable versions 1, 2 and 3. Version 3 github history is validated and remapped transactionally with core records; imported terminal history and evidence do not restore credentials, repository selection, running jobs or source access.",
         "tags": [
           "Projects"
         ],

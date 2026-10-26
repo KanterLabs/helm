@@ -50,10 +50,12 @@ func (m *Manager) Account(ctx context.Context, actorID string, refresh bool) (Ac
 			status.Email = *response.Account.Email
 		}
 	}
+	m.observeEvidenceAccount(actorID, status.Connected)
 	return status, nil
 }
 
 func (m *Manager) StartDeviceLogin(ctx context.Context, actorID string) (DeviceLogin, error) {
+	m.bumpEvidenceGeneration(actorID)
 	session, err := m.Session(ctx, actorID)
 	if err != nil {
 		return DeviceLogin{}, err
@@ -88,6 +90,7 @@ func (m *Manager) CancelDeviceLogin(ctx context.Context, actorID, loginID string
 }
 
 func (m *Manager) LogoutAccount(ctx context.Context, actorID string) error {
+	m.bumpEvidenceGeneration(actorID)
 	session, err := m.Session(ctx, actorID)
 	if err != nil {
 		return err

@@ -1,0 +1,156 @@
+components:
+  schemas:
+    GithubAuditStartRequest:
+      type: object
+      description: Captures at most 1000 tasks; truncation is reported as an omission. Capture JSON is
+        limited to 192 KiB. No null scope fields.
+      required: []
+      properties:
+        repositories:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubRepository"
+          description: Omit to use project selection; overrides must be selected repository/ref pairs.
+        states:
+          type: array
+          items:
+            $ref: "#/components/schemas/SemanticState"
+          maxItems: 5
+          description: Alternative to non-empty task_ids; defaults to backlog, ready and active.
+        task_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identifier"
+          maxItems: 1000
+          uniqueItems: true
+          description: Explicit immutable task IDs, alternative to non-empty states.
+      additionalProperties: false
+      allOf:
+        - not:
+            required:
+              - states
+              - task_ids
+            properties:
+              states:
+                minItems: 1
+              task_ids:
+                minItems: 1
+    GithubAuditJob:
+      type: object
+      required:
+        - audit_id
+        - project_id
+        - stage
+        - outcome
+        - created_at
+        - updated_at
+        - task_count
+        - captured_files
+        - omitted_files
+        - message
+      properties:
+        audit_id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        stage:
+          type: string
+          enum:
+            - queued
+            - fetching
+            - analyzing
+            - validating
+            - finished
+        outcome:
+          type: string
+          enum:
+            - ""
+            - complete
+            - partial
+            - failed
+            - cancelled
+            - interrupted
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        finished_at:
+          $ref: "#/components/schemas/Timestamp"
+        task_count:
+          type: integer
+          minimum: 0
+        captured_files:
+          type: integer
+          minimum: 0
+        omitted_files:
+          type: integer
+          minimum: 0
+        message:
+          type: string
+        error_code:
+          type: string
+        retry_of:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false
+    GithubAuditStartResponse:
+      type: object
+      required:
+        - audit
+        - job
+      properties:
+        audit:
+          $ref: "#/components/schemas/AuditRun"
+        job:
+          $ref: "#/components/schemas/GithubAuditJob"
+      additionalProperties: false
+    GithubAuditApplyRequest:
+      type: object
+      required:
+        - finding_ids
+        - preview
+      properties:
+        finding_ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identifier"
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+        preview:
+          type: boolean
+      additionalProperties: false
+    GithubAuditApplyResult:
+      type: object
+      required:
+        - finding_id
+        - task_id
+        - outcome
+        - message
+      properties:
+        finding_id:
+          $ref: "#/components/schemas/Identifier"
+        task_id:
+          type: string
+          description: May be empty if a connection change skips the finding before task resolution.
+        outcome:
+          type: string
+          enum:
+            - eligible
+            - applied
+            - skipped
+            - needs_follow_up
+        message:
+          type: string
+        task:
+          $ref: "#/components/schemas/Task"
+      additionalProperties: false
+    GithubAuditApplyResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditApplyResult"
+      additionalProperties: false

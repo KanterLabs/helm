@@ -1,0 +1,175 @@
+{
+  "components": {
+    "schemas": {
+      "GithubRepository": {
+        "type": "object",
+        "required": [
+          "repository",
+          "ref"
+        ],
+        "properties": {
+          "repository": {
+            "type": "string",
+            "pattern": "^[^/]+/[^/]+$",
+            "description": "Allowed owner/name repository, normalized to lower case."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubSelection": {
+        "type": "object",
+        "required": [
+          "version",
+          "repositories"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubRepository"
+            },
+            "maxItems": 10
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubSelectionRequest": {
+        "type": "object",
+        "required": [
+          "repositories"
+        ],
+        "properties": {
+          "repositories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubRepository"
+            },
+            "maxItems": 10,
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubConnection": {
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "not_configured",
+              "connected",
+              "permission_required",
+              "unavailable",
+              "rate_limited"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubDiagnostics": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "configured",
+          "state",
+          "message",
+          "allowed_repositories",
+          "checked_at"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "not_configured",
+              "connected",
+              "permission_required",
+              "unavailable",
+              "rate_limited"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "allowed_repositories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checked_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubReadiness": {
+        "type": "object",
+        "required": [
+          "ready",
+          "github",
+          "ai",
+          "repositories"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "github": {
+            "$ref": "#/components/schemas/GithubConnection"
+          },
+          "ai": {
+            "type": "object",
+            "required": [
+              "state",
+              "message"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "connected",
+                  "not_connected",
+                  "disabled",
+                  "unavailable"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubRepository"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

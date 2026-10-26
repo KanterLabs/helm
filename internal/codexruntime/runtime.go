@@ -40,12 +40,15 @@ type Options struct {
 	MaxMessageBytes int
 	EventBuffer     int
 	ShutdownGrace   time.Duration
+	evidenceOnly    bool
 }
 
 type Manager struct {
 	opts     Options
 	mu       sync.Mutex
 	sessions map[string]*Session
+	evidence map[*Session]struct{}
+	accounts map[string]evidenceAccountState
 	closed   bool
 }
 
@@ -62,7 +65,7 @@ func NewManager(opts Options) *Manager {
 	if opts.ShutdownGrace <= 0 {
 		opts.ShutdownGrace = 2 * time.Second
 	}
-	return &Manager{opts: opts, sessions: make(map[string]*Session)}
+	return &Manager{opts: opts, sessions: make(map[string]*Session), evidence: make(map[*Session]struct{}), accounts: make(map[string]evidenceAccountState)}
 }
 
 func (m *Manager) Session(ctx context.Context, actorID string) (*Session, error) {
@@ -90,11 +93,22 @@ func (m *Manager) CloseActor(ctx context.Context, actorID string) error {
 	m.mu.Lock()
 	session := m.sessions[actorID]
 	delete(m.sessions, actorID)
-	m.mu.Unlock()
-	if session == nil {
-		return nil
+	var evidence []*Session
+	for current := range m.evidence {
+		if current.actorID == actorID {
+			evidence = append(evidence, current)
+			delete(m.evidence, current)
+		}
 	}
-	return session.Close(ctx)
+	m.mu.Unlock()
+	var joined error
+	for _, current := range evidence {
+		joined = errors.Join(joined, current.Close(ctx))
+	}
+	if session == nil {
+		return joined
+	}
+	return errors.Join(joined, session.Close(ctx))
 }
 
 func (m *Manager) Close(ctx context.Context) error {
@@ -108,7 +122,11 @@ func (m *Manager) Close(ctx context.Context) error {
 	for _, session := range m.sessions {
 		sessions = append(sessions, session)
 	}
+	for session := range m.evidence {
+		sessions = append(sessions, session)
+	}
 	m.sessions = make(map[string]*Session)
+	m.evidence = make(map[*Session]struct{})
 	m.mu.Unlock()
 	var joined error
 	for _, session := range sessions {
@@ -190,9 +208,21 @@ func startSession(ctx context.Context, actorID string, opts Options) (*Session, 
 	if err := os.Chmod(home, 0o700); err != nil {
 		return nil, fmt.Errorf("protect isolated Codex home: %w", err)
 	}
-	cmd := exec.Command(opts.Binary, "app-server", "--stdio")
+	args := []string{"app-server", "--stdio"}
+	if opts.evidenceOnly {
+		// Disable capabilities before extension/service initialization as well as
+		// at thread creation. In particular no code-mode host may be started.
+		for key, value := range evidenceConfig() {
+			encoded, _ := json.Marshal(value)
+			args = append(args, "-c", key+"="+string(encoded))
+		}
+	}
+	cmd := exec.Command(opts.Binary, args...)
 	environment := withoutEnv(os.Environ(), "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN")
 	cmd.Env = replaceEnv(environment, "CODEX_HOME", home)
+	if opts.evidenceOnly {
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "CODEX_HOME=" + home}
+	}
 	cmd.Dir = opts.WorkingDir
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -219,9 +249,13 @@ func startSession(ctx context.Context, actorID string, opts Options) (*Session, 
 	}
 	go s.readLoop(stdout, opts.MaxMessageBytes)
 	var initialized json.RawMessage
-	if err := s.Call(ctx, "initialize", map[string]any{
+	initialize := map[string]any{
 		"clientInfo": map[string]string{"name": "helm", "title": "Helm", "version": "1"},
-	}, &initialized); err != nil {
+	}
+	if opts.evidenceOnly {
+		initialize["capabilities"] = map[string]bool{"experimentalApi": true}
+	}
+	if err := s.Call(ctx, "initialize", initialize, &initialized); err != nil {
 		_ = s.Close(context.Background())
 		return nil, fmt.Errorf("initialize Codex app-server: %w", err)
 	}
@@ -411,180 +445,6 @@ func (s *Session) terminalError() error {
 		return s.termErr
 	}
 	return ErrClosed
-}
-
-type RunRequest struct {
-	Prompt       string
-	Model        string
-	Effort       string
-	OutputSchema json.RawMessage
-	OnStep       func(RunStep)
-}
-
-// RunStep is the only runtime information exposed to Luna history. Keeping
-// this a closed, kind-only value prevents protocol parameters, prompts, and
-// generated text from crossing the runtime boundary.
-type RunStep struct {
-	Kind string
-}
-
-const (
-	RunStepThreadStarted     = "thread_started"
-	RunStepTurnStarted       = "turn_started"
-	RunStepResponseGenerated = "response_generated"
-)
-
-type RunResult struct {
-	ThreadID        string
-	TurnID          string
-	Status          string
-	Output          string
-	OutputTruncated bool
-}
-
-func (s *Session) Run(ctx context.Context, actorID string, input RunRequest) (RunResult, error) {
-	if err := s.RequireActor(actorID); err != nil {
-		return RunResult{}, err
-	}
-	if strings.TrimSpace(input.Prompt) == "" {
-		return RunResult{}, fmt.Errorf("Codex prompt is required")
-	}
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	for {
-		select {
-		case <-s.events:
-		default:
-			goto drained
-		}
-	}
-drained:
-	threadParams := map[string]any{
-		"approvalPolicy": "never",
-		"sandbox":        "read-only",
-		"serviceName":    "helm",
-		"cwd":            s.home,
-		"ephemeral":      true,
-	}
-	if input.Model != "" {
-		threadParams["model"] = input.Model
-	}
-	var threadResponse struct {
-		Thread struct {
-			ID string `json:"id"`
-		} `json:"thread"`
-	}
-	if err := s.Call(ctx, "thread/start", threadParams, &threadResponse); err != nil {
-		return RunResult{}, err
-	}
-	if threadResponse.Thread.ID == "" {
-		return RunResult{}, fmt.Errorf("Codex returned an empty thread id")
-	}
-	emitRunStep(input, RunStepThreadStarted)
-	turnParams := map[string]any{
-		"threadId":       threadResponse.Thread.ID,
-		"input":          []map[string]string{{"type": "text", "text": input.Prompt}},
-		"approvalPolicy": "never",
-		"sandboxPolicy":  map[string]any{"type": "readOnly", "networkAccess": false},
-	}
-	if input.Model != "" {
-		turnParams["model"] = input.Model
-	}
-	if input.Effort != "" {
-		turnParams["effort"] = input.Effort
-	}
-	if len(input.OutputSchema) > 0 {
-		var schema any
-		if err := json.Unmarshal(input.OutputSchema, &schema); err != nil {
-			return RunResult{}, fmt.Errorf("invalid output schema: %w", err)
-		}
-		turnParams["outputSchema"] = schema
-	}
-	var turnResponse struct {
-		Turn struct {
-			ID string `json:"id"`
-		} `json:"turn"`
-	}
-	if err := s.Call(ctx, "turn/start", turnParams, &turnResponse); err != nil {
-		return RunResult{}, err
-	}
-	if turnResponse.Turn.ID == "" {
-		return RunResult{}, fmt.Errorf("Codex returned an empty turn id")
-	}
-	emitRunStep(input, RunStepTurnStarted)
-	result := RunResult{ThreadID: threadResponse.Thread.ID, TurnID: turnResponse.Turn.ID}
-	responseGenerated := false
-	for {
-		select {
-		case event := <-s.events:
-			switch event.Method {
-			case "item/agentMessage/delta":
-				var delta struct {
-					Delta string `json:"delta"`
-				}
-				if json.Unmarshal(event.Params, &delta) == nil {
-					if len(result.Output)+len(delta.Delta) > s.maxOut {
-						result.OutputTruncated = true
-						return result, fmt.Errorf("Codex output exceeds %d bytes", s.maxOut)
-					}
-					result.Output += delta.Delta
-					if delta.Delta != "" && !responseGenerated {
-						emitRunStep(input, RunStepResponseGenerated)
-						responseGenerated = true
-					}
-				}
-			case "item/completed":
-				var completed struct {
-					Item struct {
-						Type string `json:"type"`
-						Text string `json:"text"`
-					} `json:"item"`
-				}
-				if json.Unmarshal(event.Params, &completed) == nil && completed.Item.Type == "agentMessage" && completed.Item.Text != "" {
-					if len(completed.Item.Text) > s.maxOut {
-						result.OutputTruncated = true
-						return result, fmt.Errorf("Codex output exceeds %d bytes", s.maxOut)
-					}
-					result.Output = completed.Item.Text
-					if !responseGenerated {
-						emitRunStep(input, RunStepResponseGenerated)
-						responseGenerated = true
-					}
-				}
-			case "turn/completed":
-				var completed struct {
-					Turn struct {
-						ID     string `json:"id"`
-						Status string `json:"status"`
-						Error  *struct {
-							Message string `json:"message"`
-						} `json:"error"`
-					} `json:"turn"`
-				}
-				if json.Unmarshal(event.Params, &completed) != nil || completed.Turn.ID != result.TurnID {
-					continue
-				}
-				result.Status = completed.Turn.Status
-				if completed.Turn.Error != nil {
-					return result, fmt.Errorf("Codex turn failed: %s", completed.Turn.Error.Message)
-				}
-				return result, nil
-			}
-		case <-ctx.Done():
-			interruptCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = s.Call(interruptCtx, "turn/interrupt", map[string]string{"threadId": result.ThreadID, "turnId": result.TurnID}, nil)
-			cancel()
-			return result, ctx.Err()
-		case <-s.done:
-			return result, s.terminalError()
-		}
-	}
-}
-
-func emitRunStep(input RunRequest, kind string) {
-	if input.OnStep != nil {
-		input.OnStep(RunStep{Kind: kind})
-	}
 }
 
 func (s *Session) Close(ctx context.Context) error {

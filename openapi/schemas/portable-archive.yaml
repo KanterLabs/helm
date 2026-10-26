@@ -107,11 +107,11 @@ components:
         - relationships
         - activity
         - comments
-      description: |
-        Version 2 archives include the `releases` collection and task
-        `release_id` references. Version 1 remains accepted for import and is
-        normalized to no releases and unassigned tasks; unknown versions are
-        rejected.
+      description: Version 2 archives include releases and task release_id references. Explicit version 3
+        export additionally retains durable GitHub PR relationships, audit runs/findings and
+        immutable evidence in github. Credentials, project repository selections, disposable
+        provider caches and executable jobs are excluded. Versions 1 and 2 remain import-compatible;
+        version 1 normalizes to no releases and unassigned tasks. Unknown versions are rejected.
       properties:
         format:
           type: string
@@ -121,6 +121,7 @@ components:
           enum:
             - 1
             - 2
+            - 3
         exported_at:
           $ref: "#/components/schemas/Timestamp"
         source:
@@ -170,7 +171,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PortableAgentNote"
+        github:
+          $ref: "#/components/schemas/PortableGithubArchive"
       additionalProperties: false
+      allOf:
+        - if:
+            required:
+              - github
+          then:
+            properties:
+              version:
+                const: 3
     PortableImportRequest:
       type: object
       required:

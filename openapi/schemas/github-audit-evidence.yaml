@@ -1,0 +1,128 @@
+components:
+  schemas:
+    GithubAuditTask:
+      type: object
+      required:
+        - id
+        - key
+        - title
+        - description
+        - version
+        - column_id
+        - criteria
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        key:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        column_id:
+          $ref: "#/components/schemas/Identifier"
+        criteria:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    GithubAuditRepository:
+      type: object
+      required:
+        - repository
+        - ref
+        - sha
+        - repository_id
+      properties:
+        repository:
+          type: string
+        ref:
+          type: string
+        sha:
+          type: string
+          pattern: ^[a-fA-F0-9]{40}$
+        repository_id:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    GithubAuditItem:
+      type: object
+      required:
+        - id
+        - kind
+        - title
+        - url
+        - repository
+        - sha
+        - text
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        kind:
+          type: string
+          enum:
+            - file
+            - pull_request
+            - check
+        title:
+          type: string
+        url:
+          type: string
+          format: uri
+        repository:
+          type: string
+        sha:
+          type: string
+          pattern: ^[a-fA-F0-9]{40}$
+        blob_sha:
+          type: string
+        path:
+          type: string
+        start_line:
+          type: integer
+          minimum: 1
+        end_line:
+          type: integer
+          minimum: 1
+        text:
+          type: string
+      additionalProperties: false
+    GithubAuditEvidence:
+      type: object
+      description: Immutable commit-pinned evidence and captured task identity. Current source access is
+        checked before private contents are returned.
+      required:
+        - audit_id
+        - captured_at
+        - partial
+        - omissions
+        - repositories
+        - items
+        - tasks
+      properties:
+        audit_id:
+          $ref: "#/components/schemas/Identifier"
+        captured_at:
+          $ref: "#/components/schemas/Timestamp"
+        partial:
+          type: boolean
+        omissions:
+          type: array
+          items:
+            type: string
+        repositories:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditRepository"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditItem"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditTask"
+      additionalProperties: false

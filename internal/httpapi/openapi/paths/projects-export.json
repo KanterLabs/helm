@@ -9,7 +9,7 @@
       "get": {
         "operationId": "exportProjectPortableArchive",
         "summary": "Export one project's portable archive",
-        "description": "Exports the live project and its related records in the versioned `helm.portable` v2 format, including releases and explicit task release references. v1 archives remain import-compatible and treat tasks as unassigned.",
+        "description": "Exports the live project and its related records in the versioned `helm.portable` v2 format, including releases and explicit task release references. v1 archives remain import-compatible and treat tasks as unassigned. Export defaults to version 2. Request version=3 to include retained GitHub PR relationships and audit history; source credentials, repository selections, disposable caches and executable audit jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
         "tags": [
           "Projects"
         ],
@@ -22,7 +22,23 @@
                   "$ref": "#/components/schemas/PortableArchive"
                 }
               }
+            },
+            "headers": {
+              "X-Helm-Portable-Version": {
+                "description": "Selected portable envelope version.",
+                "schema": {
+                  "type": "integer",
+                  "enum": [
+                    2,
+                    3
+                  ],
+                  "example": 2
+                }
+              }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -33,10 +49,29 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "description": "Portable envelope version. Omit for existing v2 compatibility; explicitly select 3 for durable GitHub/audit history.",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                2,
+                3
+              ],
+              "default": 2
+            }
+          }
+        ]
       }
     }
   }

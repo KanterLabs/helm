@@ -3,15 +3,23 @@ paths:
     get:
       operationId: exportPortableArchive
       summary: Export a versioned portable archive
-      description: |
+      description: >-
         Exports live projects, columns, tasks, labels, comments, relationships,
+
         and activity references as a `helm.portable` v2 JSON archive. A
+
         v2 archive includes project-local releases and explicit task release
+
         references; v1 archives remain import-compatible and treat every task
+
         as unassigned.
+
         `project` query selects one project; an unscoped caller may omit it to
+
         export every accessible project. This is a portability snapshot, not
+
         a database backup or restore operation.
+         Export defaults to version 2. Request version=3 to include retained GitHub PR relationships and audit history; source credentials, repository selections, disposable caches and executable audit jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.
       tags:
         - Projects
       parameters:
@@ -21,6 +29,17 @@ paths:
           description: Project ID, key, or stable slug to export.
           schema:
             $ref: "#/components/schemas/Identifier"
+        - name: version
+          in: query
+          required: false
+          description: Portable envelope version. Omit for existing v2 compatibility; explicitly select 3 for
+            durable GitHub/audit history.
+          schema:
+            type: integer
+            enum:
+              - 2
+              - 3
+            default: 2
       responses:
         "200":
           description: Portable archive JSON attachment
@@ -35,10 +54,12 @@ paths:
                 type: string
                 example: helm.portable
             X-Helm-Portable-Version:
-              description: Portable envelope version.
+              description: Selected portable envelope version.
               schema:
                 type: integer
-                const: 2
+                enum:
+                  - 2
+                  - 3
                 example: 2
           content:
             application/json:
@@ -52,5 +73,7 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalServerError"

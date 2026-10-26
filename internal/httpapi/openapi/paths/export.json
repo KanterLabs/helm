@@ -4,7 +4,7 @@
       "get": {
         "operationId": "exportPortableArchive",
         "summary": "Export a versioned portable archive",
-        "description": "Exports live projects, columns, tasks, labels, comments, relationships,\nand activity references as a `helm.portable` v2 JSON archive. A\nv2 archive includes project-local releases and explicit task release\nreferences; v1 archives remain import-compatible and treat every task\nas unassigned.\n`project` query selects one project; an unscoped caller may omit it to\nexport every accessible project. This is a portability snapshot, not\na database backup or restore operation.\n",
+        "description": "Exports live projects, columns, tasks, labels, comments, relationships,\nand activity references as a `helm.portable` v2 JSON archive. A\nv2 archive includes project-local releases and explicit task release\nreferences; v1 archives remain import-compatible and treat every task\nas unassigned.\n`project` query selects one project; an unscoped caller may omit it to\nexport every accessible project. This is a portability snapshot, not\na database backup or restore operation.\n Export defaults to version 2. Request version=3 to include retained GitHub PR relationships and audit history; source credentials, repository selections, disposable caches and executable audit jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
         "tags": [
           "Projects"
         ],
@@ -16,6 +16,20 @@
             "description": "Project ID, key, or stable slug to export.",
             "schema": {
               "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "description": "Portable envelope version. Omit for existing v2 compatibility; explicitly select 3 for durable GitHub/audit history.",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                2,
+                3
+              ],
+              "default": 2
             }
           }
         ],
@@ -37,10 +51,13 @@
                 }
               },
               "X-Helm-Portable-Version": {
-                "description": "Portable envelope version.",
+                "description": "Selected portable envelope version.",
                 "schema": {
                   "type": "integer",
-                  "const": 2,
+                  "enum": [
+                    2,
+                    3
+                  ],
                   "example": 2
                 }
               }
@@ -64,6 +81,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"

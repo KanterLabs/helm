@@ -175,6 +175,9 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 	if err != nil {
 		return plan, err
 	}
+	if err := planPortableGithub(ctx, q, &plan, actorMap); err != nil {
+		return plan, err
+	}
 	plan, err = planPortableEvents(ctx, q, archive, options, plan, usedEventIDs, actorMap)
 	if err != nil {
 		return plan, err

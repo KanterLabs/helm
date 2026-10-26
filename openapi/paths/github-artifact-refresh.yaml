@@ -1,0 +1,42 @@
+paths:
+  /api/v1/tasks/{task}/artifacts/{artifact}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+      - name: artifact
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/Identifier"
+    post:
+      operationId: refreshTaskArtifact
+      summary: Refresh pull request evidence
+      description: Requires tasks:read and project access. Joins in-flight verification; does not bump
+        task version or add task activity. A permission failure hides private snapshots. Returns the
+        current task ETag.
+      tags:
+        - GitHub
+      externalDocs:
+        description: GitHub beta API guide
+        url: docs/GITHUB_BETA_API.md
+      responses:
+        "200":
+          description: Successful response
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubArtifact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

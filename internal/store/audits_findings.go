@@ -46,6 +46,9 @@ func (s *Store) AppendAuditFinding(ctx context.Context, auditID string, input Au
 	var findingID string
 	var existing bool
 	err = s.withTx(ctx, func(tx *sql.Tx) error {
+		if err := s.RequireExternalAudit(ctx, tx, auditID); err != nil {
+			return err
+		}
 		// This guarded no-op UPDATE acquires SQLite's writer lock before checking
 		// status, preventing a concurrent finalize from accepting a late finding.
 		result, err := tx.ExecContext(ctx, `UPDATE audit_runs SET updated_at=updated_at WHERE id=? AND status IN ('queued', 'running')`, auditID)
@@ -263,6 +266,14 @@ func (s *Store) listAuditFindings(ctx context.Context, auditID string, offset, l
 }
 
 func (s *Store) populateAuditFindingDrift(ctx context.Context, finding *AuditFinding) error {
+	var imported int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_imports WHERE audit_id=?`, finding.AuditID).Scan(&imported); err != nil {
+		return err
+	}
+	if imported > 0 {
+		finding.ChangedSinceAudit = true
+		return nil
+	}
 	var snapshot auditTaskSnapshot
 	err := s.DB.QueryRowContext(ctx, `SELECT t.version, t.column_id, c.name, c.semantic_state FROM tasks t JOIN columns c ON c.id=t.column_id WHERE t.id=?`, finding.TaskID).Scan(&snapshot.Version, &snapshot.ColumnID, &snapshot.ColumnName, &snapshot.SemanticState)
 	if errors.Is(err, sql.ErrNoRows) {

@@ -1,0 +1,139 @@
+paths:
+  /api/v1/tasks/{task}/artifacts:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    get:
+      operationId: listTaskArtifacts
+      summary: List task pull request links
+      description: Requires tasks:read and project scope. Local reads do not fetch GitHub. Current source
+        authorization gates cached private snapshots. Returns the task ETag and task_version.
+      tags:
+        - GitHub
+      externalDocs:
+        description: GitHub beta API guide
+        url: docs/GITHUB_BETA_API.md
+      responses:
+        "200":
+          description: Successful response
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubArtifactCollection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createTaskArtifact
+      summary: Link a GitHub pull request
+      description: Requires both tasks:write and tasks:read (the response includes snapshot evidence),
+        project access, current task If-Match and normal claim rules. A canonical allowed PR URL
+        survives provider verification failure as an unverified link. Duplicate canonical identities
+        reuse the task relationship. Records task activity; successful responses recheck source
+        access even on idempotent replay.
+      tags:
+        - GitHub
+      externalDocs:
+        description: GitHub beta API guide
+        url: docs/GITHUB_BETA_API.md
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GithubArtifactLinkRequest"
+      responses:
+        "201":
+          description: Successful response
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubArtifactLinkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/v1/tasks/{task}/artifacts/{artifact}:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+      - name: artifact
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/Identifier"
+    delete:
+      operationId: deleteTaskArtifact
+      summary: Detach a task pull request link
+      description: Requires tasks:write, project access, task If-Match and normal claim rules. Detaches
+        only this task relationship and retains audit history. Records task activity.
+      tags:
+        - GitHub
+      externalDocs:
+        description: GitHub beta API guide
+        url: docs/GITHUB_BETA_API.md
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Successful response
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubArtifactDetachResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

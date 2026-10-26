@@ -9,7 +9,7 @@
       "patch": {
         "operationId": "reviewAuditFinding",
         "summary": "Review an audit finding",
-        "description": "Updates only the finding review state and, when supplied, its proposed\nsemantic destination. Audit writes require `tasks:write`. The captured\ntask snapshot, captured version, source column, verdict, confidence,\nreason, and evidence remain immutable. Supply the finding's strong\nETag as `If-Match`; use `Idempotency-Key` for safe retries. Reviewing a\nfinding never moves or otherwise changes its task. Approval is\naccepted only after the run is finalized as `complete` or `partial`\nand while the captured task version and source column still match.\n",
+        "description": "Updates only the finding review state and, when supplied, its proposed\nsemantic destination. Audit writes require `tasks:write`. The captured\ntask snapshot, captured version, source column, verdict, confidence,\nreason, and evidence remain immutable. Supply the finding's strong\nETag as `If-Match`; use `Idempotency-Key` for safe retries. Reviewing a\nfinding never moves or otherwise changes its task. Approval is\naccepted only after the run is finalized as `complete` or `partial`\nand while the captured task version and source column still match.\n Server GitHub audit findings additionally require current source access; unavailable or revoked access returns 409 evidence_unavailable before private reasons or review responses are returned.",
         "tags": [
           "Audits"
         ],

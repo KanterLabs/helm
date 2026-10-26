@@ -14,69 +14,6 @@ import (
 	"github.com/KanterLabs/helm/internal/store"
 )
 
-// exportPortable serves the versioned portability snapshot. The endpoint is
-// intentionally separate from database backup/restore: it only returns live,
-// user-facing records and never exposes credentials or deployment internals.
-func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity auth.Identity, reference string, projectRoute bool) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
-		return
-	}
-	if !requireScope(w, identity, "projects:read") || !requireScope(w, identity, "tasks:read") || !requireScope(w, identity, "events:read") {
-		return
-	}
-	var projectIDs []string
-	if projectRoute {
-		project, err := s.Store.GetProject(r.Context(), reference)
-		if err != nil {
-			s.writeStoreError(w, err)
-			return
-		}
-		if !identity.CanProject(project.ID) {
-			s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to this project", nil)
-			return
-		}
-		projectIDs = []string{project.ID}
-	} else {
-		projectReference, err := parseOptionalIdentifier(r, "project")
-		if err != nil {
-			s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
-			return
-		}
-		if projectReference != "" {
-			project, err := s.Store.GetProject(r.Context(), projectReference)
-			if err != nil {
-				s.writeStoreError(w, err)
-				return
-			}
-			if !identity.CanProject(project.ID) {
-				s.writeError(w, http.StatusForbidden, "forbidden", "token is not scoped to this project", nil)
-				return
-			}
-			projectIDs = []string{project.ID}
-		} else {
-			projectIDs = scopedProjectIDs(identity)
-		}
-	}
-	archive, err := s.Store.ExportPortable(r.Context(), projectIDs)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
-	body, err := json.Marshal(archive)
-	if err != nil {
-		s.writeInternal(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", `attachment; filename="helm-portable-v1.json"`)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Helm-Portable-Format", store.PortableFormat)
-	w.Header().Set("X-Helm-Portable-Version", fmt.Sprintf("%d", store.PortableVersion))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
-}
-
 type portableImportEnvelope struct {
 	Archive       json.RawMessage `json:"archive"`
 	DryRun        *bool           `json:"dry_run"`

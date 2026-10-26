@@ -196,5 +196,5 @@ func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableIm
 			return err
 		}
 	}
-	return nil
+	return executePortableGithub(ctx, tx, plan)
 }

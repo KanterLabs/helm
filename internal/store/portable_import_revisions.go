@@ -51,6 +51,11 @@ func bumpPortableTaskCollectionRevisions(ctx context.Context, tx *sql.Tx, plan *
 			addProject(task.projectID)
 		}
 	}
+	for _, relation := range plan.github.links {
+		if relation.create {
+			addProject(taskProjects[relation.value.TaskID])
+		}
+	}
 	// taskLabels only contains rows that preflight determined to be new; an
 	// existing relation is counted as skipped and is not appended to the plan.
 	for _, relation := range plan.taskLabels {

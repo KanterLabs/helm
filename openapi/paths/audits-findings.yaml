@@ -5,11 +5,15 @@ paths:
     get:
       operationId: listAuditFindings
       summary: List findings for an audit run
-      description: |
+      description: >-
         Returns the immutable, cursor-paginated observations captured by an
+
         audit. Reading findings requires `tasks:read`; each response computes
+
         `changed_since_audit` from the current task version and source column.
+
         Reading findings never changes a task.
+         Server GitHub audit findings additionally require current source access; unavailable or revoked access returns 409 evidence_unavailable before private reasons or review responses are returned.
       tags:
         - Audits
       parameters:
@@ -38,6 +42,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":

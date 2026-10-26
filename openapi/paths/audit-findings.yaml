@@ -5,15 +5,23 @@ paths:
     patch:
       operationId: reviewAuditFinding
       summary: Review an audit finding
-      description: |
+      description: >-
         Updates only the finding review state and, when supplied, its proposed
+
         semantic destination. Audit writes require `tasks:write`. The captured
+
         task snapshot, captured version, source column, verdict, confidence,
+
         reason, and evidence remain immutable. Supply the finding's strong
+
         ETag as `If-Match`; use `Idempotency-Key` for safe retries. Reviewing a
+
         finding never moves or otherwise changes its task. Approval is
+
         accepted only after the run is finalized as `complete` or `partial`
+
         and while the captured task version and source column still match.
+         Server GitHub audit findings additionally require current source access; unavailable or revoked access returns 409 evidence_unavailable before private reasons or review responses are returned.
       tags:
         - Audits
       parameters:

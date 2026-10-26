@@ -32,11 +32,23 @@ func portableIDsClause(column string, ids []string) (string, []any) {
 // calling this method. Deleted tasks are intentionally not resurrected by a
 // portability export; SQLite backup/restore remains the recovery mechanism.
 func (s *Store) ExportPortable(ctx context.Context, projectIDs []string) (PortableArchive, error) {
+	return s.ExportPortableVersion(ctx, projectIDs, PortableVersion)
+}
+
+// ExportPortableVersion explicitly opts into a newer portability envelope.
+func (s *Store) ExportPortableVersion(ctx context.Context, projectIDs []string, version int) (PortableArchive, error) {
+	if version != PortableVersion && version != PortableVersionGithub {
+		return PortableArchive{}, invalid("unsupported portable export version", nil)
+	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return PortableArchive{}, err
 	}
 	archive, err := exportPortable(ctx, tx, projectIDs)
+	if err == nil && version == PortableVersionGithub {
+		archive.Version = version
+		archive.Github, err = exportPortableGithub(ctx, tx, archive)
+	}
 	if err != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 			return PortableArchive{}, errors.Join(err, fmt.Errorf("rollback portable export: %w", rollbackErr))

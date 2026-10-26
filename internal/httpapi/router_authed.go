@@ -6,6 +6,9 @@ import (
 )
 
 func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity auth.Identity, parts []string) {
+	if s.dispatchGithub(w, r, identity, parts) {
+		return
+	}
 	if len(parts) == 1 {
 		switch parts[0] {
 		case "projects":

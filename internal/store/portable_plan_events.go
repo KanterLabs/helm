@@ -31,13 +31,16 @@ func planPortableEvents(ctx context.Context, q portableSQL, archive PortableArch
 			}
 		}
 		mapped.Payload, err = portableRemapEventPayload(q, source.Payload, source.Type, options.ActorID, &plan.report, actorMap, portableEventPayloadMaps{
-			projects: plan.projectMap,
-			releases: plan.releaseMap,
-			tasks:    plan.taskMap,
-			actors:   actorMap,
-			comments: plan.commentMap,
-			columns:  plan.columnMap,
-			labels:   plan.labelMap,
+			projects:  plan.projectMap,
+			artifacts: plan.github.artifactMap,
+			audits:    plan.github.runMap,
+			findings:  plan.github.findingMap,
+			releases:  plan.releaseMap,
+			tasks:     plan.taskMap,
+			actors:    actorMap,
+			comments:  plan.commentMap,
+			columns:   plan.columnMap,
+			labels:    plan.labelMap,
 		})
 		if err != nil {
 			return portableImportPlan{}, err

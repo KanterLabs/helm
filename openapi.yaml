@@ -85,6 +85,8 @@ tags:
     description: Human ticket queues over ordinary tasks with durable ticket membership
   - name: Alert intake
     description: Operator-configured external alert webhooks that create assigned Backlog tasks
+  - name: GitHub
+    description: Beta repository connections, explicit pull request links and server-run evidence audits
 x-helm-fragments:
   - openapi/authentication.yaml
   - openapi/examples/agents.yaml
@@ -111,47 +113,55 @@ x-helm-fragments:
   - openapi/paths/admin-beta-switch.yaml
   - openapi/paths/admin-beta-switches.yaml
   - openapi/paths/admin-metrics.yaml
-  - openapi/paths/agents.yaml
   - openapi/paths/agents-tokens.yaml
+  - openapi/paths/agents.yaml
   - openapi/paths/audit-findings.yaml
-  - openapi/paths/audits.yaml
   - openapi/paths/audits-finalize.yaml
   - openapi/paths/audits-findings.yaml
+  - openapi/paths/audits.yaml
   - openapi/paths/authentication.yaml
-  - openapi/paths/cloudflare.yaml
   - openapi/paths/cloudflare-oauth-callback.yaml
   - openapi/paths/cloudflare-oauth-start.yaml
   - openapi/paths/cloudflare-session.yaml
   - openapi/paths/cloudflare-setup.yaml
   - openapi/paths/cloudflare-zones.yaml
+  - openapi/paths/cloudflare.yaml
   - openapi/paths/codex-account.yaml
-  - openapi/paths/codex-login.yaml
   - openapi/paths/codex-login-cancel.yaml
+  - openapi/paths/codex-login.yaml
   - openapi/paths/codex-logout.yaml
   - openapi/paths/codex-runs.yaml
   - openapi/paths/columns.yaml
   - openapi/paths/discovery.yaml
   - openapi/paths/docs.yaml
-  - openapi/paths/email-inboxes.yaml
   - openapi/paths/email-inboxes-address.yaml
+  - openapi/paths/email-inboxes.yaml
   - openapi/paths/email-intake.yaml
   - openapi/paths/events.yaml
   - openapi/paths/export.yaml
-  - openapi/paths/hooks-tickets.yaml
+  - openapi/paths/github-artifact-refresh.yaml
+  - openapi/paths/github-artifact-summaries.yaml
+  - openapi/paths/github-artifacts.yaml
+  - openapi/paths/github-audit-apply.yaml
+  - openapi/paths/github-audit-evidence.yaml
+  - openapi/paths/github-audit-job.yaml
+  - openapi/paths/github-audit-start.yaml
+  - openapi/paths/github-integration.yaml
+  - openapi/paths/github-selection.yaml
   - openapi/paths/hooks-tickets-email.yaml
-  - openapi/paths/import.yaml
+  - openapi/paths/hooks-tickets.yaml
   - openapi/paths/import-trello.yaml
+  - openapi/paths/import.yaml
   - openapi/paths/intake-coolify.yaml
-  - openapi/paths/issues.yaml
   - openapi/paths/issues-metrics.yaml
+  - openapi/paths/issues.yaml
   - openapi/paths/labels.yaml
   - openapi/paths/my-work.yaml
   - openapi/paths/notification-preferences.yaml
-  - openapi/paths/notifications.yaml
   - openapi/paths/notifications-read.yaml
-  - openapi/paths/project-intelligence.yaml
+  - openapi/paths/notifications.yaml
   - openapi/paths/project-intelligence-analyze.yaml
-  - openapi/paths/projects.yaml
+  - openapi/paths/project-intelligence.yaml
   - openapi/paths/projects-audits.yaml
   - openapi/paths/projects-boards.yaml
   - openapi/paths/projects-columns.yaml
@@ -162,21 +172,21 @@ x-helm-fragments:
   - openapi/paths/projects-roadmap.yaml
   - openapi/paths/projects-task-context.yaml
   - openapi/paths/projects-task-draft.yaml
-  - openapi/paths/projects-tasks.yaml
   - openapi/paths/projects-tasks-bulk.yaml
+  - openapi/paths/projects-tasks.yaml
   - openapi/paths/projects-tickets.yaml
   - openapi/paths/projects-timeline.yaml
   - openapi/paths/projects-watch.yaml
-  - openapi/paths/public-endpoints.yaml
+  - openapi/paths/projects.yaml
   - openapi/paths/public-endpoints-test.yaml
-  - openapi/paths/releases.yaml
+  - openapi/paths/public-endpoints.yaml
   - openapi/paths/releases-complete.yaml
   - openapi/paths/releases-reopen.yaml
   - openapi/paths/releases-work-queue.yaml
+  - openapi/paths/releases.yaml
   - openapi/paths/roadmap.yaml
   - openapi/paths/search.yaml
   - openapi/paths/sidebar-counts.yaml
-  - openapi/paths/tasks.yaml
   - openapi/paths/tasks-agent-notes.yaml
   - openapi/paths/tasks-ancestors.yaml
   - openapi/paths/tasks-block.yaml
@@ -201,14 +211,15 @@ x-helm-fragments:
   - openapi/paths/tasks-timeline.yaml
   - openapi/paths/tasks-triage.yaml
   - openapi/paths/tasks-watch.yaml
-  - openapi/paths/ticket-webhooks.yaml
+  - openapi/paths/tasks.yaml
   - openapi/paths/ticket-webhooks-rotate.yaml
   - openapi/paths/ticket-webhooks-test.yaml
-  - openapi/paths/tickets.yaml
+  - openapi/paths/ticket-webhooks.yaml
   - openapi/paths/tickets-file.yaml
+  - openapi/paths/tickets.yaml
   - openapi/paths/tokens.yaml
-  - openapi/paths/views.yaml
   - openapi/paths/views-search.yaml
+  - openapi/paths/views.yaml
   - openapi/paths/watches.yaml
   - openapi/response-headers.yaml
   - openapi/responses/admission-and-availability.yaml
@@ -231,11 +242,16 @@ x-helm-fragments:
   - openapi/schemas/email-intake.yaml
   - openapi/schemas/errors.yaml
   - openapi/schemas/events.yaml
+  - openapi/schemas/github-artifacts.yaml
+  - openapi/schemas/github-audit-evidence.yaml
+  - openapi/schemas/github-audit-jobs.yaml
+  - openapi/schemas/github-integration.yaml
   - openapi/schemas/health.yaml
   - openapi/schemas/intelligence.yaml
   - openapi/schemas/labels.yaml
   - openapi/schemas/notifications.yaml
   - openapi/schemas/portable-archive.yaml
+  - openapi/schemas/portable-github.yaml
   - openapi/schemas/portable-projects.yaml
   - openapi/schemas/portable-tasks.yaml
   - openapi/schemas/projects.yaml
