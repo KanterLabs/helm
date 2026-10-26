@@ -100,9 +100,7 @@
   .board-column { scroll-margin-top: calc(70px + env(safe-area-inset-top)); scroll-snap-align: start; }
   .column-header { position: relative; z-index: 2; min-height: 52px; border-radius: 12px 12px 0 0; background: color-mix(in srgb, var(--surface-muted) 94%, transparent); backdrop-filter: blur(10px); }
   .column-cards { min-height: 0; }
-  .task-main { min-height: 44px; padding: 13px 12px 10px; }
   .task-excerpt { font-size: var(--text-xs); }
-  .task-card-footer { min-height: 45px; padding-bottom: 5px; }
   .card-move { width: 44px; height: 44px; }
   .column-skeleton { min-height: 305px; }
   .work-row { align-items: flex-start; padding: 12px 10px; }

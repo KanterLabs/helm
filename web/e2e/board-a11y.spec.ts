@@ -127,7 +127,7 @@ test.describe('board accessibility regressions', () => {
     const card = page.locator('.task-card').filter({ hasText: state.task.title });
     const pulse = card.locator('[data-agent-pulse]');
     const expandToggle = card.getByRole('button', { name: `Show details for ${state.task.key}` });
-    await expect(card).toHaveCSS('height', '160px');
+    await expect(card).toHaveCSS('height', '184px');
     await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(pulse, 'board cards keep live-work details hidden until expanded').toBeHidden();
     await expect(pulse.locator('.agent-pulse-copy')).toHaveCount(0);

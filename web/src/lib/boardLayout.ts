@@ -42,9 +42,11 @@ export function boardCardHeight(node: HTMLElement) {
     frame = 0;
     const natural: number[] = [];
     let top = Infinity;
+    let gutter = 0;
     for (const column of node.querySelectorAll<HTMLElement>(':scope > .board-column')) {
       const body = column.querySelector<HTMLElement>('.column-cards');
       if (!body) continue;
+      gutter = Math.max(gutter, body.offsetWidth - body.clientWidth);
       natural.push(naturalColumnHeight(column, body));
       top = Math.min(top, column.getBoundingClientRect().top + window.scrollY);
     }
@@ -53,6 +55,11 @@ export function boardCardHeight(node: HTMLElement) {
     const value = `${boardColumnHeight(natural, available)}px`;
     if (node.style.getPropertyValue('--board-column-height') !== value) {
       node.style.setProperty('--board-column-height', value);
+    }
+    // Overlay scrollbars reserve nothing; classic ones reserve a stable gutter
+    // that the card padding gives back so cards stay centred in the column.
+    if (node.style.getPropertyValue('--column-gutter') !== `${gutter}px`) {
+      node.style.setProperty('--column-gutter', `${gutter}px`);
     }
   };
   const schedule = () => {
