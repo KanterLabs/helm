@@ -1,0 +1,90 @@
+components:
+  responses:
+    MethodNotAllowed:
+      description: HTTP method is not supported for this route
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: method_not_allowed
+              message: Method not allowed
+              details: {}
+    BadRequest:
+      description: Malformed request or unsupported parameter
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            badRequest:
+              $ref: "#/components/examples/BadRequestExample"
+    Unauthorized:
+      description: Authentication is required or credentials are invalid
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            unauthorized:
+              $ref: "#/components/examples/UnauthorizedExample"
+    Forbidden:
+      description: Authenticated actor lacks permission or token scope
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            forbidden:
+              $ref: "#/components/examples/ForbiddenExample"
+    NotFound:
+      description: Resource was not found
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              $ref: "#/components/examples/NotFoundExample"
+    ReleaseNotFound:
+      description: Release ID was not found or is outside the caller's project ceiling.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReleaseNotFoundErrorResponse"
+          example:
+            error:
+              code: release_not_found
+              message: release not found
+              details: {}

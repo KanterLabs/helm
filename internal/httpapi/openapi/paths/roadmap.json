@@ -1,0 +1,71 @@
+{
+  "paths": {
+    "/api/v1/roadmap": {
+      "get": {
+        "operationId": "getRoadmap",
+        "summary": "Get the global roadmap summary",
+        "description": "Due-soon counts cover incomplete tasks due from now through the next\nseven days. A project-scoped bearer token must supply the optional\n`project` query parameter; without it this global aggregate returns 403.\nBearer tokens without tasks:read receive empty `upcoming` and\n`upcoming_tasks` arrays; tokens without events:read receive an empty\n`recent_activity` array. Project aggregates remain available with\nprojects:read.\n",
+        "tags": [
+          "Roadmap"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Optionally restrict the summary to a project ID, key, or slug.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Progress across projects",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoadmapResponse"
+                },
+                "examples": {
+                  "roadmap": {
+                    "$ref": "#/components/examples/GlobalRoadmapExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

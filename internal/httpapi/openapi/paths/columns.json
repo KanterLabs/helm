@@ -1,0 +1,154 @@
+{
+  "paths": {
+    "/api/v1/columns/{column}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ColumnPath"
+        }
+      ],
+      "patch": {
+        "operationId": "updateColumn",
+        "summary": "Update a board column",
+        "description": "An empty object or a body with no recognized column field returns 400.\nNon-nullable properties reject explicit JSON `null`; string properties\nenforce their declared length and format constraints. A human\nadministrator may explicitly override an active task claim when\nchanging a column's semantic state; bearer tokens and ordinary human\nactors cannot. Archiving rehomes tasks to another live column with the\nsame semantic state and is rejected when it would remove the only live\nmapping for one of the five required states. Use If-Match for a\nrecoverable optimistic conflict response.\n",
+        "tags": [
+          "Columns"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectColumnIfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ColumnPatchRequest"
+              },
+              "example": {
+                "name": "In review",
+                "position": 2
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated column. Humans and bearer tokens with projects:read\nreceive the full column; a projects:write-only bearer receives\nonly its id and project_id.\n",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColumnMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "The column cannot change semantic state while a task in it has an\nactive claim. Humans and bearer tokens with tasks:read retain\ndiagnostic claim details; bearer tokens without tasks:read receive\nan empty details object.\n",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getColumn",
+        "summary": "Get a board column",
+        "tags": [
+          "Columns"
+        ],
+        "responses": {
+          "200": {
+            "description": "Board column",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Column"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

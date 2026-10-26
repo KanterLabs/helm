@@ -1,0 +1,166 @@
+{
+  "paths": {
+    "/api/v1/audits/{audit}/findings": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AuditPath"
+        }
+      ],
+      "get": {
+        "operationId": "listAuditFindings",
+        "summary": "List findings for an audit run",
+        "description": "Returns the immutable, cursor-paginated observations captured by an\naudit. Reading findings requires `tasks:read`; each response computes\n`changed_since_audit` from the current task version and source column.\nReading findings never changes a task.\n",
+        "tags": [
+          "Audits"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated audit findings",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditFindingCollection"
+                },
+                "examples": {
+                  "findings": {
+                    "$ref": "#/components/examples/AuditFindingCollectionExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "appendAuditFinding",
+        "summary": "Append an audit finding",
+        "description": "Appends one immutable task observation while the run is queued or\nrunning. Audit writes require `tasks:write`. The server validates the\ncaptured task version and source column but never changes the task or\napplies the recommendation. Repeating the same finding is idempotent\nat the resource level; send `Idempotency-Key` for safe HTTP retries.\n",
+        "tags": [
+          "Audits"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditFindingCreateRequest"
+              },
+              "example": {
+                "task_id": "task_42",
+                "captured_version": 7,
+                "source_column": "col_backlog",
+                "verdict": "move_proposed",
+                "proposed_semantic_destination": "ready",
+                "confidence": 0.9,
+                "reason": "Move to Ready after triage.",
+                "evidence_refs": [
+                  "/api/v1/tasks/task_42"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Finding appended; no task changes are made.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditFindingMutationResponse"
+                },
+                "examples": {
+                  "finding": {
+                    "$ref": "#/components/examples/AuditFindingExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

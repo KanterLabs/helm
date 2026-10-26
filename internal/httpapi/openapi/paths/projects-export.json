@@ -1,0 +1,43 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/export": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "exportProjectPortableArchive",
+        "summary": "Export one project's portable archive",
+        "description": "Exports the live project and its related records in the versioned `helm.portable` v2 format, including releases and explicit task release references. v1 archives remain import-compatible and treat tasks as unassigned.",
+        "tags": [
+          "Projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable archive JSON attachment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortableArchive"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

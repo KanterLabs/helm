@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { loadOpenAPI } from './openapi-source.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const userGuides = ['docs/PUBLIC_ACCESS.md', 'docs/TICKET_WEBHOOKS.md'];
@@ -63,7 +63,7 @@ function anchors(file) {
 const files = [...new Set([...trackedMarkdown(), ...userGuides, 'docs/CONFIGURATION.md'])];
 
 // 1. OpenAPI operation names.
-const spec = parse(read('openapi.yaml'));
+const { document: spec } = loadOpenAPI(join(root, 'openapi.yaml'));
 const operations = new Map();
 for (const [path, item] of Object.entries(spec.paths || {})) {
   for (const operation of Object.values(item)) {

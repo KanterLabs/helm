@@ -1,0 +1,173 @@
+components:
+  schemas:
+    SidebarCounts:
+      type: object
+      required:
+        - issues
+        - my_work
+        - view
+      properties:
+        issues:
+          type: integer
+          minimum: 0
+          description: Number of live bug tasks visible in the effective project ceiling.
+        my_work:
+          type: integer
+          minimum: 0
+          description: Number of tasks represented by the requested My Work view in the effective project
+            ceiling.
+        view:
+          type: string
+          enum:
+            - live
+            - assigned
+          description: My Work view used for the my_work count.
+      additionalProperties: false
+    SearchSort:
+      type: object
+      required:
+        - field
+        - direction
+      properties:
+        field:
+          type: string
+          enum:
+            - updated_at
+            - created_at
+            - due_at
+            - title
+            - key
+            - priority
+            - state
+            - position
+        direction:
+          type: string
+          enum:
+            - asc
+            - desc
+      additionalProperties: false
+    SavedView:
+      type: object
+      required:
+        - id
+        - owner_id
+        - name
+        - filters
+        - sort
+        - shared
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        owner_id:
+          $ref: "#/components/schemas/Identifier"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        filters:
+          type: object
+          description: "Search filter values. Supported keys are q, key, title, description, label, state,
+            priority, assignee, claim_owner, release_id, project, project_ids, due_from, and due_to.
+            `release_id: unassigned` selects tasks without a target release."
+          additionalProperties: true
+        sort:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/SearchSort"
+        shared:
+          type: boolean
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    SavedViewCreateRequest:
+      type: object
+      required:
+        - name
+        - filters
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        filters:
+          type: object
+          additionalProperties: true
+        sort:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/SearchSort"
+        shared:
+          type: boolean
+      additionalProperties: false
+    SavedViewPatchRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        filters:
+          type: object
+          additionalProperties: true
+        sort:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/SearchSort"
+        shared:
+          type: boolean
+      additionalProperties: false
+    SavedViewCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedView"
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+      additionalProperties: false
+    GlobalSearchResponse:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+        projects:
+          type: array
+          description: Matching visible projects included when q is supplied.
+          items:
+            $ref: "#/components/schemas/Project"
+        views:
+          type: array
+          description: Matching visible saved views included when q is supplied.
+          items:
+            $ref: "#/components/schemas/SavedView"
+      additionalProperties: false

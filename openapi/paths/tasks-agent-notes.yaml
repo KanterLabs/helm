@@ -1,0 +1,155 @@
+paths:
+  /api/v1/tasks/{task}/agent-notes:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    get:
+      operationId: listTaskAgentNotes
+      summary: List bounded agent notes on a task
+      description: Returns active curated task knowledge by default. Set `include_resolved=true` for
+        retained history.
+      tags:
+        - Tasks
+      parameters:
+        - name: include_resolved
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Agent note collection
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNoteCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createTaskAgentNote
+      summary: Add verified reusable task knowledge
+      description: A task may have at most six active notes. Resolve or update an existing note when the
+        limit is reached.
+      tags:
+        - Tasks
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentNoteInput"
+      responses:
+        "201":
+          description: Agent note created
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNote"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/tasks/{task}/agent-notes/{note}:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+      - $ref: "#/components/parameters/AgentNotePath"
+    get:
+      operationId: getTaskAgentNote
+      summary: Read one retained agent note
+      tags:
+        - Tasks
+      responses:
+        "200":
+          description: Agent note
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNote"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateTaskAgentNote
+      summary: Update an active agent note
+      description: Only the author or a human administrator may update a note. Resolved notes are immutable.
+      tags:
+        - Tasks
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentNoteInput"
+      responses:
+        "200":
+          description: Updated agent note
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNote"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+    delete:
+      operationId: resolveTaskAgentNote
+      summary: Resolve an obsolete agent note
+      description: Retains the note for history while removing it from active agent context.
+      tags:
+        - Tasks
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Agent note resolved
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"

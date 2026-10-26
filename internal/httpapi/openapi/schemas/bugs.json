@@ -1,0 +1,236 @@
+{
+  "components": {
+    "schemas": {
+      "BugSeverity": {
+        "type": "string",
+        "enum": [
+          "s1",
+          "s2",
+          "s3",
+          "s4"
+        ],
+        "description": "Impact severity for a bug, from s1 (highest) to s4 (lowest)."
+      },
+      "BugResolution": {
+        "type": "string",
+        "enum": [
+          "fixed",
+          "duplicate",
+          "not_planned",
+          "cannot_reproduce",
+          "works_as_designed"
+        ],
+        "description": "Resolution recorded when a bug is resolved."
+      },
+      "BugDetails": {
+        "type": "object",
+        "required": [
+          "reporter_id",
+          "actual_behavior"
+        ],
+        "description": "Details for a bug task. `actual_behavior` is required when a bug is\ncreated; the remaining fields are filled during triage and resolution.\nUnset fields are omitted. `severity` is nullable so a bug may be\nexplicitly returned to an untriaged state.\n",
+        "properties": {
+          "reporter_id": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Actor who reported the bug; set from the authenticated actor on creation."
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "s1",
+              "s2",
+              "s3",
+              "s4",
+              null
+            ],
+            "description": "Impact severity, from s1 (highest) to s4 (lowest), or null when untriaged."
+          },
+          "actual_behavior": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000,
+            "description": "What the system actually did."
+          },
+          "expected_behavior": {
+            "type": "string",
+            "maxLength": 100000,
+            "description": "What the system should have done."
+          },
+          "reproduction_steps": {
+            "type": "string",
+            "maxLength": 100000,
+            "description": "Steps or inputs needed to reproduce the bug."
+          },
+          "environment": {
+            "type": "string",
+            "maxLength": 10000,
+            "description": "Runtime, platform, or deployment context."
+          },
+          "affected_version": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Application version known to be affected."
+          },
+          "resolution": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BugResolution"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolution; omitted for an open bug and null when explicitly cleared."
+          },
+          "resolved_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Actor who resolved the bug; omitted until resolution."
+          },
+          "resolved_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolution timestamp; omitted until resolution."
+          },
+          "duplicate_of": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Task ID of the canonical bug when resolution is duplicate."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BugCreateDetails": {
+        "type": "object",
+        "required": [
+          "actual_behavior"
+        ],
+        "description": "Bug report fields accepted when creating a bug; reporter and lifecycle fields are server-managed.",
+        "properties": {
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "s1",
+              "s2",
+              "s3",
+              "s4",
+              null
+            ]
+          },
+          "actual_behavior": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          },
+          "expected_behavior": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100000
+          },
+          "reproduction_steps": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100000
+          },
+          "environment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10000
+          },
+          "affected_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "BugPatchDetails": {
+        "type": "object",
+        "description": "Partial bug report details merged by task PATCH; reporter and lifecycle fields are server-managed.",
+        "properties": {
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "s1",
+              "s2",
+              "s3",
+              "s4",
+              null
+            ],
+            "description": "Impact severity, or null to mark the bug untriaged."
+          },
+          "actual_behavior": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          },
+          "expected_behavior": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100000
+          },
+          "reproduction_steps": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100000
+          },
+          "environment": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10000
+          },
+          "affected_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

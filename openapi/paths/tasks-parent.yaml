@@ -1,0 +1,138 @@
+paths:
+  /api/v1/tasks/{task}/parent:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    get:
+      operationId: getTaskParent
+      summary: Get a task's parent
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:read
+      responses:
+        "200":
+          description: Parent reference, or null when unlinked
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - parent
+                properties:
+                  parent:
+                    oneOf:
+                      - $ref: "#/components/schemas/TaskHierarchyReference"
+                      - type: "null"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: setTaskParent
+      summary: Link or replace a task parent
+      description: The body accepts `parent`, `parent_id`, or `parent_task_id` as an opaque task ID or
+        project-local key. The child must be live and in the same project. Send the child's ETag and
+        a non-empty idempotency key; successful writes emit `task.parent_linked`.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskHierarchyParentRequest"
+      responses:
+        "200":
+          description: Updated child task
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      operationId: clearTaskParent
+      summary: Remove a task parent
+      description: Unlink the task from its parent using its current ETag. Successful writes emit
+        `task.parent_unlinked` and can be replayed with the same idempotency key.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
+      responses:
+        "200":
+          description: Updated child task
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

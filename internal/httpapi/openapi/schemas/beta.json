@@ -1,0 +1,142 @@
+{
+  "components": {
+    "schemas": {
+      "BetaBuild": {
+        "type": "object",
+        "required": [
+          "sha",
+          "ref",
+          "current"
+        ],
+        "properties": {
+          "sha": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 40,
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Exact lowercase Git commit SHA for the retained build."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Signed source ref associated with the retained build."
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "description": "Optional single-line Git commit subject, bounded to 160 UTF-8 bytes."
+          },
+          "current": {
+            "type": "boolean",
+            "description": "Whether this build is the active beta build."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaBuildsResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "current_sha",
+          "builds"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the beta switcher is enabled for this deployment."
+          },
+          "current_sha": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^(?:|none|[0-9a-f]{40})$",
+            "description": "Active beta build SHA, or an empty string/`none` when no build is active."
+          },
+          "builds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BetaBuild"
+            },
+            "description": "Retained signed beta builds available for switching."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaSwitchRequest": {
+        "type": "object",
+        "required": [
+          "sha"
+        ],
+        "properties": {
+          "sha": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 40,
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Exact lowercase Git commit SHA of a retained beta build."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaSwitchJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "target_sha",
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 32,
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "Durable switch job ID; exactly 32 lowercase hexadecimal characters."
+          },
+          "target_sha": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 40,
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Exact lowercase Git commit SHA selected for the switch."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "description": "Asynchronous switch lifecycle state."
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Sanitized failure class, present only when state is `failed`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BetaSwitchResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "job"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the beta switcher is enabled for this deployment."
+          },
+          "job": {
+            "$ref": "#/components/schemas/BetaSwitchJob"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

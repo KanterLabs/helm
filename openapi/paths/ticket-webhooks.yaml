@@ -1,0 +1,102 @@
+paths:
+  /api/v1/ticket-webhooks:
+    get:
+      operationId: listTicketWebhooks
+      summary: List ticket webhooks
+      description: Human administrators only. Secrets are never returned; `secret_hint` shows the last
+        four characters.
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Webhooks, enabled first
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - endpoint_base
+                  - public_hostname
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TicketWebhook"
+                  endpoint_base:
+                    type: string
+                    description: Public URL prefix; append the secret to form a webhook URL.
+                  public_hostname:
+                    type: string
+                    description: The active public endpoint's hostname, or empty; enables `sendTestTicket`.
+                additionalProperties: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createTicketWebhook
+      summary: Create a ticket webhook
+      description: |
+        Human administrators only. The response is the only time the secret
+        and full URL are shown (`Cache-Control: no-store`); an
+        `Idempotency-Key` header is rejected because the response holds a
+        secret.
+      tags:
+        - Tickets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketWebhookCreateRequest"
+            example:
+              name: Grafana alerts
+              project: OPS
+              format: generic
+              assignee: me
+      responses:
+        "201":
+          description: Webhook created; copy the URL now.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketWebhookSecret"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/ticket-webhooks/{webhook}:
+    parameters:
+      - name: webhook
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/Identifier"
+    delete:
+      operationId: disableTicketWebhook
+      summary: Disable a ticket webhook
+      description: Human administrators only. The URL stops working immediately; tickets it created are kept.
+      tags:
+        - Tickets
+      responses:
+        "204":
+          description: Disabled
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"

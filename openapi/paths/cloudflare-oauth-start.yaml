@@ -1,0 +1,36 @@
+paths:
+  /api/v1/cloudflare/oauth/start:
+    post:
+      operationId: startCloudflareOAuth
+      summary: Begin "Sign in with Cloudflare"
+      description: |
+        Human administrators only. Returns Cloudflare's consent URL for Helm's
+        public OAuth client (authorization code + PKCE). The redirect is the
+        sign-in relay, which returns the browser to this Helm's callback; the
+        PKCE verifier and one-time state nonce stay on this server.
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Consent URL
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - authorize_url
+                properties:
+                  authorize_url:
+                    type: string
+                additionalProperties: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"

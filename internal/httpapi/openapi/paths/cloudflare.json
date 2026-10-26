@@ -1,0 +1,40 @@
+{
+  "paths": {
+    "/api/v1/cloudflare": {
+      "get": {
+        "operationId": "getCloudflareConnect",
+        "summary": "Guided Cloudflare setup status",
+        "description": "Human administrators only. Whether \"Sign in with Cloudflare\" is\navailable, the pre-filled token link and the permissions it selects,\nwhether this administrator is connected (never the credential), and\ntheir latest setup run. See docs/PUBLIC_ACCESS.md.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudflareConnectStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    }
+  }
+}

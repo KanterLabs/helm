@@ -1,0 +1,36 @@
+paths:
+  /api/v1/codex/account:
+    get:
+      operationId: getCodexAccount
+      summary: Get the current human user's Codex connection
+      description: Returns display-safe ChatGPT account metadata only. Bearer tokens and agent actors are
+        rejected.
+      tags:
+        - Authentication
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Codex connection status
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexAccountStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

@@ -1,0 +1,35 @@
+paths:
+  /api/v1/docs/{page}:
+    parameters:
+      - name: page
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+            - public-access
+            - ticket-webhooks
+    get:
+      operationId: getHelpDocument
+      summary: In-app help page
+      description: An embedded user guide as Markdown, for the "Learn more" help drawer. Any signed-in user.
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Markdown
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            text/markdown:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"

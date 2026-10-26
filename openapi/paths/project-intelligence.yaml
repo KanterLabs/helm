@@ -1,0 +1,31 @@
+paths:
+  /api/v1/project-intelligence:
+    get:
+      operationId: getProjectIntelligence
+      summary: Get the current project-attention order
+      description: |
+        Returns one authorization-scoped metric snapshot and either the matching
+        cached Luna result or a deterministic fallback. This read never invokes
+        Codex, retries a model call, or schedules background analysis.
+      tags:
+        - Project intelligence
+      responses:
+        "200":
+          description: Current project-attention order
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectIntelligenceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

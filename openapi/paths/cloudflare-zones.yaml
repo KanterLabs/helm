@@ -1,0 +1,35 @@
+paths:
+  /api/v1/cloudflare/zones:
+    get:
+      operationId: listCloudflareZones
+      summary: Domains the connection can set up
+      description: Human administrators only. Each domain with Email Routing status and a free hostname
+        suggestion. `409` when not connected.
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Domains
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CloudflareZoneOption"
+                additionalProperties: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"

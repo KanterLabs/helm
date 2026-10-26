@@ -7,7 +7,8 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY web/ ./
 COPY openapi.yaml /src/openapi.yaml
-COPY internal/httpapi/openapi.json /src/internal/httpapi/openapi.json
+COPY openapi/ /src/openapi/
+COPY internal/httpapi/openapi/ /src/internal/httpapi/openapi/
 RUN npm run openapi:check
 RUN npm run check
 RUN npm run build

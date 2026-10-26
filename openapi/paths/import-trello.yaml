@@ -1,0 +1,65 @@
+paths:
+  /api/v1/import/trello:
+    post:
+      operationId: importTrelloBoard
+      summary: Import a Trello board through the isolated adapter
+      description: |
+        Accepts a Trello board export/API JSON object and translates supported
+        lists, cards, labels, due dates, and comment actions into a Helm
+        portable archive. Unsupported Trello fields (including closed flags,
+        list/card positions, idLabels, dueComplete, preferences, and unknown
+        fields) are returned explicitly as warnings; the core Helm importer
+        remains format-neutral.
+      tags:
+        - Projects
+      parameters:
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: conflict
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - remap
+              - fail
+            default: remap
+        - name: target_project
+          in: query
+          required: false
+          description: Existing project ID, key, or slug to receive the converted board.
+          schema:
+            $ref: "#/components/schemas/Identifier"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Validation or import report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortableImportReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

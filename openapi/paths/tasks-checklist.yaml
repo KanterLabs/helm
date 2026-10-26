@@ -1,0 +1,275 @@
+paths:
+  /api/v1/tasks/{task}/checklist:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    get:
+      operationId: getTaskChecklist
+      summary: Get a task checklist
+      description: |
+        Return the ordered acceptance criteria for a task, including a
+        derived completion summary and the project's completion policy. The
+        response ETag is the owning task version; send it as `If-Match` for
+        the next checklist mutation. Reads require `tasks:read` and honor the
+        caller's project access ceiling.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:read
+      responses:
+        "200":
+          description: Ordered checklist and completion summary
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskChecklistCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: addTaskChecklistItem
+      summary: Add an acceptance criterion
+      description: |
+        Append or insert one acceptance criterion. The caller must have
+        `tasks:write`, send the exact current task ETag in `If-Match`, and may
+        send an `Idempotency-Key` for exact replay. Text is trimmed and capped
+        at 1,000 Unicode characters; each task is limited to 100 items and
+        100,000 total text bytes. A successful mutation advances the owning
+        task version, records the actor and timestamp in activity, and returns
+        the updated task (or id/version metadata for a write-only bearer).
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskChecklistItemRequest"
+            example:
+              text: Verify keyboard access
+              position: 0
+      responses:
+        "200":
+          description: Updated task and new checklist ETag
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/TaskMutationConflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    patch:
+      operationId: reorderTaskChecklist
+      summary: Reorder checklist items
+      description: |
+        Replace the complete checklist order with item IDs. Every existing
+        item must appear exactly once. The mutation is task-versioned and
+        emits a `task.checklist_reordered` activity event.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskChecklistReorderRequest"
+            example:
+              item_ids:
+                - check_2
+                - check_1
+      responses:
+        "200":
+          description: Updated task and new checklist ETag
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/TaskMutationConflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/tasks/{task}/checklist/{item}:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+      - name: item
+        in: path
+        required: true
+        description: Opaque checklist item ID.
+        schema:
+          $ref: "#/components/schemas/Identifier"
+    patch:
+      operationId: updateTaskChecklistItem
+      summary: Edit or check an acceptance criterion
+      description: |
+        Update one or more of text, completion, or position. Completion
+        changes record the completing actor and timestamp and clear both when
+        an item is reopened. The mutation advances the owning task version and
+        emits `task.checklist_item_updated`.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskChecklistItemPatchRequest"
+            example:
+              completed: true
+      responses:
+        "200":
+          description: Updated task and new checklist ETag
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/TaskMutationConflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      operationId: deleteTaskChecklistItem
+      summary: Remove an acceptance criterion
+      description: Removes one item, compacts its position, advances the task version, and emits
+        `task.checklist_item_removed`.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Updated task and new checklist ETag
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/TaskMutationConflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

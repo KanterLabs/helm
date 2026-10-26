@@ -1,0 +1,100 @@
+{
+  "components": {
+    "schemas": {
+      "AgentNoteInput": {
+        "type": "object",
+        "required": [
+          "category",
+          "body"
+        ],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "known_issue",
+              "rejected_approach",
+              "constraint",
+              "workaround"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 6,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "default": []
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentNote": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AgentNoteInput"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "task_id",
+              "actor_id",
+              "version",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "task_id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "actor_id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "version": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 1
+              },
+              "created_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              "resolved_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              }
+            }
+          }
+        ]
+      },
+      "AgentNoteCollection": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/AgentNote"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

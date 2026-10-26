@@ -1,0 +1,197 @@
+components:
+  schemas:
+    AuditFinding:
+      type: object
+      required:
+        - id
+        - audit_id
+        - task_id
+        - captured_version
+        - source_column
+        - verdict
+        - confidence
+        - reason
+        - evidence_refs
+        - review_state
+        - version
+        - changed_since_audit
+        - created_at
+        - updated_at
+      description: |
+        Immutable observation of one task at the time of an audit. The server
+        computes `changed_since_audit` at read time by comparing the current
+        task version and source column with this finding's captured values.
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        audit_id:
+          $ref: "#/components/schemas/Identifier"
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        captured_version:
+          type: integer
+          format: int64
+          minimum: 1
+        source_column:
+          $ref: "#/components/schemas/Identifier"
+          description: Opaque column ID captured by the auditor.
+        verdict:
+          $ref: "#/components/schemas/AuditVerdict"
+        proposed_semantic_destination:
+          oneOf:
+            - $ref: "#/components/schemas/SemanticState"
+            - type: "null"
+          description: Suggested semantic destination for a move proposal; omitted when none was captured.
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 512
+            pattern: ^[A-Za-z0-9/][A-Za-z0-9._:/+~-]*$
+          description: Safe, non-duplicated evidence identifiers without query strings, fragments, or
+            executable/data URLs.
+        review_state:
+          $ref: "#/components/schemas/AuditReviewState"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Finding review version used by If-Match.
+        changed_since_audit:
+          type: boolean
+          description: True when the task version or source column differs from the captured snapshot.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    AuditFindingCreateRequest:
+      type: object
+      required:
+        - task_id
+        - captured_version
+        - verdict
+        - confidence
+        - reason
+      description: |
+        Append one finding to a queued or running audit. Supply either
+        `source_column` or its accepted alias `source_column_id`; when both
+        are supplied they must match. `review_state` defaults to `pending`.
+        The server validates the snapshot but never changes the task.
+      properties:
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        captured_version:
+          type: integer
+          format: int64
+          minimum: 1
+        source_column:
+          $ref: "#/components/schemas/Identifier"
+          description: Canonical opaque source column ID.
+        source_column_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Compatibility alias for `source_column`.
+        verdict:
+          $ref: "#/components/schemas/AuditVerdict"
+        proposed_semantic_destination:
+          oneOf:
+            - $ref: "#/components/schemas/SemanticState"
+            - type: "null"
+          description: Required for `move_proposed`; forbidden for other verdicts.
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        evidence_refs:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 512
+            pattern: ^[A-Za-z0-9/][A-Za-z0-9._:/+~-]*$
+          description: Safe, non-duplicated evidence identifiers without query strings, fragments, or
+            executable/data URLs.
+        review_state:
+          type: string
+          enum:
+            - pending
+          default: pending
+          description: Findings always begin pending; approval and dismissal use the versioned review endpoint.
+      anyOf:
+        - required:
+            - source_column
+        - required:
+            - source_column_id
+      additionalProperties: false
+    AuditFindingReviewRequest:
+      type: object
+      required:
+        - review_state
+      description: |
+        Change only review metadata. Omitting
+        `proposed_semantic_destination` preserves the existing suggestion;
+        sending null clears it. The captured task snapshot remains immutable.
+        Approval requires a `complete` or `partial` run and an unchanged task
+        snapshot.
+      properties:
+        review_state:
+          $ref: "#/components/schemas/AuditReviewState"
+        proposed_semantic_destination:
+          oneOf:
+            - $ref: "#/components/schemas/SemanticState"
+            - type: "null"
+          description: Optional replacement destination, or null to clear it.
+      additionalProperties: false
+    AuditFindingMutationSummary:
+      type: object
+      description: Reduced audit-finding mutation response for bearer tokens without tasks:read.
+      required:
+        - id
+        - version
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: false
+    AuditFindingMutationResponse:
+      description: Full finding for humans and tasks:read tokens, or id/version metadata for write-only
+        bearer tokens.
+      oneOf:
+        - $ref: "#/components/schemas/AuditFinding"
+        - $ref: "#/components/schemas/AuditFindingMutationSummary"
+    AuditFindingCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditFinding"
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+      additionalProperties: false

@@ -1,0 +1,202 @@
+components:
+  schemas:
+    EmailInbox:
+      type: object
+      required:
+        - id
+        - name
+        - project_id
+        - project_key
+        - project_slug
+        - tag
+        - created_at
+        - received_count
+        - address
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          maxLength: 100
+        project_id:
+          type: string
+        project_key:
+          type: string
+        project_slug:
+          type: string
+        assignee_id:
+          type: string
+        assignee_name:
+          type: string
+        tag:
+          type: string
+          description: The part after `+`; a slug of the name plus six random characters.
+        address:
+          type: string
+          description: Full address to give apps; empty while email is off.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        replaced_at:
+          $ref: "#/components/schemas/Timestamp"
+        disabled_at:
+          $ref: "#/components/schemas/Timestamp"
+        last_received_at:
+          $ref: "#/components/schemas/Timestamp"
+        received_count:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+    EmailIntake:
+      type: object
+      required:
+        - id
+        - provider
+        - domain
+        - local_part
+        - account_id
+        - zone_id
+        - worker_name
+        - rule_id
+        - subaddress_enabled_by_helm
+        - status
+        - cleanup_pending
+        - created_at
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+          enum:
+            - cloudflare
+        domain:
+          type: string
+        local_part:
+          type: string
+        account_id:
+          type: string
+        zone_id:
+          type: string
+        worker_name:
+          type: string
+        rule_id:
+          type: string
+        fallback_address:
+          type: string
+        subaddress_enabled_by_helm:
+          type: boolean
+        public_endpoint_id:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+        cleanup_pending:
+          type: boolean
+          description: The Worker and routing rule still exist in Cloudflare.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        created_by_name:
+          type: string
+        disabled_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    EmailReceipt:
+      type: object
+      required:
+        - id
+        - sender
+        - subject
+        - outcome
+        - occurrence_count
+        - received_at
+      properties:
+        id:
+          type: string
+        inbox_id:
+          type: string
+        inbox_name:
+          type: string
+        sender:
+          type: string
+        subject:
+          type: string
+        outcome:
+          type: string
+          enum:
+            - created
+            - repeated
+            - retained
+            - unknown_recipient
+            - unreadable
+            - too_large
+        task_key:
+          type: string
+        project_slug:
+          type: string
+        occurrence_count:
+          type: integer
+          minimum: 0
+        reason:
+          type: string
+          description: Why a refused message bounced.
+        received_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    EmailIntakeView:
+      type: object
+      required:
+        - history
+        - recent
+        - required_permissions
+        - worker_version
+        - max_message_bytes
+      properties:
+        active:
+          $ref: "#/components/schemas/EmailIntake"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailIntake"
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailReceipt"
+        required_permissions:
+          type: array
+          items:
+            type: string
+        public_hostname:
+          type: string
+          description: The active public endpoint the Worker posts through.
+        suggested_domain:
+          type: string
+        worker_version:
+          type: string
+        max_message_bytes:
+          type: integer
+      additionalProperties: false
+    EmailIntakeCreateRequest:
+      type: object
+      required:
+        - domain
+        - local_part
+        - api_token
+      properties:
+        domain:
+          type: string
+          description: Domain (or Email Routing subdomain) on a zone with Email Routing enabled.
+        local_part:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9._-]{0,30}$
+        fallback_address:
+          type: string
+          description: Verified Email Routing destination that receives mail Helm cannot accept.
+        enable_subaddressing:
+          type: boolean
+          default: false
+          description: Consent to turn on plus addressing for the zone when it is off.
+        api_token:
+          type: string
+          description: Cloudflare API token used once and never stored.
+      additionalProperties: false

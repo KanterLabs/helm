@@ -1,0 +1,284 @@
+{
+  "components": {
+    "schemas": {
+      "TaskMutationSummary": {
+        "type": "object",
+        "description": "Reduced task mutation response for bearer tokens without tasks:read.",
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskMutationResponse": {
+        "description": "Full task for humans and tasks:read tokens, or id/version metadata for bearer tokens without tasks:read. The ETag remains the strong task version validator.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Task"
+          },
+          {
+            "$ref": "#/components/schemas/TaskMutationSummary"
+          }
+        ]
+      },
+      "BulkTaskMutationMode": {
+        "type": "string",
+        "enum": [
+          "partial",
+          "atomic"
+        ],
+        "default": "partial"
+      },
+      "BulkTaskMutationOperation": {
+        "type": "string",
+        "enum": [
+          "move",
+          "assign",
+          "priority",
+          "labels",
+          "due_at",
+          "complete",
+          "block"
+        ]
+      },
+      "BulkTaskMutationItem": {
+        "type": "object",
+        "required": [
+          "task",
+          "version",
+          "operation"
+        ],
+        "description": "One independently versioned task intent. `task` accepts an opaque ID\nor a case-insensitive project-local key. Move intents require both\ncolumn IDs and non-empty provenance. Assign, priority, labels, and due\ndate intents require their corresponding value; null clears an\nassignee, label set, or due date. Completion and blocking preserve the\nnormal lifecycle and claim/dependency guards.\n",
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "operation": {
+            "$ref": "#/components/schemas/BulkTaskMutationOperation"
+          },
+          "destination_column_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expected_source_column_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Required provenance for move intents."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Blocking reason or optional move explanation."
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 10000,
+            "description": "Optional completion note."
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Actor ID; null clears the assignee."
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "description": "Label IDs or names; null clears labels."
+          },
+          "due_at": {
+            "$ref": "#/components/schemas/NullableTimestamp",
+            "description": "RFC 3339 due timestamp; null clears it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationRequest": {
+        "type": "object",
+        "required": [
+          "mutations"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/BulkTaskMutationMode"
+          },
+          "mutations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/BulkTaskMutationItem"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "status",
+          "details"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationResult": {
+        "type": "object",
+        "required": [
+          "reference",
+          "status"
+        ],
+        "properties": {
+          "reference": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Original task reference supplied in the mutation item."
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "skipped",
+              "conflict"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Resulting version when the mutation was applied."
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskMutationResponse",
+            "description": "Full task for humans/read-scoped tokens, or id/version metadata for write-only bearer tokens."
+          },
+          "error": {
+            "$ref": "#/components/schemas/BulkTaskMutationError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BulkTaskMutationResponse": {
+        "type": "object",
+        "required": [
+          "mode",
+          "status",
+          "requested",
+          "applied",
+          "skipped",
+          "conflicts",
+          "results"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/BulkTaskMutationMode"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete",
+              "failed"
+            ],
+            "description": "Partial mode reports partial; atomic mode reports complete or failed after rollback."
+          },
+          "requested": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "applied": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "results": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/BulkTaskMutationResult"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskMutationConflictErrorResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/StaleTaskErrorResponse"
+          },
+          {
+            "$ref": "#/components/schemas/TaskClaimUnavailableErrorResponse"
+          },
+          {
+            "$ref": "#/components/schemas/IdempotencyConflictErrorResponse"
+          }
+        ]
+      }
+    }
+  }
+}

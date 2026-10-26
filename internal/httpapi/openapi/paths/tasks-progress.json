@@ -1,0 +1,111 @@
+{
+  "paths": {
+    "/api/v1/tasks/{task}/progress": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TaskPath"
+        }
+      ],
+      "post": {
+        "operationId": "publishTaskProgress",
+        "summary": "Publish an agent progress snapshot",
+        "description": "Replace the task's live structured agent-work snapshot. The caller\nmust have `tasks:claim`, send the exact current task ETag in\n`If-Match`, and hold the task's active claim. This is a complete\nsnapshot: omitted optional fields clear their previous values. The\nmutation appends the progress event and its human-readable comment in\nthe same transaction. Reusing an Idempotency-Key with the same\nauthenticated principal, path, and request body replays the original\nresponse without publishing a second snapshot, comment, or event.\n`working`, `waiting`, `verifying`, and `handoff` are publishable states;\n`stale` and `missing` are read-time filter states only.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentWorkPublishRequest"
+              },
+              "example": {
+                "operation_id": "codex/ops-release",
+                "state": "working",
+                "phase": "Implementing event polling",
+                "summary": "Added the progress persistence and HTTP contract.",
+                "next_action": "Run the focused API tests.",
+                "checkpoint_refs": [
+                  "api-contract",
+                  "http-tests"
+                ],
+                "checkpoint_completed": 1,
+                "checkpoint_total": 2
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated task. Humans and bearer tokens with `tasks:read` receive\nthe full task, while bearer tokens without `tasks:read` receive\nonly `{id,version}`. The response includes the strong task ETag.\n",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskMutationResponse"
+                },
+                "examples": {
+                  "full": {
+                    "$ref": "#/components/examples/TaskProgressedExample"
+                  },
+                  "reduced": {
+                    "$ref": "#/components/examples/TaskMutationSummaryExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/TaskMutationConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

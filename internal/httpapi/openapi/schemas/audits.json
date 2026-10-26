@@ -1,0 +1,160 @@
+{
+  "components": {
+    "schemas": {
+      "AuditRunStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "complete",
+          "partial",
+          "failed"
+        ],
+        "description": "Audit lifecycle state. Queued and running are non-terminal; the remaining values are terminal."
+      },
+      "AuditTerminalStatus": {
+        "type": "string",
+        "enum": [
+          "complete",
+          "partial",
+          "failed"
+        ],
+        "description": "Terminal outcome accepted by the audit finalize endpoint."
+      },
+      "AuditVerdict": {
+        "type": "string",
+        "enum": [
+          "correct",
+          "needs_attention",
+          "move_proposed"
+        ],
+        "description": "Auditor conclusion for the captured task snapshot."
+      },
+      "AuditReviewState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "dismissed"
+        ],
+        "description": "Human or agent review state for an audit finding."
+      },
+      "AuditRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "actor_id",
+          "scope",
+          "status",
+          "started_at",
+          "created_at",
+          "updated_at",
+          "finding_count",
+          "findings"
+        ],
+        "description": "Bounded metadata for one board-audit run. The server returns\n`findings: []` on this resource; findings are never expanded here and\nmust be fetched through the cursor-paginated findings collection.\n",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "scope": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "$ref": "#/components/schemas/AuditRunStatus"
+          },
+          "started_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "finalized_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "finding_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "findings": {
+            "type": "array",
+            "description": "Always empty on the summary resource; use the findings collection for data.",
+            "items": {
+              "$ref": "#/components/schemas/AuditFinding"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AuditRunCreateRequest": {
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "description": "Start a queued or running audit run. Creating it never mutates tasks.",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Opaque audit selection label, such as `board` or `open_tasks`."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running"
+            ],
+            "default": "running",
+            "description": "Initial lifecycle state; omitted values default to `running`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AuditFinalizeRequest": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/AuditTerminalStatus"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AuditRunCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditRun"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

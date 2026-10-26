@@ -1,0 +1,43 @@
+paths:
+  /api/v1/projects/{project}/task-context:
+    parameters:
+      - $ref: "#/components/parameters/ProjectPath"
+    post:
+      operationId: buildTaskDraftContext
+      summary: Build bounded project context for assisted task drafting
+      description: Returns a deterministic, project-scoped selection of live task metadata. Historical
+        text is untrusted context and is never executed by this endpoint.
+      tags:
+        - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskContextRequest"
+      responses:
+        "200":
+          description: Bounded project context
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDraftContext"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

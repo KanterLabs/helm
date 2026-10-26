@@ -1,0 +1,204 @@
+components:
+  schemas:
+    PortableBug:
+      type: object
+      required:
+        - reporter_id
+        - actual_behavior
+        - expected_behavior
+        - reproduction_steps
+        - environment
+        - affected_version
+      properties:
+        reporter_id:
+          $ref: "#/components/schemas/Identifier"
+        severity:
+          $ref: "#/components/schemas/BugSeverity"
+        actual_behavior:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        expected_behavior:
+          type: string
+          maxLength: 100000
+        reproduction_steps:
+          type: string
+          maxLength: 100000
+        environment:
+          type: string
+          maxLength: 100000
+        affected_version:
+          type: string
+          maxLength: 100000
+        resolution:
+          $ref: "#/components/schemas/BugResolution"
+        resolved_by:
+          $ref: "#/components/schemas/Identifier"
+        resolved_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        duplicate_of:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false
+    PortableTask:
+      type: object
+      required:
+        - id
+        - number
+        - project_id
+        - kind
+        - column_id
+        - title
+        - description
+        - priority
+        - position
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        number:
+          type: integer
+          minimum: 1
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        kind:
+          $ref: "#/components/schemas/TaskKind"
+        column_id:
+          $ref: "#/components/schemas/Identifier"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description:
+          type: string
+          maxLength: 100000
+        priority:
+          $ref: "#/components/schemas/Priority"
+        position:
+          type: number
+          minimum: 0
+          maximum: 1000000000000
+        assignee_id:
+          $ref: "#/components/schemas/Identifier"
+        claimed_by:
+          $ref: "#/components/schemas/Identifier"
+        claim_expires_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        due_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        version:
+          type: integer
+          minimum: 1
+        completed_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        release_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+          description: Explicit release membership in a v2 archive; omitted or null means unassigned.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        bug:
+          $ref: "#/components/schemas/PortableBug"
+      additionalProperties: false
+    PortableComment:
+      type: object
+      required:
+        - id
+        - task_id
+        - actor_id
+        - body
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        actor_id:
+          $ref: "#/components/schemas/Identifier"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    PortableAgentNote:
+      allOf:
+        - $ref: "#/components/schemas/AgentNoteInput"
+        - type: object
+          required:
+            - id
+            - task_id
+            - actor_id
+            - version
+            - created_at
+            - updated_at
+          properties:
+            id:
+              $ref: "#/components/schemas/Identifier"
+            task_id:
+              $ref: "#/components/schemas/Identifier"
+            actor_id:
+              $ref: "#/components/schemas/Identifier"
+            version:
+              type: integer
+              minimum: 1
+            created_at:
+              $ref: "#/components/schemas/Timestamp"
+            updated_at:
+              $ref: "#/components/schemas/Timestamp"
+            resolved_at:
+              $ref: "#/components/schemas/Timestamp"
+    PortableTaskLabel:
+      type: object
+      required:
+        - task_id
+        - label_id
+      properties:
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        label_id:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false
+    PortableDependency:
+      type: object
+      required:
+        - task_id
+        - prerequisite_task_id
+        - created_at
+      properties:
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        prerequisite_task_id:
+          $ref: "#/components/schemas/Identifier"
+        created_by:
+          $ref: "#/components/schemas/Identifier"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    PortableTaskLink:
+      type: object
+      required:
+        - source_task_id
+        - target_task_id
+        - link_type
+        - created_at
+      properties:
+        source_task_id:
+          $ref: "#/components/schemas/Identifier"
+        target_task_id:
+          $ref: "#/components/schemas/Identifier"
+        link_type:
+          type: string
+          minLength: 1
+          maxLength: 200
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false

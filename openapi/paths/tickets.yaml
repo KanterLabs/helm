@@ -1,0 +1,118 @@
+paths:
+  /api/v1/tickets:
+    get:
+      operationId: listTickets
+      summary: List tickets by queue
+      description: |
+        Returns one page of Tickets workspace members (tasks with ticket
+        membership) and server-authoritative counts for every queue over the
+        same project and search scope. Queue status derives only from the
+        column semantic state: `needs_triage`=backlog, `ready`=ready,
+        `in_progress`=active, `waiting`=blocked, `completed`=completed.
+        `open` (default) is every unfinished ticket and `mine` is unfinished
+        tickets assigned to the caller; claims and agent progress never affect
+        either. Ordering is priority, then ticket creation time, then ID.
+        `q` matches title, description, or an exact task key. Scoped bearer
+        tokens must select a `project`. Requires `tasks:read`.
+      tags:
+        - Tickets
+      parameters:
+        - name: queue
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - mine
+              - needs_triage
+              - ready
+              - in_progress
+              - waiting
+              - completed
+        - name: project
+          in: query
+          required: false
+          description: Restrict to a permitted project ID, key, or slug.
+          schema:
+            $ref: "#/components/schemas/Identifier"
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Ticket page with queue counts
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketCollection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: createQueueTicket
+      summary: Create a ticket in the ticket queue
+      description: |
+        Creates a ticket in the ticket queue's Needs triage column, creating
+        the queue on first use (docs/TICKET_QUEUE_PLAN.md). Same body and
+        rules as `createTicket`; no project is chosen. Requires
+        `tasks:write`, and scoped tokens need the queue project.
+      tags:
+        - Tickets
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreateRequest"
+            example:
+              title: Printer on floor 2 is jammed
+              priority: normal
+      responses:
+        "201":
+          description: Ticket created in Needs triage.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

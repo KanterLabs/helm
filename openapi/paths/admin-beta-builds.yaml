@@ -1,0 +1,44 @@
+paths:
+  /api/v1/admin/beta/builds:
+    get:
+      operationId: listBetaBuilds
+      summary: List retained beta builds
+      description: |
+        Lists the signed, retained beta builds and identifies the active build.
+        This is a human-administrator-only control on the private beta Tailnet
+        deployment; bearer agent tokens are never accepted. When the beta
+        switcher is disabled, the route is hidden and returns `404`.
+      tags:
+        - Administration
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+      responses:
+        "200":
+          description: Beta switcher status and retained builds
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BetaBuildsResponse"
+              examples:
+                builds:
+                  $ref: "#/components/examples/BetaBuildsExample"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

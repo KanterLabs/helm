@@ -1,0 +1,13 @@
+{
+  "components": {
+    "examples": {
+      "TaskMutationSummaryExample": {
+        "summary": "Reduced task mutation response for a write-only bearer token",
+        "value": {
+          "id": "task_42",
+          "version": 8
+        }
+      }
+    }
+  }
+}

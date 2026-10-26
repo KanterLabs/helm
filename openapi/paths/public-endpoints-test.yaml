@@ -1,0 +1,40 @@
+paths:
+  /api/v1/public-endpoints/{endpoint}/test:
+    parameters:
+      - name: endpoint
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/Identifier"
+    post:
+      operationId: testPublicEndpoint
+      summary: Test the active public URL
+      description: |
+        Human administrators only. Helm sends one GET from the server to
+        `https://{hostname}/api/v1/hooks/tickets/probe/{nonce}` and expects
+        its hooks listener to echo the one-time nonce. Success proves DNS,
+        Cloudflare's edge, the tunnel and its routing reach this Helm. No
+        ticket is created. A failed round trip is still HTTP 200 with
+        `ok: false` and a `message` explaining the likely cause.
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Test completed
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicEndpointTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"

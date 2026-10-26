@@ -1,0 +1,244 @@
+{
+  "components": {
+    "responses": {
+      "Conflict": {
+        "description": "Request conflicts with current state or idempotency history",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "conflict": {
+                "$ref": "#/components/examples/ConflictExample"
+              }
+            }
+          }
+        }
+      },
+      "ReleaseConflict": {
+        "description": "Release lifecycle or membership conflict. The stable `error.code` is\none of `release_name_exists`, `release_cross_project`,\n`release_already_completed`, `release_not_completed`,\n`release_has_tasks`, `release_incomplete`,\n`release_dependency_conflict`, `release_frozen`, `stale_release`, or\n`idempotency_key_reused`. Details are redacted for write-only bearer\ntokens in the same way as other mutation conflicts.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReleaseConflictErrorResponse"
+            },
+            "examples": {
+              "releaseIncomplete": {
+                "value": {
+                  "error": {
+                    "code": "release_incomplete",
+                    "message": "release has incomplete required work",
+                    "details": {
+                      "release_id": "release_14",
+                      "summary": {
+                        "required_task_count": 15,
+                        "required_completed_count": 9
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ReleaseQueueConflict": {
+        "description": "A release work-queue cursor is no longer valid because a task,\ndependency, claim, or release changed. Discard the cursor and restart\nfrom the first page.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReleaseQueueConflictErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "release_queue_changed",
+                "message": "release work queue changed; restart pagination from the first page",
+                "details": {
+                  "expected_release_version": 3,
+                  "current_release_version": 4,
+                  "expected_project_revision": 812,
+                  "current_project_revision": 813,
+                  "restart": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "StaleTask": {
+        "description": "Task version is stale. Humans and tokens with tasks:read receive the\nfull current task in details.current; write-only and claim-only bearer\ntokens receive only its id and version so read-protected fields are not\ndisclosed.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/StaleTaskErrorResponse"
+            },
+            "examples": {
+              "staleTask": {
+                "$ref": "#/components/examples/StaleTaskExample"
+              }
+            }
+          }
+        }
+      },
+      "TaskMutationConflict": {
+        "description": "Task mutation conflicts are either a stale task version, an active\nclaim held by another actor, or an idempotency key reused for a\ndifferent request. Human administrators may explicitly override an\nactive claim for task PATCH and DELETE; bearer tokens and ordinary\nhuman actors cannot.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TaskMutationConflictErrorResponse"
+            },
+            "examples": {
+              "staleTask": {
+                "$ref": "#/components/examples/StaleTaskExample"
+              },
+              "taskAlreadyClaimed": {
+                "$ref": "#/components/examples/TaskAlreadyClaimedExample"
+              },
+              "idempotencyKeyReused": {
+                "$ref": "#/components/examples/ConflictExample"
+              }
+            }
+          }
+        }
+      },
+      "TaskCollectionConflict": {
+        "description": "A task collection keyset cursor is no longer valid because the\nproject changed after the cursor was issued. Discard the cursor and\nrestart the collection from its first page; the details object\nincludes `restart: true` and the observed collection revisions.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TaskCollectionConflictErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "task_collection_changed",
+                "message": "task collection changed; restart pagination from the first page",
+                "details": {
+                  "expected_revision": 42,
+                  "current_revision": 43,
+                  "expected_task_collection_revision": 7,
+                  "current_task_collection_revision": 8,
+                  "restart": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "DependencyConflict": {
+        "description": "Dependency mutations use stable conflict codes. `dependency_cycle`,\n`dependency_already_exists`, `dependency_in_use`, `stale_task`,\n`task_already_claimed`, and `idempotency_key_reused` are returned with\nHTTP 409 when the graph or mutation precondition conflicts with current\nstate. Lifecycle guards also return `unmet_dependencies` when claim,\nstart, finish, resolution, or semantic-column transitions would cross a\nboundary with an unsatisfied prerequisite. Conflict details are bounded\nby the 200-edge graph limit and scope-aware: a bearer token without\n`tasks:read` receives no relation IDs, keys, titles, timestamps,\nsatisfaction flags, or cycle paths; only safe metadata such as a count,\ndirection, or limit may remain.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "cycle": {
+                "value": {
+                  "error": {
+                    "code": "dependency_cycle",
+                    "message": "dependency would create a cycle",
+                    "details": {
+                      "path": [
+                        "OPS-41",
+                        "OPS-42",
+                        "OPS-41"
+                      ]
+                    }
+                  }
+                }
+              },
+              "stale": {
+                "$ref": "#/components/examples/StaleTaskExample"
+              },
+              "idempotency": {
+                "$ref": "#/components/examples/ConflictExample"
+              }
+            }
+          }
+        }
+      },
+      "PreconditionRequired": {
+        "description": "If-Match was missing from a task mutation (HTTP 428).",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "if_match_required",
+                "message": "If-Match is required",
+                "details": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

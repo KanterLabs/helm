@@ -1,0 +1,115 @@
+components:
+  examples:
+    EventCollectionExample:
+      summary: Event collection
+      value:
+        data:
+          - cursor: 43
+            id: event_43
+            type: task.claimed
+            actor_id: agent_ada
+            project_id: proj_ops
+            task_id: task_42
+            created_at: 2026-08-27T10:30:00Z
+            payload:
+              version: 8
+              claim_expires_at: 2026-08-27T11:00:00Z
+        next_cursor: "43"
+    TaskProgressedEventExample:
+      summary: Structured task progress event
+      value:
+        cursor: 44
+        id: event_44
+        type: task.progressed
+        actor_id: agent_ada
+        project_id: proj_ops
+        task_id: task_42
+        created_at: 2026-08-27T10:30:00Z
+        payload:
+          version: 8
+          state: working
+          completed: 1
+          total: 2
+    TaskMovedEventExample:
+      summary: Guarded task move event
+      value:
+        cursor: 45
+        id: event_45
+        type: task.moved
+        actor_id: agent_ada
+        project_id: proj_ops
+        task_id: task_42
+        created_at: 2026-08-27T10:35:00Z
+        payload:
+          from:
+            id: col_backlog
+            name: Backlog
+            semantic_state: backlog
+          to:
+            id: col_ready
+            name: Ready
+            semantic_state: ready
+          from_column_id: col_backlog
+          to_column_id: col_ready
+          from_column: Backlog
+          to_column: Ready
+          from_semantic_state: backlog
+          to_semantic_state: ready
+          from_column_state: backlog
+          to_column_state: ready
+          old_position: 3
+          new_position: 5
+          version: 8
+          resulting_version: 8
+          actor: agent_ada
+          actor_id: agent_ada
+          source: board_audit
+          reason: Approved board-audit recommendation.
+    TaskDependencyAddedEventExample:
+      summary: Dependency edge added event
+      value:
+        cursor: 46
+        id: event_46
+        type: task.dependency_added
+        actor_id: agent_ada
+        project_id: proj_ops
+        task_id: task_42
+        created_at: 2026-08-27T10:40:00Z
+        payload:
+          dependent_id: task_42
+          dependent_key: OPS-42
+          prerequisite_id: task_41
+          prerequisite_key: OPS-41
+          version: 8
+    TaskDependencyRemovedEventExample:
+      summary: Dependency edge removed event
+      value:
+        cursor: 47
+        id: event_47
+        type: task.dependency_removed
+        actor_id: agent_ada
+        project_id: proj_ops
+        task_id: task_42
+        created_at: 2026-08-27T10:45:00Z
+        payload:
+          dependent_id: task_42
+          dependent_key: OPS-42
+          prerequisite_id: task_41
+          prerequisite_key: OPS-41
+          version: 9
+    TaskDependencyStateChangedEventExample:
+      summary: Dependent readiness invalidation event
+      value:
+        cursor: 48
+        id: event_48
+        type: task.dependency_state_changed
+        actor_id: agent_ada
+        project_id: proj_ops
+        task_id: task_43
+        created_at: 2026-08-27T10:50:00Z
+        payload:
+          dependent_id: task_43
+          dependent_key: OPS-43
+          prerequisite_id: task_41
+          prerequisite_key: OPS-41
+          satisfied: true

@@ -1,0 +1,449 @@
+{
+  "components": {
+    "schemas": {
+      "ReleaseReference": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status"
+        ],
+        "description": "Compact project-local release relation embedded on task reads.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "released"
+            ]
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseSummary": {
+        "type": "object",
+        "required": [
+          "task_count",
+          "completed_count",
+          "blocked_count",
+          "claimed_count",
+          "checklist_warning_count",
+          "required_task_count",
+          "required_completed_count",
+          "cross_release_conflict_count",
+          "ready_to_release"
+        ],
+        "description": "Direct membership progress plus the bounded transitive prerequisite\nclosure required before a release can be completed.\n",
+        "properties": {
+          "task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blocked_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "claimed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "checklist_warning_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_completed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cross_release_conflict_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ready_to_release": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Release": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "description",
+          "status",
+          "version",
+          "created_at",
+          "updated_at",
+          "summary"
+        ],
+        "description": "Project-local planned or released product delivery boundary.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "released"
+            ]
+          },
+          "released_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "released_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ReleaseSummary"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10000,
+            "default": "",
+            "description": "Optional description; null is normalized to an empty description."
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "ISO YYYY-MM-DD planning date; null leaves it unset."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleasePatchRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 10000,
+            "description": "Explicit null clears the description."
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Explicit null clears the ISO YYYY-MM-DD planning date."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseReopenRequest": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Human-readable reason retained in the release event."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseMutationReference": {
+        "type": "object",
+        "required": [
+          "id",
+          "version"
+        ],
+        "description": "Least-privilege release mutation body for a bearer without tasks:read.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseMutationResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Release"
+          },
+          {
+            "$ref": "#/components/schemas/ReleaseMutationReference"
+          }
+        ]
+      },
+      "ReleaseCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Release"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseEventPayload": {
+        "type": "object",
+        "required": [
+          "release_id",
+          "name",
+          "status"
+        ],
+        "description": "Safe payload for `release.created`, `release.updated`,\n`release.completed`, `release.reopened`, and `release.deleted`.\nRelease events contain planning metadata only; task text and claim\ndetails are not embedded.\n",
+        "properties": {
+          "release_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "previous_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "released"
+            ]
+          },
+          "previous_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "planned",
+              "released",
+              null
+            ]
+          },
+          "target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "previous_target_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "released_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "released_by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Resulting release version; omitted by the delete event when no row remains."
+          }
+        },
+        "additionalProperties": true
+      },
+      "ReleaseConflictErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "Stable release lifecycle conflict envelope. Tokens without `tasks:read` receive redacted details.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "release_name_exists",
+                  "release_cross_project",
+                  "release_already_completed",
+                  "release_not_completed",
+                  "release_has_tasks",
+                  "release_incomplete",
+                  "release_dependency_conflict",
+                  "release_frozen",
+                  "stale_release",
+                  "idempotency_key_reused",
+                  "conflict"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseNotFoundErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "release_not_found"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

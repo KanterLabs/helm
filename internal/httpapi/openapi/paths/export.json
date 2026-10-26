@@ -1,0 +1,75 @@
+{
+  "paths": {
+    "/api/v1/export": {
+      "get": {
+        "operationId": "exportPortableArchive",
+        "summary": "Export a versioned portable archive",
+        "description": "Exports live projects, columns, tasks, labels, comments, relationships,\nand activity references as a `helm.portable` v2 JSON archive. A\nv2 archive includes project-local releases and explicit task release\nreferences; v1 archives remain import-compatible and treat every task\nas unassigned.\n`project` query selects one project; an unscoped caller may omit it to\nexport every accessible project. This is a portability snapshot, not\na database backup or restore operation.\n",
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "description": "Project ID, key, or stable slug to export.",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable archive JSON attachment",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "X-Helm-Portable-Format": {
+                "description": "Portable envelope format identifier.",
+                "schema": {
+                  "type": "string",
+                  "example": "helm.portable"
+                }
+              },
+              "X-Helm-Portable-Version": {
+                "description": "Portable envelope version.",
+                "schema": {
+                  "type": "integer",
+                  "const": 2,
+                  "example": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortableArchive"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

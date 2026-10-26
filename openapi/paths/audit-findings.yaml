@@ -1,0 +1,75 @@
+paths:
+  /api/v1/audit-findings/{finding}:
+    parameters:
+      - $ref: "#/components/parameters/AuditFindingPath"
+    patch:
+      operationId: reviewAuditFinding
+      summary: Review an audit finding
+      description: |
+        Updates only the finding review state and, when supplied, its proposed
+        semantic destination. Audit writes require `tasks:write`. The captured
+        task snapshot, captured version, source column, verdict, confidence,
+        reason, and evidence remain immutable. Supply the finding's strong
+        ETag as `If-Match`; use `Idempotency-Key` for safe retries. Reviewing a
+        finding never moves or otherwise changes its task. Approval is
+        accepted only after the run is finalized as `complete` or `partial`
+        and while the captured task version and source column still match.
+      tags:
+        - Audits
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuditFindingReviewRequest"
+            examples:
+              approve:
+                value:
+                  review_state: approved
+              dismiss:
+                value:
+                  review_state: dismissed
+              changeDestination:
+                value:
+                  review_state: approved
+                  proposed_semantic_destination: ready
+      responses:
+        "200":
+          description: Updated finding; no task changes are made.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditFindingMutationResponse"
+              examples:
+                finding:
+                  $ref: "#/components/examples/AuditFindingExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

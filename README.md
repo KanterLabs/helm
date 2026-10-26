@@ -257,7 +257,7 @@ also works on headless servers. Credentials stay in per-user directories under
 make build          # npm ci, frontend check/test/build, embed assets, Go build
 make test vet lint  # Go checks
 make web-check web-test
-make openapi        # regenerate openapi.json after editing openapi.yaml
+make openapi        # regenerate embedded contract assets after editing openapi/
 make openapi-check
 make prepare-release VERSION=vX.Y.Z # prepare tested beta as a release PR into main
 ```

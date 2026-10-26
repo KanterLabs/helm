@@ -1,0 +1,71 @@
+paths:
+  /api/v1/issues:
+    get:
+      operationId: listIssues
+      summary: List internal bugs across projects
+      description: |
+        Agent-friendly global listing of bug tasks. Results are ordered by
+        project, column position, and task position and always have
+        `kind: bug`. An unscoped identity may search every project; a
+        project-scoped bearer token searches the union of its permitted
+        projects when `project` is omitted and can never receive issues
+        outside that project ceiling. An optional `project` narrows the
+        result to one permitted project. Requires `tasks:read`.
+        `severity=untriaged` and `resolution=unresolved` select bugs whose
+        corresponding lifecycle field is unset. `release_id` accepts an
+        opaque release ID or `unassigned` and is applied before pagination.
+      tags:
+        - Tasks
+      parameters:
+        - name: project
+          in: query
+          required: false
+          description: Restrict issues to a permitted project ID, key, or stable slug; omitted project-scoped
+            tokens search their permitted project ceiling.
+          schema:
+            $ref: "#/components/schemas/Identifier"
+          example: operations
+        - $ref: "#/components/parameters/TaskState"
+        - $ref: "#/components/parameters/ColumnFilter"
+        - $ref: "#/components/parameters/PriorityFilter"
+        - $ref: "#/components/parameters/IssueSeverityFilter"
+        - $ref: "#/components/parameters/LabelFilter"
+        - $ref: "#/components/parameters/AssigneeFilter"
+        - $ref: "#/components/parameters/ReporterFilter"
+        - $ref: "#/components/parameters/IssueResolutionFilter"
+        - $ref: "#/components/parameters/ReleaseIDFilter"
+        - $ref: "#/components/parameters/AgentStateFilter"
+        - $ref: "#/components/parameters/ActionNeededFilter"
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/UpdatedAfter"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Cursor-paginated bug tasks
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskCollection"
+              examples:
+                issues:
+                  $ref: "#/components/examples/IssueCollectionExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

@@ -1,0 +1,148 @@
+components:
+  schemas:
+    PortableProject:
+      type: object
+      required:
+        - id
+        - key
+        - slug
+        - name
+        - description
+        - color
+        - favorite
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}$
+        slug:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,63}$
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 20000
+        color:
+          $ref: "#/components/schemas/Color"
+        favorite:
+          type: boolean
+        archived_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    PortableColumn:
+      type: object
+      required:
+        - id
+        - project_id
+        - name
+        - semantic_state
+        - position
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        semantic_state:
+          $ref: "#/components/schemas/SemanticState"
+        position:
+          type: integer
+          minimum: 0
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    PortableRelease:
+      type: object
+      required:
+        - id
+        - project_id
+        - name
+        - description
+        - version
+        - created_at
+        - updated_at
+      description: |
+        Project-local release record included by portable v2 archives. A v1
+        archive has no release records; v1 imports leave every task
+        unassigned. Release status is derived from released_at.
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 10000
+        target_date:
+          type:
+            - string
+            - "null"
+          format: date
+        status:
+          type: string
+          enum:
+            - planned
+            - released
+          description: Optional import hint; the server derives status from released_at.
+        released_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        released_by:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    PortableLabel:
+      type: object
+      required:
+        - id
+        - project_id
+        - name
+        - color
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        color:
+          $ref: "#/components/schemas/Color"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false

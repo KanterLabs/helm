@@ -1,0 +1,144 @@
+{
+  "paths": {
+    "/api/v1/hooks/tickets/email/{secret}": {
+      "post": {
+        "operationId": "postTicketEmail",
+        "summary": "Deliver an email to an inbox (Cloudflare email Worker)",
+        "description": "Called only by the Cloudflare Email Worker Helm deploys (see\n`createEmailIntake`). The path secret is the Worker's intake secret.\n`X-Helm-Envelope-To` selects the email inbox by its address tag\n(`<name>+<tag>@<domain>`). The decoded subject becomes the title and\nthe text part the description. A message whose `Message-ID` was\nalready processed returns `duplicate` and changes nothing; the same\nsender and subject repeat an open ticket. `400`, `404` and `413`\ncarry a reason the Worker bounces to the sender.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "secret",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "X-Helm-Envelope-To",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Helm-Envelope-From",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Helm-Authentication-Results",
+            "in": "header",
+            "required": false,
+            "description": "Cloudflare's own `Authentication-Results` value, recorded as evidence only.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Helm-Oversize",
+            "in": "header",
+            "required": false,
+            "description": "Raw size of a message the Worker refused; the request then has no body.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "message/rfc822": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "maxLength": 1048576
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The message repeated an open ticket, was recorded against a completed one, or was a duplicate.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketHookResult"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new ticket was opened.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketHookResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The message could not be read (for example, no From address).",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

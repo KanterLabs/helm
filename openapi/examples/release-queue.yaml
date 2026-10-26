@@ -1,0 +1,32 @@
+components:
+  examples:
+    ReleaseWorkQueueExample:
+      summary: Dependency-aware release queue snapshot
+      value:
+        release:
+          id: release_14
+          name: "1.4"
+          version: 3
+        snapshot:
+          project_revision: 812
+          read_at: 2026-08-27T10:00:00Z
+        summary:
+          direct: 12
+          required: 15
+          completed: 9
+          claimable: 1
+          owned: 1
+          dependency_blocked: 2
+          manually_blocked: 1
+          claimed_elsewhere: 1
+          cross_release_conflicts: 1
+        data:
+          - task:
+              id: task_42
+              key: OPS-42
+              version: 8
+              project_id: proj_ops
+            relationship: direct
+            disposition: claimable
+            blocked_by: []
+        next_cursor: ""

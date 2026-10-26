@@ -1,0 +1,142 @@
+components:
+  schemas:
+    AgentWork:
+      type: object
+      required:
+        - operation_id
+        - actor_id
+        - state
+        - phase
+        - summary
+        - next_action
+        - checkpoint_refs
+        - started_at
+        - updated_at
+        - stale
+        - action_needed
+      description: |
+        The latest complete agent progress snapshot for a task. `stale` is
+        derived when the snapshot has not been updated within the server's
+        liveness window. `action_needed` is true for waiting, handoff, or stale
+        snapshots. A completed task retains this snapshot as history while
+        both liveness flags are false. Checkpoint counts are either both
+        present or both omitted.
+      properties:
+        operation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:/-]*$
+        actor_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Actor that published the latest snapshot.
+        state:
+          type: string
+          enum:
+            - working
+            - waiting
+            - verifying
+            - handoff
+        phase:
+          type: string
+          maxLength: 120
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        next_action:
+          type: string
+          maxLength: 1000
+        checkpoint_refs:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        checkpoint_completed:
+          type: integer
+          minimum: 0
+          maximum: 100
+        checkpoint_total:
+          type: integer
+          minimum: 1
+          maximum: 100
+        started_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        stale:
+          type: boolean
+        action_needed:
+          type: boolean
+      additionalProperties: false
+    AgentWorkPublishRequest:
+      type: object
+      required:
+        - operation_id
+        - state
+        - summary
+      description: |
+        Complete replacement snapshot for POST /api/v1/tasks/{task}/progress.
+        Optional properties omitted from the request clear their previous
+        values. Null is not accepted for any property. Checkpoint counts must
+        be supplied together and satisfy 0 <= checkpoint_completed <=
+        checkpoint_total <= 100; non-empty checkpoint_refs must have the same
+        length as checkpoint_total.
+      properties:
+        operation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:/-]*$
+        state:
+          type: string
+          enum:
+            - working
+            - waiting
+            - verifying
+            - handoff
+        phase:
+          type: string
+          maxLength: 120
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        next_action:
+          type: string
+          maxLength: 1000
+        checkpoint_refs:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        checkpoint_completed:
+          type: integer
+          minimum: 0
+          maximum: 100
+        checkpoint_total:
+          type: integer
+          minimum: 1
+          maximum: 100
+      additionalProperties: false
+    AgentWorkHeartbeatRequest:
+      type: object
+      required:
+        - operation_id
+      description: |
+        Existing agent-work operation to keep alive. The heartbeat refreshes
+        only the snapshot's `updated_at` timestamp; null and unknown
+        properties are rejected.
+      properties:
+        operation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.:/-]*$
+      additionalProperties: false

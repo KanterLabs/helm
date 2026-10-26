@@ -1,0 +1,310 @@
+{
+  "components": {
+    "schemas": {
+      "Project": {
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "slug",
+          "name",
+          "description",
+          "color",
+          "favorite",
+          "checklist_completion_policy",
+          "created_at",
+          "updated_at",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_-]{0,15}$",
+            "description": "Short uppercase project key used in task references.",
+            "example": "OPS"
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+            "maxLength": 64,
+            "example": "operations"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "favorite": {
+            "type": "boolean"
+          },
+          "checklist_completion_policy": {
+            "$ref": "#/components/schemas/ChecklistCompletionPolicy",
+            "description": "Project completion behavior for tasks with open checklist items."
+          },
+          "archived_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "open_task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overdue_task_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "column_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optimistic version for guarded administration edits."
+          },
+          "system_kind": {
+            "type": "string",
+            "enum": [
+              "tickets"
+            ],
+            "description": "Set on the built-in ticket queue that every new ticket lands in\n(docs/TICKET_QUEUE_PLAN.md). Clients hide it from project\nnavigation; it cannot be archived.\n"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BoardDescriptor": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "slug",
+          "default",
+          "enabled"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BoardCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor",
+          "multi_board"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardDescriptor"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "multi_board": {
+            "type": "object",
+            "required": [
+              "enabled",
+              "decision",
+              "migration_required",
+              "url_compatibility"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "decision": {
+                "type": "string",
+                "const": "deferred"
+              },
+              "migration_required": {
+                "type": "boolean"
+              },
+              "url_compatibility": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectCreateRequest": {
+        "type": "object",
+        "required": [
+          "key",
+          "name"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,15}$",
+            "description": "Normalized to uppercase by the runtime.",
+            "example": "OPS"
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$",
+            "maxLength": 64,
+            "description": "Optional stable URL slug; normalized to lowercase and generated from name when omitted.",
+            "example": "operations"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 20000,
+            "default": ""
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "favorite": {
+            "type": "boolean",
+            "default": false
+          },
+          "checklist_completion_policy": {
+            "$ref": "#/components/schemas/ChecklistCompletionPolicy",
+            "default": "warn"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectPatchRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,15}$",
+            "description": "Normalized to uppercase by the runtime."
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$",
+            "maxLength": 64,
+            "description": "Normalized to lowercase by the runtime."
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "favorite": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive or restore the project."
+          },
+          "checklist_completion_policy": {
+            "$ref": "#/components/schemas/ChecklistCompletionPolicy",
+            "description": "Warn by default, or require every checklist item before completion."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectMutationSummary": {
+        "type": "object",
+        "description": "Reduced project mutation response for bearer tokens without projects:read.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectMutationResponse": {
+        "description": "Full project for humans and projects:read tokens, or id-only metadata for projects:write-only bearer tokens.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Project"
+          },
+          {
+            "$ref": "#/components/schemas/ProjectMutationSummary"
+          }
+        ]
+      },
+      "ProjectCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

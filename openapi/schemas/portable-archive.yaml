@@ -1,0 +1,257 @@
+components:
+  schemas:
+    PortableActorReference:
+      type: object
+      required:
+        - id
+        - kind
+        - name
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        kind:
+          $ref: "#/components/schemas/ActorKind"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 20000
+        disabled_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+      additionalProperties: false
+    PortableEvent:
+      type: object
+      required:
+        - cursor
+        - id
+        - type
+        - payload
+        - created_at
+      properties:
+        cursor:
+          type: integer
+          minimum: 0
+        id:
+          $ref: "#/components/schemas/Identifier"
+        type:
+          type: string
+          minLength: 1
+          maxLength: 200
+        actor_id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    PortableRelationships:
+      type: object
+      required:
+        - task_labels
+        - dependencies
+        - task_links
+      properties:
+        task_labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableTaskLabel"
+        dependencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableDependency"
+        task_links:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableTaskLink"
+      additionalProperties: false
+    PortableActivity:
+      type: object
+      required:
+        - events
+        - agent_work
+        - agent_work_history
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableEvent"
+        agent_work:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        agent_work_history:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: false
+    PortableArchive:
+      type: object
+      required:
+        - format
+        - version
+        - exported_at
+        - source
+        - projects
+        - columns
+        - tasks
+        - labels
+        - relationships
+        - activity
+        - comments
+      description: |
+        Version 2 archives include the `releases` collection and task
+        `release_id` references. Version 1 remains accepted for import and is
+        normalized to no releases and unassigned tasks; unknown versions are
+        rejected.
+      properties:
+        format:
+          type: string
+          const: helm.portable
+        version:
+          type: integer
+          enum:
+            - 1
+            - 2
+        exported_at:
+          $ref: "#/components/schemas/Timestamp"
+        source:
+          type: object
+          required:
+            - product
+            - api
+          properties:
+            product:
+              type: string
+            api:
+              type: string
+          additionalProperties: false
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableProject"
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableColumn"
+        releases:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableRelease"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableTask"
+        labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableLabel"
+        actors:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableActorReference"
+        relationships:
+          $ref: "#/components/schemas/PortableRelationships"
+        activity:
+          $ref: "#/components/schemas/PortableActivity"
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableComment"
+        agent_notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableAgentNote"
+      additionalProperties: false
+    PortableImportRequest:
+      type: object
+      required:
+        - archive
+      properties:
+        archive:
+          $ref: "#/components/schemas/PortableArchive"
+        dry_run:
+          type: boolean
+          default: false
+        conflict:
+          type: string
+          enum:
+            - remap
+            - fail
+          default: remap
+        target_project:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false
+    PortableArchiveRequestBody:
+      oneOf:
+        - $ref: "#/components/schemas/PortableArchive"
+        - $ref: "#/components/schemas/PortableImportRequest"
+    PortableImportRemap:
+      type: object
+      required:
+        - entity
+        - source
+        - target
+        - reason
+      properties:
+        entity:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+        field:
+          type: string
+        reason:
+          type: string
+      additionalProperties: false
+    PortableImportReport:
+      type: object
+      required:
+        - format
+        - version
+        - dry_run
+        - conflict
+        - counts
+        - remaps
+        - warnings
+        - errors
+      properties:
+        format:
+          type: string
+        version:
+          type: integer
+        dry_run:
+          type: boolean
+        conflict:
+          type: string
+          enum:
+            - remap
+            - fail
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        remaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortableImportRemap"
+        warnings:
+          type: array
+          items:
+            type: string
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: false

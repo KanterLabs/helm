@@ -1,0 +1,168 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/releases": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listProjectReleases",
+        "summary": "List releases in a project",
+        "description": "Returns planned and released project-local delivery boundaries in a\nstable cursor-paginated collection. `status` filters planned or\nreleased releases; `target_from` and `target_to` are inclusive ISO\ncalendar-date bounds. Release names are unique case-insensitively\nwithin a project. The caller's project ceiling is applied before any\nrelease is returned.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseStatusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseTargetFrom"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseTargetTo"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated project releases.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseCollection"
+                },
+                "examples": {
+                  "releases": {
+                    "$ref": "#/components/examples/ReleaseCollectionExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProjectRelease",
+        "summary": "Create a planned project release",
+        "description": "Creates an empty planned release. A release is a product-planning\nboundary and is unrelated to the task claim action at\n`POST /api/v1/tasks/{task}/release` or to a bug's `affected_version`.\nRelease names are unique case-insensitively within the project.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseCreateRequest"
+              },
+              "example": {
+                "name": "1.4",
+                "description": "Search and release planning.",
+                "target_date": "2026-11-15"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Planned release created. Humans and bearer tokens with\n`tasks:read` receive the full release; a write-only bearer\nreceives only its id and version.\n",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                },
+                "examples": {
+                  "release": {
+                    "$ref": "#/components/examples/ReleaseExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

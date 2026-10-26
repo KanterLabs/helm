@@ -1,0 +1,149 @@
+{
+  "components": {
+    "parameters": {
+      "ProjectPath": {
+        "name": "project",
+        "in": "path",
+        "required": true,
+        "description": "Project ID, key, or stable slug.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "operations"
+      },
+      "ReleasePath": {
+        "name": "release",
+        "in": "path",
+        "required": true,
+        "description": "Opaque release ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "release_14"
+      },
+      "ColumnPath": {
+        "name": "column",
+        "in": "path",
+        "required": true,
+        "description": "Opaque column ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "col_ready"
+      },
+      "TaskPath": {
+        "name": "task",
+        "in": "path",
+        "required": true,
+        "description": "Opaque task ID or project-local task key such as OPS-42; task keys are matched case-insensitively.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "task_42"
+      },
+      "CommentPath": {
+        "name": "comment",
+        "in": "path",
+        "required": true,
+        "description": "Opaque comment ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "comment_01"
+      },
+      "AgentNotePath": {
+        "name": "note",
+        "in": "path",
+        "required": true,
+        "description": "Opaque agent note ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "note_01"
+      },
+      "DependencyPath": {
+        "name": "prerequisite",
+        "in": "path",
+        "required": true,
+        "description": "Opaque prerequisite task ID or project-local task key such as OPS-41; task keys are matched case-insensitively.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "OPS-41"
+      },
+      "HierarchyChildPath": {
+        "name": "child",
+        "in": "path",
+        "required": true,
+        "description": "Opaque child task ID or project-local task key such as OPS-42; task keys are matched case-insensitively.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "OPS-42"
+      },
+      "AuditPath": {
+        "name": "audit",
+        "in": "path",
+        "required": true,
+        "description": "Opaque audit-run ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "audit_42"
+      },
+      "AuditFindingPath": {
+        "name": "finding",
+        "in": "path",
+        "required": true,
+        "description": "Opaque audit-finding ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "finding_42"
+      },
+      "LabelPath": {
+        "name": "label",
+        "in": "path",
+        "required": true,
+        "description": "Opaque label ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "label_api"
+      },
+      "AgentPath": {
+        "name": "agent",
+        "in": "path",
+        "required": true,
+        "description": "Opaque agent actor ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "agent_ada"
+      },
+      "BetaSwitchJobPath": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "description": "Durable beta switch job ID; exactly 32 lowercase hexadecimal characters.",
+        "schema": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32,
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "example": "0123456789abcdef0123456789abcdef"
+      },
+      "TokenPath": {
+        "name": "token",
+        "in": "path",
+        "required": true,
+        "description": "Opaque API token ID.",
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "example": "tok_01"
+      }
+    }
+  }
+}

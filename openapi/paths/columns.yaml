@@ -1,0 +1,110 @@
+paths:
+  /api/v1/columns/{column}:
+    parameters:
+      - $ref: "#/components/parameters/ColumnPath"
+    patch:
+      operationId: updateColumn
+      summary: Update a board column
+      description: |
+        An empty object or a body with no recognized column field returns 400.
+        Non-nullable properties reject explicit JSON `null`; string properties
+        enforce their declared length and format constraints. A human
+        administrator may explicitly override an active task claim when
+        changing a column's semantic state; bearer tokens and ordinary human
+        actors cannot. Archiving rehomes tasks to another live column with the
+        same semantic state and is rejected when it would remove the only live
+        mapping for one of the five required states. Use If-Match for a
+        recoverable optimistic conflict response.
+      tags:
+        - Columns
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ProjectColumnIfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ColumnPatchRequest"
+            example:
+              name: In review
+              position: 2
+      responses:
+        "200":
+          description: |
+            Updated column. Humans and bearer tokens with projects:read
+            receive the full column; a projects:write-only bearer receives
+            only its id and project_id.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ColumnMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            The column cannot change semantic state while a task in it has an
+            active claim. Humans and bearer tokens with tasks:read retain
+            diagnostic claim details; bearer tokens without tasks:read receive
+            an empty details object.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    get:
+      operationId: getColumn
+      summary: Get a board column
+      tags:
+        - Columns
+      responses:
+        "200":
+          description: Board column
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Column"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

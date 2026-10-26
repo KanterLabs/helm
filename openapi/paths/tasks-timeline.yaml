@@ -1,0 +1,77 @@
+paths:
+  /api/v1/tasks/{task}/timeline:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    get:
+      operationId: listTaskTimeline
+      summary: List unified task activity
+      description: |
+        Return the durable newest-first task activity stream, merging
+        structured agent progress, comments, and task-change events. The
+        response uses stable opaque keyset cursors: pass `next_cursor` as
+        `before` to load older activity. Generated progress comments and their
+        `comment.created` events are represented once by the corresponding
+        `agent_progress` item. Legacy comments and events remain available as
+        comments or generic `task_change` items without inferred progress
+        fields. Comment edits and tombstones remain visible as immutable
+        `comment.updated` and `comment.deleted` task changes. Timeline reads
+        require `tasks:read`.
+      tags:
+        - Tasks
+      parameters:
+        - $ref: "#/components/parameters/BeforeTimelineCursor"
+        - $ref: "#/components/parameters/TimelineKind"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Newest-first unified task activity page
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskTimelineCollection"
+              example:
+                data:
+                  - id: progress_01
+                    cursor: eyJ2IjoxLCJhdCI6IjIwMjYtMDgtMjdUMTA6MzA6MDBaIiwiZWMiOjQ0LCJrIjoiYWdlbnRfcHJvZ3Jlc3MiLCJpZCI6InByb2dyZXNzXzAxIn0
+                    kind: agent_progress
+                    task_id: task_42
+                    actor:
+                      id: agent_ada
+                      kind: agent
+                      name: Build agent
+                    created_at: 2026-08-27T10:30:00Z
+                    progress:
+                      operation_id: codex/ops-release
+                      actor_id: agent_ada
+                      state: working
+                      phase: Implementing event polling
+                      summary: Added the progress persistence and HTTP contract.
+                      next_action: Run the focused API tests.
+                      checkpoint_refs:
+                        - api-contract
+                        - http-tests
+                      checkpoint_completed: 1
+                      checkpoint_total: 2
+                      started_at: 2026-08-27T10:00:00Z
+                    comment: null
+                    change: null
+                next_cursor: ""
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

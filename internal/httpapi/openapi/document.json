@@ -1,0 +1,135 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Helm API",
+    "version": "1.0.0",
+    "description": "Stable JSON API for the Helm project board and its built-in internal bug\ntracker. Humans use a session cookie, Cloudflare Access identity, or the\nprivate Tailnet edge identity; agents use scoped bearer tokens.\nSingle-resource responses contain the resource directly. Collections use\na cursor-paginated object containing data and next_cursor. Collection\ncursors are opaque URL-safe keyset markers (retained decimal/base64\noffsets remain accepted for compatibility) and an empty next_cursor means\nthat there is no next page. Every response includes X-Request-ID; deployments\nthat provide a release revision also include X-Roadmap-Revision.\nCookie-, Cloudflare-, and Tailnet-authenticated mutations require an Origin\nthat exactly matches the configured public origin; bearer-token mutations\ndo not require Origin. Temporary bearer-authentication or request-body\nadmission saturation returns 503 with Retry-After.\n",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current Helm server"
+    }
+  ],
+  "externalDocs": {
+    "description": "Helm v1 API contract",
+    "url": "docs/API_CONTRACT.md"
+  },
+  "security": [
+    {
+      "cookieAuth": []
+    },
+    {
+      "bearerAuth": []
+    },
+    {
+      "cloudflareAccess": []
+    }
+  ],
+  "x-authentication-modes": [
+    "local",
+    "cloudflare",
+    "tailnet",
+    "disabled"
+  ],
+  "x-common-response-headers": {
+    "X-Request-ID": {
+      "$ref": "#/components/headers/XRequestID"
+    },
+    "X-Roadmap-Revision": {
+      "$ref": "#/components/headers/XRoadmapRevision"
+    }
+  },
+  "x-resource-limits": {
+    "request_body_bytes": 2097152,
+    "bearer_requests_per_second": 20,
+    "bearer_burst": 40,
+    "bearer_mutations_per_second": 1,
+    "bearer_mutation_burst": 10
+  },
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Liveness, readiness, and API discovery"
+    },
+    {
+      "name": "Authentication",
+      "description": "Local account, session, and deployment identity operations"
+    },
+    {
+      "name": "Projects",
+      "description": "Projects and their board columns"
+    },
+    {
+      "name": "Releases",
+      "description": "Project delivery boundaries and dependency-aware release work"
+    },
+    {
+      "name": "Columns",
+      "description": "Ordered semantic board columns"
+    },
+    {
+      "name": "Tasks",
+      "description": "Tasks, internal bugs, comments, labels, and coordination actions"
+    },
+    {
+      "name": "Audits",
+      "description": "Read-only board-audit snapshots and explicitly reviewed findings"
+    },
+    {
+      "name": "Labels",
+      "description": "Project labels"
+    },
+    {
+      "name": "My work",
+      "description": "Tasks assigned to the authenticated actor"
+    },
+    {
+      "name": "Search",
+      "description": "Global task search across the caller's visible projects"
+    },
+    {
+      "name": "Views",
+      "description": "Named, optionally shared global-search filter views"
+    },
+    {
+      "name": "Roadmap",
+      "description": "Progress summaries and activity"
+    },
+    {
+      "name": "Project intelligence",
+      "description": "Human-only deterministic project ordering and explicitly triggered Luna analysis"
+    },
+    {
+      "name": "Events",
+      "description": "Append-only event feed for incremental polling"
+    },
+    {
+      "name": "Notifications",
+      "description": "In-app inbox, watches, and notification preferences"
+    },
+    {
+      "name": "Agents",
+      "description": "Agent identities and scoped API tokens"
+    },
+    {
+      "name": "Administration",
+      "description": "Human-only administrative controls, including the private beta deployment switcher"
+    },
+    {
+      "name": "Tickets",
+      "description": "Human ticket queues over ordinary tasks with durable ticket membership"
+    },
+    {
+      "name": "Alert intake",
+      "description": "Operator-configured external alert webhooks that create assigned Backlog tasks"
+    }
+  ],
+  "paths": {},
+  "components": {}
+}

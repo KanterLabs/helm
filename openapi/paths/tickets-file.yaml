@@ -1,0 +1,64 @@
+paths:
+  /api/v1/tickets/{ticket}/file:
+    parameters:
+      - name: ticket
+        in: path
+        required: true
+        description: Ticket ID or key (an old key from before filing also works).
+        schema:
+          type: string
+    post:
+      operationId: fileTicket
+      summary: File a ticket into a project
+      description: |
+        Moves a ticket into an active project other than the queue. It gets
+        that project's next key and keeps its status (the same column state,
+        else Backlog), notes, evidence, watchers, labels (matched by name,
+        created when missing) and repeat count; the old key keeps resolving
+        to it. Refused with `409` for subtasks, tickets with subtasks or
+        dependencies, tickets in a shipped release, and while an agent's
+        claim is active. Requires `tasks:write` on both projects.
+      tags:
+        - Tickets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - project
+              properties:
+                project:
+                  type: string
+                  description: Project ID
+                  key or slug.: null
+              additionalProperties: false
+      responses:
+        "200":
+          description: The filed ticket.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

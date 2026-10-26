@@ -1,0 +1,60 @@
+components:
+  schemas:
+    TaskDependencyRequest:
+      type: object
+      required:
+        - prerequisite
+      description: Direct prerequisite reference for a dependency mutation.
+      properties:
+        prerequisite:
+          $ref: "#/components/schemas/Identifier"
+          description: Opaque task ID or case-insensitive project-local task key.
+      additionalProperties: false
+    TaskDependencies:
+      type: object
+      required:
+        - prerequisites
+        - dependents
+      description: |
+        Direct live dependency edges for one task. Both arrays are limited to
+        200 items and contain only relations within the task's project; deleted
+        tasks and historical dangling edges are omitted.
+      properties:
+        prerequisites:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/TaskReference"
+        dependents:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/TaskReference"
+      additionalProperties: false
+    DependencySummary:
+      type: object
+      required:
+        - prerequisite_count
+        - unmet_prerequisite_count
+        - dependent_count
+        - blocked
+      description: |
+        Bounded derived summary included in task responses and collections.
+        Counts cover direct live, same-project relations only. `blocked` is
+        true when one or more direct prerequisites are not satisfied.
+      properties:
+        prerequisite_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        unmet_prerequisite_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        dependent_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        blocked:
+          type: boolean
+      additionalProperties: false

@@ -1,0 +1,188 @@
+components:
+  schemas:
+    TaskKind:
+      type: string
+      enum:
+        - task
+        - bug
+      description: Work item kind. Bug-specific fields are present only for `bug`.
+    TaskReference:
+      type: object
+      required:
+        - id
+        - key
+        - title
+        - completed_at
+        - satisfied
+      description: |
+        Compact direct dependency reference. `completed_at` is null until the
+        task is complete; `satisfied` is true only when the referenced task is
+        complete in its completed semantic column. Relation fields are
+        redacted according to the caller's task-read permission.
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$
+          example: OPS-41
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        completed_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        satisfied:
+          type: boolean
+      additionalProperties: false
+    Task:
+      type: object
+      required:
+        - id
+        - number
+        - key
+        - project_id
+        - kind
+        - column_id
+        - title
+        - description
+        - priority
+        - position
+        - version
+        - created_at
+        - updated_at
+        - labels
+        - comment_count
+        - checklist
+        - checklist_summary
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        number:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 42
+        key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$
+          example: OPS-42
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        kind:
+          $ref: "#/components/schemas/TaskKind"
+        column_id:
+          $ref: "#/components/schemas/Identifier"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description:
+          type: string
+          description: Markdown task description.
+          maxLength: 100000
+        bug:
+          $ref: "#/components/schemas/BugDetails"
+          description: Bug-specific details; omitted for ordinary tasks.
+        agent_work:
+          $ref: "#/components/schemas/AgentWork"
+          description: Latest structured agent progress snapshot; omitted when no pulse has been published.
+        priority:
+          $ref: "#/components/schemas/Priority"
+        position:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1000000000000
+        assignee:
+          $ref: "#/components/schemas/Identifier"
+          description: Assignee actor ID; omitted when unassigned.
+        claimed_by:
+          $ref: "#/components/schemas/Identifier"
+          description: Actor ID holding the current claim; omitted when unclaimed.
+        claim_expires_at:
+          $ref: "#/components/schemas/Timestamp"
+          description: Claim expiry; omitted when unclaimed.
+        due_at:
+          $ref: "#/components/schemas/Timestamp"
+          description: Due timestamp; omitted when no due date is set.
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 7
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        completed_at:
+          $ref: "#/components/schemas/Timestamp"
+          description: Completion timestamp; omitted until the task is completed.
+        labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/Label"
+        comment_count:
+          type: integer
+          minimum: 0
+        dependency_summary:
+          $ref: "#/components/schemas/DependencySummary"
+          description: Bounded direct dependency counts; omitted by legacy servers that predate dependency
+            support.
+        checklist:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TaskChecklistItem"
+        checklist_summary:
+          $ref: "#/components/schemas/TaskChecklistSummary"
+        parent_task_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+          description: Live same-project parent task ID; omitted when no parent is linked.
+        parent_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+          description: Compatibility alias for parent_task_id.
+        parent:
+          oneOf:
+            - $ref: "#/components/schemas/TaskHierarchyReference"
+            - type: "null"
+          description: Compact parent reference when a live parent is linked.
+        hierarchy_summary:
+          $ref: "#/components/schemas/HierarchySummary"
+          description: Server-derived direct-child rollup; arrays and counts never include deleted or
+            cross-project rows.
+        release_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+          description: Explicit project-local target release ID; omitted when the task is unassigned.
+        release:
+          oneOf:
+            - $ref: "#/components/schemas/ReleaseReference"
+            - type: "null"
+          description: Compact target-release reference; omitted when the task is unassigned.
+        alert_source:
+          $ref: "#/components/schemas/AlertSource"
+          description: External alert evidence; omitted for tasks not created by alert intake.
+        ticket:
+          $ref: "#/components/schemas/TicketMembership"
+          description: Tickets workspace membership; omitted for ordinary tasks.
+      additionalProperties: false
+    TaskCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+      additionalProperties: false

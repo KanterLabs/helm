@@ -1,0 +1,280 @@
+{
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "example": "invalid_request"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "example": "Request is invalid"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaleTaskErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "const": "stale_task"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/StaleTaskDetails"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskClaimUnavailableErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "const": "task_already_claimed"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "$ref": "#/components/schemas/TaskClaimUnavailableDetails"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "IdempotencyConflictErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "const": "idempotency_key_reused"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskCollectionConflictErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "const": "task_collection_changed"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "required": [
+                  "restart"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "current_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "expected_task_collection_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "current_task_collection_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "restart": {
+                    "const": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskClaimUnavailableDetails": {
+        "description": "Humans and bearer tokens with tasks:read may receive the full current\ntask or active-claim diagnostics. Bearer tokens without tasks:read\nreceive only id/version retry metadata for a task conflict, or an\nempty object for a column active-claim conflict.\n",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "current"
+            ],
+            "properties": {
+              "current": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Task"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TaskConflictCurrent"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "required": [
+              "claimed_by",
+              "claim_expires_at"
+            ],
+            "properties": {
+              "task_id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "column_id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "claimed_by": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "claim_expires_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "additionalProperties": false
+          }
+        ]
+      },
+      "TaskConflictCurrent": {
+        "type": "object",
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaleTaskDetails": {
+        "type": "object",
+        "required": [
+          "current"
+        ],
+        "properties": {
+          "current": {
+            "description": "Full task for humans and tasks:read tokens; reduced id/version metadata for write-only or claim-only tokens.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Task"
+              },
+              {
+                "$ref": "#/components/schemas/TaskConflictCurrent"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

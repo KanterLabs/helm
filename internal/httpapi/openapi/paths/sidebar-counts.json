@@ -1,0 +1,69 @@
+{
+  "paths": {
+    "/api/v1/sidebar-counts": {
+      "get": {
+        "operationId": "getSidebarCounts",
+        "summary": "Get scalar primary-navigation counts",
+        "description": "Returns only the scalar counts needed by the primary navigation; this\nendpoint never materializes task rows. `issues` counts live bug tasks\nand `my_work` follows the requested `view` (default `live`). Live work\ncounts unfinished tasks with an agent-work snapshot in active projects;\nassigned work counts tasks assigned to, or actively claimed by, the\nauthenticated actor. An optional `project` narrows both counts to one\npermitted project. When omitted, unscoped identities see all projects\nand project-scoped bearer tokens see only their permitted project\nceiling. Requires `tasks:read`.\n",
+        "tags": [
+          "My work"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MyWorkView"
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Restrict both counts to a permitted project ID, key, or slug.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scalar primary-navigation counts",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidebarCounts"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "paths": {
+    "/api/v1/codex/runs": {
+      "get": {
+        "operationId": "listLunaRuns",
+        "summary": "List the current human user's recent Luna work",
+        "description": "Returns private, prompt-free debugging metadata for explicitly invoked\nLuna model turns. Results never include prompts, project/task text,\nmodel output, account metadata, or credentials and remain available\nwhen the Codex runtime is disconnected.\n",
+        "tags": [
+          "Authentication"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest-first Luna run history",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LunaRunCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/codex/runs/{run}": {
+      "get": {
+        "operationId": "getLunaRun",
+        "summary": "Inspect one of the current human user's Luna runs",
+        "description": "Returns the exact model input and output saved for a run initiated by\nthe signed-in human. The response is private and never cached. Older\nruns may have no saved content. Bearer tokens and other actors cannot\naccess the content.\n",
+        "tags": [
+          "Authentication"
+        ],
+        "parameters": [
+          {
+            "name": "run",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private Luna run detail",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LunaRunDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

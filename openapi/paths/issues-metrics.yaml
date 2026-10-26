@@ -1,0 +1,51 @@
+paths:
+  /api/v1/issues/metrics:
+    get:
+      operationId: getIssueMetrics
+      summary: Get bounded issue health metrics
+      description: |
+        Returns aggregate issue health without returning task rows. `reopened`
+        is the number of distinct live bug tasks with at least one
+        `bug.reopened` event in the inclusive UTC interval from `since` through
+        `as_of`. The interval is always the trailing seven days, so the value
+        is not derived from the client's finite event-poll buffer. An optional
+        `project` narrows the aggregate to one permitted project. When omitted,
+        an unscoped identity sees all projects and a project-scoped bearer token
+        sees only the union of its permitted project ceiling. Requires
+        `tasks:read`.
+      tags:
+        - Tasks
+      parameters:
+        - name: project
+          in: query
+          required: false
+          description: Restrict the metric to a permitted project ID, key, or stable slug.
+          schema:
+            $ref: "#/components/schemas/Identifier"
+          example: operations
+      responses:
+        "200":
+          description: Server-authoritative seven-day issue metrics
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueMetrics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

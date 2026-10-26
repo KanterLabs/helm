@@ -1,0 +1,62 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/roadmap": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "getProjectRoadmap",
+        "summary": "Get a project's roadmap summary",
+        "description": "Due-soon counts cover incomplete tasks due from now through the next\nseven days. Bearer tokens without tasks:read receive empty `upcoming`\nand `upcoming_tasks` arrays; tokens without events:read receive an empty\n`recent_activity` array. Project aggregates remain available with\nprojects:read.\n",
+        "tags": [
+          "Roadmap"
+        ],
+        "responses": {
+          "200": {
+            "description": "Project progress and activity",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoadmapResponse"
+                },
+                "examples": {
+                  "roadmap": {
+                    "$ref": "#/components/examples/RoadmapExample"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

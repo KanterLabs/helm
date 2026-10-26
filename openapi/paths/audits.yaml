@@ -1,0 +1,41 @@
+paths:
+  /api/v1/audits/{audit}:
+    parameters:
+      - $ref: "#/components/parameters/AuditPath"
+    get:
+      operationId: getAudit
+      summary: Get an audit-run summary
+      description: |
+        Returns bounded run metadata and the finding count. The `findings`
+        array is always empty on this summary resource; use
+        `GET /api/v1/audits/{audit}/findings` for the paginated findings. This
+        operation is read-only and requires `tasks:read`.
+      tags:
+        - Audits
+      responses:
+        "200":
+          description: Audit-run summary without expanded findings
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditRun"
+              examples:
+                audit:
+                  $ref: "#/components/examples/AuditRunExample"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

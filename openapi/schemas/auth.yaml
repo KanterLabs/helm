@@ -1,0 +1,124 @@
+components:
+  schemas:
+    AuthMode:
+      type: string
+      enum:
+        - local
+        - cloudflare
+        - tailnet
+        - disabled
+      description: Authentication mode configured by the deployment.
+    ActorKind:
+      type: string
+      enum:
+        - human
+        - agent
+    AuthStatus:
+      type: object
+      required:
+        - mode
+        - configured
+        - setup_required
+        - authenticated
+        - actor
+        - user
+      properties:
+        mode:
+          $ref: "#/components/schemas/AuthMode"
+        configured:
+          type: boolean
+          description: Whether an account is configured for the selected mode.
+        setup_required:
+          type: boolean
+        authenticated:
+          type: boolean
+        actor:
+          oneOf:
+            - $ref: "#/components/schemas/Actor"
+            - type: "null"
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/Actor"
+            - type: "null"
+      additionalProperties: false
+    AuthSetupRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 12
+          writeOnly: true
+      additionalProperties: false
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 1
+          writeOnly: true
+      additionalProperties: false
+    Actor:
+      type: object
+      required:
+        - id
+        - kind
+        - name
+        - admin
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        kind:
+          $ref: "#/components/schemas/ActorKind"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Human account email; omitted for agent actors.
+        description:
+          type: string
+          maxLength: 10000
+          description: Optional actor description; omitted when empty.
+        admin:
+          type: boolean
+        disabled_at:
+          $ref: "#/components/schemas/Timestamp"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        project_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Identifier"
+          description: Project access ceiling for an agent actor; omitted when unrestricted.
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/Token"
+          description: Token metadata for an agent actor; plaintext token values are never included here.
+      additionalProperties: false

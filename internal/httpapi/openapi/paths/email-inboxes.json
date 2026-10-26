@@ -1,0 +1,164 @@
+{
+  "paths": {
+    "/api/v1/email-inboxes": {
+      "get": {
+        "operationId": "listEmailInboxes",
+        "summary": "List email inboxes",
+        "description": "Human administrators only. Inboxes are addresses created in Helm\n(`<local part>+<tag>@<domain>`) whose mail becomes tickets in their\nproject. Addresses are always shown (empty while email is off).\nEnabled inboxes first, newest first.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Inboxes",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "email_on"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EmailInbox"
+                      }
+                    },
+                    "email_on": {
+                      "type": "boolean"
+                    },
+                    "domain": {
+                      "type": "string",
+                      "description": "The email domain when email is on."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createEmailInbox",
+        "summary": "Create an email inbox",
+        "description": "Human administrators only, with email turned on (`409 email_not_set_up` otherwise). Returns the inbox with its address. Its mail becomes tickets in the ticket queue's Needs triage.",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "project": {
+                    "type": "string",
+                    "deprecated": true,
+                    "description": "Ignored; inbox tickets land in the ticket queue."
+                  },
+                  "assignee": {
+                    "type": "string",
+                    "description": "Enabled human actor ID, `me` for the caller, or empty for unassigned tickets."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Inbox",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailInbox"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/email-inboxes/{inbox}": {
+      "parameters": [
+        {
+          "name": "inbox",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "disableEmailInbox",
+        "summary": "Turn an email inbox off",
+        "description": "Human administrators only. Mail to its address bounces from now on; tickets it created are kept.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "204": {
+            "description": "Turned off"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  }
+}

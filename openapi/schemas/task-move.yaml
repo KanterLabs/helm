@@ -1,0 +1,142 @@
+components:
+  schemas:
+    TaskMoveRequest:
+      type: object
+      required:
+        - source
+      description: |
+        Guarded raw board move intent. Supply one or more agreeing aliases
+        from each destination/source group; canonical names are
+        `destination_column_id` and `expected_source_column_id`. `source` is
+        required provenance and `reason` is optional. The server assigns the
+        destination position atomically, so `position` and other fields are
+        rejected. Anchor-enabled requests can place a card precisely before,
+        after, first, last, or between visible neighbors.
+      properties:
+        destination_column_id:
+          $ref: "#/components/schemas/Identifier"
+        destination_column:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `destination_column_id`.
+        to_column_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `destination_column_id`.
+        to_column:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `destination_column_id`.
+        column_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `destination_column_id`.
+        column:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `destination_column_id`.
+        expected_source_column_id:
+          $ref: "#/components/schemas/Identifier"
+        source_column_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `expected_source_column_id`.
+        from_column_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `expected_source_column_id`.
+        expected_column_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `expected_source_column_id`.
+        source_column:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `expected_source_column_id`.
+        from_column:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `expected_source_column_id`.
+        source:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Required bounded provenance label, for example `board_audit`.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Optional bounded explanation; when supplied it must not be empty.
+        before_task_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Place immediately before this destination-column anchor.
+        before_task:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `before_task_id`.
+        before:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `before_task_id`.
+        after_task_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Place immediately after this destination-column anchor.
+        after_task:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `after_task_id`.
+        after:
+          $ref: "#/components/schemas/Identifier"
+          description: Alias for `after_task_id`.
+        placement:
+          type: string
+          enum:
+            - first
+            - before
+            - between
+            - after
+            - last
+          description: Explicit first/last placement or anchor relationship.
+        expected_ordering_version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Convenience revision guard applied to both columns.
+        ordering_version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Alias for `expected_ordering_version`.
+        expected_source_ordering_version:
+          type: integer
+          format: int64
+          minimum: 0
+        source_ordering_version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Alias for `expected_source_ordering_version`.
+        expected_destination_ordering_version:
+          type: integer
+          format: int64
+          minimum: 0
+        destination_ordering_version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Alias for `expected_destination_ordering_version`.
+      allOf:
+        - anyOf:
+            - required:
+                - destination_column_id
+            - required:
+                - destination_column
+            - required:
+                - to_column_id
+            - required:
+                - to_column
+            - required:
+                - column_id
+            - required:
+                - column
+        - anyOf:
+            - required:
+                - expected_source_column_id
+            - required:
+                - source_column_id
+            - required:
+                - from_column_id
+            - required:
+                - expected_column_id
+            - required:
+                - source_column
+            - required:
+                - from_column
+      additionalProperties: false

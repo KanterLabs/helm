@@ -1,0 +1,168 @@
+components:
+  schemas:
+    DependencyEventPayload:
+      type: object
+      required:
+        - dependent_id
+        - dependent_key
+        - prerequisite_id
+        - prerequisite_key
+        - version
+      description: |
+        Payload for `task.dependency_added` and `task.dependency_removed`.
+        `task_id` on the enclosing event is the dependent task; `version` is
+        its resulting version after the graph mutation.
+      properties:
+        dependent_id:
+          $ref: "#/components/schemas/Identifier"
+        dependent_key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$
+        prerequisite_id:
+          $ref: "#/components/schemas/Identifier"
+        prerequisite_key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: false
+    DependencyStateChangedEventPayload:
+      type: object
+      required:
+        - dependent_id
+        - dependent_key
+        - prerequisite_id
+        - prerequisite_key
+        - satisfied
+      description: |
+        Payload for `task.dependency_state_changed`, emitted once for each
+        direct live dependent when a prerequisite's satisfied state changes.
+        The dependent's editable task version does not change for this derived
+        readiness notification.
+      properties:
+        dependent_id:
+          $ref: "#/components/schemas/Identifier"
+        dependent_key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$
+        prerequisite_id:
+          $ref: "#/components/schemas/Identifier"
+        prerequisite_key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$
+        satisfied:
+          type: boolean
+          description: Whether the prerequisite is now complete in its completed semantic column.
+      additionalProperties: false
+    TaskReleaseChangedEventPayload:
+      type: object
+      required:
+        - version
+      description: |
+        Safe payload for `task.release_changed`. New and old release IDs and
+        names are nullable so assignment and clearing use the same shape.
+      properties:
+        release_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+        previous_release_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+        new_release_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+        old_release_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+        release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: "null"
+        previous_release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: "null"
+        new_release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: "null"
+        old_release_name:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: "null"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+      additionalProperties: true
+    Event:
+      type: object
+      required:
+        - cursor
+        - id
+        - type
+        - created_at
+        - payload
+      properties:
+        cursor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Monotonic feed cursor.
+          example: 43
+        id:
+          $ref: "#/components/schemas/Identifier"
+        type:
+          type: string
+          minLength: 1
+          description: Event type, for example task.claimed, task.progressed, task.moved, task.completed,
+            task.release_changed, task.dependency_added, task.dependency_removed,
+            task.dependency_state_changed, release.created, release.updated, release.completed,
+            release.reopened, release.deleted, bug.triaged, bug.resolved, bug.duplicated, or
+            bug.reopened.
+          example: task.claimed
+        actor_id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        payload:
+          type: object
+          description: For task.dependency_added and task.dependency_removed, payload conforms to
+            DependencyEventPayload; for task.dependency_state_changed, it conforms to
+            DependencyStateChangedEventPayload; for task.release_changed, it conforms to
+            TaskReleaseChangedEventPayload; for release.* events, it conforms to
+            ReleaseEventPayload; other event types define their own payload fields.
+          additionalProperties: true
+      additionalProperties: false
+    EventCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+      additionalProperties: false

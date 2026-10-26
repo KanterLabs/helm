@@ -1,0 +1,124 @@
+{
+  "components": {
+    "schemas": {
+      "TicketMembership": {
+        "type": "object",
+        "description": "Tickets workspace membership; present only on ticket tasks.",
+        "required": [
+          "origin",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "origin": {
+            "type": "string",
+            "enum": [
+              "alert",
+              "manual"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "needs_triage",
+              "ready",
+              "in_progress",
+              "waiting",
+              "completed"
+            ],
+            "description": "Derived from the task's column semantic state."
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketCounts": {
+        "type": "object",
+        "required": [
+          "open",
+          "mine",
+          "needs_triage",
+          "ready",
+          "in_progress",
+          "waiting",
+          "completed"
+        ],
+        "properties": {
+          "open": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mine": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "needs_triage": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ready": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "in_progress": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "waiting": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor",
+          "counts"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Opaque cursor for the next page; empty when exhausted."
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TicketCounts"
+          },
+          "queue": {
+            "type": "object",
+            "description": "The ticket queue, once it exists; tickets in it are not filed into a project yet.",
+            "required": [
+              "project_id",
+              "key"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "key": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

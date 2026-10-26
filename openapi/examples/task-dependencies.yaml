@@ -1,0 +1,17 @@
+components:
+  examples:
+    TaskDependenciesExample:
+      summary: Direct task dependencies
+      value:
+        prerequisites:
+          - id: task_41
+            key: OPS-41
+            title: Define event cursor contract
+            completed_at: 2026-08-27T10:15:00Z
+            satisfied: true
+        dependents:
+          - id: task_43
+            key: OPS-43
+            title: Add polling client
+            completed_at: null
+            satisfied: false

@@ -1,0 +1,171 @@
+{
+  "components": {
+    "responses": {
+      "TooManyRequests": {
+        "description": "Agent bearer rate limit exceeded. All bearer requests share an\nactor-keyed bucket of 20 requests per second with a burst of 40;\nmutations also share a 1 request per second bucket with a burst of 10.\n",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Number of seconds to wait before retrying."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "rate_limited",
+                "message": "Too many requests",
+                "details": {
+                  "retry_after_seconds": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Unexpected server error",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "internalError": {
+                "$ref": "#/components/examples/InternalErrorExample"
+              }
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "The beta switch broker was unavailable or rejected the request.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "unavailable": {
+                "value": {
+                  "error": {
+                    "code": "beta_switch_unavailable",
+                    "message": "beta switch broker is unavailable",
+                    "details": {}
+                  }
+                }
+              },
+              "failed": {
+                "value": {
+                  "error": {
+                    "code": "beta_switch_failed",
+                    "message": "beta switch broker rejected the request",
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "Readiness failed or a bounded authentication/body admission pool is temporarily full.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Present for temporary admission saturation."
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "notReady": {
+                "value": {
+                  "error": {
+                    "code": "not_ready",
+                    "message": "database unavailable",
+                    "details": {}
+                  }
+                }
+              },
+              "serverBusy": {
+                "value": {
+                  "error": {
+                    "code": "server_busy",
+                    "message": "server is busy; retry later",
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "RequestTooLarge": {
+        "description": "Request body exceeded the 2 MiB server limit.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/XRequestID"
+          },
+          "X-Roadmap-Revision": {
+            "$ref": "#/components/headers/XRoadmapRevision"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": {
+                "code": "request_too_large",
+                "message": "request body exceeds 2 MiB",
+                "details": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

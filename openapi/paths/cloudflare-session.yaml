@@ -1,0 +1,63 @@
+paths:
+  /api/v1/cloudflare/session:
+    post:
+      operationId: connectCloudflareToken
+      summary: Connect Cloudflare with a pasted API token
+      description: Human administrators only. Checks the token by listing its domains and keeps it in
+        memory for at most 30 minutes, bound to this administrator. Never stored, logged or
+        returned.
+      tags:
+        - Tickets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - api_token
+              properties:
+                api_token:
+                  type: string
+              additionalProperties: false
+      responses:
+        "200":
+          description: Connected
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudflareConnectStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      operationId: disconnectCloudflare
+      summary: Forget the Cloudflare connection
+      description: Human administrators only. Drops the in-memory credential; a sign-in token is also
+        revoked at Cloudflare.
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Disconnected
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudflareConnectStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"

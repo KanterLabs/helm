@@ -1,0 +1,64 @@
+paths:
+  /api/v1/import:
+    post:
+      operationId: importPortableArchive
+      summary: Validate or import a portable archive
+      description: |
+        The archive is fully validated before any write. Set `dry_run` to true
+        for a report without mutation. `conflict` defaults to `remap`; use
+        `fail` to reject destination identifier conflicts. Stable IDs are kept
+        whenever possible and every remap is listed in the report. Imports
+        insert records transactionally and never replace or delete the
+        destination database.
+      tags:
+        - Projects
+      parameters:
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: conflict
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - remap
+              - fail
+            default: remap
+        - name: target_project
+          in: query
+          required: false
+          description: Existing project ID, key, or slug to receive the imported archive.
+          schema:
+            $ref: "#/components/schemas/Identifier"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortableArchiveRequestBody"
+      responses:
+        "200":
+          description: Validation or import report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortableImportReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

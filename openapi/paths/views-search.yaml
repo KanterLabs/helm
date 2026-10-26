@@ -1,0 +1,52 @@
+paths:
+  /api/v1/views/{view}/search:
+    parameters:
+      - name: view
+        in: path
+        required: true
+        description: Opaque saved view ID.
+        schema:
+          $ref: "#/components/schemas/Identifier"
+    get:
+      operationId: searchSavedView
+      summary: Execute a saved search view
+      description: Explicit search query parameters override matching saved-view filters for this request only.
+      tags:
+        - Search
+      parameters:
+        - name: clear
+          in: query
+          description: Clear selected saved criteria before explicit overrides.
+          schema:
+            type: string
+            pattern: ^(q|priority|state|release_id)(,(q|priority|state|release_id))*$
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/ReleaseIDFilter"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Search results produced from the saved view.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalSearchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

@@ -1,0 +1,318 @@
+{
+  "components": {
+    "schemas": {
+      "ReleaseQueueTaskReference": {
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "version"
+        ],
+        "description": "Bounded task identity/version needed to inspect or claim one queue item.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueBlocker": {
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "title",
+          "completed_at",
+          "satisfied"
+        ],
+        "description": "Compact prerequisite reference preventing a queue item from being claimable.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "completed_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "satisfied": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueItem": {
+        "type": "object",
+        "required": [
+          "task",
+          "relationship",
+          "disposition",
+          "blocked_by"
+        ],
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/ReleaseQueueTaskReference"
+          },
+          "relationship": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "prerequisite"
+            ]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "owned",
+              "claimable",
+              "dependency_blocked",
+              "manually_blocked",
+              "claimed_elsewhere",
+              "cross_release_conflict"
+            ]
+          },
+          "blocked_by": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/ReleaseQueueBlocker"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueSnapshot": {
+        "type": "object",
+        "required": [
+          "project_revision",
+          "read_at"
+        ],
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Project event revision captured by the queue snapshot."
+          },
+          "task_collection_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Task collection revision captured when available."
+          },
+          "read_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueSummary": {
+        "type": "object",
+        "required": [
+          "direct",
+          "required",
+          "completed",
+          "claimable",
+          "owned",
+          "dependency_blocked",
+          "manually_blocked",
+          "claimed_elsewhere",
+          "cross_release_conflicts"
+        ],
+        "properties": {
+          "direct": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "claimable": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "owned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dependency_blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "manually_blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "claimed_elsewhere": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cross_release_conflicts": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueRelease": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseWorkQueue": {
+        "type": "object",
+        "required": [
+          "release",
+          "snapshot",
+          "summary",
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "release": {
+            "$ref": "#/components/schemas/ReleaseQueueRelease"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ReleaseQueueSnapshot"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ReleaseQueueSummary"
+          },
+          "data": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/ReleaseQueueItem"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Opaque queue cursor; empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReleaseQueueConflictErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "details"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "const": "release_queue_changed"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object",
+                "required": [
+                  "restart"
+                ],
+                "properties": {
+                  "expected_release_version": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 1
+                  },
+                  "current_release_version": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 1
+                  },
+                  "expected_project_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "current_project_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "expected_task_collection_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "current_task_collection_revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "restart": {
+                    "const": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
