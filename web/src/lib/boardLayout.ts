@@ -1,7 +1,8 @@
 import { tick } from 'svelte';
 
 /** Shortest shared column height, so cramped viewports keep a usable card body. */
-export const minBoardColumnHeight = 280;
+// Keep a full readable card visible beneath the column header and intake hint.
+export const minBoardColumnHeight = 340;
 
 /**
  * Columns share the tallest natural stack, capped to the viewport space below the

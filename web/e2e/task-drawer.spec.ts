@@ -1,86 +1,8 @@
-import { expect, test, type APIRequestContext, type APIResponse, type TestInfo } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { collectionData, columnFor, createProject, createTask, json, mutateTaskPayload, mutationHeaders, type Collection, type Column, type Task } from './support/taskDrawerFixture';
 
 // Browser fault injection must bypass SW interception; real SW coverage has its own suite.
 test.use({ serviceWorkers: 'block' });
-
-type Project = { id: string; key: string; name: string; slug: string };
-type Column = { id: string; name: string; semantic_state: string; position: number };
-type Task = {
-  id: string;
-  key: string;
-  title: string;
-  project_id: string;
-  column_id: string;
-  version: number;
-  kind?: string;
-  bug?: { severity?: string | null; resolution?: string | null } | null;
-};
-type Collection<T> = { data: T[]; next_cursor?: string | null };
-
-const e2eOrigin = new URL(process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080').origin;
-
-function mutationHeaders(version?: number, key = `task-drawer-e2e-${crypto.randomUUID()}`): Record<string, string> {
-  return {
-    Origin: e2eOrigin,
-    'Content-Type': 'application/json',
-    'Idempotency-Key': key,
-    ...(version === undefined ? {} : { 'If-Match': `"v${version}"` })
-  };
-}
-
-async function json<T>(response: APIResponse, description: string): Promise<T> {
-  expect(response.ok(), `${description} returned HTTP ${response.status()}`).toBeTruthy();
-  return await response.json() as T;
-}
-
-function collectionData<T>(payload: Collection<T> | T[]): T[] {
-  return Array.isArray(payload) ? payload : payload.data;
-}
-
-function columnFor(columns: Column[], semanticState: string): Column {
-  const column = columns.find((item) => item.semantic_state === semanticState);
-  expect(column, `the project should have a ${semanticState} column`).toBeTruthy();
-  return column as Column;
-}
-
-async function createProject(request: APIRequestContext, suffix: string): Promise<Project> {
-  return json<Project>(await request.post('/api/v1/projects', {
-    data: {
-      key: `TD${suffix}`.slice(0, 16),
-      name: `Task drawer E2E ${suffix}`,
-      description: 'Task drawer acceptance fixture.'
-    },
-    headers: mutationHeaders()
-  }), 'create task drawer project');
-}
-
-async function createTask(
-  request: APIRequestContext,
-  project: Project,
-  column: Column,
-  title: string,
-  extra: Record<string, unknown> = {}
-): Promise<Task> {
-  return json<Task>(await request.post(`/api/v1/projects/${project.id}/tasks`, {
-    data: { title, column_id: column.id, priority: 'normal', ...extra },
-    headers: mutationHeaders()
-  }), `create ${title}`);
-}
-
-function mutateTaskPayload(value: unknown, taskID: string, update: (task: Record<string, unknown>) => void): boolean {
-  if (Array.isArray(value)) return value.some((item) => mutateTaskPayload(item, taskID, update));
-  if (!value || typeof value !== 'object') return false;
-  const record = value as Record<string, unknown>;
-  if (record.id === taskID) {
-    update(record);
-    return true;
-  }
-  return Array.isArray(record.data) && record.data.some((item) => mutateTaskPayload(item, taskID, update));
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 test.describe('task drawer safeguards', () => {
   test('keeps bug drafts safe through triage, close guards, focus, and one-scroll layouts', async ({ page, request }) => {
@@ -256,18 +178,18 @@ test.describe('task drawer safeguards', () => {
     const claimedCard = board.locator('.task-card').filter({ hasText: claimed.title });
     const claimedPulse = claimedCard.locator('.agent-pulse');
     const expandToggle = claimedCard.getByRole('button', { name: `Show details for ${claimed.key}` });
-    await expect(claimedCard).toHaveCSS('height', '128px');
+    await expect(claimedCard).toHaveCSS('height', '160px');
     await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(claimedPulse, 'board cards keep claim detail hidden until expanded').toBeHidden();
     await expect(claimedPulse.locator('.agent-pulse-copy')).toHaveCount(0);
 
     await expandToggle.click();
-    await expect(claimedCard).toHaveCSS('height', '220px');
+    await expect(claimedCard).toHaveCSS('height', '260px');
     await expect(claimedPulse).toBeVisible();
     await expect(claimedPulse.locator('.agent-pulse-badge-label')).toHaveText('No live pulse');
     await expect(claimedPulse.locator('.agent-pulse-copy')).toHaveCount(0);
     await claimedCard.getByRole('button', { name: `Hide details for ${claimed.key}` }).click();
-    await expect(claimedCard).toHaveCSS('height', '128px');
+    await expect(claimedCard).toHaveCSS('height', '160px');
     await expect(claimedPulse).toBeHidden();
 
     await claimedCard.locator('[data-task-trigger]').click();
@@ -309,194 +231,5 @@ test.describe('task drawer safeguards', () => {
     await expect(drawer.getByRole('button', { name: /Renew claim/ })).toHaveCount(0);
   });
 
-  test('guards dirty drafts when switching tasks from My Work and the command palette', async ({ page, request }, testInfo) => {
-    test.setTimeout(120_000);
-    const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
-    expect(status.mode, 'The E2E server must run with HELM_AUTH_MODE=disabled').toBe('disabled');
 
-    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
-    const project = await createProject(request, suffix);
-    const columns = collectionData(await json<Collection<Column> | Column[]>(
-      await request.get(`/api/v1/projects/${project.id}/columns?limit=20`),
-      'list navigation columns'
-    ));
-    const ready = columnFor(columns, 'ready');
-    const source = await createTask(request, project, ready, `Navigation source ${suffix}`);
-    const issue = await createTask(request, project, ready, `Navigation issue ${suffix}`, {
-      kind: 'bug',
-      bug: {
-        actual_behavior: 'The command palette can replace a draft.',
-        expected_behavior: 'Task switching asks before replacing a draft.',
-        reproduction_steps: 'Edit one task, then open another task.',
-        environment: 'Browser E2E',
-        affected_version: 'drawer-test'
-      }
-    });
-    let work = await createTask(request, project, ready, `Navigation work ${suffix}`);
-    work = await json<Task>(await request.post(`/api/v1/tasks/${work.id}/claim`, {
-      data: { lease_seconds: 300 },
-      headers: mutationHeaders(work.version)
-    }), 'claim navigation work task');
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/p/${project.slug}`);
-    const board = page.locator('section.board');
-    const drawer = page.locator('.task-drawer');
-    const sourceCard = board.locator('.task-card').filter({ hasText: source.key });
-    await sourceCard.locator('[data-task-trigger]').click();
-    await expect(drawer).toBeVisible();
-
-    const myWorkDraft = `My Work draft ${suffix}`;
-    await drawer.getByLabel('Task title').fill(myWorkDraft);
-    const sourceURL = page.url();
-    const myWorkNavigation = page.locator('nav.sidebar').getByRole('button', { name: 'My work', exact: true });
-    const dismissMyWorkDialog = page.waitForEvent('dialog').then((dialog) => dialog.dismiss());
-    await myWorkNavigation.dispatchEvent('click');
-    await dismissMyWorkDialog;
-    await expect(page).toHaveURL(sourceURL);
-    await expect(drawer).toBeVisible();
-    await expect(drawer.getByLabel('Task title')).toHaveValue(myWorkDraft);
-    const sourceAfterCancel = await json<Task>(await request.get(`/api/v1/tasks/${source.id}`), 'read source after canceled navigation');
-    expect(sourceAfterCancel.title).toBe(source.title);
-
-    const acceptMyWorkDialog = page.waitForEvent('dialog').then((dialog) => dialog.accept());
-    await myWorkNavigation.dispatchEvent('click');
-    await acceptMyWorkDialog;
-    await expect(page).toHaveURL(/\/my-work\/?$/);
-    await expect(drawer).toBeHidden();
-    const sourceAfterDiscard = await json<Task>(await request.get(`/api/v1/tasks/${source.id}`), 'read source after discarded navigation');
-    expect(sourceAfterDiscard.title).toBe(source.title);
-    const workSource = page.getByRole('group', { name: 'My work source' });
-    const assignedToggle = workSource.getByRole('button', { name: 'Assigned', exact: true });
-    await assignedToggle.dispatchEvent('click');
-    const workRow = page.locator('.work-list .work-row').filter({ hasText: work.title });
-    await expect(workRow).toBeVisible();
-    await workRow.click();
-    await expect(drawer).toBeVisible();
-    await expect(drawer.getByLabel('Task title')).toHaveValue(work.title);
-
-    // Keep the loaded issue collection while returning to the board so the
-    // command palette can resolve the issue choice without a second fetch.
-    await drawer.getByRole('button', { name: 'Close task details', exact: true }).click();
-    await page.locator('nav.sidebar').getByRole('button', { name: 'Issues', exact: true }).dispatchEvent('click');
-    await expect(page).toHaveURL(/\/issues\/?$/);
-    await expect(page.getByRole('button', { name: new RegExp(escapeRegExp(issue.title)) })).toBeVisible();
-    await page.locator('nav.sidebar').getByRole('button', { name: 'Go to current project', exact: true }).dispatchEvent('click');
-    await expect(page).toHaveURL(new RegExp(`/p/${escapeRegExp(project.slug)}/?$`));
-    await sourceCard.locator('[data-task-trigger]').click();
-    await expect(drawer).toBeVisible();
-    const commandSourceURL = page.url();
-    const commandDraft = `Command palette draft ${suffix}`;
-    await drawer.getByLabel('Task title').fill(commandDraft);
-    await page.keyboard.press('Control+k');
-    const commandDialog = page.getByRole('dialog', { name: 'Search Helm' });
-    await expect(commandDialog).toBeVisible();
-    const commandInput = commandDialog.getByRole('combobox', { name: 'Search projects and views, tasks, issues, and actions' });
-    await commandInput.fill(issue.title);
-    const issueChoice = commandDialog.getByRole('option', { name: new RegExp(escapeRegExp(issue.title)) });
-    await expect(issueChoice).toBeVisible();
-    const dismissCommandDialog = page.waitForEvent('dialog').then((dialog) => dialog.dismiss());
-    await issueChoice.click();
-    await dismissCommandDialog;
-    await expect(page).toHaveURL(commandSourceURL);
-    await expect(drawer.getByLabel('Task title')).toHaveValue(commandDraft);
-
-    await page.keyboard.press('Control+k');
-    const secondCommandDialog = page.getByRole('dialog', { name: 'Search Helm' });
-    await secondCommandDialog.getByRole('combobox', { name: 'Search projects and views, tasks, issues, and actions' }).fill(issue.title);
-    const secondIssueChoice = secondCommandDialog.getByRole('option', { name: new RegExp(escapeRegExp(issue.title)) });
-    await expect(secondIssueChoice).toBeVisible();
-    const acceptCommandDialog = page.waitForEvent('dialog').then((dialog) => dialog.accept());
-    await secondIssueChoice.click();
-    await acceptCommandDialog;
-    await expect(drawer.getByLabel('Task title')).toHaveValue(issue.title);
-    const persistedSource = await json<Task>(await request.get(`/api/v1/tasks/${source.id}`), 'read source after command navigation');
-    expect(persistedSource.title).toBe(source.title);
-    await testInfo.attach('discard-navigation-persisted-state.json', {
-      body: JSON.stringify({ source: { key: source.key, title: persistedSource.title }, openedTask: issue.key, canceledNavigationURL: new URL(commandSourceURL).pathname }),
-      contentType: 'application/json'
-    });
-    await testInfo.attach('discard-navigation-opened-issue.png', { body: await page.screenshot(), contentType: 'image/png' });
-  });
-
-  test('hydrates clean drawer drafts from polling while preserving dirty drafts', async ({ page, request }, testInfo: TestInfo) => {
-    test.setTimeout(120_000);
-    const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
-    expect(status.mode, 'The E2E server must run with HELM_AUTH_MODE=disabled').toBe('disabled');
-
-    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
-    const project = await createProject(request, suffix);
-    const columns = collectionData(await json<Collection<Column> | Column[]>(
-      await request.get(`/api/v1/projects/${project.id}/columns?limit=20`),
-      'list polling columns'
-    ));
-    const ready = columnFor(columns, 'ready');
-    const task = await createTask(request, project, ready, `Polling source ${suffix}`);
-
-    // Liveness refreshes are intentionally infrequent in production. Shorten
-    // only that interval in this browser so the test exercises the real
-    // refreshDrawerTask path without waiting a minute.
-    await page.addInitScript(() => {
-      const nativeSetInterval = window.setInterval.bind(window);
-      window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: any[]) =>
-        nativeSetInterval(handler, timeout === 60_000 ? 100 : timeout, ...args)) as typeof window.setInterval;
-    });
-    const cleanRefreshTitle = `Authoritative clean refresh ${suffix}`;
-    const dirtyRefreshTitle = `Authoritative dirty refresh ${suffix}`;
-    const refreshEvidence: Array<{ key: string; title: string; version: number }> = [];
-    const nextPollingRead = (title: string) => page.waitForResponse(async (response) => {
-      const url = new URL(response.url());
-      if (response.request().method() !== 'GET' || url.pathname !== `/api/v1/tasks/${task.id}` || !response.ok()) return false;
-      return (await response.json() as Task).title === title;
-    }, { timeout: 10_000 });
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/p/${project.slug}`);
-    const board = page.locator('section.board');
-    const card = board.locator('.task-card').filter({ hasText: task.key });
-    await card.locator('[data-task-trigger]').click();
-    const drawer = page.locator('.task-drawer');
-    await expect(drawer).toBeVisible();
-    await expect(drawer.locator('.drawer-loading')).toBeHidden();
-    await expect(drawer.getByLabel('Task title')).toHaveValue(task.title);
-
-    // Persist changes through the real API so the drawer and concurrent board
-    // polling receive the same versioned snapshot, regardless of read order.
-    const cleanRead = nextPollingRead(cleanRefreshTitle);
-    const clean = await json<Task>(await request.patch(`/api/v1/tasks/${task.id}`, {
-      data: { title: cleanRefreshTitle }, headers: mutationHeaders(task.version)
-    }), 'persist clean polling refresh');
-    const cleanResponse = await (await cleanRead).json() as Task;
-    refreshEvidence.push({ key: cleanResponse.key, title: cleanResponse.title, version: cleanResponse.version });
-    await expect(drawer.getByLabel('Task title')).toHaveValue(cleanRefreshTitle, { timeout: 10_000 });
-    await expect(drawer.locator('.drawer-save-bar')).toContainText('All changes saved');
-    await expect(card).toContainText(cleanRefreshTitle);
-
-    const dirtyDraftTitle = `Local dirty draft ${suffix}`;
-    await drawer.getByLabel('Task title').fill(dirtyDraftTitle);
-    const dirtyRead = nextPollingRead(dirtyRefreshTitle);
-    const dirty = await json<Task>(await request.patch(`/api/v1/tasks/${task.id}`, {
-      data: { title: dirtyRefreshTitle }, headers: mutationHeaders(clean.version)
-    }), 'persist dirty polling refresh');
-    const dirtyResponse = await (await dirtyRead).json() as Task;
-    refreshEvidence.push({ key: dirtyResponse.key, title: dirtyResponse.title, version: dirtyResponse.version });
-    await expect(card).toContainText(dirtyRefreshTitle);
-    await expect(drawer.getByLabel('Task title')).toHaveValue(dirtyDraftTitle, { timeout: 10_000 });
-    await expect(drawer.locator('.drawer-save-bar')).toContainText('Unsaved changes');
-    expect(refreshEvidence).toEqual([
-      { key: task.key, title: cleanRefreshTitle, version: clean.version },
-      { key: task.key, title: dirtyRefreshTitle, version: dirty.version }
-    ]);
-    const persisted = await json<Task>(await request.get(`/api/v1/tasks/${task.id}`), 'read final polling task');
-    expect(persisted.title).toBe(dirtyRefreshTitle);
-    expect(persisted.version).toBe(dirty.version);
-    await testInfo.attach('task-drawer-polling-responses.json', {
-      body: JSON.stringify({ task: task.key, responses: refreshEvidence, persisted: { title: persisted.title, version: persisted.version }, localDraft: dirtyDraftTitle }, null, 2),
-      contentType: 'application/json'
-    });
-    await testInfo.attach('task-drawer-polling.png', {
-      body: await page.screenshot({ fullPage: true }),
-      contentType: 'image/png'
-    });
-  });
 });

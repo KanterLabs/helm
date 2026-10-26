@@ -5,6 +5,9 @@ User-visible changes after v0.2.2 belong here, newest first. Latest release:
 
 ## Features
 
+- **Roomier project boards:** wider columns, larger three-line card titles, and
+  dedicated space for card controls make bugs and task details easier to read.
+
 - **Bugs intake connected to ticket triage:** classify an existing ticket as a bug,
   keep its comments and history, and file it into a project's Bugs column.
   Review severity and priority, then use **Triage & move to Ready** to accept it.

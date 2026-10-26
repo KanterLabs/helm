@@ -3,7 +3,6 @@
   .sidebar:not(.rail) { width: 228px; flex-basis: 228px; }
   .content { padding-right: 24px; padding-left: 24px; }
   .topbar { padding-right: 24px; padding-left: 24px; }
-  .board { grid-auto-flow: column; grid-auto-columns: minmax(205px, 1fr); }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-aside-card { position: static; }
   .settings-aside { display: none; }
@@ -97,12 +96,11 @@
   .filter-group { gap: 7px; scrollbar-width: none; }
   .filter-group select { height: 44px; flex: 0 0 142px; }
   .clear-filters { min-height: 44px; padding: 0 8px; }
-  .board { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(82vw, 1fr); gap: 12px; margin-right: -14px; overflow-x: auto; padding: 2px 14px 16px 0; scroll-snap-type: x mandatory; }
+  .board { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(min(340px, calc(100vw - 32px)), 1fr); gap: 12px; margin-right: -14px; overflow-x: auto; padding: 2px 14px 16px 0; scroll-snap-type: x mandatory; }
   .board-column { scroll-margin-top: calc(70px + env(safe-area-inset-top)); scroll-snap-align: start; }
   .column-header { position: relative; z-index: 2; min-height: 52px; border-radius: 12px 12px 0 0; background: color-mix(in srgb, var(--surface-muted) 94%, transparent); backdrop-filter: blur(10px); }
   .column-cards { min-height: 0; }
   .task-main { min-height: 44px; padding: 13px 12px 10px; }
-  .task-title { font-size: var(--text-sm); }
   .task-excerpt { font-size: var(--text-xs); }
   .task-card-footer { min-height: 45px; padding-bottom: 5px; }
   .card-move { width: 44px; height: 44px; }
