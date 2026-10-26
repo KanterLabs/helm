@@ -24,6 +24,11 @@ components:
           minimum: 1
         column_id:
           $ref: "#/components/schemas/Identifier"
+        semantic_state:
+          type: string
+          description: Captured board placement; optional for older imported evidence.
+        column_name:
+          type: string
         criteria:
           type: array
           items:
@@ -89,6 +94,12 @@ components:
           minimum: 1
         text:
           type: string
+        task_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Identifier"
+          description: Captured tasks associated with this PR or check evidence.
       additionalProperties: false
     GithubAuditEvidence:
       type: object
@@ -109,6 +120,9 @@ components:
           $ref: "#/components/schemas/Timestamp"
         partial:
           type: boolean
+        omitted_files:
+          type: integer
+          minimum: 0
         omissions:
           type: array
           items:
