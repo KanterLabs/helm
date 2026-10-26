@@ -56,12 +56,15 @@ make build
 go test ./internal/db ./internal/config ./internal/store ./internal/httpapi
 go vet ./...
 ./deploy/test-deployment-security.sh
-HELM_E2E_GOFLAGS=-race ./test/e2e/run.sh e2e/pr-links.spec.ts e2e/audit.spec.ts
+HELM_E2E_GOFLAGS=-race ./test/e2e/run.sh
 ```
 
-`pr-links.spec.ts` is proposed. Add provider tests and run the required CI
-suites before release; serialize builds and E2E because the harness replaces
-embedded assets. Any CI job created or modified uses `homelab` or
+The complete browser command includes `pr-links-ui.spec.ts`,
+`github-audit-ui.spec.ts`, `github-selection-ui.spec.ts` and the dedicated
+`github-beta-integration.spec.ts` real backend harness. Focused runs retain
+their specified scope. Run the required CI suites before release; serialize
+builds and E2E because the harness replaces embedded assets. Any CI job
+created or modified uses `homelab` or
 `homelab-heavy` per the current policy unless a live incompatibility is
 demonstrated and reported. Revalidate existing hosted-runner exceptions;
 this plan does not silently migrate infrastructure or rewrite workflows.
@@ -107,6 +110,9 @@ changes image and revision only, so token provisioning is a distinct step.
    missing/disabled token or AI connection leaves the rest of Helm usable.
    Take a verified post-release backup.
 7. Roll back image/revision only, retaining current data and additive tables.
+   After private audit history exists, use a source-aware rollback image or
+   deny all audit API ingress first; the old binary cannot enforce GitHub
+   source permissions. Follow [the activation and rollback boundary](GITHUB_BETA_OPERATIONS.md).
    If retained-binary compatibility is not proven, stop promotion and fix it.
    Destructive restore requires separate authorization and an exact backup.
 

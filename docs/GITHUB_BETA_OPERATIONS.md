@@ -70,7 +70,9 @@ database to work around it.
 - Provider/config/runtime and backend race tests use synthetic credentials.
 - `test/githubbeta/run.sh` exercises the real HTTP/store/worker path with fake
   external GitHub and inference adapters. Build current frontend assets and
-  the harness first, then supply `HELM_GITHUB_BETA_BINARY`.
+  the harness first, then supply `HELM_GITHUB_BETA_BINARY`. The complete
+  `test/e2e/run.sh` suite builds and executes this harness automatically;
+  focused spec runs keep their requested scope.
 - Browser artifacts include screenshots, traces and responses. The harness
   scans them for its credential sentinel; no live account is used.
 - Portable HTTP defaults to v2; the UI explicitly exports v3. V3 preserves

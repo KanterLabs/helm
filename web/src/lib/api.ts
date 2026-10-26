@@ -7,6 +7,7 @@ import { ticketsApi } from './api/tickets';
 import { activityApi } from './api/activity';
 import { createViewsApi } from './api/views';
 import { auditsApi } from './api/audits';
+import { githubApi } from './api/github';
 import { collectPages } from './api/client';
 import type { Actor, Collection, Task, Release } from './types';
 import type { TaskListParams, IssueListParams, ReleaseListParams } from './api/params';
@@ -25,7 +26,8 @@ export const api = {
   ...ticketsApi,
   ...activityApi,
   ...createViewsApi((): ReturnType<typeof createViewsApi> => api),
-  ...auditsApi
+  ...auditsApi,
+  ...githubApi
 };
 
 /** Fetch every page for a board while retaining the contract's cursor API. */

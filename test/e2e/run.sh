@@ -189,6 +189,23 @@ start_server 18081 local local
 )
 stop_server
 
+# The complete browser suite also exercises the real GitHub provider/worker
+# HTTP path. External GitHub and inference are synthetic; no live token is used.
+# Focused runs (for example account deadline checks) keep their existing scope.
+if [[ "$#" == 0 ]]; then
+  github_binary="$work_dir/helm-githubbeta"
+  read -r -a github_go_flags <<< "${HELM_E2E_GOFLAGS:-}"
+  if command -v go >/dev/null 2>&1; then
+    (cd "$root" && go build "${github_go_flags[@]}" -trimpath -o "$github_binary" ./test/githubbeta)
+  else
+    docker run --rm --volume "$root:/src:ro" --volume "$work_dir:/out" --workdir /src \
+      golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 \
+      go build "${github_go_flags[@]}" -buildvcs=false -trimpath -o /out/helm-githubbeta ./test/githubbeta
+  fi
+  HELM_GITHUB_BETA_BINARY="$github_binary" HELM_E2E_ARTIFACT_DIR="$artifact_dir/github" \
+    "$root/test/githubbeta/run.sh"
+fi
+
 if grep -rlF -e "$coolify_secret" -e "$fake_cf_token" "$artifact_dir" "$work_dir"/*.log; then
   printf 'Coolify intake secret leaked into logs or evidence\n' >&2
   exit 1

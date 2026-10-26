@@ -12,6 +12,8 @@
   export let refresh: () => Promise<void>;
   export let showList: () => void;
   export let loadAuditDetail: (auditId: string) => Promise<void>;
+  /** Server-run audits explain progress in their job panel instead. */
+  export let serverRun = false;
 </script>
 
     <section class="page-heading audit-heading">
@@ -24,4 +26,4 @@
     </section>
 
     {#if detailError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{detailError}</span><button class="text-button" type="button" on:click={() => loadAuditDetail(selectedAuditId)}>Retry</button></div>{/if}
-    {#if !helpers.auditReadyForReview()}<div class="inline-alert content-alert" role="status"><span>…</span><span>{selectedAudit.status === 'failed' ? 'This audit failed. Run a fresh audit before reviewing or applying findings.' : 'An agent is still processing this audit. Review and apply unlock only after it finishes.'}</span></div>{/if}
+    {#if !serverRun && !helpers.auditReadyForReview()}<div class="inline-alert content-alert" role="status"><span>…</span><span>{selectedAudit.status === 'failed' ? 'This audit failed. Run a fresh audit before reviewing or applying findings.' : 'An agent is still processing this audit. Review and apply unlock only after it finishes.'}</span></div>{/if}

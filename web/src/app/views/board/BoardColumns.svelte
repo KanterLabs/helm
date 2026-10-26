@@ -11,6 +11,7 @@
   import BoardOverflowNavigation from '../../../lib/components/BoardOverflowNavigation.svelte';
   import type { BoardOverflowDirection, BoardOverflowState } from '../../../lib/boardOverflowNavigation';
   import TaskDependencyStatus from '../../../lib/components/TaskDependencyStatus.svelte';
+  import PullRequestBadge from '../../../lib/components/github/PullRequestBadge.svelte';
   import { dependencyBlocked } from '../../../lib/dependencies';
   import { hierarchyBadgeLabel } from '../../../lib/hierarchy';
   import { actorId, actorName, formatDate } from '../../../lib/state';
@@ -96,7 +97,7 @@
 	                              {#if hierarchyBadgeLabel(task)}<span class="hierarchy-badge" aria-label={`Hierarchy: ${hierarchyBadgeLabel(task)}`}><span aria-hidden="true">⌘</span>{hierarchyBadgeLabel(task)}</span>{/if}
                 </button>
                 {#if showAgentPulse(task)}<AgentPulse {task} now={live.pulseClock} actorLabel={agentLabelForTask(task)} compact />{/if}
-                <div class="task-card-footer"><button class="card-expand-toggle" type="button" aria-expanded={board.expandedBoardTaskIds.has(task.id)} aria-label={`${board.expandedBoardTaskIds.has(task.id) ? 'Hide' : 'Show'} details for ${task.key}`} on:click|stopPropagation={() => toggleBoardTaskExpanded(task.id)}><span class="card-expand-icon" aria-hidden="true"></span>Details</button><span class={`due-date ${taskDueClass(task)}`}>{#if task.due_at}<span aria-hidden="true">◷</span>{formatDate(task.due_at)}{/if}</span><span class="card-footer-spacer"></span>{#if task.assignee}<span class="mini-avatar" title={`Assigned to ${actorName(task.assignee) || actorId(task.assignee)}`}>{(actorName(task.assignee) || actorId(task.assignee)).slice(0, 1).toUpperCase()}</span>{/if}{#if task.comment_count}<span class="comment-count" title={`${task.comment_count} comments`}>◌ {task.comment_count}</span>{/if}<BoardCardActions taskKey={task.key} actions={boardCardActions(task, orderedColumnTasks, orderingGate, drawer.taskActionLoading === task.id)} /></div>
+                <div class="task-card-footer"><button class="card-expand-toggle" type="button" aria-expanded={board.expandedBoardTaskIds.has(task.id)} aria-label={`${board.expandedBoardTaskIds.has(task.id) ? 'Hide' : 'Show'} details for ${task.key}`} on:click|stopPropagation={() => toggleBoardTaskExpanded(task.id)}><span class="card-expand-icon" aria-hidden="true"></span>Details</button><span class={`due-date ${taskDueClass(task)}`}>{#if task.due_at}<span aria-hidden="true">◷</span>{formatDate(task.due_at)}{/if}</span><PullRequestBadge {task} onOpen={() => openTask(task)} /><span class="card-footer-spacer"></span>{#if task.assignee}<span class="mini-avatar" title={`Assigned to ${actorName(task.assignee) || actorId(task.assignee)}`}>{(actorName(task.assignee) || actorId(task.assignee)).slice(0, 1).toUpperCase()}</span>{/if}{#if task.comment_count}<span class="comment-count" title={`${task.comment_count} comments`}>◌ {task.comment_count}</span>{/if}<BoardCardActions taskKey={task.key} actions={boardCardActions(task, orderedColumnTasks, orderingGate, drawer.taskActionLoading === task.id)} /></div>
               </article>
             {/each}
           {/if}

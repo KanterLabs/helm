@@ -1,5 +1,7 @@
 <script lang="ts">
-  import type { AuditFinding, AuditVerdict, AuditReviewState, Column, SemanticState } from '../../types';
+  import type { AuditFinding, AuditVerdict, AuditReviewState, Column, GithubEvidenceItem, SemanticState } from '../../types';
+  import { taskDeepLink } from '../../state';
+  import AuditCitations from './AuditCitations.svelte';
   import { stateLabels, verdictLabels, reviewLabels, semanticStates } from './helpers';
   import type { AuditHelpers } from './helpers';
   export let helpers: AuditHelpers;
@@ -14,6 +16,21 @@
   export let approveFinding: (finding: AuditFinding) => Promise<void>;
   export let dismissFinding: (finding: AuditFinding) => Promise<void>;
   export let openPreview: (finding: AuditFinding) => void;
+  export let projectSlug = '';
+  export let evidenceItems: Map<string, GithubEvidenceItem> = new Map();
+  /** Optional in-app task opener; the link's href still works without it. */
+  export let onOpenTask: ((finding: AuditFinding) => void) | null = null;
+
+  function taskHref(finding: AuditFinding): string {
+    const key = helpers.findingTask(finding)?.key || helpers.capturedTask(finding)?.key;
+    return projectSlug && key ? taskDeepLink(projectSlug, key) : '';
+  }
+
+  function openTask(event: MouseEvent, finding: AuditFinding): void {
+    if (!onOpenTask || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onOpenTask(finding);
+  }
 </script>
 
       {#each groupedFindings as group}
@@ -25,10 +42,10 @@
                 <article class="audit-finding" class:changed={helpers.changedSinceAudit(finding)}>
                   <div class="audit-finding-main">
                     <div class="audit-finding-top"><span class="task-key">{helpers.taskLabel(finding)}</span><span class={`audit-verdict ${helpers.verdictClass(finding.verdict)}`}>{verdictLabels[finding.verdict as AuditVerdict] || finding.verdict}</span><span class={`audit-review-state ${helpers.reviewClass(finding.review_state)}`}>{reviewLabels[finding.review_state as AuditReviewState] || finding.review_state}</span></div>
-                    <h3>{helpers.findingTask(finding)?.title || finding.task_id}</h3>
+                    <h3>{helpers.taskTitle(finding)}</h3>
                     <div class="audit-route"><span>{helpers.sourceLabel(finding)}</span><span aria-hidden="true">→</span><strong>{helpers.destinationLabel(finding)}</strong></div>
                     <p class="audit-reason">{finding.reason || 'No reason provided.'}</p>
-                    {#if helpers.evidenceFor(finding).length}<div class="audit-evidence"><span class="optional">Evidence</span>{#each helpers.evidenceFor(finding) as evidence}<span>{evidence}</span>{/each}</div>{/if}
+                    <AuditCitations findingId={finding.id} refs={helpers.evidenceFor(finding)} items={evidenceItems} />
                     <div class="audit-finding-meta"><span>{helpers.confidenceLabel(finding.confidence)}</span><span>Captured <strong>{helpers.findingVersionLabel(finding)}</strong></span><span>Current <strong>{helpers.currentVersionLabel(finding)}</strong></span><span>{helpers.changedSinceAudit(finding) ? 'Changed since audit' : `Current: ${helpers.currentLabel(finding)}`}</span></div>
                     {#if helpers.changedSinceAudit(finding)}<div class="audit-changed-warning" role="alert"><span aria-hidden="true">!</span><span>This task changed after the audit. Approval and apply are locked until a fresh audit captures the current version.</span></div>{/if}
                   </div>
@@ -40,6 +57,7 @@
                       <button class="button quiet-button compact-button" type="button" disabled={!helpers.auditReadyForReview()} on:click={() => editDestination(finding)}>Edit destination</button>
                     {/if}
                     <div class="audit-action-row"><button class="button quiet-button compact-button" type="button" disabled={!helpers.auditReadyForReview() || activeMutation === finding.id || helpers.changedSinceAudit(finding)} on:click={() => void approveFinding(finding)}>{finding.review_state === 'approved' ? 'Approved' : 'Approve'}</button><button class="button quiet-button compact-button" type="button" disabled={!helpers.auditReadyForReview() || activeMutation === finding.id || finding.review_state === 'dismissed'} on:click={() => void dismissFinding(finding)}>{finding.review_state === 'dismissed' ? 'Dismissed' : 'Dismiss'}</button></div>
+                    {#if taskHref(finding)}<a class="button quiet-button compact-button" href={taskHref(finding)} on:click={(event) => openTask(event, finding)}>Open {helpers.taskLabel(finding)}</a>{/if}
                     {#if finding.review_state === 'approved'}<button class="button primary compact-button" type="button" disabled={!helpers.auditReadyForReview() || helpers.changedSinceAudit(finding)} title={helpers.applyBlockReason(finding)} on:click={() => openPreview(finding)}>Preview approved finding</button>{/if}
                   </div>
                 </article>

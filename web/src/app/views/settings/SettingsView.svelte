@@ -3,6 +3,7 @@
 <script lang="ts">
   // Settings: project administration, Luna, agents, tokens and appearance.
   import LunaRunHistory from '../../../lib/components/LunaRunHistory.svelte';
+  import GitHubIntegrationSettings from '../../../lib/components/github/GitHubIntegrationSettings.svelte';
   import { formatDate, helmStorageKeys } from '../../../lib/state';
   import { scopeOptions } from '../../constants';
   import { cancelCodexLogin, connectCodex, copyCodexCode, createAgent, createToken, deleteToken, disconnectCodex, loadAgents, loadCodexAccount, toggleScope, toggleTokenProject } from '../../settings';
@@ -16,6 +17,7 @@
 <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Preferences</span></div><h1>Settings</h1><p>Manage the agents and tokens that help your workspace move.</p></div></section>
 {#if session.user?.admin}
   <ProjectAdminSection />
+  <GitHubIntegrationSettings projects={workspace.projects} defaultProjectId={workspace.activeProject?.id || ''} />
 {/if}
 <section class="settings-section codex-section">
   <div class="settings-section-heading"><div><span class="eyebrow">Luna assistant</span><h2>Your Codex subscription</h2><p>Connect your own Codex-enabled ChatGPT account. Helm stores it only in your private user runtime and never shares it with another user.</p></div>{#if settings.codexAccount?.connected}<span class="codex-connected">✓ Connected</span>{/if}</div>

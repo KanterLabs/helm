@@ -11,8 +11,11 @@
   import { createAuditFocus } from './audit/focus';
   import AuditDetailHeading from './audit/AuditDetailHeading.svelte';
   import AuditFindingGroups from './audit/AuditFindingGroups.svelte';
-  import AuditDialogs from './audit/AuditDialogs.svelte';
+  import AuditApplyFlow from './audit/AuditApplyFlow.svelte';
   import AuditRunList from './audit/AuditRunList.svelte';
+  import AuditEvidenceManifest from './audit/AuditEvidenceManifest.svelte';
+  import GithubAuditJobPanel from './audit/GithubAuditJob.svelte';
+  import { evidenceIndex, loadMissingTasks } from './audit/githubAudit';
   import { createAuditHelpers, verdicts, verdictLabels } from './audit/helpers';
   import {
     ApiError,
@@ -22,6 +25,8 @@
     type AuditReviewState,
     type AuditRun,
     type Column,
+    type GithubAuditEvidence,
+    type GithubAuditJob,
     type Project,
     type SemanticState,
     type Task
@@ -37,6 +42,8 @@
   export let onNavigate: AuditNavigation = () => undefined;
   export let onNotice: AuditNotice = () => undefined;
   export let onTaskUpdated: AuditTaskUpdate = () => undefined;
+  /** Optional in-app opener for a finding's task; links work without it. */
+  export let onOpenTask: ((finding: AuditFinding) => void) | null = null;
 
   const auditFocus = createAuditFocus();
 
@@ -47,7 +54,14 @@
   let detailLoading = false;
   let listError = '';
   let detailError = '';
-  let creating = false;
+  // Server-run GitHub audits: job, immutable evidence and guarded apply preview.
+  let job: GithubAuditJob | null = null;
+  let serverRun = false;
+  let evidence: GithubAuditEvidence | null = null;
+  let extraTasks: Task[] = [];
+  let detailFor = '';
+  let evidenceRevision = 0;
+  let applyFlow: AuditApplyFlow;
   let activeMutation = '';
   let listRequest = 0;
   let detailRequest = 0;
@@ -55,14 +69,12 @@
   let loadKey = '';
   let editingFindingId = '';
   let destinationDraft: SemanticState | '' = '';
-  let previewFinding: AuditFinding | null = null;
-  let applyFinding: AuditFinding | null = null;
-  let applyOriginFinding: AuditFinding | null = null;
-  let applyError = '';
-  let applying = false;
 
   let helpers = createAuditHelpers({ currentProjectId: project?.id || '', selectedAuditId, selectedAudit, tasks, columns });
-  $: helpers = createAuditHelpers({ currentProjectId, selectedAuditId, selectedAudit, tasks, columns });
+  $: captured = new Map((evidence?.tasks || []).map((item) => [item.id, item]));
+  $: evidenceItems = evidenceIndex(evidence);
+  $: helpers = createAuditHelpers({ currentProjectId, selectedAuditId, selectedAudit, tasks: extraTasks.length ? [...tasks, ...extraTasks] : tasks, columns, captured });
+  $: evidenceReady = serverRun && Boolean(job && ['analyzing', 'validating', 'finished'].includes(job.stage));
 
   $: currentProjectId = project?.id || '';
   $: routeKey = `${currentProjectId}:${initialAuditId || ''}:${sessionGeneration}:${refreshToken}`;
@@ -107,7 +119,10 @@
         }
       }
     } catch (error) {
-      if (isCurrent(requestedSession, requestId, 'list')) listError = helpers.friendlyError(error, 'Audit runs could not be loaded.');
+      if (isCurrent(requestedSession, requestId, 'list')) {
+        listError = helpers.friendlyError(error, 'Audit runs could not be loaded.');
+        if (selectedAuditId && error instanceof ApiError && [401, 403, 404].includes(error.status)) clearProtectedContent(listError);
+      }
     } finally {
       if (requestId === listRequest) listLoading = false;
     }
@@ -117,6 +132,13 @@
     if (!auditId) return;
     const requestId = ++detailRequest;
     const requestedSession = sessionGeneration;
+    if (auditId !== detailFor) {
+      detailFor = auditId;
+      job = null;
+      serverRun = false;
+      evidence = null;
+      extraTasks = [];
+    }
     selectedAuditId = auditId;
     detailLoading = true;
     detailError = '';
@@ -125,44 +147,56 @@
       if (!isCurrent(requestedSession, requestId, 'detail')) return;
       const detail = helpers.normalizeDetail(result);
       selectedAudit = detail;
+      evidenceRevision += 1;
       audits = audits.map((audit) => audit.id === detail.id ? { ...audit, ...detail, findings: detail.findings } : audit);
     } catch (error) {
-      if (isCurrent(requestedSession, requestId, 'detail')) detailError = helpers.friendlyError(error, 'This audit could not be loaded.');
+      if (isCurrent(requestedSession, requestId, 'detail')) clearProtectedContent(helpers.friendlyError(error, 'This audit could not be loaded.'));
     } finally {
       if (requestId === detailRequest) detailLoading = false;
     }
   }
 
   async function refresh(): Promise<void> {
-    if (selectedAuditId) {
-      const requestedId = selectedAuditId;
-      await Promise.all([loadAuditList(requestedId), loadAuditDetail(requestedId)]);
-    } else {
-      await loadAuditList();
-    }
+    await loadAuditList(selectedAuditId);
   }
 
-  async function createAudit(): Promise<void> {
-    if (!project?.id || creating) return;
-    creating = true;
-    listError = '';
-    try {
-      // `scope` is required by the current audit table. The backend may add
-      // more scope choices later; this UI intentionally starts a board audit.
-      const result = helpers.normalizeAudit(await api.createAudit(project.id, { scope: 'board', status: 'queued' }));
-      audits = [result, ...audits.filter((audit) => audit.id !== result.id)];
-      onNotice('success', `Audit ${auditStatusLabel(result.status).toLowerCase()} — recommendations are review-only until you apply one.`);
-      auditFocus.announce(`Audit ${auditStatusLabel(result.status)}. No task moves were applied.`);
-      if (result.id) {
-        selectedAuditId = result.id;
-        onNavigate(`/p/${encodeURIComponent(project.slug)}/audits/${encodeURIComponent(result.id)}`);
-        await loadAuditDetail(result.id);
-      }
-    } catch (error) {
-      listError = helpers.friendlyError(error, 'A new audit could not be started.');
-    } finally {
-      creating = false;
-    }
+  function clearProtectedContent(message: string): void {
+    mutationRequest += 1;
+    activeMutation = '';
+    selectedAudit = null;
+    evidence = null;
+    extraTasks = [];
+    job = null;
+    serverRun = false;
+    audits = audits.map((audit) => ({ ...audit, findings: undefined }));
+    detailError = message;
+  }
+
+  function onJob(next: GithubAuditJob | null): void {
+    job = next;
+    serverRun = Boolean(next);
+    // External-agent runs have no manifest: look up off-page task identities.
+    if (!next) void loadOffPageTasks();
+  }
+
+  async function loadOffPageTasks(): Promise<void> {
+    const auditId = selectedAuditId;
+    const missing = findings.filter((finding) => finding.task_id && !helpers.findingTask(finding)).map((finding) => finding.task_id);
+    if (!missing.length) return;
+    const found = await loadMissingTasks(missing, (id) => api.getTask(id));
+    if (auditId === selectedAuditId) extraTasks = [...extraTasks.filter((task) => !found.some((item) => item.id === task.id)), ...found];
+  }
+
+  function showAudit(auditId: string): void {
+    selectedAuditId = auditId;
+    onNavigate(`/p/${encodeURIComponent(project.slug)}/audits/${encodeURIComponent(auditId)}`);
+    void loadAuditList(auditId);
+  }
+
+  function onStarted(auditId: string): void {
+    onNotice('success', 'Audit started on the server. You can leave this page; nothing moves until you apply it.');
+    auditFocus.announce('Audit started. No task moves were applied.');
+    showAudit(auditId);
   }
 
   function openAudit(audit: AuditRun): void {
@@ -237,6 +271,10 @@
       auditFocus.announce(`${helpers.taskLabel(updated)} ${actionLabel}.`);
     } catch (error) {
       if (isCurrent(requestedSession, requestId, 'mutation')) {
+        if (error instanceof ApiError && (error.code === 'evidence_unavailable' || [401, 403, 404].includes(error.status))) {
+          clearProtectedContent(helpers.friendlyError(error, 'Source access is unavailable.'));
+          return;
+        }
         detailError = helpers.friendlyError(error, 'The finding changed elsewhere. Refresh and try again.');
         if (error instanceof ApiError && error.details.current) {
           const current = helpers.normalizeFinding(error.details.current);
@@ -253,108 +291,23 @@
   }
 
   function openPreview(finding: AuditFinding): void {
-    if (finding.review_state !== 'approved' || !helpers.auditReadyForReview()) return;
-    if (helpers.changedSinceAudit(finding)) {
-      detailError = 'This finding changed since the audit and cannot be previewed or applied.';
-      return;
-    }
-    auditFocus.rememberModalFocus();
-    previewFinding = finding;
-    applyFinding = null;
-    applyOriginFinding = null;
-    applyError = '';
-    void tick().then(() => document.querySelector<HTMLElement>('[data-audit-preview-initial-focus]')?.focus());
+    applyFlow?.openPreview(finding);
   }
 
-  function closePreview(): void {
-    if (!previewFinding) return;
-    previewFinding = null;
-    applyFinding = null;
-    applyOriginFinding = null;
-    applyError = '';
-    auditFocus.restoreModalFocus();
-  }
-
-  function openApplyConfirmation(finding: AuditFinding): void {
-    if (!helpers.canApply(finding)) {
-      applyError = helpers.applyBlockReason(finding) || 'This recommendation is not ready to apply.';
-      return;
-    }
-    previewFinding = null;
-    applyFinding = finding;
-    applyOriginFinding = finding;
-    applyError = '';
-    void tick().then(() => document.querySelector<HTMLElement>('[data-audit-apply-initial-focus]')?.focus());
-  }
-
-  function cancelApply(): void {
-    const origin = applyOriginFinding;
-    applyFinding = null;
-    applyOriginFinding = null;
-    applyError = '';
-    if (origin) {
-      previewFinding = origin;
-      void tick().then(() => document.querySelector<HTMLElement>('[data-audit-preview-initial-focus]')?.focus());
-    }
-  }
-
-  async function applyApprovedFinding(): Promise<void> {
-    const finding = applyFinding;
-    if (!finding || !helpers.canApply(finding) || applying) return;
-    const task = helpers.findingTask(finding);
-    const destination = columns.find((column) => column.semantic_state === helpers.destinationState(finding));
-    if (!task || !destination) return;
-    const requestId = ++mutationRequest;
-    const requestedSession = sessionGeneration;
-    applying = true;
-    applyError = '';
-    try {
-      const updated = await api.moveTask(task.id, {
-        destination_column_id: destination.id,
-        expected_source_column_id: helpers.columnIdentifier(finding.source_column),
-        source: 'board_audit',
-        reason: finding.reason
-      }, task.version);
-      if (!isCurrent(requestedSession, requestId, 'mutation')) return;
-      onTaskUpdated(updated);
-      onNotice('success', `${helpers.taskLabel(finding)} moved to ${destination.name}.`);
-      auditFocus.announce(`${helpers.taskLabel(finding)} moved to ${destination.name}.`);
-      applyFinding = null;
-      previewFinding = null;
-      applyOriginFinding = null;
-      auditFocus.restoreModalFocus();
-    } catch (error) {
-      if (isCurrent(requestedSession, requestId, 'mutation')) {
-        applyError = helpers.friendlyError(error, 'The recommendation could not be applied. Refresh and try again.');
-        if (error instanceof ApiError && error.details.current) {
-          onTaskUpdated(error.details.current as Task);
-          applyError = 'The task changed before apply. It was not moved; review the current task and audit finding.';
-        }
-      }
-    } finally {
-      if (requestId === mutationRequest) applying = false;
-    }
-  }
-
-  function handleKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape') return;
-    if (applyFinding) {
-      cancelApply();
-    } else if (previewFinding) {
-      closePreview();
-    }
+  function rememberTask(task: Task): void {
+    extraTasks = [...extraTasks.filter((item) => item.id !== task.id), task];
   }
 
   onDestroy(auditFocus.destroy);
 
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
 <section class="audit-review" aria-labelledby="audit-heading">
   {#if selectedAuditId && selectedAudit}
     <AuditDetailHeading {helpers} {selectedAudit} {selectedAuditId} {detailLoading} {listLoading}
-      {detailError} {refresh} {showList} {loadAuditDetail} />
+      {detailError} {refresh} {showList} {loadAuditDetail} {serverRun} />
+    <GithubAuditJobPanel auditId={selectedAuditId} {onJob} onFinished={() => void refresh()} onRetried={showAudit} />
+    <AuditEvidenceManifest auditId={selectedAuditId} enabled={evidenceReady} reloadKey={`${evidenceRevision}:${job?.stage === 'finished' ? 'final' : 'capture'}`} onEvidence={(next) => { evidence = next; }} onUnavailable={clearProtectedContent} />
     {#if detailLoading && !findings.length}
       <div class="audit-loading" aria-label="Loading audit findings"><div></div><div></div><div></div></div>
     {:else}
@@ -364,15 +317,26 @@
       </section>
       <AuditFindingGroups {helpers} {groupedFindings} {columns} {editingFindingId} bind:destinationDraft
         {activeMutation} {saveDestination} {cancelDestination} {editDestination} {approveFinding}
-        {dismissFinding} {openPreview} />
+        {dismissFinding} {openPreview} projectSlug={project.slug} {evidenceItems} {onOpenTask} />
     {/if}
+  {:else if selectedAuditId && detailError}
+    <section class="page-heading audit-heading">
+      <div><h1 id="audit-heading">Board audit</h1><p>Restore access before reviewing this audit.</p></div>
+      <button class="button quiet-button" type="button" on:click={showList}>All audits</button>
+    </section>
+    <div class="inline-alert error content-alert" role="alert"><span>{detailError}</span><button class="text-button" type="button" on:click={() => loadAuditDetail(selectedAuditId)}>Retry</button></div>
   {:else}
-    <AuditRunList {helpers} {project} {audits} {listLoading} {creating} {listError}
-      {refresh} {createAudit} {openAudit} />
+    <AuditRunList {helpers} {project} {audits} {listLoading} {listError}
+      {refresh} {openAudit} {onStarted} onOpenExisting={showAudit} />
   {/if}
 </section>
 
-<AuditDialogs {helpers} {previewFinding} {applyFinding} {applyError} {applying}
-  {closePreview} {cancelApply} {openApplyConfirmation} {applyApprovedFinding} />
+{#if selectedAudit}
+{#key `${currentProjectId}:${sessionGeneration}:${selectedAuditId}`}
+<AuditApplyFlow bind:this={applyFlow} {helpers} {columns} auditId={selectedAuditId} {serverRun} focus={auditFocus}
+  sessionKey={`${currentProjectId}:${sessionGeneration}`} {onTaskUpdated} {onNotice}
+  onBlocked={(message) => { detailError = message; }} onUnavailable={clearProtectedContent} onTaskLoaded={rememberTask} />
+{/key}
+{/if}
 
 <div class="sr-only" data-audit-live-region aria-live="polite" aria-atomic="true"></div>

@@ -78,6 +78,10 @@ after a release and inspect the `verified.json` artifacts. These backups have
 no automatic deletion policy; monitor disk usage and archive them separately.
 Retain copies off the application host for host-loss recovery.
 
+GitHub audit beta has a separate first-activation and legacy-image access
+boundary. Follow [its operations guide](../../docs/GITHUB_BETA_OPERATIONS.md)
+before enabling source capture or rolling back an instance with audit history.
+
 CT106 and CT103 keep their final stopped source datasets, release binaries,
 and verified pre-migration backups. They are rollback material, not current
 replicas. **Do not restart their Helm writers against those old datasets.**

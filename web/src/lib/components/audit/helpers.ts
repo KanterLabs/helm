@@ -1,4 +1,4 @@
-import { ApiError, type AuditRun, type AuditFinding, type AuditDetail, type AuditVerdict, type AuditReviewState, type SemanticState, type Column, type Task } from '../../types';
+import { ApiError, type GithubAuditTask, type AuditRun, type AuditFinding, type AuditDetail, type AuditVerdict, type AuditReviewState, type SemanticState, type Column, type Task } from '../../types';
 
 export const stateLabels: Record<SemanticState, string> = {
   backlog: 'Backlog',
@@ -30,10 +30,12 @@ interface AuditContext {
   selectedAudit: AuditDetail | null;
   tasks: Task[];
   columns: Column[];
+  /** Task identity captured by a server-run audit, keyed by task ID. */
+  captured?: Map<string, GithubAuditTask>;
 }
 
 export function createAuditHelpers(context: AuditContext) {
-  const { currentProjectId, selectedAuditId, selectedAudit, tasks, columns } = context;
+  const { currentProjectId, selectedAuditId, selectedAudit, tasks, columns, captured } = context;
 
   function normalizeAudit(value: unknown): AuditRun {
     const raw = unwrapPayload(value) as Partial<AuditRun>;
@@ -171,9 +173,17 @@ export function createAuditHelpers(context: AuditContext) {
     return columns.find((column) => column.semantic_state === destination)?.name || stateLabels[destination];
   }
 
+  function capturedTask(finding: AuditFinding): GithubAuditTask | undefined {
+    return captured?.get(finding.task_id);
+  }
+
   function taskLabel(finding: AuditFinding): string {
     const task = findingTask(finding);
-    return task?.key || task?.title || finding.task_id || 'Task';
+    return task?.key || capturedTask(finding)?.key || task?.title || finding.task_id || 'Task';
+  }
+
+  function taskTitle(finding: AuditFinding): string {
+    return findingTask(finding)?.title || capturedTask(finding)?.title || finding.task_id;
   }
 
   function confidenceLabel(value: number): string {
@@ -259,7 +269,7 @@ export function createAuditHelpers(context: AuditContext) {
     return '';
   }
 
-  return { canApply, applyBlockReason, normalizeAudit, normalizeFinding, normalizeDetail, unwrapPayload, numberOr, findingTask, currentVersion, mutationVersion, columnIdentifier, columnLabel, currentColumnValue, changedSinceAudit, sourceLabel, currentLabel, destinationState, destinationLabel, taskLabel, confidenceLabel, evidenceFor, formatDate, ageLabel, statusClass, auditReadyForReview, reviewClass, verdictClass, findingVersionLabel, currentVersionLabel, friendlyError };
+  return { canApply, applyBlockReason, normalizeAudit, normalizeFinding, normalizeDetail, unwrapPayload, numberOr, findingTask, capturedTask, taskTitle, currentVersion, mutationVersion, columnIdentifier, columnLabel, currentColumnValue, changedSinceAudit, sourceLabel, currentLabel, destinationState, destinationLabel, taskLabel, confidenceLabel, evidenceFor, formatDate, ageLabel, statusClass, auditReadyForReview, reviewClass, verdictClass, findingVersionLabel, currentVersionLabel, friendlyError };
 }
 
 export type AuditHelpers = ReturnType<typeof createAuditHelpers>;
