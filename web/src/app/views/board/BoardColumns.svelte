@@ -1,6 +1,8 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import { isBugIntake } from '../../../lib/bugIntake';
+  import { openBugModal } from '../../bugModal';
   // Board columns, cards, drag and drop and quick add.
   import { boardCardHeight } from '../../../lib/boardLayout';
   import { makeBoardOrderingGate } from '../../../lib/boardOrdering';
@@ -54,6 +56,7 @@
     {@const cardOffset = Math.min(board.boardCardOffsets[column.id] || 0, Math.floor(Math.max(0, orderedColumnTasks.length - 1) / boardRenderLimit) * boardRenderLimit)}
     <article
       class="board-column"
+      class:bug-intake={isBugIntake(column)}
       class:drop-target={board.dragOverColumnId === column.id}
       aria-label={`${column.name} column`}
       aria-dropeffect="move"
@@ -62,6 +65,7 @@
       on:drop={(event) => dropTask(event, column.id)}
     >
         <header class="column-header"><div class="column-name"><span class="column-dot" style={`--column-color: ${columnColor(column)}`}></span><h2>{column.name}</h2><span class="column-count">{board.tasksByColumn[column.id].length}{board.boardPages[column.id]?.nextCursor ? '+' : ''}</span></div></header>
+        {#if isBugIntake(column)}<p class="bug-intake-hint">Review reports, then triage into Ready</p>{/if}
         <div class="column-progress"><span style={`width: ${Math.min(100, board.tasksByColumn[column.id].length * 4)}%; --column-color: ${columnColor(column)}`}></span></div>
         <div class="column-cards" use:columnScroll={{ scope: `${boardProject.id}:${board.boardCriteriaRevision}`, column: column.id, page: cardOffset, ready: !board.boardLoading }}>
           {#if board.dragOverColumnId === column.id && board.draggingTaskId && board.tasksByColumn[column.id].some((task) => task.id === board.draggingTaskId) === false}
@@ -79,7 +83,7 @@
                 </label>
                 <button class="task-drag-handle" type="button" draggable="true" aria-label={`Drag ${task.key}, ${task.title}`} title="Drag task" on:click|stopPropagation={() => undefined} on:dragstart|stopPropagation={(event) => dragStart(event, task)}>⠿</button>
                 <button class="task-main" type="button" data-task-trigger={task.id} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
-                  <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{/if}{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if taskReleaseName(task)}<span class="release-chip" title={`Target focus: ${taskReleaseName(task)}`}>◈ {taskReleaseName(task)}</span>{/if}{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
+                  <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{:else}<span class="severity-badge untriaged">Needs triage</span>{/if}{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if taskReleaseName(task)}<span class="release-chip" title={`Target focus: ${taskReleaseName(task)}`}>◈ {taskReleaseName(task)}</span>{/if}{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
                   <strong class="task-title">{task.title}</strong>
                   {#if task.description}<span class="task-excerpt">{task.description.replace(/[#*_`]/g, '').slice(0, 92)}{task.description.length > 92 ? '…' : ''}</span>{/if}
 	                              {#if task.labels?.length}<span class="task-labels">{#each task.labels.slice(0, 3) as label}<span class="label-chip" style={`--label-color: ${label.color || '#8b7cf6'}`}>{label.name}</span>{/each}{#if task.labels.length > 3}<span class="label-more">+{task.labels.length - 3}</span>{/if}</span>{/if}
@@ -100,7 +104,8 @@
           {#if board.boardPages[column.id]?.error && board.tasksByColumn[column.id].length}<div class="column-page-error" role="alert"><span>{board.boardPages[column.id].error}</span><button class="text-button" type="button" on:click={() => loadBoardColumn(column.id, { reset: false })}>Retry</button></div>{/if}
         </div>
         <div class="quick-add-wrap">
-          {#if board.quickAddColumn === column.id}
+          {#if isBugIntake(column)}<button class="quick-add-trigger" type="button" on:click={() => openBugModal()}><span>＋</span> Report bug</button>
+          {:else if board.quickAddColumn === column.id}
             <form class="quick-add-form" aria-busy={creation.quickAddCreating} on:submit|preventDefault={() => submitQuickAdd(column.id)}><input bind:this={board.quickAddInput} bind:value={() => board.quickAddTitle[column.id], (value) => board.quickAddTitle = { ...board.quickAddTitle, [column.id]: value }} disabled={creation.quickAddCreating || Boolean(creation.quickCreation)} aria-label={`New task in ${column.name}`} placeholder="What needs doing?" />{#if creation.quickAddError}<p role="alert">{creation.quickAddError}</p>{/if}{#if creation.quickAddCreating}<p role="status">Saving…</p>{/if}<div><button class="text-button" type="button" disabled={creation.quickAddCreating || Boolean(creation.quickCreation)} on:click={cancelQuickAdd}>Cancel</button><button class="button primary compact-button" type="submit" disabled={creation.quickAddCreating || (!creation.quickCreation && !board.quickAddTitle[column.id]?.trim())}>{creation.quickAddCreating ? 'Saving…' : creation.quickCreation ? 'Retry original submission' : 'Add task'}</button></div></form>
           {:else}<button class="quick-add-trigger" type="button" data-quick-add-trigger={column.id} on:click={(event) => openQuickAdd(column.id, event.currentTarget as HTMLButtonElement)}><span>＋</span> Add task</button>{/if}
         </div>
@@ -109,3 +114,8 @@
   </section>
   </BoardOverflowNavigation>
 {/if}
+
+<style>
+  .bug-intake { border-top: 2px solid var(--semantic-amber); }
+  .bug-intake-hint { margin: -2px 14px 8px; color: var(--muted); font-size: var(--text-xs); }
+</style>

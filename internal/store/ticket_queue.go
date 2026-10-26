@@ -69,7 +69,7 @@ func (s *Store) createTicketQueue(ctx context.Context) error {
 			return err
 		}
 		columns := []struct{ name, state string }{
-			{"Needs triage", "backlog"}, {"Ready", "ready"}, {"In progress", "active"}, {"Waiting", "blocked"}, {"Done", "completed"},
+			{"Needs triage", "backlog"}, {"Bugs", "backlog"}, {"Ready", "ready"}, {"In progress", "active"}, {"Waiting", "blocked"}, {"Done", "completed"},
 		}
 		for position, column := range columns {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO columns(id, project_id, name, semantic_state, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, newID(), id, column.name, column.state, position, created, created); err != nil {
@@ -119,13 +119,13 @@ func (s *Store) FileTicket(ctx context.Context, taskID, projectRef, actorID stri
 		return Task{}, invalid("choose an active project", map[string]any{"field": "project"})
 	}
 	err = s.withTx(ctx, func(tx *sql.Tx) error {
-		var sourceProject, sourceKey, columnID, state string
+		var sourceProject, sourceKey, columnID, state, kind string
 		var number int
 		var parent, release, claimedBy, claimExpires sql.NullString
-		err := tx.QueryRowContext(ctx, `SELECT t.project_id, p.key, t.number, t.column_id, c.semantic_state, t.parent_task_id, t.release_id, t.claimed_by, t.claim_expires_at
+		err := tx.QueryRowContext(ctx, `SELECT t.project_id, p.key, t.number, t.column_id, c.semantic_state, t.kind, t.parent_task_id, t.release_id, t.claimed_by, t.claim_expires_at
 			FROM tasks t JOIN projects p ON p.id = t.project_id JOIN columns c ON c.id = t.column_id
 			JOIN tickets k ON k.task_id = t.id
-			WHERE t.id = ? AND t.deleted_at IS NULL`, taskID).Scan(&sourceProject, &sourceKey, &number, &columnID, &state, &parent, &release, &claimedBy, &claimExpires)
+			WHERE t.id = ? AND t.deleted_at IS NULL`, taskID).Scan(&sourceProject, &sourceKey, &number, &columnID, &state, &kind, &parent, &release, &claimedBy, &claimExpires)
 		if errors.Is(err, sql.ErrNoRows) {
 			return notFound("ticket not found")
 		}
@@ -150,7 +150,17 @@ func (s *Store) FileTicket(ctx context.Context, taskID, projectRef, actorID stri
 		if blocker != "" {
 			return conflict("this ticket cannot be filed because "+blocker, nil)
 		}
-		target, err := fileDestinationColumnTx(ctx, tx, destination.ID, state)
+		target := ""
+		if kind == bugKind && state == "backlog" {
+			preferred, _, err := bugIntakeColumnTx(ctx, tx, destination.ID)
+			if err != nil {
+				return err
+			}
+			target = preferred
+		}
+		if target == "" {
+			target, err = fileDestinationColumnTx(ctx, tx, destination.ID, state)
+		}
 		if err != nil {
 			return err
 		}
@@ -197,7 +207,7 @@ func (s *Store) FileTicket(ctx context.Context, taskID, projectRef, actorID stri
 func fileDestinationColumnTx(ctx context.Context, tx *sql.Tx, projectID, state string) (string, error) {
 	var id string
 	err := tx.QueryRowContext(ctx, `SELECT id FROM columns WHERE project_id = ? AND archived_at IS NULL AND semantic_state IN (?, 'backlog')
-		ORDER BY semantic_state = ? DESC, position, id LIMIT 1`, projectID, state, state).Scan(&id)
+		ORDER BY semantic_state = ? DESC, CASE WHEN semantic_state = 'backlog' AND lower(trim(name)) = 'bugs' THEN 1 ELSE 0 END, position, id LIMIT 1`, projectID, state, state).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", invalid("that project has no column for this ticket's status or a Backlog column", map[string]any{"field": "project"})
 	}

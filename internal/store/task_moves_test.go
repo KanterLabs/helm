@@ -187,7 +187,10 @@ func TestMoveTaskRejectsCrossProjectAndLifecycleDestinations(t *testing.T) {
 		t.Fatalf("list columns: %v", err)
 	}
 	task := fixture.createTask(t, "destination validation")
-	for _, destination := range columns[2:] { // active, blocked, completed
+	for _, destination := range columns {
+		if destination.SemanticState != "active" && destination.SemanticState != "blocked" && destination.SemanticState != "completed" {
+			continue
+		}
 		before := fixture.state(t, task.ID)
 		_, err := fixture.store.MoveTask(fixture.ctx, task.ID, TaskMoveInput{
 			DestinationColumnID:    destination.ID,

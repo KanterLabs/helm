@@ -44,6 +44,7 @@
           <button class="ticket-row" class:selected={selectedKey === task.key} type="button" data-ticket-key={task.key} aria-current={selectedKey === task.key ? 'true' : undefined} on:keydown={listKeydown} on:click={() => onSelect(task)}>
             <span class="ticket-row-top">
               <span class="task-key">{task.key}</span>
+              {#if task.kind === 'bug'}<span class="issue-kind-badge">Bug</span><span class="severity-badge" class:untriaged={!task.bug?.severity}>{task.bug?.severity?.toUpperCase() || 'Untriaged'}</span>{/if}
               <span class={`priority-pill priority-${task.priority}`}>{ticketPriorityLabels[task.priority]}</span>
               <span class={`ticket-status status-${ticketStatus(task)}`}>{ticketStatusLabels[ticketStatus(task)]}</span>
               {#if (task.alert_source?.occurrence_count || 0) > 1}<span class="ticket-repeat" title="Times this alert was received">×{task.alert_source?.occurrence_count}</span>{/if}

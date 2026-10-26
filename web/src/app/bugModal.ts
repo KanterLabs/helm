@@ -1,4 +1,5 @@
 // The bug report modal.
+import { isBugIntake } from '../lib/bugIntake';
 import { api } from '../lib/api';
 import type { TaskMutationScope } from '../lib/liveness';
 import { plannedReleaseIdForAssignment } from './appHelpers';
@@ -140,7 +141,7 @@ export async function loadBugModalColumns(projectId: string) {
       ? [...board.columns] : (await api.listAllColumns(projectId)).data;
     if (requestId !== bugModal.bugModalColumnsRequest || !bugModal.showBugModal || bugModal.bugModalProjectId !== projectId) return;
     bugModal.bugModalColumns = nextColumns;
-    bugModal.bugModalColumnId = nextColumns.find((column) => column.semantic_state === 'ready')?.id || nextColumns[0]?.id || '';
+    bugModal.bugModalColumnId = nextColumns.find(isBugIntake)?.id || nextColumns.find((column) => column.semantic_state === 'backlog')?.id || nextColumns[0]?.id || '';
   } catch (error) {
     if (requestId === bugModal.bugModalColumnsRequest && bugModal.showBugModal && bugModal.bugModalProjectId === projectId) {
       bugModal.bugModalError = friendlyError(error, 'This project’s columns could not be loaded.');

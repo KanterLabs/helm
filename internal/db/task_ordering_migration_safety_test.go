@@ -25,9 +25,12 @@ func TestTaskOrderingMigrationPreservesPopulatedPositionsAndRetainedQueries(t *t
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM columns`).Scan(&beforeColumns); err != nil {
 		t.Fatal(err)
 	}
+	before := readStableFixture(t, ctx, database, 18)
 	if err := Migrate(ctx, database); err != nil {
 		t.Fatalf("migrate populated pre-019 database: %v", err)
 	}
+	after := readStableFixture(t, ctx, database, len(migrations))
+	assertStableFixtureMigration(t, before, after)
 	var afterPositions string
 	if err := database.QueryRowContext(ctx, `SELECT group_concat(id || ':' || position, '|') FROM (SELECT id, position FROM tasks ORDER BY number, id)`).Scan(&afterPositions); err != nil {
 		t.Fatal(err)
@@ -42,8 +45,8 @@ func TestTaskOrderingMigrationPreservesPopulatedPositionsAndRetainedQueries(t *t
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM columns WHERE ordering_version=1`).Scan(&defaultRevisionCount); err != nil {
 		t.Fatal(err)
 	}
-	if afterColumns != beforeColumns || defaultRevisionCount != beforeColumns {
-		t.Fatalf("column migration state = count %d/%d, default revisions %d/%d", afterColumns, beforeColumns, defaultRevisionCount, beforeColumns)
+	if afterColumns != beforeColumns+1 || defaultRevisionCount != beforeColumns+1 {
+		t.Fatalf("column migration state = count %d/%d, default revisions %d/%d", afterColumns, beforeColumns+1, defaultRevisionCount, beforeColumns+1)
 	}
 	var indexCount int
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='columns_ordering_revision_idx'`).Scan(&indexCount); err != nil {

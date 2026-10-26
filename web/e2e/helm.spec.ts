@@ -76,11 +76,11 @@ test.describe('Helm workspace', () => {
     const backlogColumn = board.locator('.board-column').filter({
       has: page.getByRole('heading', { name: 'Backlog', exact: true })
     });
-    const readyColumn = board.locator('.board-column').filter({
-      has: page.getByRole('heading', { name: 'Ready', exact: true })
+    const bugsColumn = board.locator('.board-column').filter({
+      has: page.getByRole('heading', { name: 'Bugs', exact: true })
     });
     await expect(backlogColumn).toBeVisible();
-    await expect(readyColumn).toBeVisible();
+    await expect(bugsColumn).toBeVisible();
 
     // Quick-add through the column's user-facing trigger and form.
     await backlogColumn.getByRole('button', { name: /Add task$/ }).click();
@@ -100,10 +100,10 @@ test.describe('Helm workspace', () => {
     });
     await expect(moveNext).toHaveAttribute('aria-disabled', 'false');
     await moveNext.click();
-    await expect(readyColumn.locator('.task-card').filter({ hasText: taskTitle })).toBeVisible();
+    await expect(bugsColumn.locator('.task-card').filter({ hasText: taskTitle })).toBeVisible();
     await expect(backlogColumn.locator('.task-card').filter({ hasText: taskTitle })).toHaveCount(0);
 
-    const movedCard = readyColumn.locator('.task-card').filter({ hasText: taskKey as string });
+    const movedCard = bugsColumn.locator('.task-card').filter({ hasText: taskKey as string });
     await expect(movedCard).toBeVisible();
 
     // Open the task with its accessible card button and edit the labeled

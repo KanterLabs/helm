@@ -53,7 +53,7 @@ test.describe('Helm workspace', () => {
     await expect(drawer.getByRole('heading', { name: 'Bug report' })).toBeVisible();
     await drawer.getByLabel('Bug severity').selectOption('s2');
     await drawer.getByLabel('Triage priority').selectOption('high');
-    await drawer.getByRole('button', { name: 'Triage issue', exact: true }).click();
+    await drawer.getByRole('button', { name: 'Triage & move to Ready', exact: true }).click();
     await expect(drawer.locator('.severity-badge').filter({ hasText: 'S2 · High' })).toBeVisible();
 
     await drawer.getByLabel('Bug resolution').selectOption('fixed');

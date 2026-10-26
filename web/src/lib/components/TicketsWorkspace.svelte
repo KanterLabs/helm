@@ -16,6 +16,8 @@
     writeTicketRoute
   } from '../tickets';
   import AlertSourcePanel from './AlertSourcePanel.svelte';
+  import '../../styles/tickets-workspace.css';
+  import TicketBugTriage from './TicketBugTriage.svelte';
   import TicketActions from './TicketActions.svelte';
   import TicketCreateForm, { emptyTicketDraft } from './TicketCreateForm.svelte';
   import TicketDetailHeader from './TicketDetailHeader.svelte';
@@ -47,6 +49,7 @@
   let detailError = '';
   let detailRequest = 0;
   let comments: Comment[] = [];
+  let bugDraftDirty = false;
   let noteDraft = '';
   let actionPending = false;
   let actionStatus: { kind: 'pending' | 'saved' | 'conflict' | 'error'; message: string } | null = null;
@@ -63,7 +66,7 @@
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
-  $: dirty = Boolean(noteDraft
+  $: dirty = Boolean(bugDraftDirty || noteDraft
     || (waitOpen && waitReason)
     || (creating && (createDraft.title || createDraft.description || createDraft.priority !== 'normal' || !createDraft.assignMe)));
 
@@ -366,6 +369,8 @@
           <button class="text-button ticket-back" type="button" on:click={backToList}>← All tickets</button>
           <TicketDetailHeader {detail} {user} {actorNames} {workProjects} filed={Boolean(filedProject(detail))} bind:fileProject {actionPending} bind:heading={detailHeading} onAct={act} onFile={fileTo} />
 
+          {#key detail.id}<TicketBugTriage {detail} {actionPending} onAct={act} bind:dirty={bugDraftDirty} />{/key}
+
           <TicketActions {detail} {actionPending} bind:waitOpen bind:waitReason onAct={act} onMove={moveTo} {onOpenTask} />
           <div class="ticket-action-status" class:conflict={actionStatus?.kind === 'conflict'} class:error={actionStatus?.kind === 'error'} role="status" aria-live="polite">{actionStatus?.message || ''}</div>
 
@@ -381,31 +386,3 @@
     </div>
   </div>
 </section>
-
-<style>
-  .tickets-workspace { display: grid; gap: 14px; }
-  .ticket-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 240px); gap: 8px; }
-  .ticket-filters input, .ticket-filters select { width: 100%; }
-  .tickets-layout { display: grid; grid-template-columns: minmax(280px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
-  .ticket-moved { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
-  .ticket-moved > span:first-child { background: var(--semantic-green); }
-  .ticket-detail-pane { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised, var(--surface)); }
-  .ticket-detail-empty { color: var(--muted); font-size: var(--text-sm); text-align: center; }
-  .ticket-detail { display: grid; gap: 12px; }
-  .ticket-detail h3 { margin: 0 0 8px; font-size: var(--text-sm); }
-  .ticket-back { display: none; justify-self: start; }
-  .ticket-action-status { min-height: 16px; color: var(--muted); font-size: var(--text-xs); }
-  .ticket-action-status:empty { min-height: 0; margin: -6px 0; }
-  .ticket-detail :global(.drawer-section) { margin: 0; }
-  .ticket-action-status.conflict, .ticket-action-status.error { color: var(--semantic-red); font-weight: 600; }
-  .ticket-description { font-size: var(--text-sm); line-height: 1.55; overflow-wrap: anywhere; }
-  .optional { color: var(--muted); font-size: var(--text-xs); }
-  @media (max-width: 760px) {
-    .tickets-layout { grid-template-columns: minmax(0, 1fr); }
-    .ticket-detail-pane { display: none; padding: 12px; }
-    .has-selection .ticket-detail-pane { display: block; }
-    .has-selection :global(.tickets-list-pane), .has-selection :global(.ticket-queues), .has-selection .ticket-filters, .has-selection :global(.tickets-heading p) { display: none; }
-    .ticket-back { display: inline-block; }
-    .ticket-filters { grid-template-columns: minmax(0, 1fr); }
-  }
-</style>

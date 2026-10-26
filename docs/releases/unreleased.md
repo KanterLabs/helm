@@ -5,6 +5,12 @@ User-visible changes after v0.2.1 belong here, newest first. Latest release:
 
 ## Features
 
+- **Bugs intake connected to ticket triage:** classify an existing ticket as a bug,
+  keep its comments and history, and file it into a project's Bugs column.
+  Review severity and priority, then use **Triage & move to Ready** to accept it.
+  Bug reports and reopened bugs default to Bugs; ordinary tasks stay in Backlog.
+  The additive upgrade adds the column without moving existing work.
+
 - **Guided releases:** `make prepare-release VERSION=vX.Y.Z` prepares a
   production release PR from the verified, deployed beta. After the main
   deployment passes, `make finish-release VERSION=vX.Y.Z` publishes matching

@@ -45,7 +45,9 @@ async function fixture(request: APIRequestContext) {
       }
     })));
   }
-  return { project, ready, backlog, tasks, moving: tasks[1] };
+  // Left/right commands follow physical adjacency; Bugs now sits before Ready.
+  const leftOfReady = columns[columns.findIndex(column => column.id === ready.id) - 1];
+  return { project, ready, backlog, leftOfReady, tasks, moving: tasks[1] };
 }
 
 function trigger(page: Page, task: Task) { return page.locator(`[data-card-actions="${task.key}"]`); }
@@ -190,7 +192,7 @@ test('all six movement commands persist and rejected moves restore focus', async
     await expect(trigger(page, state.moving)).toBeFocused();
     evidence.push({ command: id, tasks: await tasksFor(request, state.project) });
   }
-  for (const [id, destination] of [['left', state.backlog], ['right', state.ready]] as const) {
+  for (const [id, destination] of [['left', state.leftOfReady], ['right', state.ready]] as const) {
     await openMenu(page, state.moving);
     const saved = page.waitForResponse((response) => response.url().endsWith(`/api/v1/tasks/${state.moving.id}/move`) && response.request().method() === 'POST');
     await menu(page, state.moving).locator(`[data-card-action="${id}"]`).click();

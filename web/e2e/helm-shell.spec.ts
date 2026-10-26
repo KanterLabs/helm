@@ -74,7 +74,7 @@ test.describe('Helm workspace', () => {
 
     const board = page.locator('section.board');
     await expect(board).toBeVisible();
-    await expect(board.locator('.board-column')).toHaveCount(5);
+    await expect(board.locator('.board-column')).toHaveCount(6);
     const layout = await page.evaluate(() => {
       const nav = document.querySelector('.mobile-nav')?.getBoundingClientRect();
       const columns = Array.from(document.querySelectorAll<HTMLElement>('section.board .board-column'))
