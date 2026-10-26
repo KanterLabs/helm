@@ -24,6 +24,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Reset only the cold sample's disposable compiler cache
+        if: matrix.sample == 'cold'
+        run: |
+          source /opt/helm-hooks/cache-env.sh "$GITHUB_WORKSPACE"
+          [[ "$GOCACHE" =~ ^/cache/canary/[0-9a-f]{20}/gobuild-race$ ]]
+          rm -rf -- "$GOCACHE"
       - uses: ./.github/actions/prepared-runner
       - uses: ./.github/actions/browser-validation
         with:
