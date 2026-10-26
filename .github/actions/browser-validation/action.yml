@@ -1,0 +1,49 @@
+name: Helm browser validation
+description: Preserve the complete race-instrumented browser and stalled-account checks.
+inputs:
+  evidence-name:
+    description: Unique artifact name for this job.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run the race-instrumented real browser workflow
+      shell: bash
+      env:
+        HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-e2e-evidence
+        HELM_E2E_GOFLAGS: -race
+        HELM_E2E_REVISION: ${{ github.sha }}
+      run: ./test/e2e/run.sh
+    - name: Verify stalled Codex account deadlines
+      id: deadlines
+      shell: bash
+      env:
+        HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-e2e-deadlines
+        HELM_E2E_GOFLAGS: -race
+        HELM_E2E_REVISION: ${{ github.sha }}
+        HELM_E2E_SKIP_WEB_BUILD: 'true'
+        HELM_E2E_CODEX_STALL_ACCOUNT: 'true'
+      run: ./test/e2e/run.sh e2e/luna-account-deadline-stability.spec.ts
+    - name: Record resource and preparation evidence
+      if: always()
+      shell: bash
+      run: |
+        evidence="$RUNNER_TEMP/helm-runner-metrics"
+        mkdir -p "$evidence"
+        printf 'revision=%s\nprepare_seconds=%s\n' "$GITHUB_SHA" "${HELM_PREPARE_SECONDS:-unknown}" > "$evidence/metrics.txt"
+        for name in memory.peak memory.events cpu.stat; do
+          [[ ! -f /sys/fs/cgroup/$name ]] || cat "/sys/fs/cgroup/$name" > "$evidence/$name"
+        done
+        df -B1 > "$evidence/filesystems.txt"
+    - name: Upload browser and resource evidence
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ${{ inputs.evidence-name }}
+        include-hidden-files: true
+        path: |
+          ${{ runner.temp }}/helm-e2e-evidence
+          ${{ runner.temp }}/helm-e2e-deadlines
+          ${{ runner.temp }}/helm-runner-metrics
+        if-no-files-found: error
+        retention-days: 3
