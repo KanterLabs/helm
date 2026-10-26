@@ -1,9 +1,9 @@
 {
   "format": 1,
   "version": "v0.2.2",
-  "beta_sha": "30c26489d7dab311d1d7af97fdccc94b06b8f704",
+  "beta_sha": "7ce891013da27066880303154f9f846361a4c6ee",
   "main_sha": "82840a43ec4419bf6613f8cb8a62b74da1b13fb1",
-  "beta_run_id": 40244327027,
-  "beta_image": "ghcr.io/kanterlabs/helm@sha256:f323d0614b369a20c02887926f1b90d1d681129d37bce5252ce19a31c31f5fef",
+  "beta_run_id": 40246720982,
+  "beta_image": "ghcr.io/kanterlabs/helm@sha256:afab41915853ddfd8bd5048c36b8ed23cfdbbb5dc5770a672c71505a9b323da8",
   "notes": "docs/releases/v0.2.2.md"
 }
