@@ -1,5 +1,7 @@
 # Faster Helm CI on VM128
 
+Status: approved; implementation and canary validation in progress.
+
 Planning record, 27 October 2026. Owner decision: use the existing single
 `helm-ci` VM. The observations below describe the planning baseline.
 Implementation began after approval; current harness behavior and rollout
