@@ -2,6 +2,18 @@
 set -Eeuo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# Whole-suite runs use four isolated fixtures. Focused invocations preserve
+# their scope and default to one, unless the caller explicitly requests more.
+default_workers=4
+[[ "$#" == 0 ]] || default_workers=1
+workers=${HELM_E2E_WORKERS:-$default_workers}
+base_port=${HELM_E2E_BASE_PORT:-18080}
+[[ "$workers" =~ ^[1-8]$ ]] || { printf 'HELM_E2E_WORKERS must be 1..8\n' >&2; exit 64; }
+[[ "$base_port" =~ ^[0-9]{1,5}$ ]] || { printf 'Invalid HELM_E2E_BASE_PORT\n' >&2; exit 64; }
+base_port=$((10#$base_port))
+((base_port >= 1024 && base_port + (workers - 1) * 100 + 30 <= 65535 && base_port + 31 <= 65535)) || {
+  printf 'Browser fixture port blocks are outside the allowed range\n' >&2; exit 64;
+}
 requested_artifact_dir=${HELM_E2E_ARTIFACT_DIR:-}
 if [[ -n "$requested_artifact_dir" ]]; then
   [[ "$requested_artifact_dir" = /* ]] || requested_artifact_dir="$root/$requested_artifact_dir"
@@ -17,9 +29,7 @@ else
 fi
 
 work_dir=$(mktemp -d)
-server_pid=
-server_log=
-server_db=
+supervisor_pid=
 embedded_dist="$root/internal/webassets/dist"
 embedded_backup="$work_dir/original-webassets-dist"
 embedded_dist_existed=false
@@ -28,26 +38,13 @@ if [[ -d "$embedded_dist" ]]; then
   embedded_dist_existed=true
 fi
 
-fake_cf_pid=
-relay_pid=
-
-stop_server() {
-  if [[ -n "$server_pid" ]]; then
-    kill -TERM "$server_pid" >/dev/null 2>&1 || true
-    wait "$server_pid" >/dev/null 2>&1 || true
-    server_pid=
-  fi
-}
-
 collect_evidence() {
   local exit_status=$?
   trap - EXIT
-  stop_server
-  [[ -n "$fake_cf_pid" ]] && kill "$fake_cf_pid" >/dev/null 2>&1 || true
-  [[ -n "$relay_pid" ]] && kill "$relay_pid" >/dev/null 2>&1 || true
-  for file in "$work_dir"/*.log "$work_dir"/*.db; do
-    [[ -f "$file" ]] && cp -a "$file" "$artifact_dir/"
-  done
+  if [[ -n "$supervisor_pid" ]]; then
+    kill -TERM "$supervisor_pid" >/dev/null 2>&1 || true
+    wait "$supervisor_pid" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${HELM_E2E_METADATA_FILE:-}" && -f "$HELM_E2E_METADATA_FILE" ]]; then
     cp -a "$HELM_E2E_METADATA_FILE" "$artifact_dir/source.metadata"
   fi
@@ -56,6 +53,7 @@ collect_evidence() {
     printf 'command=test/e2e/run.sh\n'
     printf 'exit_status=%s\n' "$exit_status"
     printf 'auth_modes=disabled,local\n'
+    printf 'browser_workers=%s\n' "$workers"
   } > "$artifact_dir/evidence.metadata"
   (
     cd "$artifact_dir"
@@ -71,6 +69,10 @@ collect_evidence() {
   exit "$exit_status"
 }
 trap collect_evidence EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+python3 "$root/test/e2e/test_run_browsers.py" 2>&1 | tee "$artifact_dir/supervisor-checks.log"
 
 if [[ "${HELM_E2E_SKIP_WEB_BUILD:-false}" != true ]]; then
   (cd "$root/web" && npm run build)
@@ -101,93 +103,22 @@ fi
 [[ -x "$binary" ]] || { printf 'Helm E2E binary is not executable: %s\n' "$binary" >&2; exit 64; }
 [[ -x "$root/test/e2e/fake-codex" ]] || { printf 'Codex E2E fixture is not executable\n' >&2; exit 64; }
 
-# A disposable per-run Coolify intake secret. The file stays in $work_dir,
-# which is never copied into the evidence bundle.
-coolify_secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
-coolify_secret_file="$work_dir/coolify-webhook-secret"
-(umask 077 && printf '%s\n' "$coolify_secret" > "$coolify_secret_file")
-
-# Fake Cloudflare API and cloudflared for the public-endpoint workflow. Their
-# logs live in $work_dir under names collect_evidence never copies.
-fake_cf_token="cf-e2e-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-fake_cf_zoneless="cf-e2e-zoneless-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-fake_cf_norules="cf-e2e-norules-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-FAKE_OAUTH_CLIENT_ID=e2e-client FAKE_OAUTH_REDIRECT=http://127.0.0.1:18110/cloudflare/callback \
-  python3 "$root/test/e2e/fake-cloudflare" 18090 "$fake_cf_token" "$fake_cf_zoneless" "$fake_cf_norules" &
-fake_cf_pid=$!
-# The real sign-in relay Worker, served locally for the guided-setup flow.
-node "$root/test/e2e/relay-server.mjs" 18110 &
-relay_pid=$!
-cloudflared_wrapper="$work_dir/cloudflared"
-printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "$root/test/e2e/fake-cloudflared" "$work_dir/fake-cloudflared.jsonl" > "$cloudflared_wrapper"
-chmod +x "$cloudflared_wrapper"
-
-start_server() {
-  local port=$1
-  local auth_mode=$2
-  local name=$3
-  server_log="$work_dir/$name-server.log"
-  server_db="$work_dir/$name-roadmap.db"
-  HELM_PUBLIC_HOOKS_ADDR="127.0.0.1:$((port + 20))" \
-    HELM_CLOUDFLARE_API_BASE=http://127.0.0.1:18090/client/v4 \
-    HELM_CLOUDFLARED_BINARY="$cloudflared_wrapper" \
-    HELM_PUBLIC_PROBE_ORIGIN="http://127.0.0.1:$((port + 20))" \
-    HELM_CLOUDFLARE_OAUTH_CLIENT_ID=e2e-client \
-    HELM_CLOUDFLARE_OAUTH_RELAY_URL=http://127.0.0.1:18110/cloudflare/callback \
-    HELM_CLOUDFLARE_DASHBOARD_URL=http://127.0.0.1:18090 \
-    HELM_COOLIFY_WEBHOOK_SECRET_FILE="$coolify_secret_file" \
-    HELM_COOLIFY_PROJECT=COOLIFYE2E \
-    HELM_COOLIFY_ASSIGNEE=actor-disabled-mode \
-    HELM_ADDR="127.0.0.1:$port" \
-    HELM_DB="$server_db" \
-    HELM_AUTH_MODE="$auth_mode" \
-    HELM_PUBLIC_ORIGIN="http://127.0.0.1:$port" \
-    HELM_SECURE_COOKIES=false \
-    HELM_DEMO_SEED=false \
-    HELM_LUNA_ENABLED=true \
-    HELM_CODEX_BINARY="$root/test/e2e/fake-codex" \
-    HELM_CODEX_HOME_ROOT="$work_dir/$name-codex-users" \
-    "$binary" >"$server_log" 2>&1 &
-  server_pid=$!
-  for attempt in $(seq 1 30); do
-    if curl --fail --silent "http://127.0.0.1:$port/readyz" >/dev/null; then
-      return 0
-    fi
-    if [[ "$attempt" -eq 30 ]]; then
-      cat "$server_log" >&2
-      return 1
-    fi
-    sleep 1
-  done
+run_browsers() {
+  local auth_mode=$1 count=$2 port=$3
+  shift 3
+  python3 "$root/test/e2e/run-browsers.py" \
+    --mode "$auth_mode" --workers "$count" --base-port "$port" \
+    --work-dir "$work_dir/$auth_mode" --artifact-dir "$artifact_dir/$auth_mode" \
+    --binary "$binary" -- "$@" &
+  supervisor_pid=$!
+  local result=0
+  wait "$supervisor_pid" || result=$?
+  supervisor_pid=
+  return "$result"
 }
 
-start_server 18080 disabled disabled
-(
-  cd "$root/web"
-  HELM_E2E_BASE_URL=http://127.0.0.1:18080 \
-    HELM_E2E_DB="$server_db" \
-    HELM_E2E_SERVER_LOG="$server_log" \
-    HELM_E2E_HOOKS_URL=http://127.0.0.1:18100 \
-    HELM_E2E_FAKE_CF_URL=http://127.0.0.1:18090 \
-    HELM_E2E_FAKE_CF_TOKEN="$fake_cf_token" \
-    HELM_E2E_FAKE_CF_ZONELESS_TOKEN="$fake_cf_zoneless" \
-    HELM_E2E_FAKE_CF_NORULES_TOKEN="$fake_cf_norules" \
-    HELM_E2E_CLOUDFLARED_LOG="$work_dir/fake-cloudflared.jsonl" \
-    HELM_E2E_ARTIFACT_DIR="$artifact_dir/disabled" \
-    HELM_E2E_COOLIFY_SECRET="$coolify_secret" \
-    HELM_E2E_COOLIFY_PROJECT=COOLIFYE2E \
-    npm run e2e -- "$@"
-)
-stop_server
-
-start_server 18081 local local
-(
-  cd "$root/web"
-  HELM_E2E_BASE_URL=http://127.0.0.1:18081 \
-    HELM_E2E_ARTIFACT_DIR="$artifact_dir/local" \
-    npx playwright test e2e/onboarding.spec.ts
-)
-stop_server
+run_browsers disabled "$workers" "$base_port" "$@"
+run_browsers local 1 "$((base_port + 1))" e2e/onboarding.spec.ts
 
 # The complete browser suite also exercises the real GitHub provider/worker
 # HTTP path. External GitHub and inference are synthetic; no live token is used.
@@ -206,13 +137,4 @@ if [[ "$#" == 0 ]]; then
     "$root/test/githubbeta/run.sh"
 fi
 
-if grep -rlF -e "$coolify_secret" -e "$fake_cf_token" "$artifact_dir" "$work_dir"/*.log; then
-  printf 'Coolify intake secret leaked into logs or evidence\n' >&2
-  exit 1
-fi
-
-# CI images provide grep; do not silently skip this gate when rg is absent.
-if grep -nF 'WARNING: DATA RACE' "$work_dir"/*.log; then
-  printf 'Go race detector reported a data race\n' >&2
-  exit 1
-fi
+# Each runtime worker checks its retained evidence for credential leaks and races.

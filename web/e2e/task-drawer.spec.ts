@@ -1,10 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { collectionData, columnFor, createProject, createTask, json, mutateTaskPayload, mutationHeaders, type Collection, type Column, type Task } from './support/taskDrawerFixture';
+import { collectionData, columnFor, createProject, createTask, json, mutationHeaders, type Collection, type Column, type Task } from './support/taskDrawerFixture';
 
 // Browser fault injection must bypass SW interception; real SW coverage has its own suite.
 test.use({ serviceWorkers: 'block' });
 
 test.describe('task drawer safeguards', () => {
+  test.afterEach(async ({ page }) => {
+    // Finish task response rewrites before the request context is disposed.
+    await page.unrouteAll({ behavior: 'wait' });
+  });
+
   test('keeps bug drafts safe through triage, close guards, focus, and one-scroll layouts', async ({ page, request }) => {
     test.setTimeout(120_000);
     const status = await json<{ mode?: string }>(await request.get('/api/v1/auth/status'), 'read auth status');
@@ -148,28 +153,18 @@ test.describe('task drawer safeguards', () => {
       headers: mutationHeaders(conflict.version)
     }), 'seed conflict task');
 
-    await page.route('**/api/v1/**', async (route) => {
-      if (route.request().method() !== 'GET') {
-        await route.continue();
-        return;
-      }
-      const response = await route.fetch();
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        await route.fulfill({ response });
-        return;
-      }
-      const changed = mutateTaskPayload(payload, conflict.id, (task) => {
-        task.claimed_by = { id: 'foreign-agent', kind: 'agent', name: 'Foreign agent' };
-        task.claim_expires_at = new Date(Date.now() + 240_000).toISOString();
+    // Only the foreign task is synthetic; lifecycle actions on the owned task
+    // keep using the real API. A captured response avoids racing a live poll
+    // through route.fetch while the browser cancels an obsolete request.
+    await page.route((url) => url.pathname === `/api/v1/tasks/${conflict.id}`, (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({
+        json: {
+          ...conflict,
+          claimed_by: { id: 'foreign-agent', kind: 'agent', name: 'Foreign agent' },
+          claim_expires_at: new Date(Date.now() + 240_000).toISOString()
+        }
       });
-      if (!changed) {
-        await route.fulfill({ response, json: payload });
-        return;
-      }
-      await route.fulfill({ response, json: payload });
     });
 
     await page.setViewportSize({ width: 1280, height: 900 });

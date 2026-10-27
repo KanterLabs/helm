@@ -1,7 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
 
+// Browser fault injection must bypass SW interception; real SW coverage has its own suite.
+test.use({ serviceWorkers: 'block' });
+
 async function openBoard(page: Page) {
-  await page.goto('/');
+  // This file must work on an empty shard, without another suite seeding boards.
+  const baseURL = process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080';
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase();
+  const response = await page.request.post('/api/v1/projects', {
+    headers: { Origin: new URL(baseURL).origin, 'Idempotency-Key': `quick-fixes-${suffix}` },
+    data: { key: `QF${suffix}`, name: `Quick fixes ${suffix}` }
+  });
+  expect(response.status()).toBe(201);
+  const project = await response.json() as { slug: string };
+  await page.goto(`/p/${project.slug}`);
   await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
   await expect(page.locator('section.board')).toBeVisible();
 }
@@ -118,7 +130,10 @@ test.describe('UI quick fixes', () => {
       }
       await route.continue();
     });
+    const failedFavorite = page.waitForResponse((response) =>
+      new URL(response.url()).pathname.startsWith('/api/v1/projects/') && response.request().method() === 'PATCH');
     await page.locator('.favorite-heading').click();
+    expect((await failedFavorite).status()).toBe(500);
     const errorToast = page.locator('.toast.error');
     await expect(errorToast).toHaveAttribute('role', 'alert');
     await expect(errorToast).toHaveAttribute('aria-live', 'assertive');

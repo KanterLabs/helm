@@ -94,7 +94,11 @@ async function getTask(request: APIRequestContext, id: string): Promise<Task> {
 async function ticketQueue(request: APIRequestContext): Promise<Project> {
   let queue = (await json<{ queue?: { project_id: string } }>(await request.get('/api/v1/tickets?limit=1'), 'tickets')).queue;
   if (!queue) {
-    const created = await json<{ webhook: { id: string } }>(await request.post('/api/v1/ticket-webhooks', { data: { name: 'Queue bootstrap' }, headers: headers() }), 'bootstrap webhook');
+    // Secret-bearing responses reject Idempotency-Key, even for fixture setup.
+    const created = await json<{ webhook: { id: string } }>(await request.post('/api/v1/ticket-webhooks', {
+      data: { name: 'Queue bootstrap' },
+      headers: { Origin: e2eOrigin, 'Content-Type': 'application/json' }
+    }), 'bootstrap webhook');
     expect((await request.delete(`/api/v1/ticket-webhooks/${created.webhook.id}`, { headers: headers() })).status()).toBe(204);
     queue = (await json<{ queue?: { project_id: string } }>(await request.get('/api/v1/tickets?limit=1'), 'tickets')).queue;
   }
