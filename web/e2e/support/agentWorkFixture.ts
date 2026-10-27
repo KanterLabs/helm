@@ -1,6 +1,7 @@
 // Creates the two-project live-work fixture through the public API and makes
 // selected tasks look stale or expired only at the browser read boundary.
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { routeAgentWork } from './agentWorkRoutes';
 import {
   ageTaskInPayload,
   collectionData,
@@ -188,7 +189,7 @@ export async function createAgentWorkFixture(page: Page, request: APIRequestCont
   const staleReadTimestamp = new Date(Date.now() - 16 * 60 * 1000).toISOString();
   const expiredClaimReadTimestamp = new Date(Date.now() - 60 * 1000).toISOString();
   let eventReads = 0;
-  await page.route('**/api/v1/**', async (route) => {
+  await routeAgentWork(page, '**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const pathname = url.pathname;
     const isEventRead = route.request().method() === 'GET' && pathname === '/api/v1/events';
