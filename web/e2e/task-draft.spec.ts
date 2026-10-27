@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { evidence, project } from './creation-safety-helpers';
 
 test('keeps Connect Codex usable during a background account refresh', async ({ page }) => {
   let accountReads = 0;
@@ -35,7 +36,8 @@ test('keeps Connect Codex usable during a background account refresh', async ({ 
   await expect(page.getByText('TEST-CODE')).toBeVisible();
 });
 
-test('previews and selectively applies a Luna task draft', async ({ page }) => {
+test('previews and selectively applies a Luna task draft', async ({ page, request }, info) => {
+  const destination = await project(request);
   await page.route('**/api/v1/codex/account*', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -54,10 +56,11 @@ test('previews and selectively applies a Luna task draft', async ({ page }) => {
     })
   }));
 
-  await page.goto('/');
+  await page.goto(`/p/${destination.slug}`);
   const trigger = page.getByRole('button', { name: 'New task', exact: true });
   await trigger.click();
   const dialog = page.getByRole('dialog', { name: 'Create a task' });
+  await expect(dialog.getByRole('combobox', { name: 'Project', exact: true })).toHaveValue(destination.id);
   const idea = dialog.getByLabel('Rough idea');
   await expect(idea).toBeFocused();
   await idea.fill('Help users connect Codex and pick a priority');
@@ -92,16 +95,18 @@ test('previews and selectively applies a Luna task draft', async ({ page }) => {
   await expect(dialog.getByRole('status')).toContainText('Task details changed after applying');
   await expect(dialog.getByRole('button', { name: 'Reapply all' })).toBeEnabled();
   await expect(dialog.getByRole('button', { name: 'Create task' })).toBeEnabled();
+  await evidence(page, info, 'task-draft-applied', { project_id: destination.id });
 
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
 });
 
-test('keeps the task modal within the viewport on desktop and mobile', async ({ page }) => {
+test('keeps the task modal within the viewport on desktop and mobile', async ({ page, request }, info) => {
+  const destination = await project(request);
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
-    await page.goto('/');
+    await page.goto(`/p/${destination.slug}`);
     const trigger = page.getByRole('button', { name: 'New task', exact: true });
     await trigger.click();
     const dialog = page.getByRole('dialog', { name: 'Create a task' });
@@ -118,6 +123,7 @@ test('keeps the task modal within the viewport on desktop and mobile', async ({ 
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth + 1);
     expect(geometry.hasHorizontalOverflow).toBeFalsy();
+    await evidence(page, info, `task-draft-${viewport.width}`, { project_id: destination.id, ...geometry });
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
   }
