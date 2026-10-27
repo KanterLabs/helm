@@ -8,10 +8,17 @@ default_workers=4
 [[ "$#" == 0 ]] || default_workers=1
 workers=${HELM_E2E_WORKERS:-$default_workers}
 base_port=${HELM_E2E_BASE_PORT:-18080}
+include_deadlines=${HELM_E2E_INCLUDE_DEADLINES:-false}
+[[ "$include_deadlines" == true || "$include_deadlines" == false ]] || {
+  printf 'HELM_E2E_INCLUDE_DEADLINES must be true or false\n' >&2; exit 64;
+}
+[[ "$include_deadlines" != true || "$#" == 0 ]] || {
+  printf 'Deadline coordination requires a full suite invocation\n' >&2; exit 64;
+}
 [[ "$workers" =~ ^[1-8]$ ]] || { printf 'HELM_E2E_WORKERS must be 1..8\n' >&2; exit 64; }
 [[ "$base_port" =~ ^[0-9]{1,5}$ ]] || { printf 'Invalid HELM_E2E_BASE_PORT\n' >&2; exit 64; }
 base_port=$((10#$base_port))
-((base_port >= 1024 && base_port + (workers - 1) * 100 + 30 <= 65535 && base_port + 31 <= 65535)) || {
+((base_port >= 1024 && base_port + (workers + 2) * 100 + 30 <= 65535)) || {
   printf 'Browser fixture port blocks are outside the allowed range\n' >&2; exit 64;
 }
 requested_artifact_dir=${HELM_E2E_ARTIFACT_DIR:-}
@@ -52,7 +59,7 @@ collect_evidence() {
     printf 'revision=%s\n' "${HELM_E2E_REVISION:-$(git -C "$root" rev-parse HEAD)}"
     printf 'command=test/e2e/run.sh\n'
     printf 'exit_status=%s\n' "$exit_status"
-    printf 'auth_modes=disabled,local\n'
+    printf 'suite_results=suites/suites.json\n'
     printf 'browser_workers=%s\n' "$workers"
   } > "$artifact_dir/evidence.metadata"
   (
@@ -72,7 +79,8 @@ trap collect_evidence EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
 
-python3 "$root/test/e2e/test_run_browsers.py" 2>&1 | tee "$artifact_dir/supervisor-checks.log"
+python3 -m unittest discover -s "$root/test/e2e" -p 'test_*.py' \
+  2>&1 | tee "$artifact_dir/supervisor-checks.log"
 
 if [[ "${HELM_E2E_SKIP_WEB_BUILD:-false}" != true ]]; then
   (cd "$root/web" && npm run build)
@@ -81,60 +89,43 @@ rm -rf -- "$embedded_dist"
 install -d "$embedded_dist"
 cp -a "$root/web/dist/." "$embedded_dist/"
 
-binary=${HELM_E2E_BINARY:-}
-if [[ -z "$binary" ]]; then
-  binary="$work_dir/helm"
-  read -r -a go_flags <<< "${HELM_E2E_GOFLAGS:-}"
-  if command -v go >/dev/null 2>&1; then
-    (cd "$root" && go build "${go_flags[@]}" -trimpath -o "$binary" ./cmd/helm)
-  elif command -v docker >/dev/null 2>&1; then
-    docker run --rm \
-      --volume "$root:/src:ro" \
-      --volume "$work_dir:/out" \
-      --workdir /src \
-      golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 \
-      go build "${go_flags[@]}" -buildvcs=false -trimpath -o /out/helm ./cmd/helm
-  else
-    printf 'Helm E2E requires Go or Docker to build the application\n' >&2
-    exit 69
-  fi
+bundle=${HELM_E2E_PREPARED_DIR:-"$work_dir/prepared"}
+[[ "$bundle" = /* ]] || bundle="$root/$bundle"
+if [[ -n "${HELM_E2E_BINARY:-}" && -z "${HELM_E2E_PREPARED_DIR:-}" ]]; then
+  printf 'HELM_E2E_BINARY requires its verified HELM_E2E_PREPARED_DIR bundle; use prepare.py prepare.\n' >&2
+  exit 64
 fi
-[[ "$binary" = /* ]] || binary="$root/$binary"
-[[ -x "$binary" ]] || { printf 'Helm E2E binary is not executable: %s\n' "$binary" >&2; exit 64; }
-[[ -x "$root/test/e2e/fake-codex" ]] || { printf 'Codex E2E fixture is not executable\n' >&2; exit 64; }
-
-run_browsers() {
-  local auth_mode=$1 count=$2 port=$3
-  shift 3
-  python3 "$root/test/e2e/run-browsers.py" \
-    --mode "$auth_mode" --workers "$count" --base-port "$port" \
-    --work-dir "$work_dir/$auth_mode" --artifact-dir "$artifact_dir/$auth_mode" \
-    --binary "$binary" -- "$@" &
-  supervisor_pid=$!
-  local result=0
-  wait "$supervisor_pid" || result=$?
-  supervisor_pid=
-  return "$result"
-}
-
-run_browsers disabled "$workers" "$base_port" "$@"
-run_browsers local 1 "$((base_port + 1))" e2e/onboarding.spec.ts
-
-# The complete browser suite also exercises the real GitHub provider/worker
-# HTTP path. External GitHub and inference are synthetic; no live token is used.
-# Focused runs (for example account deadline checks) keep their existing scope.
-if [[ "$#" == 0 ]]; then
-  github_binary="$work_dir/helm-githubbeta"
-  read -r -a github_go_flags <<< "${HELM_E2E_GOFLAGS:-}"
-  if command -v go >/dev/null 2>&1; then
-    (cd "$root" && go build "${github_go_flags[@]}" -trimpath -o "$github_binary" ./test/githubbeta)
-  else
-    docker run --rm --volume "$root:/src:ro" --volume "$work_dir:/out" --workdir /src \
-      golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 \
-      go build "${github_go_flags[@]}" -buildvcs=false -trimpath -o /out/helm-githubbeta ./test/githubbeta
-  fi
-  HELM_GITHUB_BETA_BINARY="$github_binary" HELM_E2E_ARTIFACT_DIR="$artifact_dir/github" \
-    "$root/test/githubbeta/run.sh"
+if ! command -v go >/dev/null 2>&1 && [[ -z "${HELM_E2E_GO_COMMAND:-}" ]]; then
+  command -v docker >/dev/null 2>&1 || { printf 'Helm E2E requires Go or Docker\n' >&2; exit 69; }
+  export HELM_E2E_DOCKER_WORK_DIR="$work_dir"
+  export HELM_E2E_DOCKER_BUNDLE_PARENT="$(dirname "$bundle")"
+  HELM_E2E_GO_COMMAND=$(python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$root/test/e2e/go-command.sh")
+  export HELM_E2E_GO_COMMAND
 fi
-
-# Each runtime worker checks its retained evidence for credential leaks and races.
+prepare_args=(--root "$root" --output "$bundle" "--go-flags=${HELM_E2E_GOFLAGS:-}")
+[[ "$#" != 0 ]] || prepare_args+=(--github)
+prepare_action=prepare
+[[ ! -e "$bundle" ]] || prepare_action=verify
+python3 "$root/test/e2e/prepare.py" "$prepare_action" "${prepare_args[@]}" > "$work_dir/prepared-paths.json" &
+supervisor_pid=$!
+prepare_status=0
+wait "$supervisor_pid" || prepare_status=$?
+supervisor_pid=
+((prepare_status == 0)) || exit "$prepare_status"
+binary=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["helm"])' "$work_dir/prepared-paths.json")
+if [[ -n "${HELM_E2E_BINARY:-}" ]]; then
+  supplied=$HELM_E2E_BINARY
+  [[ "$supplied" = /* ]] || supplied="$root/$supplied"
+  [[ "$(realpath "$supplied")" == "$binary" ]] || { printf 'Supplied binary is outside the verified bundle\n' >&2; exit 64; }
+fi
+cp "$bundle/metadata.json" "$artifact_dir/build-provenance.json"
+suite_args=(--workers "$workers" --base-port "$base_port" --work-dir "$work_dir/suites"
+  --artifact-dir "$artifact_dir/suites" --binary "$binary")
+[[ "$#" != 0 ]] || suite_args+=(--github-binary "$bundle/helm-githubbeta")
+[[ "$include_deadlines" != true ]] || suite_args+=(--include-deadline)
+python3 "$root/test/e2e/run-suites.py" "${suite_args[@]}" -- "$@" &
+supervisor_pid=$!
+result=0
+wait "$supervisor_pid" || result=$?
+supervisor_pid=
+exit "$result"

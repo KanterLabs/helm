@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+from browser_selection import option_tokens, timing_plan
+
 
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -21,6 +23,9 @@ def arguments():
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--worker-script", type=Path,
                         default=Path(__file__).with_name("run-worker.sh"))
+    parser.add_argument("--timings", type=Path,
+                        default=os.environ.get("HELM_E2E_TIMING_PROFILE") or None,
+                        help="opt in to measured whole-file balancing using a timing profile")
     parser.add_argument("playwright", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.playwright[:1] == ["--"]:
@@ -32,7 +37,7 @@ def arguments():
     if args.mode == "local" and args.workers != 1:
         parser.error("local onboarding requires one fresh fixture")
     if any(a == "-j" or a.startswith(("--workers", "--shard", "-j=")) or
-           (a.startswith("-j") and a[2:].isdigit()) for a in args.playwright):
+           (a.startswith("-j") and a[2:].isdigit()) for a in option_tokens(args.playwright)):
         parser.error("use HELM_E2E_WORKERS; inner workers and shard overrides share runtime state")
     for name in ("work_dir", "artifact_dir"):
         path = getattr(args, name).resolve()
@@ -45,6 +50,14 @@ def arguments():
     args.worker_script = args.worker_script.resolve()
     if not all(os.access(p, os.X_OK) for p in (args.binary, args.worker_script)):
         parser.error("binary and worker script must be executable")
+    args.timing_plan = None
+    if args.timings:
+        try:
+            args.timing_plan = timing_plan(args)
+        except (ValueError, KeyError, TypeError, OSError) as error:
+            # Avoid echoing malformed profile contents or declaration payloads.
+            parser.error(f"cannot plan timed shards: {type(error).__name__}; "
+                         "check profile, supported options and Playwright selection")
     return args
 
 
@@ -58,6 +71,9 @@ def signal_group(pid, signum):
 def run(args):
     args.work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
+    if args.timing_plan:
+        (args.artifact_dir / "shard-plan.json").write_text(
+            json.dumps(args.timing_plan, indent=2) + "\n")
     selector = selectors.DefaultSelector()
     children = []
     interrupted = 0
@@ -75,11 +91,19 @@ def run(args):
             if interrupted:
                 break
             name = f"worker-{index}"
+            assigned = args.timing_plan["workers"][index - 1] if args.timing_plan else None
+            if assigned is not None and not assigned["files"]:
+                continue
             state_dir = args.work_dir / name
             state_dir.mkdir(mode=0o700)
             port = args.base_port + (index - 1) * 100
             playwright = [*args.playwright, "--workers=1"]
-            if args.workers > 1:
+            if assigned is not None:
+                test_list = args.artifact_dir / f"{name}.test-list"
+                test_list.write_text("\n".join(path.removeprefix("web/e2e/")
+                                               for path in assigned["files"]) + "\n")
+                playwright.append(f"--test-list={test_list}")
+            elif args.workers > 1:
                 playwright.extend([f"--shard={index}/{args.workers}", "--pass-with-no-tests"])
             command = [str(args.worker_script), args.mode, str(port), str(state_dir),
                        str(args.artifact_dir / name), str(args.binary), *playwright]
@@ -162,8 +186,8 @@ def run(args):
         return 128 + interrupted
     # Empty individual shards are expected for small focused selections. A
     # selection matching nothing at all must retain Playwright's failure rule.
-    reports = [args.artifact_dir / f"worker-{i}/results.json"
-               for i in range(1, args.workers + 1)]
+    reports = [args.artifact_dir / f"worker-{c['receipt']['worker']}/results.json"
+               for c in children]
     if all(path.is_file() for path in reports):
         total = sum(sum(json.loads(path.read_text())["stats"].get(key, 0)
                         for key in ("expected", "unexpected", "skipped", "flaky"))

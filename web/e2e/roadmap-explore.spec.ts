@@ -9,8 +9,27 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 //   at all, or leaves focus nowhere;
 // - leaving the roadmap (back button) strands another page without chrome;
 // - the roadmap, explored or not, pushes the page sideways on a phone.
+// Panels can re-render during measurement, and retries share the fixture DB:
+// poll geometry and uniquely identify each attempt's task.
 const origin = new URL(process.env.HELM_E2E_BASE_URL || 'http://127.0.0.1:18080').origin;
 const headers = () => ({ Origin: origin, 'Idempotency-Key': crypto.randomUUID() });
+const fixtureTasks = new Set<string>();
+
+test.afterEach(async ({ request }) => {
+  // The workspace preview shows only five due tasks. Keep earlier attempts'
+  // synthetic tasks from hiding the next attempt's task in that preview.
+  // Remove only IDs created by this attempt, using their current versions.
+  for (const id of fixtureTasks) {
+    const current = await request.get(`/api/v1/tasks/${id}`);
+    expect(current.ok()).toBeTruthy();
+    const task = await current.json();
+    const response = await request.delete(`/api/v1/tasks/${id}`, {
+      headers: { ...headers(), 'If-Match': `"v${task.version}"` }
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    fixtureTasks.delete(id);
+  }
+});
 
 async function fixture(request: APIRequestContext) {
   const suffix = crypto.randomUUID().slice(0, 6).toUpperCase();
@@ -21,13 +40,15 @@ async function fixture(request: APIRequestContext) {
   const project = await response.json();
   const columns = (await (await request.get(`/api/v1/projects/${project.id}/columns`)).json()).data as { id: string; name: string }[];
   const due = new Date(Date.now() - 86_400_000).toISOString();
-  for (const title of ['Plan the explore walkthrough', 'Check roadmap zoom on a wall display']) {
+  const walkthroughTitle = `Plan the explore walkthrough ${suffix}`;
+  for (const title of [walkthroughTitle, `Check roadmap zoom on a wall display ${suffix}`]) {
     const created = await request.post(`/api/v1/projects/${project.id}/tasks`, { headers: headers(), data: {
       title, column_id: columns[0].id, description: 'Synthetic explore task.', due_at: due
     } });
     expect(created.ok()).toBeTruthy();
+    fixtureTasks.add((await created.json()).id);
   }
-  return project as { id: string; slug: string; name: string };
+  return { ...project, walkthroughTitle } as { id: string; slug: string; name: string; walkthroughTitle: string };
 }
 
 const chrome = (page: Page) => ({
@@ -54,9 +75,11 @@ test('explore hides the rest of Helm and enlarges the roadmap', async ({ page, r
   await page.goto('/my-work');
   await page.goto('/roadmap');
   const { sidebar, topbar, heading, bar } = chrome(page);
-  await expect(page.locator('.upcoming-row').filter({ hasText: 'Plan the explore walkthrough' })).toBeVisible();
+  const walkthrough = page.locator('.upcoming-row').filter({ hasText: project.walkthroughTitle });
+  await expect(walkthrough).toBeVisible();
   const normal = await heroTitle(page);
-  const normalWidth = (await page.locator('.roadmap-content').boundingBox())!.width;
+  let normalWidth = 0;
+  await expect.poll(async () => (normalWidth = (await page.locator('.roadmap-content').boundingBox())?.width ?? 0)).toBeGreaterThan(0);
 
   const enter = page.getByRole('button', { name: 'Explore roadmap' });
   await enter.click();
@@ -66,7 +89,8 @@ test('explore hides the rest of Helm and enlarges the roadmap', async ({ page, r
   await expect(bar.getByRole('button', { name: 'Exit explore' })).toBeFocused();
   const explored = await heroTitle(page);
   expect(explored, 'default explore zoom enlarges the roadmap').toBeGreaterThan(normal * 1.1);
-  expect((await page.locator('.roadmap-content').boundingBox())!.width, 'roadmap uses the freed width').toBeGreaterThan(normalWidth);
+  await expect.poll(async () => (await page.locator('.roadmap-content').boundingBox())?.width ?? 0,
+    { message: 'roadmap uses the freed width' }).toBeGreaterThan(normalWidth);
   expect(await overflow(page)).toBeLessThanOrEqual(0);
   await info.attach('explore-1440.png', { body: await page.screenshot(), contentType: 'image/png' });
 
@@ -97,7 +121,7 @@ test('explore hides the rest of Helm and enlarges the roadmap', async ({ page, r
 
   // A task opened from explore shows in its board; Escape closes the drawer
   // first and returns to the roadmap still in explore.
-  await page.locator('.upcoming-row').filter({ hasText: 'Plan the explore walkthrough' }).click();
+  await walkthrough.click();
   await expect(page.locator('.task-drawer')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('.task-drawer')).toBeHidden();

@@ -72,7 +72,14 @@ test('ticket classification, project Bugs intake, and triage share one record', 
   await page.reload();
   await expect(detail.getByRole('heading', { name: 'Bug triage' })).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole('button', { name: project.name, exact: true }).first().click();
+  // Earlier suite fixtures can push this project below the sidebar's window.
+  // Expand the real navigation instead of depending on smart-order ranking.
+  const sidebar = page.getByRole('navigation', { name: 'Primary navigation' });
+  const projectButton = sidebar.getByRole('button', { name: project.name, exact: true });
+  const showMore = sidebar.getByRole('button', { name: /^Show \d+ more$/ });
+  await expect(projectButton.or(showMore).first()).toBeVisible();
+  if (!(await projectButton.isVisible())) await showMore.click();
+  await projectButton.click();
   const readyLane = page.getByRole('article', { name: 'Ready column', exact: true });
   await expect(readyLane.locator(`[data-task-trigger="${ticket.id}"]`)).toBeVisible();
   await expect(page.getByRole('article', { name: 'Bugs column', exact: true }).locator(`[data-task-trigger="${ticket.id}"]`)).toHaveCount(0);

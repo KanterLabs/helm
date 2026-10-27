@@ -163,5 +163,100 @@ class SupervisorProof(unittest.TestCase):
         self.assertEqual(receipt["workers"][0]["exit_status"], 7)
 
 
+class TimedSupervisorProof(SupervisorProof):
+    """Exercise opt-in planning through a synthetic Playwright discovery CLI."""
+
+    def setUp(self):
+        super().setUp()
+        import hashlib
+        web = SUPERVISOR.resolve().parents[2] / "web"
+        self.files = sorted(web.glob("e2e/*.spec.ts"))[:3]
+        self.profile = self.root / "timings.json"
+        self.profile.write_text(json.dumps({
+            "schema": 1, "source_revision": "a" * 40,
+            "collector": "helm-playwright-file-timings-v1",
+            "report_sha256": ["b" * 64], "playwright_versions": ["1.62.1"],
+            "files": {"web/" + p.relative_to(web).as_posix(): {
+                "seconds": seconds, "samples": 1,
+                "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+                for p, seconds in zip(self.files, (9, 5, 4))}}))
+        self.node = self.root / "node"
+        self.node.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys
+pathlib.Path(os.environ["FAKE_DISCOVERY_ARGS"]).write_text(json.dumps(sys.argv[1:]))
+print(os.environ["FAKE_DISCOVERY_JSON"])
+sys.exit(int(os.environ.get("FAKE_DISCOVERY_EXIT", "0")))
+''')
+        self.node.chmod(0o700)
+
+    def timed_env(self, **extra):
+        web = SUPERVISOR.resolve().parents[2] / "web"
+        return {"HELM_E2E_TIMING_PROFILE": str(self.profile),
+                "PATH": str(self.root) + os.pathsep + os.environ["PATH"],
+                "FAKE_DISCOVERY_ARGS": str(self.root / "discovery-args.json"),
+                "FAKE_DISCOVERY_JSON": json.dumps({"config": {
+                    "rootDir": str(web / "e2e"), "version": "1.62.1"}, "errors": [],
+                    "suites": [{"specs": [{"file": p.name, "tests": [{}]}]}
+                               for p in self.files]}), **extra}
+
+    def test_timed_file_intersection_preserves_focused_options_and_omits_empty_fixtures(self):
+        focused = ("e2e/a.*:4", "--grep", "two words", "--grep-invert=other", "--retries=1")
+        result = self.run_command(4, focused, self.timed_env())
+        self.assertEqual(result.returncode, 0, result.stdout)
+        states = [json.loads(p.read_text()) for p in sorted(self.artifacts.glob("*/started.json"))]
+        self.assertEqual(len(states), 3)
+        assigned = []
+        for state in states:
+            self.assertEqual(state["args"][:len(focused)], list(focused))
+            self.assertIn("--workers=1", state["args"])
+            self.assertFalse(any(a.startswith("--shard") for a in state["args"]))
+            flag = next(a for a in state["args"] if a.startswith("--test-list="))
+            assigned.extend(Path(flag.split("=", 1)[1]).read_text().splitlines())
+        self.assertEqual(sorted(assigned), sorted(p.name for p in self.files))
+        discovery = json.loads((self.root / "discovery-args.json").read_text())
+        self.assertEqual(discovery[2:2 + len(focused)], list(focused))
+        self.assertEqual(discovery[-3:], ["--list", "--reporter=json", "--workers=1"])
+        receipt = json.loads((self.artifacts / "shard-plan.json").read_text())
+        self.assertEqual(len(receipt["workers"]), 4)
+
+    def test_timed_discovery_failures_start_no_fixtures(self):
+        for output, status in (("not json", "0"), ("{}", "1"),
+                               (json.dumps({"errors": [], "suites": []}), "0")):
+            with self.subTest(output=output):
+                result = self.run_command(env=self.timed_env(
+                    FAKE_DISCOVERY_JSON=output, FAKE_DISCOVERY_EXIT=status))
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse(list(self.artifacts.glob("*/started.json")))
+
+    def test_timed_rejects_selection_and_config_overrides(self):
+        for args in (("--test-list=elsewhere",), ("-c", "other.ts"), ("--config=other",),
+                     ("--last-failed",), ("--only-changed=HEAD",), ("--list",), ("--ui",),
+                     ("--fully-parallel",), ("--output=shared",), ("--reporter=json",),
+                     ("--last-failed-file=shared",), ("--run-agents=all",), ("-u",)):
+            with self.subTest(args=args):
+                result = self.run_command(args=args, env=self.timed_env())
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse(list(self.artifacts.glob("*/started.json")))
+
+    def test_timed_preserves_filter_values_that_resemble_options(self):
+        focused = ("--grep", "--list", "--grep-invert", "--workers=4")
+        result = self.run_command(1, focused, self.timed_env())
+        self.assertEqual(result.returncode, 0, result.stdout)
+        state = json.loads((self.artifacts / "worker-1/started.json").read_text())
+        self.assertEqual(state["args"][:len(focused)], list(focused))
+
+    def test_explicit_timing_option_and_worker_failure_remain_failure(self):
+        env = self.timed_env(FAKE_FAIL_PORT="21180")
+        env["HELM_E2E_TIMING_PROFILE"] = ""
+        command = self.command(2)
+        separator = command.index("--")
+        command[separator:separator] = ["--timings", str(self.profile)]
+        result = subprocess.run(command, env={**os.environ, **env}, capture_output=True,
+                                text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        receipt = json.loads((self.artifacts / "workers.json").read_text())
+        self.assertEqual([w["exit_status"] for w in receipt["workers"]], [0, 7])
+
+
 if __name__ == "__main__":
     unittest.main()

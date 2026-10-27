@@ -129,7 +129,8 @@ cloudflared_wrapper="$work_dir/cloudflared"
 printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "$root/test/e2e/fake-cloudflared" "$work_dir/fake-cloudflared.jsonl" > "$cloudflared_wrapper"
 chmod +x "$cloudflared_wrapper"
 
-HELM_PUBLIC_HOOKS_ADDR="127.0.0.1:$hooks_port" \
+GOMAXPROCS="${HELM_E2E_SERVER_GOMAXPROCS:-2}" \
+  HELM_PUBLIC_HOOKS_ADDR="127.0.0.1:$hooks_port" \
   HELM_CLOUDFLARE_API_BASE="$cf_origin/client/v4" \
   HELM_CLOUDFLARED_BINARY="$cloudflared_wrapper" \
   HELM_PUBLIC_PROBE_ORIGIN="$hooks_origin" \
