@@ -26,7 +26,7 @@ RUN npm install --global --ignore-scripts "@openai/codex@${CODEX_VERSION}" \
     && install -D -m 0755 "$native" /out/codex
 
 # cloudflared runs the optional public webhook endpoint (Cloudflare Tunnel).
-# Upstream binaries still embed vulnerable Go, x/net and klauspost/compress
+# Upstream binaries still embed vulnerable Go, x/net, compress and go-jose
 # versions. Rebuild the checksum-pinned 2026.9.3 source with the security
 # fixes, retaining its feature code. GOSUMDB verifies the pinned module updates
 # and their transitive modules.
@@ -42,9 +42,9 @@ RUN case "$TARGETARCH" in \
     && curl -fsSL -o /tmp/cloudflared.tar.gz "https://codeload.github.com/cloudflare/cloudflared/tar.gz/96d39adbc812dc7363834bda908970c1a2560a72" \
     && echo "7459141c5769755f20de6f7edf32d3223f643a225a7f080772cb18baa2a08d27  /tmp/cloudflared.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/cloudflared.tar.gz --strip-components=1 \
-    && go get golang.org/x/net@v0.60.0 github.com/klauspost/compress@v1.18.7 \
+    && go get golang.org/x/net@v0.60.0 github.com/klauspost/compress@v1.18.7 github.com/go-jose/go-jose/v4@v4.1.6 \
     && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" go build -mod=readonly -trimpath -buildvcs=false \
-       -ldflags="-s -w -X main.Version=2026.9.3-helm.1 -X main.BuildTime=2026-10-11-0000" \
+       -ldflags="-s -w -X main.Version=2026.9.3-helm.2 -X main.BuildTime=2026-10-28-0000" \
        -o /out/cloudflared ./cmd/cloudflared
 
 FROM golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 AS build
