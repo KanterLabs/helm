@@ -142,6 +142,7 @@ x-helm-fragments:
   - openapi/paths/github-artifact-refresh.yaml
   - openapi/paths/github-artifact-summaries.yaml
   - openapi/paths/github-artifacts.yaml
+  - openapi/paths/github-audit-authorizations.yaml
   - openapi/paths/github-audit-apply.yaml
   - openapi/paths/github-audit-evidence.yaml
   - openapi/paths/github-audit-job.yaml
@@ -243,6 +244,7 @@ x-helm-fragments:
   - openapi/schemas/errors.yaml
   - openapi/schemas/events.yaml
   - openapi/schemas/github-artifacts.yaml
+  - openapi/schemas/github-audit-authorizations.yaml
   - openapi/schemas/github-audit-evidence.yaml
   - openapi/schemas/github-audit-jobs.yaml
   - openapi/schemas/github-integration.yaml

@@ -17,11 +17,12 @@ const (
 )
 
 type syntheticState struct {
-	mu       sync.Mutex
-	revoked  bool
-	delayMS  int
-	requests int
-	aiCalls  int
+	mu          sync.Mutex
+	revoked     bool
+	delayMS     int
+	requests    int
+	aiCalls     int
+	lastAIActor string
 }
 
 func (s *syntheticState) ServeHTTP(w http.ResponseWriter, r *http.Request) {

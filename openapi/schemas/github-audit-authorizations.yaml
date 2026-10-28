@@ -1,0 +1,72 @@
+components:
+  schemas:
+    GithubAuditAuthorization:
+      type: object
+      description: Bounded permission to use the granting human account for one exact agent/token and
+        captured project repository selection. Contains token identity only, never a bearer secret.
+      required:
+        - id
+        - project_id
+        - agent_id
+        - token_id
+        - account_owner_id
+        - selection_version
+        - max_tasks
+        - created_at
+        - expires_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        agent_id:
+          $ref: "#/components/schemas/Identifier"
+        token_id:
+          $ref: "#/components/schemas/Identifier"
+        account_owner_id:
+          $ref: "#/components/schemas/Identifier"
+        selection_version:
+          type: integer
+          minimum: 1
+        max_tasks:
+          type: integer
+          minimum: 1
+          maximum: 100
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        revoked_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    GithubAuditAuthorizationRequest:
+      type: object
+      required:
+        - agent_id
+        - token_id
+        - expires_at
+      properties:
+        agent_id:
+          $ref: "#/components/schemas/Identifier"
+        token_id:
+          $ref: "#/components/schemas/Identifier"
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+          description: RFC3339 future expiry no more than 24 hours from creation.
+        max_tasks:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 10
+          description: Task limit per run; omitted or zero defaults to 10; otherwise 1–100.
+      additionalProperties: false
+    GithubAuditAuthorizationList:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditAuthorization"
+      additionalProperties: false

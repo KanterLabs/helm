@@ -59,7 +59,7 @@
       "post": {
         "operationId": "cancelGithubAudit",
         "summary": "Cancel a server audit",
-        "description": "Requires the originating signed-in human or project-authorized human administrator. Fences the attempt before interrupting work. Repeating cancellation keeps the terminal job. Existing external-agent runs remain separate.",
+        "description": "Requires the originating signed-in human, a project-authorized human administrator, or the exact agent bearer token that started this authorized job with tasks:read and project access. The originating token may cancel even after its grant expires or is revoked. Fences the attempt before interrupting work. Repeating cancellation keeps the terminal job. Existing external-agent runs remain separate.",
         "tags": [
           "GitHub",
           "Audits"
@@ -70,6 +70,9 @@
           },
           {
             "cloudflareAccess": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "externalDocs": {
@@ -134,7 +137,7 @@
       "post": {
         "operationId": "retryGithubAudit",
         "summary": "Retry with a fresh audit run",
-        "description": "Requires a signed-in human with project access and their own connected AI account. The previous job must be terminal. Creates a new run linked by retry_of; captures scope again under current repository and account authorization.",
+        "description": "Requires a signed-in human with project access and their own connected AI account. The previous job must be terminal. Creates a new run linked by retry_of; captures scope again under current repository and account authorization. Agent bearer tokens cannot retry. Retrying an agent-started job uses the requesting human account and clears the former agent authorization.",
         "tags": [
           "GitHub",
           "Audits"

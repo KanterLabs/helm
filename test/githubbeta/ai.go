@@ -26,12 +26,13 @@ func (a *syntheticAI) CancelDeviceLogin(context.Context, string, string) (codexr
 }
 func (a *syntheticAI) LogoutAccount(context.Context, string) error { return nil }
 
-func (a *syntheticAI) DraftEvidence(ctx context.Context, _ string, request codexruntime.RunRequest) (codexruntime.RunResult, error) {
+func (a *syntheticAI) DraftEvidence(ctx context.Context, actorID string, request codexruntime.RunRequest) (codexruntime.RunResult, error) {
 	if strings.Contains(request.Prompt, sentinelToken) {
 		return codexruntime.RunResult{}, errors.New("credential reached evidence boundary")
 	}
 	a.state.mu.Lock()
 	a.state.aiCalls++
+	a.state.lastAIActor = actorID
 	delay := a.state.delayMS
 	a.state.mu.Unlock()
 	if delay > 0 {

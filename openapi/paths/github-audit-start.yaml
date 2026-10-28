@@ -5,16 +5,20 @@ paths:
     post:
       operationId: startProjectGithubAudit
       summary: Queue a server GitHub audit
-      description: Requires a signed-in human with project access and a connected personal AI account.
-        Starts a durable job with selected/allowed repository refs and captured task scope; analysis
-        never moves tasks. One active actor/project job is allowed; an active-run conflict includes
-        its authorized audit_id. GitHub/AI readiness is revalidated before start.
+      description: Requires project access and either a signed-in human with their own connected AI
+        account or an agent bearer token with tasks:read and a matching unexpired authorization_id.
+        Authorized agents must supply explicit task_ids within the grant max_tasks and cannot select
+        states. Grants bind the exact agent/token, account owner and repository selection version.
+        Starts a durable job; analysis never moves tasks. One active actor/project job is allowed;
+        an active-run conflict includes its authorized audit_id. GitHub/AI and grant readiness are
+        revalidated before start and during execution.
       tags:
         - GitHub
         - Audits
       security:
         - cookieAuth: []
         - cloudflareAccess: []
+        - bearerAuth: []
       externalDocs:
         description: GitHub beta API guide
         url: docs/GITHUB_BETA_API.md

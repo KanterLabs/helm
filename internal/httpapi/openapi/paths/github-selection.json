@@ -148,7 +148,7 @@
       "get": {
         "operationId": "getProjectGithubReadiness",
         "summary": "Check audit connection readiness",
-        "description": "Requires a signed-in human and project access. Checks GitHub and personal AI readiness without running inference. Audit start validates execution again.",
+        "description": "Requires project access. Humans check their own personal AI readiness. Agents require tasks:read and authorization_id matching their exact agent/token and project; checks the granting human account. Checks GitHub and AI readiness without inference. Audit start validates execution again.",
         "tags": [
           "GitHub"
         ],
@@ -158,6 +158,9 @@
           },
           {
             "cloudflareAccess": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "externalDocs": {
@@ -199,7 +202,18 @@
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "authorization_id",
+            "in": "query",
+            "required": false,
+            "description": "Required for agents; omitted for humans. Must identify a matching unexpired, unrevoked grant.",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        ]
       }
     }
   }

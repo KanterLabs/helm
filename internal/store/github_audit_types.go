@@ -16,7 +16,10 @@ type GithubAuditJob struct {
 	Message            string  `json:"message"`
 	ErrorCode          string  `json:"error_code,omitempty"`
 	RetryOf            string  `json:"retry_of,omitempty"`
-	ActorID            string  `json:"-"`
+	ActorID            string  `json:"requested_by"`
+	AccountOwnerID     string  `json:"account_owner_id"`
+	AuthorizationID    string  `json:"authorization_id,omitempty"`
+	RequestTokenID     string  `json:"-"`
 	Fence              int64   `json:"-"`
 	LeaseOwner         string  `json:"-"`
 	SelectionVersion   int64   `json:"-"`
@@ -26,6 +29,9 @@ type GithubAuditJob struct {
 	Effort             string  `json:"-"`
 }
 type GithubAuditStartInput struct {
+	AuthorizationID    string             `json:"authorization_id,omitempty"`
+	RequestTokenID     string             `json:"-"`
+	AccountOwnerID     string             `json:"-"`
 	Repositories       []GithubRepository `json:"repositories,omitempty"`
 	States             []string           `json:"states,omitempty"`
 	TaskIDs            []string           `json:"task_ids,omitempty"`

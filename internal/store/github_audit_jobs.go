@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-const githubAuditJobColumns = `audit_id,project_id,actor_id,stage,outcome,created_at,updated_at,finished_at,task_count,captured_files,omitted_files,message,error_code,COALESCE(retry_of,''),fence,lease_owner,selection_version,provider_generation,account_generation,model,effort`
+const githubAuditJobColumns = `audit_id,project_id,actor_id,stage,outcome,created_at,updated_at,finished_at,task_count,captured_files,omitted_files,message,error_code,COALESCE(retry_of,''),fence,lease_owner,selection_version,provider_generation,account_generation,model,effort,COALESCE(NULLIF(account_owner_id,''),actor_id),authorization_id,request_token_id`
 
 func scanGithubAuditJob(row interface{ Scan(...any) error }) (GithubAuditJob, error) {
 	var j GithubAuditJob
 	var finished sql.NullString
-	err := row.Scan(&j.AuditID, &j.ProjectID, &j.ActorID, &j.Stage, &j.Outcome, &j.CreatedAt, &j.UpdatedAt, &finished, &j.TaskCount, &j.CapturedFiles, &j.OmittedFiles, &j.Message, &j.ErrorCode, &j.RetryOf, &j.Fence, &j.LeaseOwner, &j.SelectionVersion, &j.ProviderGeneration, &j.AccountGeneration, &j.Model, &j.Effort)
+	err := row.Scan(&j.AuditID, &j.ProjectID, &j.ActorID, &j.Stage, &j.Outcome, &j.CreatedAt, &j.UpdatedAt, &finished, &j.TaskCount, &j.CapturedFiles, &j.OmittedFiles, &j.Message, &j.ErrorCode, &j.RetryOf, &j.Fence, &j.LeaseOwner, &j.SelectionVersion, &j.ProviderGeneration, &j.AccountGeneration, &j.Model, &j.Effort, &j.AccountOwnerID, &j.AuthorizationID, &j.RequestTokenID)
 	j.FinishedAt = nullableString(finished)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = notFound("server audit job not found")
@@ -83,8 +83,13 @@ func (s *Store) HeartbeatGithubAudit(ctx context.Context, j GithubAuditJob, stag
 		return invalid("invalid audit stage", nil)
 	}
 	message := map[string]string{"fetching": "Reading GitHub evidence", "analyzing": "Analyzing captured evidence", "validating": "Checking findings"}[stage]
-	result, err := s.DB.ExecContext(ctx, `UPDATE github_audit_jobs SET stage=?,message=?,updated_at=?,lease_until=? WHERE audit_id=? AND fence=? AND lease_owner=? AND outcome='' AND lease_until>? AND deadline>?`, stage, message, now(), time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano), j.AuditID, j.Fence, j.LeaseOwner, now(), now())
-	return githubFenceResult(result, err)
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		if err := githubAuditFenceTx(ctx, tx, j); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE github_audit_jobs SET stage=?,message=?,updated_at=?,lease_until=? WHERE audit_id=? AND fence=? AND lease_owner=? AND outcome='' AND lease_until>? AND deadline>?`, stage, message, now(), time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano), j.AuditID, j.Fence, j.LeaseOwner, now(), now())
+		return githubFenceResult(result, err)
+	})
 }
 func githubFenceResult(result sql.Result, err error) error {
 	if err != nil {
@@ -104,8 +109,24 @@ func githubAuditFenceTx(ctx context.Context, tx *sql.Tx, j GithubAuditJob) error
 	if err = githubFenceResult(result, err); err != nil {
 		return err
 	}
-	if err = githubAuditActorTx(ctx, tx, j.ActorID); err != nil {
+	// Read identity from the durable row rather than trusting a caller's copy.
+	stored, err := scanGithubAuditJob(tx.QueryRowContext(ctx, `SELECT `+githubAuditJobColumns+` FROM github_audit_jobs WHERE audit_id=?`, j.AuditID))
+	if err != nil {
 		return err
+	}
+	if err = githubAuditActorTx(ctx, tx, stored.AccountOwnerID); err != nil {
+		return err
+	}
+	if stored.AuthorizationID != "" {
+		a, err := validateGithubAuditAuthorizationTx(ctx, tx, stored.AuthorizationID, stored.ProjectID, stored.ActorID, stored.RequestTokenID)
+		if err != nil {
+			return err
+		}
+		if a.AccountOwnerID != stored.AccountOwnerID || a.SelectionVersion != stored.SelectionVersion {
+			return forbidden("audit authorization identity changed")
+		}
+	} else if stored.ActorID != stored.AccountOwnerID {
+		return forbidden("delegated audit requires authorization")
 	}
 	var generation int64
 	err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT version FROM github_project_settings WHERE project_id=?),1)`, j.ProjectID).Scan(&generation)

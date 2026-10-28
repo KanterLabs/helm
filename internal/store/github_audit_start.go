@@ -23,10 +23,15 @@ func (s *Store) StartGithubAudit(ctx context.Context, projectID, actorID string,
 		if _, err := tx.ExecContext(ctx, `UPDATE projects SET updated_at=updated_at WHERE id=?`, projectID); err != nil {
 			return err
 		}
-		var fingerprint string
-		err := tx.QueryRowContext(ctx, `SELECT audit_id,fingerprint FROM github_audit_jobs WHERE actor_id=? AND project_id=? AND request_key=?`, actorID, projectID, input.RequestKey).Scan(&id, &fingerprint)
+		ownerID, err := githubAuditStartIdentityTx(ctx, tx, projectID, actorID, input)
+		if err != nil {
+			return err
+		}
+		input.AccountOwnerID = ownerID
+		var fingerprint, priorToken, priorAuthorization string
+		err = tx.QueryRowContext(ctx, `SELECT audit_id,fingerprint,request_token_id,authorization_id FROM github_audit_jobs WHERE actor_id=? AND project_id=? AND request_key=?`, actorID, projectID, input.RequestKey).Scan(&id, &fingerprint, &priorToken, &priorAuthorization)
 		if err == nil {
-			if fingerprint != input.Fingerprint {
+			if fingerprint != input.Fingerprint || priorToken != input.RequestTokenID || priorAuthorization != input.AuthorizationID {
 				return conflict("idempotency key was used for a different audit request", nil)
 			}
 			return nil
@@ -35,7 +40,7 @@ func (s *Store) StartGithubAudit(ctx context.Context, projectID, actorID string,
 			return err
 		}
 		var existing string
-		err = tx.QueryRowContext(ctx, `SELECT audit_id FROM github_audit_jobs WHERE actor_id=? AND project_id=? AND outcome=''`, actorID, projectID).Scan(&existing)
+		err = tx.QueryRowContext(ctx, `SELECT audit_id FROM github_audit_jobs WHERE project_id=? AND (actor_id=? OR COALESCE(NULLIF(account_owner_id,''),actor_id)=?) AND outcome=''`, projectID, actorID, ownerID).Scan(&existing)
 		if err == nil {
 			return conflict("an audit is already active", map[string]any{"audit_id": existing})
 		}
@@ -55,9 +60,6 @@ func (s *Store) StartGithubAudit(ctx context.Context, projectID, actorID string,
 		}
 		if retained >= maxAuditRunsPerProject {
 			return invalid("project has reached the retained audit run limit", map[string]any{"limit": maxAuditRunsPerProject})
-		}
-		if err = githubAuditActorTx(ctx, tx, actorID); err != nil {
-			return err
 		}
 		selected, err := githubSelection(ctx, tx, projectID)
 		if err != nil {
@@ -99,7 +101,7 @@ func (s *Store) StartGithubAudit(ctx context.Context, projectID, actorID string,
 		if _, err = tx.ExecContext(ctx, `INSERT INTO audit_runs(id,project_id,actor_id,scope,status,started_at,created_at,updated_at) VALUES(?,?,?,'github','queued',?,?,?)`, id, projectID, actorID, timestamp, timestamp, timestamp); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO github_audit_jobs(audit_id,project_id,actor_id,request_key,fingerprint,selection_version,provider_generation,account_generation,model,effort,capture_json,deadline,task_count,retry_of,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, projectID, actorID, input.RequestKey, input.Fingerprint, input.SelectionVersion, input.ProviderGeneration, input.AccountGeneration, input.Model, input.Effort, string(raw), time.Now().UTC().Add(15*time.Minute).Format(time.RFC3339Nano), len(capture.Tasks), nullableGithubRetry(input.RetryOf), timestamp, timestamp)
+		_, err = tx.ExecContext(ctx, `INSERT INTO github_audit_jobs(audit_id,project_id,actor_id,request_key,fingerprint,selection_version,provider_generation,account_generation,model,effort,capture_json,deadline,task_count,retry_of,created_at,updated_at,account_owner_id,authorization_id,request_token_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, projectID, actorID, input.RequestKey, input.Fingerprint, input.SelectionVersion, input.ProviderGeneration, input.AccountGeneration, input.Model, input.Effort, string(raw), time.Now().UTC().Add(15*time.Minute).Format(time.RFC3339Nano), len(capture.Tasks), nullableGithubRetry(input.RetryOf), timestamp, timestamp, ownerID, input.AuthorizationID, input.RequestTokenID)
 		return err
 	})
 	if err != nil {

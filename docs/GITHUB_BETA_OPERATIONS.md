@@ -29,6 +29,21 @@ evidence inference is validated with Codex 0.153.0 and `gpt-5.6-luna` only;
 other executable versions or models fail closed. See
 [the runtime boundary proof](AUDIT_INFERENCE_BOUNDARY.md).
 
+Agent execution requires an explicit short-lived grant bound to the agent,
+its exact bearer token, project selection version, expiry and task limit.
+The granting human administrator owns the AI account used for inference.
+Use the owner-authorized `helm audit-access` provisioning flow described in
+[agent GitHub audits](GITHUB_AGENT_AUDITS.md); bearer tokens cannot create or
+revoke grants. HTTP revocation is restricted to the granting administrator.
+Agents use `tasks:read`, explicit task IDs and the grant ID for readiness and
+start. Retry and Apply remain human actions; an agent can cancel only its
+own exact-token job, even after its grant expires. Selection changes,
+revocation and lost permissions fence execution without deleting history.
+
+Provisioning a grant does not establish live GitHub or AI readiness. Verify
+readiness, start and completion through the intended runtime before reporting
+live operation; synthetic harness results establish only the tested boundary.
+
 ## First activation and data preservation
 
 1. Verify a fresh online database backup and protected runtime archive,

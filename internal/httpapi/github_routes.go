@@ -100,8 +100,7 @@ func (s *Server) projectGithubReadiness(w http.ResponseWriter, r *http.Request, 
 		s.writeError(w, 405, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	if identity.IsToken || identity.Actor.Kind != "human" {
-		s.writeError(w, 403, "human_account_required", "a signed-in human account is required", nil)
+	if !requireAuditReadScope(w, identity) {
 		return
 	}
 	project, err := s.Store.GetProject(r.Context(), reference)
@@ -111,6 +110,11 @@ func (s *Server) projectGithubReadiness(w http.ResponseWriter, r *http.Request, 
 	}
 	if !identity.CanProject(project.ID) {
 		s.writeError(w, 403, "forbidden", "project access required", nil)
+		return
+	}
+	owner, err := s.githubAuditAccountOwner(r.Context(), identity, project.ID, r.URL.Query().Get("authorization_id"))
+	if err != nil {
+		s.writeStoreError(w, err)
 		return
 	}
 	selection, err := s.Store.GetGithubSelection(r.Context(), project.ID)
@@ -128,11 +132,11 @@ func (s *Server) projectGithubReadiness(w http.ResponseWriter, r *http.Request, 
 	} else if s.Codex == nil {
 		ai = map[string]string{"state": "unavailable", "message": "AI assistance is unavailable."}
 	} else {
-		account, accountErr := s.Codex.Account(ctx, identity.Actor.ID, false)
+		account, accountErr := s.Codex.Account(ctx, owner, false)
 		if accountErr != nil {
 			ai = map[string]string{"state": "unavailable", "message": "AI account status is unavailable."}
 		} else if account.Connected && account.AccountType == "chatgpt" {
-			ai = map[string]string{"state": "connected", "message": "Your AI account is connected."}
+			ai = map[string]string{"state": "connected", "message": "The authorized AI account is connected."}
 		}
 	}
 	ready := diagnostics.State == "connected" && ai["state"] == "connected" && len(selection.Repositories) > 0

@@ -224,7 +224,7 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 		}
 	}()
 	check := func() error {
-		return g.authorized(ctx, job.ActorID, job.ProjectID, job.SelectionVersion, job.ProviderGeneration, job.AccountGeneration)
+		return g.authorizedJob(ctx, job)
 	}
 	fail := func(code string) error {
 		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -265,8 +265,11 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 	if err != nil || len(prompt) > 500*1024 {
 		return fail("input_limit")
 	}
-	result, err := g.runner.DraftEvidence(ctx, job.ActorID, codexruntime.RunRequest{Prompt: string(prompt), Model: job.Model, Effort: job.Effort, OutputSchema: githubAuditOutputSchema})
+	result, err := g.runner.DraftEvidence(ctx, job.AccountOwnerID, codexruntime.RunRequest{Prompt: string(prompt), Model: job.Model, Effort: job.Effort, OutputSchema: githubAuditOutputSchema})
 	if err != nil || result.Status != "completed" || result.OutputTruncated || len(result.Output) > 256*1024 {
+		if check() != nil {
+			return fail("authorization_changed")
+		}
 		return fail("inference_unavailable")
 	}
 	if err = g.store.HeartbeatGithubAudit(ctx, job, "validating"); err != nil {

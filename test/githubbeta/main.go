@@ -175,7 +175,7 @@ func (h *harness) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.state.mu.Lock()
 		defer h.state.mu.Unlock()
-		writeJSON(w, map[string]any{"revoked": h.state.revoked, "delay_ms": h.state.delayMS, "upstream_requests": h.state.requests, "ai_calls": h.state.aiCalls})
+		writeJSON(w, map[string]any{"revoked": h.state.revoked, "delay_ms": h.state.delayMS, "upstream_requests": h.state.requests, "ai_calls": h.state.aiCalls, "last_ai_actor": h.state.lastAIActor})
 		return
 	}
 	h.mu.RLock()

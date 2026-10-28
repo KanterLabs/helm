@@ -19,7 +19,7 @@
               "$ref": "#/components/schemas/SemanticState"
             },
             "maxItems": 5,
-            "description": "Alternative to non-empty task_ids; defaults to backlog, ready and active."
+            "description": "Alternative to non-empty task_ids; defaults to backlog, ready and active. Human starts only; agents must use explicit task_ids."
           },
           "task_ids": {
             "type": "array",
@@ -28,7 +28,11 @@
             },
             "maxItems": 1000,
             "uniqueItems": true,
-            "description": "Explicit immutable task IDs, alternative to non-empty states."
+            "description": "Explicit immutable task IDs, alternative to non-empty states. Authorized agents must provide a non-empty list within grant max_tasks."
+          },
+          "authorization_id": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Required for agent bearer starts; forbidden for human starts. Agent starts require non-empty task_ids within the grant max_tasks (at most 100) and no non-empty states."
           }
         },
         "additionalProperties": false,
@@ -63,7 +67,9 @@
           "task_count",
           "captured_files",
           "omitted_files",
-          "message"
+          "message",
+          "requested_by",
+          "account_owner_id"
         ],
         "properties": {
           "audit_id": {
@@ -122,6 +128,18 @@
           },
           "retry_of": {
             "$ref": "#/components/schemas/Identifier"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Human or agent actor that requested the run."
+          },
+          "account_owner_id": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Human whose connected AI account executes this run."
+          },
+          "authorization_id": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "Present for an authorized agent-started run; never contains a bearer secret."
           }
         },
         "additionalProperties": false

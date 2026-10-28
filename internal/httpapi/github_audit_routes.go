@@ -25,7 +25,7 @@ func (s *Server) githubAuditStart(w http.ResponseWriter, r *http.Request, identi
 		s.writeError(w, 405, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	if !s.githubAuditHuman(w, identity) {
+	if !requireAuditReadScope(w, identity) {
 		return
 	}
 	project, err := s.Store.GetProject(r.Context(), reference)
@@ -37,9 +37,6 @@ func (s *Server) githubAuditStart(w http.ResponseWriter, r *http.Request, identi
 		s.writeError(w, 403, "forbidden", "project access required", nil)
 		return
 	}
-	if s.idempotencyReplay(w, r, identity) {
-		return
-	}
 	var input store.GithubAuditStartInput
 	fields, err := decodeJSONObject(r, &input)
 	if err != nil {
@@ -47,7 +44,7 @@ func (s *Server) githubAuditStart(w http.ResponseWriter, r *http.Request, identi
 		return
 	}
 	for field := range fields {
-		if field != "repositories" && field != "states" && field != "task_ids" {
+		if field != "repositories" && field != "states" && field != "task_ids" && field != "authorization_id" {
 			s.writeError(w, 400, "invalid_request", "unknown audit scope field", nil)
 			return
 		}
@@ -70,6 +67,23 @@ func (s *Server) githubAuditHuman(w http.ResponseWriter, identity auth.Identity)
 	return true
 }
 func (s *Server) startGithubAudit(w http.ResponseWriter, r *http.Request, identity auth.Identity, projectID string, input store.GithubAuditStartInput, retryOf string) {
+	owner, err := s.githubAuditAccountOwner(r.Context(), identity, projectID, input.AuthorizationID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if s.GithubAudits == nil {
+		s.writeError(w, 503, "audit_unavailable", "server GitHub audits are unavailable", nil)
+		return
+	}
+	input.AccountOwnerID = owner
+	if identity.IsToken {
+		input.RequestTokenID = identity.Token.Token.ID
+		if len(input.TaskIDs) == 0 || len(input.States) != 0 {
+			s.writeError(w, 400, "invalid_request", "agent audits require explicit task_ids and do not accept states", nil)
+			return
+		}
+	}
 	if s.Cfg.LunaDisabled {
 		s.writeError(w, 503, "ai_disabled", "AI assistance is disabled by the operator", nil)
 		return
@@ -89,12 +103,12 @@ func (s *Server) startGithubAudit(w http.ResponseWriter, r *http.Request, identi
 	if input.Repositories == nil {
 		input.Repositories = selected.Repositories
 	}
-	generation, err := s.GithubAudits.accountGeneration(ctx, identity.Actor.ID)
+	generation, err := s.GithubAudits.accountGeneration(ctx, owner)
 	if err != nil {
 		s.writeError(w, 409, "ai_not_connected", "Connect your personal AI account before running an audit", nil)
 		return
 	}
-	if err = s.GithubAudits.authorized(ctx, identity.Actor.ID, projectID, selected.Version, "", generation); err != nil {
+	if err = s.GithubAudits.authorized(ctx, owner, projectID, selected.Version, "", generation); err != nil {
 		s.writeError(w, 409, "audit_not_ready", "Audit authorization or connection changed; check readiness", nil)
 		return
 	}
@@ -106,7 +120,8 @@ func (s *Server) startGithubAudit(w http.ResponseWriter, r *http.Request, identi
 	fingerprint, _ := json.Marshal(struct {
 		Scope   store.GithubAuditStartInput `json:"scope"`
 		RetryOf string                      `json:"retry_of"`
-	}{input, retryOf})
+		TokenID string                      `json:"token_id,omitempty"`
+	}{input, retryOf, input.RequestTokenID})
 	sum := sha256.Sum256(fingerprint)
 	input.RequestKey = key
 	input.Fingerprint = hex.EncodeToString(sum[:])
@@ -180,11 +195,29 @@ func (s *Server) githubAuditJob(w http.ResponseWriter, r *http.Request, identity
 		s.writeError(w, 405, "method_not_allowed", "method not allowed", nil)
 		return
 	}
+	// A token may stop only its own delegated job, even after its grant expires.
+	// Stopping work consumes no AI access and must remain possible during revoke.
+	if action == "cancel" && identity.IsToken {
+		if job.AuthorizationID == "" || job.ActorID != identity.Actor.ID || job.RequestTokenID != identity.Token.Token.ID {
+			s.writeError(w, 403, "forbidden", "only the originating token may cancel this audit", nil)
+			return
+		}
+		if s.GithubAudits == nil {
+			s.writeError(w, 503, "audit_unavailable", "server GitHub audits are unavailable", nil)
+			return
+		}
+		s.mutationRateOnly(w, r, identity, func() (int, []byte, string, error) {
+			job, err := s.GithubAudits.Cancel(r.Context(), auditID, "cancelled")
+			body, _ := json.Marshal(job)
+			return 200, body, "", err
+		})
+		return
+	}
 	if !s.githubAuditHuman(w, identity) {
 		return
 	}
 	if action == "cancel" {
-		if job.ActorID != identity.Actor.ID && !identity.Actor.Admin {
+		if job.ActorID != identity.Actor.ID && job.AccountOwnerID != identity.Actor.ID && !identity.Actor.Admin {
 			s.writeError(w, 403, "forbidden", "Only the originating human or project administrator may cancel", nil)
 			return
 		}
@@ -208,6 +241,8 @@ func (s *Server) githubAuditJob(w http.ResponseWriter, r *http.Request, identity
 			s.writeStoreError(w, err)
 			return
 		}
+		// A human retry uses that human's own account, not a previous grant.
+		capture.Request.AuthorizationID = ""
 		s.startGithubAudit(w, r, identity, run.ProjectID, capture.Request, auditID)
 		return
 	}

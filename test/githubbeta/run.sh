@@ -73,7 +73,7 @@ for attempt in $(seq 1 30); do
   fi
   sleep 1
 done
-if [[ "$#" == 0 ]]; then set -- e2e/github-beta-integration.spec.ts; fi
+if [[ "$#" == 0 ]]; then set -- e2e/github-beta-integration.spec.ts e2e/github-agent-audit.spec.ts; fi
 result=0
 (
   cd "$root/web"

@@ -15,7 +15,8 @@ ETags and idempotency apply. Linking requires both `tasks:write` and
 `tasks:read` because the response includes private snapshot evidence. Unlinking
 requires `tasks:write`. Both use captured task version and normal claim rules;
 list/status requires `tasks:read`. Server
-audit execution requires a signed-in human with their own AI connection.
+audit execution uses either a signed-in human's own AI connection or an explicit,
+short-lived authorization from a human administrator for an exact agent token.
 Audit analysis never moves tasks. Errors use existing typed error envelopes.
 
 Artifact collections use `{data: [...], next_cursor: "", task_version}`.
@@ -39,10 +40,13 @@ verified titles, check results or deployment state.
   Validated unique pairs, max 10 repositories. Returns updated selection.
   A selection change invalidates in-flight provider writes and old access.
   Selection writes support the standard optional `Idempotency-Key`.
-- `GET /projects/{project}/github/readiness`: scoped human readiness,
+- `GET /projects/{project}/github/readiness`: scoped readiness,
   `{ready, github: {state, message}, ai: {state, message}, repositories}`.
   AI state `connected|not_connected|disabled|unavailable`. This endpoint
   does not run inference; an audit attempt still validates actual execution.
+  Agents need `tasks:read` and `?authorization_id=<grant-id>` matching their
+  exact agent/token and project. Readiness uses the granting human account;
+  humans omit this parameter and check their own account.
 
 Runtime config: `HELM_GITHUB_ENABLED`, `HELM_GITHUB_TOKEN_FILE`,
 `HELM_GITHUB_REPOSITORIES` (comma-separated owner/name allowlist). Credential
@@ -97,11 +101,46 @@ validated actual URLs. Keep cache private, bounded, conditional and refreshed
 at most every two minutes for linked open PRs, with jitter/backoff and a
 fixed work budget. Explicit refresh can update sooner.
 
+## Agent audit authorizations
+
+A human administrator with project access can authorize bounded audit inference
+using their own connected AI account. Ordinary project read access alone does
+not authorize AI spending. See [agent audit setup](GITHUB_AGENT_AUDITS.md) for
+owner-authorized operator provisioning with `helm audit-access`.
+
+- `POST /projects/{project}/github-audit-authorizations`: human-admin only;
+  body `{agent_id, token_id, expires_at, max_tasks?}`. Returns `201` with the
+  grant. `expires_at` must be a future RFC3339 time within 24 hours.
+  `max_tasks` defaults to 10 when omitted or zero; otherwise it is 1–100.
+  The human owner is inferred from authentication and cannot be supplied.
+  Supports the standard optional `Idempotency-Key`.
+- `GET /projects/{project}/github-audit-authorizations`: human administrators
+  see all project grants. Agents need `tasks:read` and see only grants bound
+  to their exact actor/token and project, including expired/revoked records.
+  Returns `{data: [...]}`.
+- `DELETE /projects/{project}/github-audit-authorizations/{authorization}`:
+  only the granting human administrator may revoke. Returns the grant;
+  repeated revocation keeps the original timestamp. Revocation fences active
+  jobs before interrupting inference and preserves retained evidence. Each
+  request revalidates access rather than replaying a cached mutation response.
+
+Grant fields are `id`, `project_id`, `agent_id`, `token_id`,
+`account_owner_id`, `selection_version`, `max_tasks`, `created_at`,
+`expires_at` and optional `revoked_at`. Token IDs are public identity metadata,
+never bearer secrets. Creation requires an enabled agent/token with
+`tasks:read` and project access, plus selected repositories. Changing the
+selection invalidates existing grants. Expiry, revocation, disabled actors,
+expired/deleted tokens and lost project/source/account access fail closed;
+execution rechecks authorization before publishing results.
+
 ## Server audit jobs
 
 - `POST /projects/{project}/github-audits`: idempotent start; body
-  `{repositories?: [{repository, ref}], states?: string[], task_ids?: string[]}`.
-  Default selected project repositories and backlog/ready/active tasks.
+  `{repositories?: [{repository, ref}], states?: string[], task_ids?: string[], authorization_id?: string}`.
+  Human starts default to selected project repositories and backlog/ready/active
+  tasks. Agents require `tasks:read`, a matching unexpired `authorization_id`,
+  and explicit nonempty `task_ids` within the grant limit; they cannot select
+  states. Humans must omit `authorization_id`.
   Repository overrides must remain selected/allowed. Task IDs and states are
   alternative scopes; capture all matching IDs up to a visible bounded limit.
   Scope captures at most 1,000 tasks; excess state-selected tasks appear as
@@ -115,14 +154,18 @@ fixed work budget. Explicit refresh can update sooner.
 - `GET /audits/{audit}/job`: returns job below; `404` for an external run.
 - `POST /audits/{audit}/cancel`: idempotent cancellation by originating human
   or project-authorized admin; fence attempt before interrupt; returns job.
+  An agent with project access and `tasks:read` may cancel only a job started
+  by that exact token, including after its grant expires or is revoked.
 - `POST /audits/{audit}/retry`: explicit new run/fresh capture, linked to old
   run, same allowed scope subject to current authorization; returns
   `202 {audit,job}`. Requires a new bounded `Idempotency-Key`, a terminal
-  previous job, and the requesting human's own AI connection.
+  previous job, and the requesting human's own AI connection. Retry is human
+  only, including for an agent-started job; it clears the old agent grant.
 - `GET /audits/{audit}/evidence`: scoped immutable manifest below. Source
   access is revalidated; unavailable evidence is a typed error, not stale
   private content. Capture remains retained even if access is revoked.
 - `POST /audits/{audit}/apply`: body `{finding_ids: string[], preview: boolean}`.
+  Apply and preview are human only; an agent grant does not authorize either.
   Returns `{data: [{finding_id, task_id, outcome, message, task?}]}`; outcomes
   `eligible|applied|skipped|needs_follow_up`. Preview has no task mutations.
   Both `finding_ids` (1–200 unique IDs) and an explicit boolean `preview`
@@ -136,6 +179,7 @@ fixed work budget. Explicit refresh can update sooner.
 ```ts
 type GithubAuditJob = {
   audit_id: string; project_id: string;
+  requested_by: string; account_owner_id: string; authorization_id?: string;
   stage: 'queued' | 'fetching' | 'analyzing' | 'validating' | 'finished';
   outcome: '' | 'complete' | 'partial' | 'failed' | 'cancelled' | 'interrupted';
   created_at: string; updated_at: string; finished_at?: string;

@@ -20,6 +20,12 @@ func (s *Server) dispatchGithub(w http.ResponseWriter, r *http.Request, identity
 		s.projectGithubReadiness(w, r, identity, parts[1])
 	case len(parts) == 3 && parts[0] == "projects" && parts[2] == "github-audits":
 		s.githubAuditStart(w, r, identity, parts[1])
+	case (len(parts) == 3 || len(parts) == 4) && parts[0] == "projects" && parts[2] == "github-audit-authorizations":
+		id := ""
+		if len(parts) == 4 {
+			id = parts[3]
+		}
+		s.githubAuditAuthorizations(w, r, identity, parts[1], id)
 	case len(parts) == 3 && parts[0] == "tasks" && parts[2] == "artifacts":
 		s.taskArtifacts(w, r, identity, parts[1], "", false)
 	case len(parts) == 4 && parts[0] == "tasks" && parts[2] == "artifacts":

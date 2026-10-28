@@ -37,6 +37,12 @@ func main() {
 	log.SetFlags(0)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "audit-access":
+			if err := runAuditAccess(context.Background(), os.Args[2:], os.Stdout); err != nil {
+				errorLog("audit access failed", err)
+				os.Exit(1)
+			}
+			return
 		case "healthcheck":
 			if len(os.Args) != 2 {
 				fatalLog("healthcheck does not accept arguments", "invalid_arguments")
