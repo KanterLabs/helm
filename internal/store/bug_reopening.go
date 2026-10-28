@@ -44,59 +44,7 @@ func (s *Store) ReopenBugWithClaimOverride(ctx context.Context, id, reason strin
 	}
 	timestamp := now()
 	err = s.withTx(ctx, func(tx *sql.Tx) error {
-		query := `UPDATE tasks SET column_id=?, completed_at=NULL, claimed_by=NULL, claim_expires_at=NULL, version=version+1, updated_at=? WHERE id=? AND kind='bug' AND version=? AND deleted_at IS NULL`
-		args := []any{backlogColumn.ID, timestamp, id, expected}
-		if !allowClaimOverride {
-			query += ` AND (claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at)<=julianday(?) OR claimed_by=?)`
-			args = append(args, timestamp, actorID)
-		}
-		result, err := tx.ExecContext(ctx, query, args...)
-		if err != nil {
-			return mapDependencyLifecycleError(ctx, tx, err, dependencyLifecycleTarget{TaskID: id})
-		}
-		count, _ := result.RowsAffected()
-		if count == 0 {
-			return bugMutationFailure(ctx, tx, id, actorID, expected, timestamp, current, allowClaimOverride)
-		}
-		destinationState, err := authoritativeColumnStateTx(ctx, tx, backlogColumn.ID, current.ProjectID)
-		if err != nil {
-			return err
-		}
-		if destinationState != "backlog" {
-			return conflict("bug destination changed semantic state", map[string]any{"column_id": backlogColumn.ID, "expected_state": "backlog", "current_state": destinationState})
-		}
-		sourceState := destinationState
-		if current.ColumnID != backlogColumn.ID {
-			sourceState, err = authoritativeColumnStateTx(ctx, tx, current.ColumnID, current.ProjectID)
-			if err != nil {
-				return err
-			}
-		}
-		beforeDependency := dependencyTaskFromTask(current, sourceState)
-		if _, err := tx.ExecContext(ctx, `UPDATE bug_details SET resolution=NULL, resolved_by=NULL, resolved_at=NULL, duplicate_of=NULL WHERE task_id=?`, id); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM task_links WHERE source_task_id=? AND link_type='duplicate'`, id); err != nil {
-			return err
-		}
-		commentID := newID()
-		if _, err := tx.ExecContext(ctx, `INSERT INTO comments(id, task_id, actor_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, commentID, id, actorID, reason, timestamp, timestamp); err != nil {
-			return err
-		}
-		if _, err := insertEvent(ctx, tx, "comment.created", actorID, current.ProjectID, id, map[string]any{"comment_id": commentID}); err != nil {
-			return err
-		}
-		if _, err = insertEvent(ctx, tx, "bug.reopened", actorID, current.ProjectID, id, map[string]any{"version": expected + 1}); err != nil {
-			return err
-		}
-		change, changed, err := dependencyTaskStateChange(ctx, tx, beforeDependency)
-		if err != nil {
-			return err
-		}
-		if changed {
-			return emitDependencyStateChanges(ctx, tx, actorID, []dependencyStateChange{change})
-		}
-		return nil
+		return s.reopenBugTx(ctx, tx, current, backlogColumn, actorID, expected, reason, timestamp, "backlog", allowClaimOverride)
 	})
 	if err != nil {
 		return Task{}, err
@@ -147,4 +95,63 @@ func bugMutationFailure(ctx context.Context, tx *sql.Tx, id, actorID string, exp
 		}
 	}
 	return conflict("task has changed", map[string]any{"current": current})
+}
+
+// reopenBugTx shares the normal lifecycle writer transaction with composed operations.
+func (s *Store) reopenBugTx(ctx context.Context, tx *sql.Tx, current Task, backlogColumn Column, actorID string, expected int64, reason, timestamp, targetState string, allowClaimOverride bool) error {
+	id := current.ID
+
+	query := `UPDATE tasks SET column_id=?, completed_at=NULL, claimed_by=NULL, claim_expires_at=NULL, version=version+1, updated_at=? WHERE id=? AND kind='bug' AND version=? AND deleted_at IS NULL`
+	args := []any{backlogColumn.ID, timestamp, id, expected}
+	if !allowClaimOverride {
+		query += ` AND (claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at)<=julianday(?) OR claimed_by=?)`
+		args = append(args, timestamp, actorID)
+	}
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return mapDependencyLifecycleError(ctx, tx, err, dependencyLifecycleTarget{TaskID: id})
+	}
+	count, _ := result.RowsAffected()
+	if count == 0 {
+		return bugMutationFailure(ctx, tx, id, actorID, expected, timestamp, current, allowClaimOverride)
+	}
+	destinationState, err := authoritativeColumnStateTx(ctx, tx, backlogColumn.ID, current.ProjectID)
+	if err != nil {
+		return err
+	}
+	if destinationState != targetState {
+		return conflict("bug destination changed semantic state", map[string]any{"column_id": backlogColumn.ID, "expected_state": targetState, "current_state": destinationState})
+	}
+	sourceState := destinationState
+	if current.ColumnID != backlogColumn.ID {
+		sourceState, err = authoritativeColumnStateTx(ctx, tx, current.ColumnID, current.ProjectID)
+		if err != nil {
+			return err
+		}
+	}
+	beforeDependency := dependencyTaskFromTask(current, sourceState)
+	if _, err := tx.ExecContext(ctx, `UPDATE bug_details SET resolution=NULL, resolved_by=NULL, resolved_at=NULL, duplicate_of=NULL WHERE task_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM task_links WHERE source_task_id=? AND link_type='duplicate'`, id); err != nil {
+		return err
+	}
+	commentID := newID()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO comments(id, task_id, actor_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, commentID, id, actorID, reason, timestamp, timestamp); err != nil {
+		return err
+	}
+	if _, err := insertEvent(ctx, tx, "comment.created", actorID, current.ProjectID, id, map[string]any{"comment_id": commentID}); err != nil {
+		return err
+	}
+	if _, err = insertEvent(ctx, tx, "bug.reopened", actorID, current.ProjectID, id, map[string]any{"version": expected + 1}); err != nil {
+		return err
+	}
+	change, changed, err := dependencyTaskStateChange(ctx, tx, beforeDependency)
+	if err != nil {
+		return err
+	}
+	if changed {
+		return emitDependencyStateChanges(ctx, tx, actorID, []dependencyStateChange{change})
+	}
+	return nil
 }

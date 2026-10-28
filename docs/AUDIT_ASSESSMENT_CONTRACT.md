@@ -197,3 +197,5 @@ is synthetic test data; a verified production online backup remains required
 before any later beta/production upgrade. TC-309 owns lifecycle application and
 its live eligibility checks. TC-310 owns production presentation/types and should
 use the new assessment, actual destination and summary fields directly.
+
+TC-309 implements the versioned [correction preview/apply contract](AUDIT_CORRECTION_CONTRACT.md), including UI examples, receipts, lifecycle module map and retry recovery.

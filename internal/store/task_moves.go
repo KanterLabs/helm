@@ -131,99 +131,7 @@ func (s *Store) MoveTask(ctx context.Context, id string, input TaskMoveInput, ex
 	}
 
 	err = s.withTx(ctx, func(tx *sql.Tx) error {
-		// The clock, destination position, claim check, version check, and
-		// source-column check all execute in one statement. In particular, do
-		// not calculate an expiry decision or destination position in Go before
-		// this UPDATE: a writer may have waited for SQLite's lock meanwhile.
-		result, updateErr := tx.ExecContext(ctx, `UPDATE tasks
-			SET column_id=?,
-				position=COALESCE((SELECT MAX(other.position)+1 FROM tasks other WHERE other.column_id=? AND other.deleted_at IS NULL AND other.id<>?), 0),
-				claimed_by=CASE WHEN claimed_by IS NOT NULL AND claim_expires_at IS NOT NULL AND julianday(claim_expires_at) IS NOT NULL AND julianday(claim_expires_at)>julianday('now') THEN claimed_by ELSE NULL END,
-				claim_expires_at=CASE WHEN claimed_by IS NOT NULL AND claim_expires_at IS NOT NULL AND julianday(claim_expires_at) IS NOT NULL AND julianday(claim_expires_at)>julianday('now') THEN claim_expires_at ELSE NULL END,
-				version=version+1,
-				updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-			WHERE id=?
-				AND version=?
-				AND column_id=?
-				AND deleted_at IS NULL
-				AND completed_at IS NULL
-				AND version < 9223372036854775807
-				AND EXISTS (SELECT 1 FROM columns source_column WHERE source_column.id=tasks.column_id AND source_column.project_id=tasks.project_id AND source_column.archived_at IS NULL AND source_column.semantic_state IN ('backlog','ready','active','blocked'))
-				AND EXISTS (SELECT 1 FROM columns destination_column WHERE destination_column.id=? AND destination_column.project_id=tasks.project_id AND destination_column.archived_at IS NULL AND destination_column.semantic_state IN ('backlog','ready'))
-				AND (claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at) IS NULL OR julianday(claim_expires_at)<=julianday('now'))`,
-			validated.DestinationColumnID,
-			validated.DestinationColumnID,
-			id,
-			id,
-			expected,
-			validated.ExpectedSourceColumnID,
-			validated.DestinationColumnID,
-		)
-		if updateErr != nil {
-			return updateErr
-		}
-		changed, _ := result.RowsAffected()
-		if changed == 0 {
-			return s.taskMoveMutationFailure(ctx, tx, id, actorID, expected, validated.ExpectedSourceColumnID, validated.DestinationColumnID)
-		}
-
-		var newPosition float64
-		var resultingVersion int64
-		if err := tx.QueryRowContext(ctx, `SELECT position, version FROM tasks WHERE id=?`, id).Scan(&newPosition, &resultingVersion); err != nil {
-			return err
-		}
-		// Column names and semantic states can change without changing the task
-		// version. Read the activity labels only after the guarded UPDATE has
-		// acquired SQLite's writer lock so the event cannot describe an older
-		// column classification than the move it records.
-		var eventSource, eventDestination Column
-		if err := tx.QueryRowContext(ctx, `SELECT id, project_id, name, semantic_state, position, ordering_version, created_at, updated_at FROM columns WHERE id=?`, validated.ExpectedSourceColumnID).Scan(
-			&eventSource.ID, &eventSource.ProjectID, &eventSource.Name, &eventSource.SemanticState, &eventSource.Position, &eventSource.OrderingVersion, &eventSource.CreatedAt, &eventSource.UpdatedAt,
-		); err != nil {
-			return err
-		}
-		if err := tx.QueryRowContext(ctx, `SELECT id, project_id, name, semantic_state, position, ordering_version, created_at, updated_at FROM columns WHERE id=?`, validated.DestinationColumnID).Scan(
-			&eventDestination.ID, &eventDestination.ProjectID, &eventDestination.Name, &eventDestination.SemanticState, &eventDestination.Position, &eventDestination.OrderingVersion, &eventDestination.CreatedAt, &eventDestination.UpdatedAt,
-		); err != nil {
-			return err
-		}
-
-		payload := map[string]any{
-			// Nested from/to records are the canonical activity shape. The flat
-			// fields preserve the concise shape used by existing event clients.
-			"from": map[string]any{
-				"id":             eventSource.ID,
-				"name":           eventSource.Name,
-				"semantic_state": eventSource.SemanticState,
-			},
-			"to": map[string]any{
-				"id":             eventDestination.ID,
-				"name":           eventDestination.Name,
-				"semantic_state": eventDestination.SemanticState,
-			},
-			"from_column_id":          eventSource.ID,
-			"to_column_id":            eventDestination.ID,
-			"from_column":             eventSource.Name,
-			"to_column":               eventDestination.Name,
-			"from_semantic_state":     eventSource.SemanticState,
-			"to_semantic_state":       eventDestination.SemanticState,
-			"from_column_state":       eventSource.SemanticState,
-			"to_column_state":         eventDestination.SemanticState,
-			"old_position":            current.Position,
-			"new_position":            newPosition,
-			"version":                 resultingVersion,
-			"resulting_version":       resultingVersion,
-			"actor":                   actorID,
-			"actor_id":                actorID,
-			"source":                  validated.Source,
-			"reason":                  validated.Reason,
-			"placement":               "last",
-			"rebalanced":              false,
-			"ordering_version":        eventDestination.OrderingVersion,
-			"source_ordering_version": eventSource.OrderingVersion,
-		}
-		_, err := insertEvent(ctx, tx, "task.moved", actorID, current.ProjectID, id, payload)
-		return err
+		return s.moveTaskTx(ctx, tx, current, validated, expected, actorID)
 	})
 	if err != nil {
 		// GetTask after rollback makes stale/version/source conflicts carry an
@@ -320,4 +228,103 @@ func attachTaskMoveCurrent(err error, current Task) {
 	}
 	details["current"] = current
 	typed.Details = details
+}
+
+// moveTaskTx shares the normal lifecycle writer transaction with composed operations.
+func (s *Store) moveTaskTx(ctx context.Context, tx *sql.Tx, current Task, validated TaskMoveInput, expected int64, actorID string) error {
+	id := current.ID
+
+	// The clock, destination position, claim check, version check, and
+	// source-column check all execute in one statement. In particular, do
+	// not calculate an expiry decision or destination position in Go before
+	// this UPDATE: a writer may have waited for SQLite's lock meanwhile.
+	result, updateErr := tx.ExecContext(ctx, `UPDATE tasks
+		SET column_id=?,
+			position=COALESCE((SELECT MAX(other.position)+1 FROM tasks other WHERE other.column_id=? AND other.deleted_at IS NULL AND other.id<>?), 0),
+			claimed_by=CASE WHEN claimed_by IS NOT NULL AND claim_expires_at IS NOT NULL AND julianday(claim_expires_at) IS NOT NULL AND julianday(claim_expires_at)>julianday('now') THEN claimed_by ELSE NULL END,
+			claim_expires_at=CASE WHEN claimed_by IS NOT NULL AND claim_expires_at IS NOT NULL AND julianday(claim_expires_at) IS NOT NULL AND julianday(claim_expires_at)>julianday('now') THEN claim_expires_at ELSE NULL END,
+			version=version+1,
+			updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+		WHERE id=?
+			AND version=?
+			AND column_id=?
+			AND deleted_at IS NULL
+			AND completed_at IS NULL
+			AND version < 9223372036854775807
+			AND EXISTS (SELECT 1 FROM columns source_column WHERE source_column.id=tasks.column_id AND source_column.project_id=tasks.project_id AND source_column.archived_at IS NULL AND source_column.semantic_state IN ('backlog','ready','active','blocked'))
+			AND EXISTS (SELECT 1 FROM columns destination_column WHERE destination_column.id=? AND destination_column.project_id=tasks.project_id AND destination_column.archived_at IS NULL AND destination_column.semantic_state IN ('backlog','ready'))
+			AND (claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at) IS NULL OR julianday(claim_expires_at)<=julianday('now'))`,
+		validated.DestinationColumnID,
+		validated.DestinationColumnID,
+		id,
+		id,
+		expected,
+		validated.ExpectedSourceColumnID,
+		validated.DestinationColumnID,
+	)
+	if updateErr != nil {
+		return updateErr
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return s.taskMoveMutationFailure(ctx, tx, id, actorID, expected, validated.ExpectedSourceColumnID, validated.DestinationColumnID)
+	}
+
+	var newPosition float64
+	var resultingVersion int64
+	if err := tx.QueryRowContext(ctx, `SELECT position, version FROM tasks WHERE id=?`, id).Scan(&newPosition, &resultingVersion); err != nil {
+		return err
+	}
+	// Column names and semantic states can change without changing the task
+	// version. Read the activity labels only after the guarded UPDATE has
+	// acquired SQLite's writer lock so the event cannot describe an older
+	// column classification than the move it records.
+	var eventSource, eventDestination Column
+	if err := tx.QueryRowContext(ctx, `SELECT id, project_id, name, semantic_state, position, ordering_version, created_at, updated_at FROM columns WHERE id=?`, validated.ExpectedSourceColumnID).Scan(
+		&eventSource.ID, &eventSource.ProjectID, &eventSource.Name, &eventSource.SemanticState, &eventSource.Position, &eventSource.OrderingVersion, &eventSource.CreatedAt, &eventSource.UpdatedAt,
+	); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id, project_id, name, semantic_state, position, ordering_version, created_at, updated_at FROM columns WHERE id=?`, validated.DestinationColumnID).Scan(
+		&eventDestination.ID, &eventDestination.ProjectID, &eventDestination.Name, &eventDestination.SemanticState, &eventDestination.Position, &eventDestination.OrderingVersion, &eventDestination.CreatedAt, &eventDestination.UpdatedAt,
+	); err != nil {
+		return err
+	}
+
+	payload := map[string]any{
+		// Nested from/to records are the canonical activity shape. The flat
+		// fields preserve the concise shape used by existing event clients.
+		"from": map[string]any{
+			"id":             eventSource.ID,
+			"name":           eventSource.Name,
+			"semantic_state": eventSource.SemanticState,
+		},
+		"to": map[string]any{
+			"id":             eventDestination.ID,
+			"name":           eventDestination.Name,
+			"semantic_state": eventDestination.SemanticState,
+		},
+		"from_column_id":          eventSource.ID,
+		"to_column_id":            eventDestination.ID,
+		"from_column":             eventSource.Name,
+		"to_column":               eventDestination.Name,
+		"from_semantic_state":     eventSource.SemanticState,
+		"to_semantic_state":       eventDestination.SemanticState,
+		"from_column_state":       eventSource.SemanticState,
+		"to_column_state":         eventDestination.SemanticState,
+		"old_position":            current.Position,
+		"new_position":            newPosition,
+		"version":                 resultingVersion,
+		"resulting_version":       resultingVersion,
+		"actor":                   actorID,
+		"actor_id":                actorID,
+		"source":                  validated.Source,
+		"reason":                  validated.Reason,
+		"placement":               "last",
+		"rebalanced":              false,
+		"ordering_version":        eventDestination.OrderingVersion,
+		"source_ordering_version": eventSource.OrderingVersion,
+	}
+	_, err := insertEvent(ctx, tx, "task.moved", actorID, current.ProjectID, id, payload)
+	return err
 }

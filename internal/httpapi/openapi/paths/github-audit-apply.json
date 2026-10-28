@@ -8,8 +8,8 @@
       ],
       "post": {
         "operationId": "applyGithubAuditFindings",
-        "summary": "Preview or apply reviewed safe moves",
-        "description": "Requires a signed-in human with project access. Explicit preview=true performs no task mutation. Each request rechecks review approval, task version/source column, claims, safe destination and complete fresh repository evidence. Changed or incomplete evidence produces skipped results. Apply uses a deterministic finding receipt; HTTP idempotency responses are deliberately not cached, so every attempt revalidates freshness. Lifecycle destinations still require normal task actions.",
+        "summary": "Preview or apply exact audit corrections",
+        "description": "Human sessions only; agent audit grants and bearer read tokens cannot mutate.\nUse assessment_version=2 for criterion assessments. Preview is read-only,\nrequires no prior approval and returns exact action/column, blockers and\nan actor-bound five-minute confirmation token. Final Apply supplies that\ntoken and identical policy inputs, with a bounded Idempotency-Key.\nApproval, ordinary lifecycle and durable per-card receipt commit in one\ntransaction. Task/criteria/policy/dependency/column/source drift is skipped\nwith recovery. Independent items continue; inspect every receipt.\nRetry the identical body/key after a lost response. Authorized durable\nreceipts are returned before requiring fresh source; expired previews\nrequire refresh only when no receipt exists. Network timeout means unknown\noutcome, never nothing changed. Partial unread unrelated evidence does\nnot block otherwise valid v2 corrections. Imported history cannot apply.\nWithout assessment_version the legacy finding_ids/preview contract remains\napproval-first and Backlog/Ready-only, including its persisted preview.\nA malformed v2 request never falls back to legacy.\n",
         "tags": [
           "GitHub",
           "Audits"
@@ -31,7 +31,14 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GithubAuditApplyRequest"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/GithubAuditApplyRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GithubAuditCorrectionRequest"
+                  }
+                ]
               }
             }
           }
@@ -42,7 +49,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GithubAuditApplyResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/GithubAuditApplyResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GithubAuditCorrectionResponse"
+                    }
+                  ]
                 }
               }
             }

@@ -271,7 +271,7 @@ func (g *GithubAuditService) evidenceAccess(ctx context.Context, projectID strin
 	for _, repo := range e.Repositories {
 		allowed := false
 		for _, selected := range selection.Repositories {
-			if selected.Repository == repo.Repository && selected.Ref == repo.Ref {
+			if selected.Repository == repo.Repository && (selected.Ref == repo.Ref || repo.PullRequest > 0) {
 				allowed = true
 			}
 		}

@@ -3,31 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 )
 
 func (s *Store) UpdateTask(ctx context.Context, id string, input TaskInput, expected int64, actorID string) (Task, error) {
 	return s.UpdateTaskWithClaimOverride(ctx, id, input, expected, actorID, false)
-}
-
-func validateTaskBugLifecycleTx(ctx context.Context, tx dependencySQL, taskID, kind, destinationState string) error {
-	if kind != bugKind {
-		return nil
-	}
-	var resolution sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT resolution FROM bug_details WHERE task_id=?`, taskID).Scan(&resolution)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	resolved := err == nil && resolution.Valid && strings.TrimSpace(resolution.String) != ""
-	if destinationState == "completed" && !resolved {
-		return invalid("bugs must be resolved before entering a completed column", nil)
-	}
-	if destinationState != "completed" && resolved {
-		return invalid("resolved bugs must be reopened before leaving a completed column", nil)
-	}
-	return nil
 }
 
 // UpdateTaskWithClaimOverride applies a task patch while atomically honoring
@@ -44,6 +24,19 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 	current, err := s.GetTask(ctx, id)
 	if err != nil {
 		return Task{}, err
+	}
+	if taskColumnOnlyInput(validated) {
+		column, err := s.GetColumn(ctx, *validated.ColumnID)
+		if err != nil {
+			return Task{}, err
+		}
+		err = s.withTx(ctx, func(tx *sql.Tx) error {
+			return s.updateTaskColumnTx(ctx, tx, current, column, expected, actorID, allowClaimOverride)
+		})
+		if err != nil {
+			return Task{}, err
+		}
+		return s.GetTask(ctx, id)
 	}
 	parentSet := validated.ParentSet || validated.ParentTaskID != nil
 	parentID := ""
