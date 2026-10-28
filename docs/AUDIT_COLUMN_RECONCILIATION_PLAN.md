@@ -4,6 +4,12 @@ Status: planning, 28 October 2026. Planning task: TC-305.
 Companions: [review UX](AUDIT_COLUMN_RECONCILIATION_UX.md) and
 [validation and beta release](AUDIT_COLUMN_RECONCILIATION_VALIDATION.md).
 
+TC-306 prototype accepted on 28 October 2026. The
+[clickable source and validation instructions](prototypes/column-audit/README.md)
+are committed for production integration. This milestone is synthetic UX
+validation; backend judgments, lifecycle application and beta release remain
+separate deliverables below.
+
 ## Product contract
 
 For each card, answer: **Does its current column match the work committed in the
