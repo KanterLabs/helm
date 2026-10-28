@@ -222,6 +222,18 @@ func startSession(ctx context.Context, actorID string, opts Options) (*Session, 
 	cmd.Env = replaceEnv(environment, "CODEX_HOME", home)
 	if opts.evidenceOnly {
 		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "CODEX_HOME=" + home}
+		// Provider transport needs the deployment's proxies and TLS trust paths.
+		// Keep this explicit: server secrets and execution hooks must not enter
+		// the evidence process, whose HOME remains scoped to the actor.
+		for _, name := range []string{
+			"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy",
+			"ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+			"SSL_CERT_FILE", "SSL_CERT_DIR",
+		} {
+			if value, present := os.LookupEnv(name); present {
+				cmd.Env = append(cmd.Env, name+"="+value)
+			}
+		}
 	}
 	cmd.Dir = opts.WorkingDir
 	stdin, err := cmd.StdinPipe()

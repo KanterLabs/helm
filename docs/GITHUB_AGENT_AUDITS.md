@@ -52,6 +52,8 @@ attribution, exactly one inference for a replay, grant expiry/revocation fencing
 wrong-token/project denial, unchanged tasks, and retained-binary compatibility.
 After deployment, run one bounded real audit without approving or applying its
 findings, and save only safe status/count/commit metadata as the live receipt.
+The isolated provider process preserves explicitly allowed proxy and TLS settings;
+see [transport failure cases and regression evidence](GITHUB_AUDIT_TRANSPORT.md).
 
 ## Operator command
 

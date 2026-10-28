@@ -54,8 +54,12 @@ func TestEvidenceHelperProcess(t *testing.T) {
 			if !ok || len(environments) != 0 {
 				os.Exit(2)
 			}
+			text := `{"ok":true}`
+			if mode := os.Getenv("HELM_EVIDENCE_TRANSPORT_PROBE"); mode != "" {
+				text = evidenceTransportAttestation(mode)
+			}
 			_ = encoder.Encode(map[string]any{"id": *request.ID, "result": map[string]any{"turn": map[string]string{"id": "evidence-turn"}}})
-			_ = encoder.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"item": map[string]string{"type": "agentMessage", "text": `{"ok":true}`}}})
+			_ = encoder.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"item": map[string]string{"type": "agentMessage", "text": text}}})
 			_ = encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]string{"id": "evidence-turn", "status": "completed"}}})
 			continue
 		}
