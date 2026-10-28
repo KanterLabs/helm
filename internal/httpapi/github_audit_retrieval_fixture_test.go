@@ -21,12 +21,14 @@ const retrievalHead = "cccccccccccccccccccccccccccccccccccccccc"
 const retrievalBlob = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 type retrievalFixture struct {
-	files   map[string]string
-	hints   map[string][]string
-	denied  map[string]bool
-	reads   map[string]int
-	queries []string
-	pr      bool
+	files           map[string]string
+	hints           map[string][]string
+	denied          map[string]bool
+	reads           map[string]int
+	queries         []string
+	pr              bool
+	partialChecks   bool
+	checkConclusion string
 }
 
 func (f *retrievalFixture) serve(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +77,14 @@ func (f *retrievalFixture) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(r.URL.Path, "/pulls/7"):
 		json.NewEncoder(w).Encode(map[string]any{"title": "Synthetic implementation", "state": "open", "head": map[string]any{"sha": retrievalHead}, "base": map[string]any{"sha": retrievalSHA, "repo": map[string]any{"id": 1}}})
 	case strings.HasSuffix(r.URL.Path, "/check-runs"):
+		if f.checkConclusion != "" {
+			json.NewEncoder(w).Encode(map[string]any{"total_count": 1, "check_runs": []map[string]any{{"name": "synthetic CI", "head_sha": retrievalHead, "status": "completed", "conclusion": f.checkConclusion, "html_url": "https://github.com/example/synthetic/actions/runs/1"}}})
+			return
+		}
+		if f.partialChecks {
+			fmt.Fprint(w, `{"total_count":101,"check_runs":[]}`)
+			return
+		}
 		fmt.Fprint(w, `{"total_count":0,"check_runs":[]}`)
 	case strings.HasSuffix(r.URL.Path, "/statuses"), strings.HasSuffix(r.URL.Path, "/reviews"):
 		fmt.Fprint(w, `[]`)
@@ -102,17 +112,24 @@ func (a *retrievalAI) Account(context.Context, string, bool) (codexruntime.Accou
 }
 func (a *retrievalAI) DraftEvidence(_ context.Context, _ string, r codexruntime.RunRequest) (codexruntime.RunResult, error) {
 	a.calls++
+	if strings.Contains(r.Prompt, `"phase":"discovery"`) {
+		return codexruntime.RunResult{Status: "completed", Output: `{"paths":[],"gap":"Synthetic retrieval fixture found no additional semantic owner"}`}, nil
+	}
 	var input struct {
 		Evidence store.GithubAuditEvidence `json:"evidence"`
 	}
 	if err := json.Unmarshal([]byte(r.Prompt), &input); err != nil {
 		return codexruntime.RunResult{}, err
 	}
-	findings := []map[string]any{}
+	assessments := []store.GithubAssessmentInput{}
 	for _, task := range input.Evidence.Tasks {
-		findings = append(findings, map[string]any{"task_id": task.ID, "verdict": "needs_attention", "confidence": 0.5, "reason": "Synthetic retrieval receipt only", "evidence_refs": []string{}})
+		conditions := []store.GithubConditionAssessment{}
+		for _, c := range task.Conditions {
+			conditions = append(conditions, store.GithubConditionAssessment{ID: c.ID, Text: c.Text, Origin: c.Origin, Result: "unknown", Explanation: "Synthetic retrieval receipt only", CitationIDs: []string{}, Gaps: []string{"Retrieval fixture does not evaluate implementation"}})
+		}
+		assessments = append(assessments, store.GithubAssessmentInput{TaskID: task.ID, CapturedVersion: task.Version, SourceColumnID: task.ColumnID, Conditions: conditions, Placement: "unable_to_verify", LifecycleAction: "none", Reason: "Synthetic retrieval receipt only", Basis: []store.GithubAssessmentBasis{}})
 	}
-	raw, _ := json.Marshal(map[string]any{"findings": findings})
+	raw, _ := json.Marshal(map[string]any{"assessment_version": 2, "assessments": assessments})
 	return codexruntime.RunResult{Status: "completed", Output: string(raw)}, nil
 }
 

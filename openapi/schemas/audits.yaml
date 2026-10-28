@@ -77,6 +77,8 @@ components:
           description: Always empty on the summary resource; use the findings collection for data.
           items:
             $ref: "#/components/schemas/AuditFinding"
+        assessment_summary:
+          $ref: "#/components/schemas/GithubAssessmentSummary"
       additionalProperties: false
     AuditRunCreateRequest:
       type: object

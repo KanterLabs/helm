@@ -86,5 +86,8 @@ func captureGithubAuditTasks(ctx context.Context, tx *sql.Tx, projectID string, 
 			return capture, err
 		}
 	}
+	if err = captureGithubAuditContext(ctx, tx, projectID, &capture); err != nil {
+		return capture, err
+	}
 	return capture, nil
 }

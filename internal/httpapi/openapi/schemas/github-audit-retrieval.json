@@ -1,0 +1,297 @@
+{
+  "components": {
+    "schemas": {
+      "GithubAuditCondition": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "goal",
+              "acceptance_criterion",
+              "checklist"
+            ]
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "task_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "completed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "origin",
+          "task_version"
+        ],
+        "additionalProperties": false
+      },
+      "GithubAuditDependency": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "semantic_state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "version",
+          "semantic_state"
+        ],
+        "additionalProperties": false
+      },
+      "GithubAuditContext": {
+        "type": "object",
+        "properties": {
+          "claimed_by": {
+            "type": "string"
+          },
+          "claim_expires_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubAuditDependency"
+            }
+          },
+          "unstarted": {
+            "type": "boolean"
+          },
+          "readiness": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "not_ready"
+            ]
+          },
+          "blocker": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dependencies",
+          "unstarted"
+        ],
+        "additionalProperties": false,
+        "description": "Captured context, not implementation proof. Affirmative declarations currently use Work status: unstarted, Readiness: ready/not_ready, and Blocker: reason. Unknown declarations remain absent; unmet dependencies supply concrete blocker facts."
+      },
+      "GithubAuditCriterionGap": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "criterion_id": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "source_role": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "source_role",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "GithubAuditCriterionCoverage": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "criterion_id": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "source_role": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "inspected_paths": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "task_id",
+          "criterion_id",
+          "repository",
+          "sha",
+          "source_role",
+          "evidence_ids",
+          "inspected_paths"
+        ],
+        "additionalProperties": false
+      },
+      "GithubAuditSourceCoverage": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "source_role": {
+            "type": "string"
+          },
+          "indexed_files": {
+            "type": "integer"
+          },
+          "inspected_files": {
+            "type": "integer"
+          },
+          "unread_files": {
+            "type": "integer"
+          },
+          "index_partial": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repository",
+          "ref",
+          "sha",
+          "source_role",
+          "indexed_files",
+          "inspected_files",
+          "unread_files",
+          "index_partial"
+        ],
+        "additionalProperties": false
+      },
+      "GithubAuditRetrievalBudget": {
+        "type": "object",
+        "properties": {
+          "per_card_files": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "per_card_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_files": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_read_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_excerpt_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_discovery_requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "per_card_discovery_requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refinement_rounds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "excerpt_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "index_planning_rounds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "per_card_files",
+          "per_card_bytes",
+          "run_files",
+          "run_read_bytes",
+          "run_excerpt_bytes",
+          "run_discovery_requests",
+          "per_card_discovery_requests",
+          "refinement_rounds",
+          "excerpt_bytes",
+          "duration_seconds"
+        ],
+        "additionalProperties": false,
+        "description": "Server-owned shared limits for literal retrieval and semantic path planning. File refinement <=2 rounds per criterion, plus <=1 directory-index routing round for large trees. Per-card discovery <=4, run discovery <=48, duration <=90 seconds. No model tools, arbitrary URLs or repository execution."
+      }
+    }
+  }
+}

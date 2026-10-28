@@ -33,6 +33,16 @@ components:
           type: array
           items:
             type: string
+        kind:
+          type: string
+        checklist_policy:
+          type: string
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditCondition"
+        context:
+          $ref: "#/components/schemas/GithubAuditContext"
       additionalProperties: false
     GithubAuditRepository:
       type: object
@@ -50,6 +60,9 @@ components:
           type: string
           pattern: ^[a-fA-F0-9]{40}$
         repository_id:
+          type: integer
+          minimum: 1
+        pull_request:
           type: integer
           minimum: 1
       additionalProperties: false
@@ -72,16 +85,15 @@ components:
             - file
             - pull_request
             - check
+            - task_context
         title:
           type: string
         url:
           type: string
-          format: uri
         repository:
           type: string
         sha:
           type: string
-          pattern: ^[a-fA-F0-9]{40}$
         blob_sha:
           type: string
         path:
@@ -100,7 +112,42 @@ components:
           items:
             $ref: "#/components/schemas/Identifier"
           description: Captured tasks associated with this PR or check evidence.
+        ref:
+          type: string
+        source_role:
+          type: string
+          enum:
+            - baseline
+            - linked_pr
+            - task_context
+        evidence_class:
+          type: string
+          enum:
+            - implementation
+            - test_source
+            - documentation
+            - other
+            - pull_request
+            - observed_check
+            - task_fact
+        criterion_ids:
+          type: array
+          items:
+            type: string
       additionalProperties: false
+      allOf:
+        - if:
+            properties:
+              kind:
+                enum:
+                  - file
+                  - pull_request
+                  - check
+          then:
+            properties:
+              sha:
+                type: string
+                pattern: ^[a-fA-F0-9]{40}$
     GithubAuditEvidence:
       type: object
       description: Immutable commit-pinned evidence and captured task identity. Current source access is
@@ -139,4 +186,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GithubAuditTask"
+        assessment_version:
+          type: integer
+          const: 2
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Column"
+        source_coverage:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditSourceCoverage"
+        retrieval_budget:
+          $ref: "#/components/schemas/GithubAuditRetrievalBudget"
+        criterion_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditCriterionGap"
+        criterion_coverage:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditCriterionCoverage"
       additionalProperties: false

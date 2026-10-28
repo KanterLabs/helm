@@ -38,6 +38,7 @@ type GithubAuditCriterionCoverage struct {
 }
 
 type GithubAuditRetrievalBudget struct {
+	IndexPlanningRounds      int `json:"index_planning_rounds"`
 	PerCardFiles             int `json:"per_card_files"`
 	PerCardBytes             int `json:"per_card_bytes"`
 	RunFiles                 int `json:"run_files"`

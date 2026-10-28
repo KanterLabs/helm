@@ -238,3 +238,16 @@ func (s *Store) GithubAuditProtected(ctx context.Context, id string) (bool, erro
 	err := s.DB.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM github_audit_jobs WHERE audit_id=?)+(SELECT COUNT(*) FROM github_audit_retained_evidence WHERE audit_id=?)`, id, id).Scan(&count)
 	return count > 0, err
 }
+
+// CheckGithubAuditAttempt is a read-only phase fence. Cancellation from another
+// process must stop extra planning/reads before a later heartbeat notices it.
+func (s *Store) CheckGithubAuditAttempt(ctx context.Context, j GithubAuditJob) error {
+	var count int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM github_audit_jobs WHERE audit_id=? AND fence=? AND lease_owner=? AND outcome='' AND lease_until>? AND deadline>?`, j.AuditID, j.Fence, j.LeaseOwner, now(), now()).Scan(&count); err != nil {
+		return err
+	}
+	if count != 1 {
+		return conflict("audit attempt was fenced or expired", nil)
+	}
+	return nil
+}

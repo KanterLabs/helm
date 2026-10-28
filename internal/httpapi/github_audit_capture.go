@@ -18,23 +18,30 @@ func (g *GithubAuditService) captureWithBudget(ctx context.Context, job store.Gi
 	budget = boundedRetrievalBudget(budget)
 	ctx, cancel := retrievalDeadline(ctx, budget)
 	defer cancel()
-	e := store.GithubAuditEvidence{AuditID: job.AuditID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Tasks: c.Tasks, Omissions: append([]string{}, c.Omissions...), Repositories: []store.GithubAuditRepository{}, Items: []store.GithubAuditItem{}}
+	e := store.GithubAuditEvidence{AssessmentVersion: c.AssessmentVersion, Columns: c.Columns, AuditID: job.AuditID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Tasks: c.Tasks, Omissions: append([]string{}, c.Omissions...), Repositories: []store.GithubAuditRepository{}, Items: []store.GithubAuditItem{}}
+	if c.AssessmentVersion == store.GithubAssessmentVersion {
+		for _, task := range c.Tasks {
+			raw, _ := json.Marshal(map[string]any{"task_id": task.ID, "version": task.Version, "context": task.Context, "checklist_policy": task.ChecklistPolicy})
+			e.Items = append(e.Items, store.GithubAuditItem{ID: "task:context:" + task.ID, Kind: "task_context", EvidenceClass: "task_fact", SourceRole: "task_context", Title: task.Key, Text: string(raw), TaskIDs: []string{task.ID}, CriterionIDs: conditionIDs(task)})
+		}
+	}
 	retrieval := newRetrievalRun(g, ctx, check, &e, budget)
+	retrieval.job = job
 	sources := []*retrievalSource{}
 	selected := map[string]*retrievalSource{}
 	for _, repo := range c.Request.Repositories {
 		if err := retrieval.fence(); err != nil {
 			return e, err
 		}
-		resolved, err := g.provider.Resolve(ctx, repo.Repository, repo.Ref)
+		pinned, err := g.captureBaseline(ctx, repo, c.Request.Baseline, &e, retrieval.fence)
 		if err != nil {
 			return e, err
 		}
 		if err = retrieval.fence(); err != nil {
 			return e, err
 		}
-		e.Repositories = append(e.Repositories, store.GithubAuditRepository{Repository: repo.Repository, Ref: repo.Ref, SHA: resolved.SHA, RepositoryID: resolved.RepositoryID})
-		source := &retrievalSource{repository: repo.Repository, ref: repo.Ref, sha: resolved.SHA, role: "baseline", tasks: c.Tasks}
+		e.Repositories = append(e.Repositories, pinned)
+		source := &retrievalSource{repository: repo.Repository, ref: pinned.Ref, sha: pinned.SHA, role: "baseline", tasks: c.Tasks}
 		selected[repo.Repository] = source
 		sources = append(sources, source)
 	}
@@ -159,7 +166,7 @@ func (g *GithubAuditService) fresh(ctx context.Context, e store.GithubAuditEvide
 		return fmt.Errorf("missing source identity")
 	}
 	for _, repo := range e.Repositories {
-		current, err := g.provider.Resolve(ctx, repo.Repository, repo.Ref)
+		current, err := g.currentBaseline(ctx, repo)
 		if err != nil {
 			return err
 		}
@@ -179,7 +186,7 @@ func (g *GithubAuditService) fresh(ctx context.Context, e store.GithubAuditEvide
 		if err != nil {
 			return err
 		}
-		if current.HeadSHA != old.HeadSHA || current.BaseSHA != old.BaseSHA || current.MergeSHA != old.MergeSHA || current.State != old.State || current.Draft != old.Draft || current.ReviewState != old.ReviewState || current.ChecksState != old.ChecksState || current.Partial {
+		if current.HeadSHA != old.HeadSHA || current.BaseSHA != old.BaseSHA || current.MergeSHA != old.MergeSHA || current.State != old.State || current.Draft != old.Draft || current.ReviewState != old.ReviewState || current.ChecksState != old.ChecksState || current.Partial != old.Partial || (e.AssessmentVersion == 0 && current.Partial) {
 			return fmt.Errorf("pull request evidence changed")
 		}
 		a, _ := json.Marshal(current.Checks)

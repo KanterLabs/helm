@@ -13,7 +13,8 @@ func auditFindingFromRow(scanner interface{ Scan(...any) error }) (AuditFinding,
 	var finding AuditFinding
 	var destination sql.NullString
 	var refsJSON string
-	if err := scanner.Scan(&finding.ID, &finding.AuditID, &finding.TaskID, &finding.CapturedVersion, &finding.SourceColumn, &finding.Verdict, &destination, &finding.Confidence, &finding.Reason, &refsJSON, &finding.ReviewState, &finding.Version, &finding.CreatedAt, &finding.UpdatedAt); err != nil {
+	var assessmentJSON sql.NullString
+	if err := scanner.Scan(&finding.ID, &finding.AuditID, &finding.TaskID, &finding.CapturedVersion, &finding.SourceColumn, &finding.Verdict, &destination, &finding.Confidence, &finding.Reason, &refsJSON, &finding.ReviewState, &finding.Version, &finding.CreatedAt, &finding.UpdatedAt, &assessmentJSON); err != nil {
 		return AuditFinding{}, err
 	}
 	if destination.Valid {
@@ -25,13 +26,18 @@ func auditFindingFromRow(scanner interface{ Scan(...any) error }) (AuditFinding,
 	if finding.EvidenceRefs == nil {
 		finding.EvidenceRefs = []string{}
 	}
+	if assessmentJSON.Valid {
+		if err := json.Unmarshal([]byte(assessmentJSON.String), &finding.Assessment); err != nil {
+			return AuditFinding{}, fmt.Errorf("decode assessment: %w", err)
+		}
+	}
 	finding.SourceColumnID = finding.SourceColumn
 	return finding, nil
 }
 
 const auditFindingColumns = `af.id, af.audit_id, af.task_id, af.captured_version,
 	af.source_column, af.verdict, af.proposed_semantic_destination, af.confidence,
-	af.reason, af.evidence_refs, af.review_state, af.version, af.created_at, af.updated_at`
+	af.reason, af.evidence_refs, af.review_state, af.version, af.created_at, af.updated_at, af.assessment_json`
 
 // AppendAuditFinding appends one immutable finding while the run is queued or
 // running.

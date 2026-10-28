@@ -94,6 +94,9 @@
             "items": {
               "$ref": "#/components/schemas/AuditFinding"
             }
+          },
+          "assessment_summary": {
+            "$ref": "#/components/schemas/GithubAssessmentSummary"
           }
         },
         "additionalProperties": false

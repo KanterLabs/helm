@@ -10,8 +10,13 @@ import (
 func auditRunFromRow(scanner interface{ Scan(...any) error }) (AuditRun, error) {
 	var run AuditRun
 	var finalized sql.NullString
-	if err := scanner.Scan(&run.ID, &run.ProjectID, &run.ActorID, &run.Scope, &run.Status, &run.StartedAt, &finalized, &run.CreatedAt, &run.UpdatedAt, &run.FindingCount); err != nil {
+	var summary GithubAssessmentSummary
+	if err := scanner.Scan(&run.ID, &run.ProjectID, &run.ActorID, &run.Scope, &run.Status, &run.StartedAt, &finalized, &run.CreatedAt, &run.UpdatedAt, &run.FindingCount, &summary.Corrections, &summary.Correct, &summary.UnableToVerify); err != nil {
 		return AuditRun{}, err
+	}
+	summary.Checked = summary.Corrections + summary.Correct + summary.UnableToVerify
+	if summary.Checked > 0 {
+		run.AssessmentSummary = &summary
 	}
 	run.FinalizedAt = nullableString(finalized)
 	run.Findings = []AuditFinding{}
@@ -20,7 +25,10 @@ func auditRunFromRow(scanner interface{ Scan(...any) error }) (AuditRun, error) 
 
 const auditRunColumns = `ar.id, ar.project_id, ar.actor_id, ar.scope, ar.status,
 	ar.started_at, ar.finalized_at, ar.created_at, ar.updated_at,
-	(SELECT COUNT(1) FROM audit_findings afc WHERE afc.audit_id = ar.id)`
+	(SELECT COUNT(1) FROM audit_findings afc WHERE afc.audit_id = ar.id),
+ (SELECT COUNT(*) FROM audit_findings f WHERE f.audit_id=ar.id AND json_extract(f.assessment_json,'$.placement')='correction_recommended'),
+ (SELECT COUNT(*) FROM audit_findings f WHERE f.audit_id=ar.id AND json_extract(f.assessment_json,'$.placement')='column_correct'),
+ (SELECT COUNT(*) FROM audit_findings f WHERE f.audit_id=ar.id AND json_extract(f.assessment_json,'$.placement')='unable_to_verify')`
 
 // CreateAuditRun starts an audit without emitting an event or changing any
 // task-side state. The actor and project are checked before insertion so a

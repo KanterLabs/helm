@@ -81,6 +81,15 @@ func (s *Store) StartGithubAudit(ctx context.Context, projectID, actorID string,
 				return invalid("repository/ref is not selected for this project", nil)
 			}
 		}
+		if input.Baseline != nil {
+			allowed := false
+			for _, repo := range input.Repositories {
+				allowed = allowed || repo.Repository == input.Baseline.Repository
+			}
+			if !allowed || input.Baseline.PullRequest <= 0 || input.Baseline.PullRequest > 1000000000 {
+				return invalid("explicit PR baseline requires a selected repository and valid PR number", nil)
+			}
+		}
 		capture, err := captureGithubAuditTasks(ctx, tx, projectID, input)
 		if err != nil {
 			return err

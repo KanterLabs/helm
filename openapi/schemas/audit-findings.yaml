@@ -76,6 +76,8 @@ components:
           $ref: "#/components/schemas/Timestamp"
         updated_at:
           $ref: "#/components/schemas/Timestamp"
+        assessment:
+          $ref: "#/components/schemas/GithubAssessment"
       additionalProperties: false
     AuditFindingCreateRequest:
       type: object

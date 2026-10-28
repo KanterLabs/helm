@@ -15,6 +15,7 @@ func boundedRetrievalBudget(b store.GithubAuditRetrievalBudget) store.GithubAudi
 			*value = ceiling
 		}
 	}
+	clamp(&b.IndexPlanningRounds, maximum.IndexPlanningRounds)
 	clamp(&b.PerCardFiles, maximum.PerCardFiles)
 	clamp(&b.PerCardBytes, maximum.PerCardBytes)
 	clamp(&b.RunFiles, maximum.RunFiles)

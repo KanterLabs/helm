@@ -18,6 +18,7 @@ func portableV3RunHistoryMatches(ctx context.Context, q portableSQL, run Portabl
 			continue
 		}
 		v := source
+		v.Assessment = remapPortableAssessment(source.Assessment, plan)
 		v.AuditID = target
 		v.TaskID = plan.taskMap[v.TaskID]
 		if mapped, ok := plan.columnMap[v.SourceColumn]; ok {
@@ -85,6 +86,17 @@ func portableV3RunHistoryMatches(ctx context.Context, q portableSQL, run Portabl
 // Association IDs and captured task IDs use the same complete task mapping.
 // Copy nested slices so history comparison never rewrites the source archive.
 func remapPortableV3EvidenceTasks(e *GithubAuditEvidence, plan *portableImportPlan) {
+	if e.Columns != nil {
+		e.Columns = append([]Column{}, e.Columns...)
+	}
+	for i := range e.Columns {
+		if id, ok := plan.columnMap[e.Columns[i].ID]; ok {
+			e.Columns[i].ID = id
+		}
+		if id, ok := plan.projectMap[e.Columns[i].ProjectID]; ok {
+			e.Columns[i].ProjectID = id
+		}
+	}
 	if e.Tasks != nil {
 		e.Tasks = append([]GithubAuditTask{}, e.Tasks...)
 	}

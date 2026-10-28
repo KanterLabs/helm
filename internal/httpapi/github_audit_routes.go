@@ -44,7 +44,7 @@ func (s *Server) githubAuditStart(w http.ResponseWriter, r *http.Request, identi
 		return
 	}
 	for field := range fields {
-		if field != "repositories" && field != "states" && field != "task_ids" && field != "authorization_id" {
+		if field != "repositories" && field != "states" && field != "task_ids" && field != "authorization_id" && field != "baseline" {
 			s.writeError(w, 400, "invalid_request", "unknown audit scope field", nil)
 			return
 		}

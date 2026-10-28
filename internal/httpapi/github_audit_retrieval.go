@@ -14,7 +14,7 @@ import (
 // task, repository, search result or model. The persisted budget makes stopping
 // conditions reviewable. Provider methods have their own HTTP/page/size bounds.
 func defaultRetrievalBudget() store.GithubAuditRetrievalBudget {
-	return store.GithubAuditRetrievalBudget{PerCardFiles: 8, PerCardBytes: 256 * 1024, RunFiles: 96, RunReadBytes: 2 * 1024 * 1024, RunExcerptBytes: 120 * 1024, RunDiscoveryRequests: 48, PerCardDiscoveryRequests: 4, RefinementRounds: 2, ExcerptBytes: 6 * 1024, DurationSeconds: 90}
+	return store.GithubAuditRetrievalBudget{PerCardFiles: 8, PerCardBytes: 256 * 1024, RunFiles: 96, RunReadBytes: 2 * 1024 * 1024, RunExcerptBytes: 120 * 1024, RunDiscoveryRequests: 48, PerCardDiscoveryRequests: 4, RefinementRounds: 2, ExcerptBytes: 6 * 1024, DurationSeconds: 90, IndexPlanningRounds: 1}
 }
 
 type retrievalSource struct {
@@ -38,6 +38,7 @@ type retrievalCardBudget struct {
 	bytes, discoveries, excerpts int
 }
 type retrievalRun struct {
+	job                                  store.GithubAuditJob
 	service                              *GithubAuditService
 	ctx                                  context.Context
 	check                                func() error
@@ -132,6 +133,10 @@ func (r *retrievalRun) read(source *retrievalSource, taskID string, entry github
 }
 
 type retrievalWork struct {
+	semanticIndexRounds                                         int
+	semanticDirectory                                           string
+	semanticRounds                                              int
+	semantic                                                    map[string]semanticPath
 	source                                                      *retrievalSource
 	task                                                        store.GithubAuditTask
 	condition                                                   store.GithubAuditCondition
@@ -221,6 +226,13 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 	if err := r.fence(); err != nil {
 		return err
 	}
+	if r.evidence.AssessmentVersion == store.GithubAssessmentVersion {
+		if refs := store.GithubAuditObservedChecks(*r.evidence, w.task, w.condition); len(refs) > 0 {
+			w.evidenceIDs = refs
+			w.done = true
+			return nil
+		}
+	}
 	if !w.initialized {
 		w.initialized = true
 		if w.source.problem != "" {
@@ -240,6 +252,11 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 			w.queue = appendUnique(w.queue, hints.paths...)
 			if hints.problem != "" {
 				w.problem = hints.problem
+			}
+		}
+		if len(w.anchors.paths) == 0 && len(w.anchors.terms) == 0 {
+			if _, err := r.plan(w); err != nil {
+				return err
 			}
 		}
 		w.queue = appendUnique(w.queue, likelyOwners(w.source.tree, len(w.anchors.terms) > 0)...)
@@ -264,6 +281,15 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 		} // default-branch hint absent from pinned tree is no proof
 	}
 	if entry == nil {
+		if !w.implementation {
+			planned, err := r.plan(w)
+			if err != nil {
+				return err
+			}
+			if planned {
+				return nil
+			}
+		}
 		w.done = true
 		return nil
 	}
@@ -290,6 +316,18 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 		if p == entry.Path {
 			explicit = true
 		}
+	}
+	if planned, ok := w.semantic[entry.Path]; ok {
+		count := len(strings.Split(read.file.Text, "\n"))
+		if planned.StartLine > count {
+			w.problem = "semantic_range_unavailable"
+			return nil
+		}
+		lines = append(lines, planned.StartLine-1)
+		if planned.EndLine <= count {
+			lines = append(lines, planned.EndLine-1)
+		}
+		explicit = true
 	}
 	if len(lines) == 0 && !explicit {
 		return nil
@@ -350,7 +388,11 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 	// Once an implementation owner and its references were inspected, unrelated
 	// fallback files cannot improve this named retrieval gap.
 	if len(w.pending) == 0 && len(w.required) == 0 && len(w.remaining) == 0 {
-		w.done = true
+		ready, err := r.semanticOwnersReady(w)
+		if err != nil {
+			return err
+		}
+		w.done = ready
 	}
 	return nil
 }
@@ -367,7 +409,10 @@ func removeValue(values []string, value string) []string {
 
 func (r *retrievalRun) finish(w *retrievalWork) {
 	r.evidence.CriterionCoverage = append(r.evidence.CriterionCoverage, store.GithubAuditCriterionCoverage{TaskID: w.task.ID, CriterionID: w.condition.ID, Repository: w.source.repository, SHA: w.source.sha, SourceRole: w.source.role, EvidenceIDs: w.evidenceIDs, InspectedPaths: w.inspected})
-	if w.implementation && len(w.pending) == 0 && len(w.required) == 0 && len(w.remaining) == 0 && !strings.Contains(w.problem, "budget") {
+	if r.evidence.AssessmentVersion == store.GithubAssessmentVersion && len(store.GithubAuditObservedChecks(*r.evidence, w.task, w.condition)) > 0 {
+		return
+	}
+	if w.implementation && len(w.pending) == 0 && len(w.required) == 0 && len(w.remaining) == 0 && !strings.Contains(w.problem, "budget") && !strings.HasPrefix(w.problem, "semantic_") && w.problem != "planning_input_limit" {
 		return
 	}
 	code := w.problem

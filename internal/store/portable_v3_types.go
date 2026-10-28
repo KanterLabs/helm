@@ -38,20 +38,21 @@ type PortableAuditRun struct {
 	UpdatedAt   string  `json:"updated_at"`
 }
 type PortableAuditFinding struct {
-	ID                          string   `json:"id"`
-	AuditID                     string   `json:"audit_id"`
-	TaskID                      string   `json:"task_id"`
-	CapturedVersion             int64    `json:"captured_version"`
-	SourceColumn                string   `json:"source_column"`
-	Verdict                     string   `json:"verdict"`
-	ProposedSemanticDestination *string  `json:"proposed_semantic_destination,omitempty"`
-	Confidence                  float64  `json:"confidence"`
-	Reason                      string   `json:"reason"`
-	EvidenceRefs                []string `json:"evidence_refs"`
-	ReviewState                 string   `json:"review_state"`
-	Version                     int64    `json:"version"`
-	CreatedAt                   string   `json:"created_at"`
-	UpdatedAt                   string   `json:"updated_at"`
+	Assessment                  *GithubAssessment `json:"assessment,omitempty"`
+	ID                          string            `json:"id"`
+	AuditID                     string            `json:"audit_id"`
+	TaskID                      string            `json:"task_id"`
+	CapturedVersion             int64             `json:"captured_version"`
+	SourceColumn                string            `json:"source_column"`
+	Verdict                     string            `json:"verdict"`
+	ProposedSemanticDestination *string           `json:"proposed_semantic_destination,omitempty"`
+	Confidence                  float64           `json:"confidence"`
+	Reason                      string            `json:"reason"`
+	EvidenceRefs                []string          `json:"evidence_refs"`
+	ReviewState                 string            `json:"review_state"`
+	Version                     int64             `json:"version"`
+	CreatedAt                   string            `json:"created_at"`
+	UpdatedAt                   string            `json:"updated_at"`
 }
 
 type portableV3Record[T any] struct {

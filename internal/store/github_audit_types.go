@@ -29,22 +29,24 @@ type GithubAuditJob struct {
 	Effort             string  `json:"-"`
 }
 type GithubAuditStartInput struct {
-	AuthorizationID    string             `json:"authorization_id,omitempty"`
-	RequestTokenID     string             `json:"-"`
-	AccountOwnerID     string             `json:"-"`
-	Repositories       []GithubRepository `json:"repositories,omitempty"`
-	States             []string           `json:"states,omitempty"`
-	TaskIDs            []string           `json:"task_ids,omitempty"`
-	SelectionVersion   int64              `json:"-"`
-	RequestKey         string             `json:"-"`
-	Fingerprint        string             `json:"-"`
-	RetryOf            string             `json:"-"`
-	ProviderGeneration string             `json:"-"`
-	AccountGeneration  string             `json:"-"`
-	Model              string             `json:"-"`
-	Effort             string             `json:"-"`
+	Baseline           *GithubAuditBaseline `json:"baseline,omitempty"`
+	AuthorizationID    string               `json:"authorization_id,omitempty"`
+	RequestTokenID     string               `json:"-"`
+	AccountOwnerID     string               `json:"-"`
+	Repositories       []GithubRepository   `json:"repositories,omitempty"`
+	States             []string             `json:"states,omitempty"`
+	TaskIDs            []string             `json:"task_ids,omitempty"`
+	SelectionVersion   int64                `json:"-"`
+	RequestKey         string               `json:"-"`
+	Fingerprint        string               `json:"-"`
+	RetryOf            string               `json:"-"`
+	ProviderGeneration string               `json:"-"`
+	AccountGeneration  string               `json:"-"`
+	Model              string               `json:"-"`
+	Effort             string               `json:"-"`
 }
 type GithubAuditTask struct {
+	Context         GithubAuditContext     `json:"context,omitzero"`
 	Kind            string                 `json:"kind,omitempty"`
 	ChecklistPolicy string                 `json:"checklist_policy,omitempty"`
 	Conditions      []GithubAuditCondition `json:"conditions,omitempty"`
@@ -59,11 +61,14 @@ type GithubAuditTask struct {
 	Criteria        []string               `json:"criteria"`
 }
 type GithubAuditCapture struct {
-	Request   GithubAuditStartInput `json:"request"`
-	Tasks     []GithubAuditTask     `json:"tasks"`
-	Omissions []string              `json:"omissions"`
+	AssessmentVersion int                   `json:"assessment_version,omitempty"`
+	Columns           []Column              `json:"columns,omitempty"`
+	Request           GithubAuditStartInput `json:"request"`
+	Tasks             []GithubAuditTask     `json:"tasks"`
+	Omissions         []string              `json:"omissions"`
 }
 type GithubAuditRepository struct {
+	PullRequest  int    `json:"pull_request,omitempty"`
 	Repository   string `json:"repository"`
 	Ref          string `json:"ref"`
 	SHA          string `json:"sha"`
@@ -88,6 +93,8 @@ type GithubAuditItem struct {
 	TaskIDs       []string `json:"task_ids,omitempty"`
 }
 type GithubAuditEvidence struct {
+	AssessmentVersion int                            `json:"assessment_version,omitempty"`
+	Columns           []Column                       `json:"columns,omitempty"`
 	SourceCoverage    []GithubAuditSourceCoverage    `json:"source_coverage,omitempty"`
 	RetrievalBudget   *GithubAuditRetrievalBudget    `json:"retrieval_budget,omitempty"`
 	CriterionGaps     []GithubAuditCriterionGap      `json:"criterion_gaps,omitempty"`

@@ -31,7 +31,7 @@ func TestGithubAuditHTTPCheckPermissionRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Review synthetic PR"), Description: stringPtr("Goal: Inspect `main.go` synthetic source.")}, actor.ID)
+	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Review synthetic PR"), Description: stringPtr("Goal: Inspect `main.go` synthetic source.\nWork status: unstarted\nReadiness: ready")}, actor.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

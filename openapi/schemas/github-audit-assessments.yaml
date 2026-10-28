@@ -1,0 +1,209 @@
+components:
+  schemas:
+    GithubConditionAssessment:
+      type: object
+      properties:
+        id: &a1
+          type: string
+        text: *a1
+        origin:
+          type: string
+          enum:
+            - goal
+            - acceptance_criterion
+            - checklist
+        result:
+          type: string
+          enum:
+            - supported
+            - contradicted
+            - unknown
+        explanation:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        citation_ids:
+          type: array
+          items: *a1
+          maxItems: 100
+          uniqueItems: true
+        gaps:
+          type: array
+          items: *a1
+          maxItems: 20
+      required:
+        - id
+        - text
+        - origin
+        - result
+        - explanation
+        - citation_ids
+        - gaps
+      additionalProperties: false
+    GithubAssessmentBasis:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+            - implementation
+            - work_remaining
+            - unstarted
+            - ready
+            - not_ready
+            - blocker
+        explanation:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        citation_ids:
+          type: array
+          items: *a1
+          maxItems: 100
+          uniqueItems: true
+      required:
+        - kind
+        - explanation
+        - citation_ids
+      additionalProperties: false
+    GithubAssessmentEligibility:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - not_applicable
+            - review_required
+            - blocked
+        reasons:
+          type: array
+          items: *a1
+      required:
+        - status
+        - reasons
+      additionalProperties: false
+      description: Server-computed observation at publication. Never model permission or apply
+        authorization. TC-309 preview must revalidate current lifecycle, identity and source facts.
+    GithubAssessment:
+      type: object
+      properties:
+        assessment_version:
+          type: integer
+          const: 2
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        captured_version:
+          type: integer
+          minimum: 1
+        source_column_id:
+          $ref: "#/components/schemas/Identifier"
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubConditionAssessment"
+          maxItems: 1000
+        placement:
+          type: string
+          enum:
+            - column_correct
+            - correction_recommended
+            - unable_to_verify
+        target_column_id:
+          type:
+            - string
+            - "null"
+        target_semantic_state:
+          type:
+            - string
+            - "null"
+          enum:
+            - backlog
+            - ready
+            - active
+            - blocked
+            - completed
+            - null
+        lifecycle_action:
+          type: string
+          enum:
+            - none
+            - complete
+            - reopen
+            - start
+            - block
+            - move
+            - bug_resolve
+            - bug_reopen
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        basis:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAssessmentBasis"
+          maxItems: 10
+        task_key: *a1
+        task_kind: *a1
+        source_column_name: *a1
+        source_semantic_state: *a1
+        baselines:
+          type: array
+          items:
+            $ref: "#/components/schemas/GithubAuditRepository"
+        captured_at:
+          $ref: "#/components/schemas/Timestamp"
+        application_eligibility:
+          $ref: "#/components/schemas/GithubAssessmentEligibility"
+      required:
+        - assessment_version
+        - task_id
+        - captured_version
+        - source_column_id
+        - conditions
+        - placement
+        - target_column_id
+        - target_semantic_state
+        - lifecycle_action
+        - reason
+        - basis
+        - task_key
+        - task_kind
+        - source_column_name
+        - source_semantic_state
+        - baselines
+        - captured_at
+        - application_eligibility
+      additionalProperties: false
+      description: Validated v2 assessment of exactly one captured card. Correct uses its actual source
+        column with action none. Unable-to-verify has null targets. A correction uses an unambiguous
+        actual captured destination ID. Legacy verdict/confidence fields remain a compatibility
+        projection; confidence zero is not evidence. Imported assessments remain history.
+    GithubAssessmentSummary:
+      type: object
+      properties:
+        checked: &a2
+          type: integer
+        corrections: *a2
+        correct: *a2
+        unable_to_verify: *a2
+      required:
+        - checked
+        - corrections
+        - correct
+        - unable_to_verify
+      additionalProperties: false
+    GithubAuditBaseline:
+      type: object
+      properties:
+        repository: *a1
+        pull_request:
+          type: integer
+          minimum: 1
+          maximum: 1000000000
+      required:
+        - repository
+        - pull_request
+      additionalProperties: false
+      description: Explicitly choose this selected repository PR head as baseline; omitted retains the
+        saved branch/ref. Linked PR evidence alone never switches the baseline.
