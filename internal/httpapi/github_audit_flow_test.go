@@ -72,12 +72,12 @@ func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Synthetic branch task")}, actor.ID)
+	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Synthetic branch task"), Description: stringPtr("Goal: Inspect main.go synthetic source.")}, actor.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 50; i++ {
-		if _, err = data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr(fmt.Sprintf("Synthetic task %d", i))}, actor.ID); err != nil {
+		if _, err = data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr(fmt.Sprintf("Synthetic task %d", i)), Description: stringPtr("Goal: Inspect main.go synthetic source.")}, actor.ID); err != nil {
 			t.Fatal(err)
 		}
 	}

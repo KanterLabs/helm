@@ -45,15 +45,18 @@ type GithubAuditStartInput struct {
 	Effort             string             `json:"-"`
 }
 type GithubAuditTask struct {
-	ID            string   `json:"id"`
-	Key           string   `json:"key"`
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	Version       int64    `json:"version"`
-	ColumnID      string   `json:"column_id"`
-	SemanticState string   `json:"semantic_state,omitempty"`
-	ColumnName    string   `json:"column_name,omitempty"`
-	Criteria      []string `json:"criteria"`
+	Kind            string                 `json:"kind,omitempty"`
+	ChecklistPolicy string                 `json:"checklist_policy,omitempty"`
+	Conditions      []GithubAuditCondition `json:"conditions,omitempty"`
+	ID              string                 `json:"id"`
+	Key             string                 `json:"key"`
+	Title           string                 `json:"title"`
+	Description     string                 `json:"description"`
+	Version         int64                  `json:"version"`
+	ColumnID        string                 `json:"column_id"`
+	SemanticState   string                 `json:"semantic_state,omitempty"`
+	ColumnName      string                 `json:"column_name,omitempty"`
+	Criteria        []string               `json:"criteria"`
 }
 type GithubAuditCapture struct {
 	Request   GithubAuditStartInput `json:"request"`
@@ -67,27 +70,35 @@ type GithubAuditRepository struct {
 	RepositoryID int64  `json:"repository_id"`
 }
 type GithubAuditItem struct {
-	ID         string   `json:"id"`
-	Kind       string   `json:"kind"`
-	Title      string   `json:"title"`
-	URL        string   `json:"url"`
-	Repository string   `json:"repository"`
-	SHA        string   `json:"sha"`
-	BlobSHA    string   `json:"blob_sha,omitempty"`
-	Path       string   `json:"path,omitempty"`
-	StartLine  int      `json:"start_line,omitempty"`
-	EndLine    int      `json:"end_line,omitempty"`
-	Text       string   `json:"text"`
-	TaskIDs    []string `json:"task_ids,omitempty"`
+	Ref           string   `json:"ref,omitempty"`
+	SourceRole    string   `json:"source_role,omitempty"`
+	EvidenceClass string   `json:"evidence_class,omitempty"`
+	CriterionIDs  []string `json:"criterion_ids,omitempty"`
+	ID            string   `json:"id"`
+	Kind          string   `json:"kind"`
+	Title         string   `json:"title"`
+	URL           string   `json:"url"`
+	Repository    string   `json:"repository"`
+	SHA           string   `json:"sha"`
+	BlobSHA       string   `json:"blob_sha,omitempty"`
+	Path          string   `json:"path,omitempty"`
+	StartLine     int      `json:"start_line,omitempty"`
+	EndLine       int      `json:"end_line,omitempty"`
+	Text          string   `json:"text"`
+	TaskIDs       []string `json:"task_ids,omitempty"`
 }
 type GithubAuditEvidence struct {
-	AuditID      string                  `json:"audit_id"`
-	CapturedAt   string                  `json:"captured_at"`
-	Partial      bool                    `json:"partial"`
-	OmittedFiles int                     `json:"omitted_files,omitempty"`
-	Omissions    []string                `json:"omissions"`
-	Repositories []GithubAuditRepository `json:"repositories"`
-	Items        []GithubAuditItem       `json:"items"`
+	SourceCoverage    []GithubAuditSourceCoverage    `json:"source_coverage,omitempty"`
+	RetrievalBudget   *GithubAuditRetrievalBudget    `json:"retrieval_budget,omitempty"`
+	CriterionGaps     []GithubAuditCriterionGap      `json:"criterion_gaps,omitempty"`
+	CriterionCoverage []GithubAuditCriterionCoverage `json:"criterion_coverage,omitempty"`
+	AuditID           string                         `json:"audit_id"`
+	CapturedAt        string                         `json:"captured_at"`
+	Partial           bool                           `json:"partial"`
+	OmittedFiles      int                            `json:"omitted_files,omitempty"`
+	Omissions         []string                       `json:"omissions"`
+	Repositories      []GithubAuditRepository        `json:"repositories"`
+	Items             []GithubAuditItem              `json:"items"`
 	// Captured tasks remain available independently of board pagination.
 	Tasks []GithubAuditTask `json:"tasks"`
 }

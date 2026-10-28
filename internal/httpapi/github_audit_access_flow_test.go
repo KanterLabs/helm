@@ -31,7 +31,7 @@ func TestGithubAuditHTTPCheckPermissionRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Review synthetic PR")}, actor.ID)
+	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Review synthetic PR"), Description: stringPtr("Goal: Inspect `main.go` synthetic source.")}, actor.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +54,8 @@ func TestGithubAuditHTTPCheckPermissionRevocation(t *testing.T) {
 			fmt.Fprint(w, `{"total_count":1,"check_runs":[{"name":"synthetic tests","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"completed","conclusion":"success","html_url":"https://github.com/example/synthetic/actions/runs/1"}]}`)
 		case strings.HasSuffix(r.URL.Path, "/statuses"), strings.HasSuffix(r.URL.Path, "/reviews"):
 			fmt.Fprint(w, `[]`)
+		case strings.HasSuffix(r.URL.Path, "/pulls/7/files"):
+			fmt.Fprint(w, `[{"filename":"main.go"}]`)
 		case strings.HasSuffix(r.URL.Path, "/pulls/7"):
 			fmt.Fprint(w, `{"title":"Synthetic private PR","state":"open","head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":1}}}`)
 		case strings.Contains(r.URL.Path, "/git/trees/"):

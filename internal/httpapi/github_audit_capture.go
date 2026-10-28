@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/KanterLabs/helm/internal/githubprovider"
@@ -13,101 +11,41 @@ import (
 )
 
 func (g *GithubAuditService) capture(ctx context.Context, job store.GithubAuditJob, c store.GithubAuditCapture, check func() error) (store.GithubAuditEvidence, error) {
+	return g.captureWithBudget(ctx, job, c, check, defaultRetrievalBudget())
+}
+
+func (g *GithubAuditService) captureWithBudget(ctx context.Context, job store.GithubAuditJob, c store.GithubAuditCapture, check func() error, budget store.GithubAuditRetrievalBudget) (store.GithubAuditEvidence, error) {
+	budget = boundedRetrievalBudget(budget)
+	ctx, cancel := retrievalDeadline(ctx, budget)
+	defer cancel()
 	e := store.GithubAuditEvidence{AuditID: job.AuditID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Tasks: c.Tasks, Omissions: append([]string{}, c.Omissions...), Repositories: []store.GithubAuditRepository{}, Items: []store.GithubAuditItem{}}
-	bytes, files, fileRequests := 0, 0, 0
-	selected := map[string]bool{}
-	seenSources := map[string]bool{}
-	addFiles := func(repo, sha string) error {
-		key := repo + "/" + sha
-		if seenSources[key] {
-			return nil
-		}
-		seenSources[key] = true
-		if err := check(); err != nil {
-			return err
-		}
-		tree, partial, err := g.provider.ListFiles(ctx, repo, sha)
-		if err != nil {
-			e.Omissions = append(e.Omissions, "Source tree unavailable: "+repo+"@"+sha)
-			return nil
-		}
-		if partial {
-			e.Omissions = append(e.Omissions, "Source tree excludes unsupported files or truncated entries: "+repo)
-		}
-		// Explicit paths in task goals/criteria are ranked first. Every omitted
-		// source file contributes visible coverage limits, including file budgets.
-		relevance := func(path string) int {
-			score := 0
-			lower := strings.ToLower(path)
-			for _, task := range c.Tasks {
-				description := strings.ToLower(task.Title + " " + task.Description + " " + strings.Join(task.Criteria, " "))
-				if strings.Contains(description, lower) {
-					score += 100
-				}
-				for _, word := range strings.Fields(description) {
-					if len(word) >= 5 && strings.Contains(lower, strings.Trim(word, ".,:;()")) {
-						score++
-					}
-				}
-			}
-			return score
-		}
-		sort.SliceStable(tree, func(i, j int) bool {
-			a, b := relevance(tree[i].Path), relevance(tree[j].Path)
-			if a != b {
-				return a > b
-			}
-			return tree[i].Path < tree[j].Path
-		})
-		omitted := 0
-		for _, entry := range tree {
-			if files >= 48 || fileRequests >= 96 || bytes+int(entry.Size) > 160*1024 {
-				omitted++
-				continue
-			}
-			if err = check(); err != nil {
-				return err
-			}
-			fileRequests++
-			file, readErr := g.provider.ReadFile(ctx, repo, sha, entry.Path)
-			if readErr != nil {
-				e.OmittedFiles++
-				e.Omissions = append(e.Omissions, "File unavailable: "+repo+":"+entry.Path)
-				continue
-			}
-			if file.SHA != entry.SHA || file.CommitSHA != sha || len(file.Text)+bytes > 160*1024 {
-				e.OmittedFiles++
-				e.Omissions = append(e.Omissions, "File identity or size limit: "+repo+":"+entry.Path)
-				continue
-			}
-			bytes += len(file.Text)
-			files++
-			e.Items = append(e.Items, store.GithubAuditItem{ID: fmt.Sprintf("github:file:%d", files), Kind: "file", Title: entry.Path, URL: file.URL, Repository: repo, SHA: sha, BlobSHA: file.SHA, Path: entry.Path, StartLine: 1, EndLine: strings.Count(file.Text, "\n") + 1, Text: file.Text})
-		}
-		e.OmittedFiles += omitted
-		if omitted > 0 {
-			e.Omissions = append(e.Omissions, fmt.Sprintf("%d files omitted by capture limits: %s@%s", omitted, repo, sha))
-		}
-		return nil
-	}
+	retrieval := newRetrievalRun(g, ctx, check, &e, budget)
+	sources := []*retrievalSource{}
+	selected := map[string]*retrievalSource{}
 	for _, repo := range c.Request.Repositories {
-		if err := check(); err != nil {
+		if err := retrieval.fence(); err != nil {
 			return e, err
 		}
 		resolved, err := g.provider.Resolve(ctx, repo.Repository, repo.Ref)
 		if err != nil {
 			return e, err
 		}
-		selected[repo.Repository] = true
-		e.Repositories = append(e.Repositories, store.GithubAuditRepository{Repository: repo.Repository, Ref: repo.Ref, SHA: resolved.SHA, RepositoryID: resolved.RepositoryID})
-		if err = addFiles(repo.Repository, resolved.SHA); err != nil {
+		if err = retrieval.fence(); err != nil {
 			return e, err
 		}
+		e.Repositories = append(e.Repositories, store.GithubAuditRepository{Repository: repo.Repository, Ref: repo.Ref, SHA: resolved.SHA, RepositoryID: resolved.RepositoryID})
+		source := &retrievalSource{repository: repo.Repository, ref: repo.Ref, sha: resolved.SHA, role: "baseline", tasks: c.Tasks}
+		selected[repo.Repository] = source
+		sources = append(sources, source)
 	}
 	seenPR := map[string]bool{}
 	prItems := map[string][]int{}
-	prCount, checkCount := 0, 0
+	prSources := map[string]*retrievalSource{}
+	prCount, prAttempts, checkCount := 0, 0, 0
 	for _, task := range c.Tasks {
+		if err := retrieval.fence(); err != nil {
+			return e, err
+		}
 		artifacts, err := g.store.ListGithubArtifacts(ctx, task.ID)
 		if err != nil {
 			return e, err
@@ -116,57 +54,102 @@ func (g *GithubAuditService) capture(ctx context.Context, job store.GithubAuditJ
 			key := fmt.Sprintf("%s/%d", artifact.Repository, artifact.Number)
 			if seenPR[key] {
 				for _, index := range prItems[key] {
-					e.Items[index].TaskIDs = append(e.Items[index].TaskIDs, task.ID)
+					e.Items[index].TaskIDs = appendUnique(e.Items[index].TaskIDs, task.ID)
+					e.Items[index].CriterionIDs = appendUnique(e.Items[index].CriterionIDs, conditionIDs(task)...)
+				}
+				if source := prSources[key]; source != nil {
+					source.tasks = append(source.tasks, task)
+				} else {
+					retrieval.linkedGap(task, artifact.Repository, "linked_source_unavailable")
 				}
 				continue
 			}
 			seenPR[key] = true
-			if !selected[artifact.Repository] {
+			if selected[artifact.Repository] == nil {
+				retrieval.linkedGap(task, artifact.Repository, "linked_repository_outside_scope")
 				e.Omissions = append(e.Omissions, "Linked PR repository is outside audit scope")
 				continue
 			}
-			if prCount >= 20 {
+			if prAttempts >= 20 {
+				retrieval.linkedGap(task, artifact.Repository, "linked_pr_budget_exhausted")
 				e.Omissions = append(e.Omissions, "Additional linked PR omitted by capture limit")
 				continue
 			}
-			if err = check(); err != nil {
+			if err = retrieval.fence(); err != nil {
 				return e, err
 			}
+			prAttempts++
 			pr, err := g.provider.FetchPullRequest(ctx, artifact.Repository, artifact.Number)
+			if fence := retrieval.fence(); fence != nil {
+				return e, fence
+			}
 			if err != nil {
+				retrieval.linkedGap(task, artifact.Repository, "linked_source_unavailable")
 				e.Omissions = append(e.Omissions, "Linked PR unavailable: "+key)
 				continue
 			}
+			seenPR[key] = true
 			raw, _ := json.Marshal(pr)
 			prCount++
-			e.Items = append(e.Items, store.GithubAuditItem{ID: fmt.Sprintf("github:pr:%d", prCount), Kind: "pull_request", Title: pr.Title, URL: pr.URL, Repository: pr.Repository, SHA: pr.HeadSHA, Text: string(raw), TaskIDs: []string{task.ID}})
+			ref := fmt.Sprintf("refs/pull/%d/head", pr.Number)
+			e.Items = append(e.Items, store.GithubAuditItem{ID: fmt.Sprintf("github:pr:%d", prCount), Kind: "pull_request", EvidenceClass: "pull_request", Title: pr.Title, URL: pr.URL, Repository: pr.Repository, Ref: ref, SHA: pr.HeadSHA, SourceRole: "linked_pr", Text: string(raw), TaskIDs: []string{task.ID}, CriterionIDs: conditionIDs(task)})
 			prItems[key] = append(prItems[key], len(e.Items)-1)
 			if pr.Partial || pr.ChecksState == "unavailable" || pr.ChecksState == "unknown" {
 				e.Omissions = append(e.Omissions, "Linked PR checks or reviews have incomplete coverage: "+key)
 			}
-			for _, check := range pr.Checks {
+			for _, observed := range pr.Checks {
 				if checkCount >= 100 {
 					e.Omissions = append(e.Omissions, "Additional checks omitted by capture limit")
 					break
 				}
 				checkCount++
-				raw, _ := json.Marshal(check)
-				e.Items = append(e.Items, store.GithubAuditItem{ID: fmt.Sprintf("github:check:%d", checkCount), Kind: "check", Title: check.Name, URL: check.URL, Repository: pr.Repository, SHA: check.SHA, Text: string(raw), TaskIDs: []string{task.ID}})
+				raw, _ := json.Marshal(observed)
+				e.Items = append(e.Items, store.GithubAuditItem{ID: fmt.Sprintf("github:check:%d", checkCount), Kind: "check", EvidenceClass: "observed_check", Title: observed.Name, URL: observed.URL, Repository: pr.Repository, Ref: ref, SHA: observed.SHA, SourceRole: "linked_pr", Text: string(raw), TaskIDs: []string{task.ID}, CriterionIDs: conditionIDs(task)})
 				prItems[key] = append(prItems[key], len(e.Items)-1)
 			}
-			if err = addFiles(pr.Repository, pr.HeadSHA); err != nil {
-				return e, err
+			source := &retrievalSource{repository: pr.Repository, ref: ref, sha: pr.HeadSHA, role: "linked_pr", tasks: []store.GithubAuditTask{task}}
+			if discovery, ok := g.provider.(githubprovider.SourceDiscovery); ok {
+				if err = retrieval.fence(); err != nil {
+					return e, err
+				}
+				paths, partial, err := discovery.PullRequestPaths(ctx, pr.Repository, pr.Number, pr.HeadSHA)
+				if fence := retrieval.fence(); fence != nil {
+					return e, fence
+				}
+				if err == nil {
+					source.preferred = paths
+					selected[pr.Repository].preferred = appendUnique(selected[pr.Repository].preferred, paths...)
+				}
+				if err != nil || partial {
+					e.Omissions = append(e.Omissions, "Linked PR change hints incomplete: "+key)
+				}
 			}
+			prSources[key] = source
+			sources = append(sources, source)
 		}
+	}
+	if err := retrieval.retrieve(sources); err != nil {
+		return e, err
 	}
 	if len(e.Items) == 0 {
 		e.Omissions = append(e.Omissions, "No readable source evidence captured")
 	}
-	e.Partial = len(e.Omissions) > 0
+	e.Partial = len(e.Omissions) > 0 || len(e.CriterionGaps) > 0
+	if err := retrieval.fence(); err != nil {
+		return e, err
+	}
 	if err := g.fresh(ctx, e); err != nil {
 		return e, err
 	}
-	return e, nil
+	return e, retrieval.fence()
+}
+
+func conditionIDs(task store.GithubAuditTask) []string {
+	ids := []string{}
+	for _, condition := range task.Conditions {
+		ids = append(ids, condition.ID)
+	}
+	return ids
 }
 
 // fresh rechecks exact branch/repository identities and all material PR/check
