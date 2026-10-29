@@ -154,6 +154,7 @@ x-helm-fragments:
   - openapi/paths/import-trello.yaml
   - openapi/paths/import.yaml
   - openapi/paths/intake-coolify.yaml
+  - openapi/paths/intake.yaml
   - openapi/paths/issues-metrics.yaml
   - openapi/paths/issues.yaml
   - openapi/paths/labels.yaml
@@ -235,6 +236,7 @@ x-helm-fragments:
   - openapi/schemas/auth.yaml
   - openapi/schemas/beta.yaml
   - openapi/schemas/bugs.yaml
+  - openapi/schemas/intake.yaml
   - openapi/schemas/cloudflare.yaml
   - openapi/schemas/codex.yaml
   - openapi/schemas/columns.yaml

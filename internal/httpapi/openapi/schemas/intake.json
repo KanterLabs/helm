@@ -1,0 +1,66 @@
+{
+  "components": {
+    "schemas": {
+      "IntakeCounts": {
+        "type": "object",
+        "required": [
+          "all",
+          "needs_triage"
+        ],
+        "properties": {
+          "all": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "needs_triage": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "IntakeCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor",
+          "counts"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Opaque Intake keyset cursor pinned to filters, reader authority and collection revisions; empty when exhausted."
+          },
+          "counts": {
+            "$ref": "#/components/schemas/IntakeCounts"
+          },
+          "queue": {
+            "type": "object",
+            "description": "Existing hidden queue, only when its project is readable.",
+            "required": [
+              "project_id",
+              "key"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              "key": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

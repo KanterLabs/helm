@@ -4,6 +4,7 @@ import { projectsApi } from './api/projects';
 import { createReleasesApi } from './api/releases';
 import { createTasksApi } from './api/tasks';
 import { ticketsApi } from './api/tickets';
+import { intakeApi } from './api/intake';
 import { activityApi } from './api/activity';
 import { createViewsApi } from './api/views';
 import { auditsApi } from './api/audits';
@@ -24,6 +25,7 @@ export const api = {
   ...createReleasesApi((): ReturnType<typeof createReleasesApi> => api),
   ...createTasksApi((): ReturnType<typeof createTasksApi> => api),
   ...ticketsApi,
+  ...intakeApi,
   ...activityApi,
   ...createViewsApi((): ReturnType<typeof createViewsApi> => api),
   ...auditsApi,

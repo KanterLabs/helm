@@ -27,6 +27,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			s.myWork(w, r, identity)
 		case "tickets":
 			s.tickets(w, r, identity)
+		case "intake":
+			s.intake(w, r, identity)
 		case "ticket-webhooks":
 			s.ticketWebhooks(w, r, identity)
 		case "public-endpoints":

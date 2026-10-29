@@ -5,6 +5,7 @@ export * from './types/search';
 export * from './types/intelligence';
 export * from './types/releases';
 export * from './types/tickets';
+export * from './types/intake';
 export * from './types/activity';
 export * from './types/admin';
 export * from './types/portable';
