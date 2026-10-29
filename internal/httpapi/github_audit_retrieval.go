@@ -90,7 +90,7 @@ func (r *retrievalRun) discover(source *retrievalSource, taskID, term string) (r
 	if fence := r.fence(); fence != nil {
 		return retrievalHints{}, fence
 	}
-	hints := retrievalHints{paths: paths}
+	hints := retrievalHints{paths: prioritizeDiscoveryPaths(paths)}
 	if err != nil {
 		hints.problem = "discovery_unavailable"
 	}

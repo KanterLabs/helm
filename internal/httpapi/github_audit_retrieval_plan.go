@@ -17,6 +17,8 @@ var retrievalReference = regexp.MustCompile(`(?:,\s*|\b)([A-Za-z_][A-Za-z0-9_]*)
 var retrievalHandler = regexp.MustCompile(`,\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\)`)
 var retrievalPath = regexp.MustCompile(`(?i)\b(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+\.(?:go|rs|tsx?|jsx?|py|java|kt|swift|c|cpp|h|cs|rb|php|svelte|vue|sql|sh|yaml|yml|json|toml|md|txt)\b`)
 var retrievalRouteOwner = regexp.MustCompile(`(?i)(\b(?:HandleFunc|Handle|MethodFunc|Methods|Route|Get|Post|Put|Patch|Delete|Head|Options|AddRoute|MapGet|MapPost)\s*\(|\b(?:URL\.Path|Pathname|RequestURI)\b|\bpath\s*:)`)
+var retrievalRouteRegistration = regexp.MustCompile(`(?i)\b(?:HandleFunc|Handle|MethodFunc|Methods|Route|Get|Post|Put|Patch|Delete|Head|Options|AddRoute|MapGet|MapPost)\s*\(`)
+var retrievalDispatchCall = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\s*\(`)
 
 type retrievalAnchors struct{ terms, paths []string }
 
@@ -106,6 +108,29 @@ func sourceClass(name string) string {
 		return "implementation"
 	}
 	return "other"
+}
+
+// Provider search ranking includes prose and operational scripts. Read likely
+// application implementation before those mentions, preserving hint order
+// within each class. Every read is still revalidated at the selected SHA.
+func prioritizeDiscoveryPaths(paths []string) []string {
+	paths = append([]string{}, paths...)
+	rank := func(name string) int {
+		switch sourceClass(name) {
+		case "implementation":
+			if strings.HasPrefix(name, "internal/") || strings.HasPrefix(name, "src/") {
+				return 0
+			}
+			return 1
+		case "test_source":
+			return 2
+		case "documentation":
+			return 3
+		}
+		return 4
+	}
+	sort.SliceStable(paths, func(i, j int) bool { return rank(paths[i]) < rank(paths[j]) })
+	return paths
 }
 
 // This is an ownership fallback, not card-word ranking. Explicit paths and
@@ -208,7 +233,11 @@ func implementationLines(text string, terms []string) []int {
 			if end > len(lines) {
 				end = len(lines)
 			}
-			if retrievalRouteOwner.MatchString(strings.Join(lines[start:end], "\n")) {
+			context := strings.Join(lines[start:end], "\n")
+			// A compatibility/access guard can mention a path and return false
+			// without dispatching it. Keep looking for registration or a handler
+			// call instead of declaring this criterion's owner resolved.
+			if retrievalRouteRegistration.MatchString(context) || retrievalRouteOwner.MatchString(lines[index]) && retrievalDispatchCall.MatchString(strings.Join(lines[index:end], "\n")) {
 				matches = append(matches, index)
 			}
 		}
@@ -220,12 +249,24 @@ func implementationLines(text string, terms []string) []int {
 func sourceReferences(text string, lines []int, known []string) []string {
 	refs := []string{}
 	source := strings.Split(text, "\n")
-	ignore := map[string]bool{"func": true, "if": true, "for": true, "switch": true, "return": true, "make": true, "len": true, "string": true, "append": true, "WriteHeader": true, "Write": true, "HandleFunc": true, "Handle": true, "GET": true, "POST": true}
+	ignore := map[string]bool{"func": true, "if": true, "for": true, "switch": true, "return": true, "make": true, "len": true, "string": true, "byte": true, "append": true, "Header": true, "Set": true, "WriteHeader": true, "Write": true, "HandleFunc": true, "Handle": true, "GET": true, "POST": true}
 	for _, term := range known {
 		ignore[term] = true
 	}
 	for _, index := range lines {
 		line := source[index]
+		// Direct URL.Path dispatchers commonly call the handler on the next
+		// line. Restrict this lookahead to the route branch, ending at return
+		// or its closing brace, so an unrelated following route is not fetched.
+		if retrievalRouteOwner.MatchString(line) {
+			for next := index + 1; next < len(source) && next <= index+3; next++ {
+				trim := strings.TrimSpace(source[next])
+				if trim == "}" || trim == "return" || strings.HasPrefix(trim, "return ") {
+					break
+				}
+				line += "\n" + source[next]
+			}
+		}
 		for _, pattern := range []*regexp.Regexp{retrievalHandler, retrievalReference} {
 			for _, m := range pattern.FindAllStringSubmatch(line, -1) {
 				if len(m[1]) >= 3 && !ignore[m[1]] && literalDiscoveryTerm(m[1]) {

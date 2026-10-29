@@ -119,6 +119,15 @@ actual destinations produce inability to verify. The default Backlog and Bugs
 columns share a semantic state: selecting a destination among duplicates needs
 clarification. A correct card can retain its already-known actual source ID.
 
+The internal inference schema asks for a semantic destination rather than a
+duplicated actual target ID. Before full validation, the server binds absent
+target metadata from the immutable capture: a correct card retains its exact
+current column/state; a correction requires an explicit semantic state and a
+unique actual destination. Explicit conflicts are never overwritten, duplicate
+Backlog/Bugs mappings remain ambiguous, and unknown cards retain null targets.
+The persisted/public v2 shape and all identity, proof and lifecycle validation
+remain unchanged.
+
 `application_eligibility` is computed by the server, never accepted from the
 model. It records `not_applicable`, `review_required` or `blocked`; reasons can
 include an active claim, changed/unavailable task, required open checklist or
@@ -147,7 +156,10 @@ available, a bounded evidence-only model request selects paths from a
 server-supplied pinned index. The server validates every requested path/range,
 reads only the exact captured SHA and records criterion-linked excerpts. A
 planner may refine using bounded inspected prefixes and a bounded server-extracted
-signature/line index; large owners get a second bounded read-planning round. This is semantic planning,
+signature/line index: compact declaration names retain their exact source line
+numbers within the existing bounded signature envelope, with whole-file sampling
+for larger owners. Large owners get a second bounded read-planning round. This is
+semantic planning,
 not generic word matching or repository execution. It shares TC-307 card/run
 file, byte, request and deadline ceilings: at most two file-refinement rounds per
 condition plus one directory-routing round for large trees, four discoveries per

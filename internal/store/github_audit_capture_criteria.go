@@ -69,6 +69,10 @@ func githubAuditDescriptionConditions(task GithubAuditTask) []GithubAuditConditi
 			for next := i + 1; next < len(lines); next++ {
 				following := lines[next]
 				trimmed := strings.TrimSpace(following)
+				nextLabel := strings.ToLower(strings.Trim(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), "*: "))
+				if nextLabel == "goal" || strings.HasPrefix(nextLabel, "goal:") || nextLabel == "acceptance criteria" || nextLabel == "acceptance conditions" {
+					break
+				}
 				if trimmed == "" || strings.HasPrefix(trimmed, "#") || githubAuditBullet.MatchString(trimmed) {
 					break
 				}

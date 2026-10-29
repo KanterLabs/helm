@@ -232,6 +232,7 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 		}
 		return g.authorizedJob(ctx, job)
 	}
+	diagnostic := ""
 	fail := func(code string) error {
 		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stop()
@@ -242,7 +243,7 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			code = "deadline_exceeded"
 		}
-		return g.store.FailGithubAudit(cleanup, job, code)
+		return g.store.FailGithubAuditDiagnostic(cleanup, job, code, diagnostic)
 	}
 	if err = check(); err != nil {
 		return fail("authorization_changed")
@@ -259,6 +260,7 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 		if check() != nil {
 			return fail("authorization_changed")
 		}
+		diagnostic = githubDiscoveryDiagnostic(err)
 		return fail(githubprovider.ErrorCode(err))
 	}
 	if err = check(); err != nil {
@@ -297,10 +299,14 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 	var assessments []store.GithubAssessmentInput
 	if capture.AssessmentVersion == store.GithubAssessmentVersion {
 		assessments, err = decodeGithubAssessmentOutput(result.Output)
+		if err == nil {
+			bindGithubAssessmentDestinations(assessments, capture)
+		}
 	} else {
 		findings, err = decodeGithubAuditOutput(result.Output)
 	}
 	if err != nil {
+		diagnostic = "assessment_decode"
 		return fail("invalid_model_output")
 	}
 	if err = check(); err != nil {
@@ -322,6 +328,7 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 		err = g.store.PublishGithubAudit(ctx, job, findings, outcome, "")
 	}
 	if err != nil {
+		diagnostic = store.GithubAssessmentDiagnostic(err)
 		return fail("invalid_model_output")
 	}
 	return nil

@@ -19,6 +19,15 @@ runs:
         HELM_E2E_WORKERS: ${{ inputs.workers }}
         HELM_E2E_INCLUDE_DEADLINES: 'true'
       run: python3 test/e2e/runner-metrics.py --output "$RUNNER_TEMP/helm-runner-metrics" -- ./test/e2e/run.sh
+    - name: Validate reviewed column corrections against the real backend
+      shell: bash
+      env:
+        HELM_COLUMN_AUDIT_DIST: ${{ github.workspace }}/web/dist
+        HELM_COLUMN_AUDIT_ARTIFACTS: ${{ runner.temp }}/helm-column-audit-evidence
+      # The normal suite deliberately skips these opt-in specs. This runner
+      # compiles its test-only router/store/worker fixture; never use the
+      # production executable, which has no fixture control endpoints.
+      run: test/e2e/column-audit/run.sh --project=chromium --grep 'scope → run → evidence'
     - name: Upload browser and resource evidence
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -28,5 +37,6 @@ runs:
         path: |
           ${{ runner.temp }}/helm-e2e-evidence
           ${{ runner.temp }}/helm-runner-metrics
+          ${{ runner.temp }}/helm-column-audit-evidence
         if-no-files-found: error
         retention-days: ${{ job.status == 'failure' && 7 || 3 }}

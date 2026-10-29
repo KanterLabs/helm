@@ -50,8 +50,14 @@ func validateGithubAssessment(a GithubAssessmentInput, c GithubAuditCapture, e G
 		}
 		projection.Verdict = "needs_attention"
 	} else {
-		if len(task.Conditions) == 0 || a.TargetColumnID == nil || a.TargetSemanticState == nil {
+		if len(task.Conditions) == 0 {
 			return fail("conclusive placement needs completion meaning and actual destination")
+		}
+		if a.TargetColumnID == nil {
+			return fail("conclusive placement has missing target identity")
+		}
+		if a.TargetSemanticState == nil {
+			return fail("conclusive placement has missing target semantic state")
 		}
 		target, unique := assessmentDestination(c.Columns, *a.TargetSemanticState)
 		if a.Placement == "column_correct" && *a.TargetColumnID == task.ColumnID && *a.TargetSemanticState == task.SemanticState {
@@ -63,7 +69,10 @@ func validateGithubAssessment(a GithubAssessmentInput, c GithubAuditCapture, e G
 			}
 		}
 		if !unique || target.ID != *a.TargetColumnID {
-			return fail("destination column is unavailable or ambiguous; clarify mapping")
+			if !unique {
+				return fail("destination semantic mapping is unavailable or ambiguous")
+			}
+			return fail("destination identity does not match semantic mapping")
 		}
 		sourceKnown := false
 		for _, col := range c.Columns {
