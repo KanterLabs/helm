@@ -44,9 +44,9 @@ func TestGithubAuditRetrievalHTTPWorkerFindsHiddenRoute(t *testing.T) {
 		retrievalSHA + ":internal/audit_fixture.go": "package app\nvar cardDescription = \"Goal: Provide GET /healthz for the audit demonstration.\"\n",
 		retrievalSHA + ":README.md":                 "Promises GET /healthz and GET /readyz for audit demonstration.\n",
 		retrievalSHA + ":docs/audit.md":             strings.Repeat("audit demonstration ", 9000),
-		retrievalSHA + ":internal/zinc.go":          "package app\nfunc wire(mux *Mux) {\n mux.HandleFunc(\"GET /healthz\", pulse)\n}\n",
-		retrievalSHA + ":internal/opaque.go":        "package app\nfunc pulse(w Writer, r *Request) {\n w.WriteHeader(200)\n w.Write([]byte(`{\"ok\":true}`))\n}\n",
-		retrievalSHA + ":internal/quartz.go":        "package app\nfunc wireReady(mux *Mux) {\n mux.HandleFunc(\"GET /readyz\", ready)\n}\nfunc ready(w Writer,r *Request) { w.WriteHeader(200) }\n",
+		retrievalSHA + ":internal/zinc.go":          "package app\nimport \"net/http\"\nfunc wire(mux *http.ServeMux) {\n mux.HandleFunc(\"GET /healthz\", pulse)\n}\n",
+		retrievalSHA + ":internal/opaque.go":        "package app\nimport \"net/http\"\nfunc pulse(w http.ResponseWriter, r *http.Request) {\n w.WriteHeader(200)\n w.Write([]byte(`{\"ok\":true}`))\n}\n",
+		retrievalSHA + ":internal/quartz.go":        "package app\nimport \"net/http\"\nfunc wireReady(mux *http.ServeMux) {\n mux.HandleFunc(\"GET /readyz\", ready)\n}\nfunc ready(w http.ResponseWriter,r *http.Request) { w.WriteHeader(200) }\n",
 	}, hints: map[string][]string{"/healthz": {"internal/audit_fixture.go", "internal/zinc.go", "README.md"}, "pulse": {"internal/opaque.go"}, "/readyz": {"internal/quartz.go"}}}
 	// Many plausible but unrelated owners exceed the old file budget and occur
 	// before the true owner. Only server-filtered content hints identify it.
@@ -174,13 +174,13 @@ func TestGithubAuditRetrievalRelevantGapsAndPRSeparation(t *testing.T) {
 				f.files[retrievalSHA+":internal/b.go"] = "package app\nfunc second() {}\n"
 				f.denied[retrievalSHA+":internal/b.go"] = true
 			} else if mode == "excerpt_limit" || mode == "multiple_routes" {
-				f.files[retrievalSHA+":internal/opaque.go"] = "package app\nfunc route(m *Mux) { m.HandleFunc(\"GET /healthz\", pulse) }\nfunc pulse() {}\n"
+				f.files[retrievalSHA+":internal/opaque.go"] = "package app\nimport \"net/http\"\nfunc route(m *http.ServeMux) { m.HandleFunc(\"GET /healthz\", pulse) }\nfunc pulse() {}\n"
 			} else if mode == "pr_only" {
 				_, task, err = data.LinkGithubArtifact(ctx, task.ID, "example/synthetic", 7, "https://github.com/example/synthetic/pull/7", task.Version, actor.ID, false)
 				if err != nil {
 					t.Fatal(err)
 				}
-				f.files[retrievalHead+":internal/opaque.go"] = "package app\nfunc routes(m *Mux) { m.HandleFunc(\"GET /healthz\", pulse) }\n"
+				f.files[retrievalHead+":internal/opaque.go"] = "package app\nimport \"net/http\"\nfunc routes(m *http.ServeMux) { m.HandleFunc(\"GET /healthz\", pulse) }\n"
 			} else if mode == "unavailable" {
 				f.files[retrievalSHA+":internal/opaque.go"] = "package app\n// route\n"
 				f.denied[retrievalSHA+":internal/opaque.go"] = true

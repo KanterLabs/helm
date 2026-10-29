@@ -91,7 +91,9 @@ func validateGithubAssessment(a GithubAssessmentInput, c GithubAuditCapture, e G
 				return fail("Done requires every completion condition supported")
 			}
 		case "active":
-			if all || (!facts["implementation"] && !facts["work_remaining"]) || (contradicted == 0 && !facts["work_remaining"]) {
+			// A model's work_remaining assertion cannot turn missing evidence into
+			// a demonstrated omission, including when confirming the current column.
+			if !facts["implementation"] || contradicted == 0 {
 				return fail("In progress needs committed implementation and demonstrated remaining work")
 			}
 		case "ready", "backlog":

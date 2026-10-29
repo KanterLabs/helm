@@ -96,7 +96,7 @@ func TestGithubAuditRetrievalWorkerDoesNotChaseResponsePrimitives(t *testing.T) 
 		t.Fatal(err)
 	}
 	f := &retrievalFixture{files: map[string]string{
-		retrievalSHA + ":internal/public_endpoints.go": "package app\nfunc hooks(w http.ResponseWriter, r *http.Request) {\n if r.URL.Path == \"/healthz\" {\n  w.Header().Set(\"Content-Type\", \"application/json\")\n  w.WriteHeader(200)\n  w.Write([]byte(`{\"status\":\"ok\"}`))\n  return\n }\n}\n",
+		retrievalSHA + ":internal/public_endpoints.go": "package app\nimport \"net/http\"\nfunc hooks(w http.ResponseWriter, r *http.Request) {\n if r.URL.Path == \"/healthz\" {\n  w.Header().Set(\"Content-Type\", \"application/json\")\n  w.WriteHeader(200)\n  w.Write([]byte(`{\"status\":\"ok\"}`))\n  return\n }\n}\n",
 	}, hints: map[string][]string{"/healthz": {"internal/public_endpoints.go"}}}
 	service := NewGithubAuditService(data, newRetrievalProvider(t, f), &retrievalAI{}, nil)
 	run, _, err := data.StartGithubAudit(ctx, p.ID, actor.ID, store.GithubAuditStartInput{Repositories: selection.Repositories, SelectionVersion: selection.Version, TaskIDs: []string{task.ID}, RequestKey: "response-leaf", Fingerprint: "response-leaf"})

@@ -12,6 +12,10 @@ captures retain v1 semantics; malformed v2 must never fall back to v1.
   Done; no evidence means unstarted; failed CI means Blocked; demonstrated partial
   Done cannot reopen; correct Active becomes a move; ambiguous actual columns
   resolve by arbitrary order; foreign claims change the recommendation.
+- Actual-run regression: an unknown condition plus a cited `work_remaining`
+  assertion falsely confirms Active or reopens Done. Unknown evidence must stay
+  unverifiable; Active needs baseline implementation and a contradicted required
+  condition. A known contradiction may coexist with other unknown conditions.
 - Context: checklist ticks/prose become code proof; actual columns, claims,
   dependency/checklist policy or concrete blocker facts disappear from capture.
 - Discovery: ordinary English without literal anchors never produces excerpts;

@@ -31,7 +31,7 @@ func TestGithubAssessmentOrdinaryLanguageDiscovery(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			f := &retrievalFixture{files: map[string]string{retrievalSHA + ":internal/opaque.go": "package app\nfunc Render(card Card) string {\n return card.Prerequisites.Label()\n}\n", retrievalHead + ":internal/opaque.go": "package app\nfunc Render(card Card) string { return card.Prerequisites.Label() }\n"}}
+			f := &retrievalFixture{files: map[string]string{retrievalSHA + ":internal/opaque.go": "package app\nfunc Render(card Card) string {\n return card.Prerequisites.Label()\n}\nfunc (p *Prerequisites) Label() string { return p.Name }\n", retrievalHead + ":internal/opaque.go": "package app\nfunc Render(card Card) string { return card.Prerequisites.Label() }\nfunc (p *Prerequisites) Label() string { return p.Name }\n"}}
 			for i := 0; i < 20; i++ {
 				f.files[fmt.Sprintf("%s:internal/a%02d.go", retrievalSHA, i)] = "package app\nvar unrelated = 1\n"
 			}
@@ -90,7 +90,7 @@ func TestGithubAssessmentPlanningFencesAndPathBounds(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			f := &retrievalFixture{files: map[string]string{retrievalSHA + ":internal/opaque.go": "package app\nfunc Render(card Card) string { return card.Prerequisites.Label() }\n"}}
+			f := &retrievalFixture{files: map[string]string{retrievalSHA + ":internal/opaque.go": "package app\nfunc Render(card Card) string { return card.Prerequisites.Label() }\nfunc (p *Prerequisites) Label() string { return p.Name }\n"}}
 			ai := &assessmentAI{}
 			revoked := false
 			service := NewGithubAuditService(data, newRetrievalProvider(t, f), ai, func(context.Context, string, string) error {

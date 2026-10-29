@@ -97,6 +97,13 @@ proposed legacy destination. Demonstrated partial work in Done targets the
 actual Active column with `reopen` (`bug_reopen` for bugs). Into Done uses
 `complete` or `bug_resolve`; other corrections use `start`, `block` or `move`.
 
+Active requires a baseline implementation basis and at least one contradicted
+required condition. An unknown condition or `work_remaining` assertion alone
+cannot confirm Active or reopen Done. Supported plus unknown without a
+contradiction is `unable_to_verify`; other unknown conditions do not invalidate
+an independently demonstrated contradiction. Affirmative unstarted/readiness
+or concrete blocker context retains its separate placement rules.
+
 ## Captured context and actual destinations
 
 Capture includes active project columns and their versions, task kind,
@@ -163,13 +170,34 @@ semantic planning,
 not generic word matching or repository execution. It shares TC-307 card/run
 file, byte, request and deadline ceilings: at most two file-refinement rounds per
 condition plus one directory-routing round for large trees, four discoveries per
-card, 48 per run and a 90-second retrieval window. Large trees first expose exact
-owning directories, then their pinned file index, so late-sorting UI owners are
-reachable. Each index is capped at 512 candidates/48 KiB of path names;
+card, 48 per run and a 90-second retrieval window. The global production-source
+index excludes supplementary tests/docs unless explicitly named or linked by a
+PR hint. When that production index exceeds the existing ceiling, discovery
+first exposes owning directories, then their pinned files, so late-sorting
+owners remain reachable within the routing budget. Each index is capped at 512 candidates/48 KiB of path names;
 prompts and responses are separately bounded. Round-robin card scheduling and
 shared-read deduplication remain in force. Sufficient literal retrieval adds no
 planning call. Durable attempt, authorization/grant, account/provider generation
 and source freshness fences surround extra inference and exact reads.
+
+For ambiguous ownership the planner can request safe literal concept searches,
+each naming its criterion evidence question. These consume the same discovery
+budget; default-branch hits must belong to the pinned tree before reading. Search
+hits remain visible beyond the initial index. Refinement sees selected excerpts
+before generic prefixes, within the same 12-KiB observed-text allowance. Semantic
+follow-ups explicitly request required helpers instead of chasing every call.
+
+When a concept exactly names a Go function, its pinned syntax-tree declaration
+supplies body windows before earlier field/metric mentions. At most three
+101-line windows share the existing whole-line byte/excerpt limits; truncation
+remains a gap. Explicit model windows retain every requested whole line. For
+literal-anchor v2 Go retrieval, bounded AST/import/local-declaration provenance
+distinguishes standard-library calls from owned or unknown references, including
+SQL factories, typed parameters/fields, aliases and lexical shadowing. This
+loads no packages or dependencies. Non-Go/malformed source and v1 retain the
+original reference fallback. Cached pinned files can be reconsidered without
+another provider read. These mechanisms improve capture, not placement proof:
+missing behavior or required owned source must prevent unsupported completion.
 
 ## Module map
 
@@ -178,7 +206,7 @@ and source freshness fences surround extra inference and exact reads.
 | Versioned public/store types | `internal/store/github_audit_assessment_types.go`, `github_audit_types.go` |
 | Context and source columns | `internal/store/github_audit_context.go`, `github_audit_capture.go` |
 | Inference contract and prompt | `internal/httpapi/github_audit_assessment_output.go`, `github_audit_assessment_prompt.go`, `github_audit_service.go` |
-| Semantic planning / exact reads | `internal/httpapi/github_audit_semantic.go`, `github_audit_semantic_index.go`, existing `github_audit_retrieval*.go` |
+| Semantic planning / exact reads | `internal/httpapi/github_audit_semantic*.go`, existing `github_audit_retrieval*.go` |
 | Explicit PR baseline | `internal/httpapi/github_audit_baseline.go`, `github_audit_capture.go` |
 | Proof and placement validation | `internal/store/github_audit_assessment_proof.go`, `github_audit_assessment_validate.go` |
 | Atomic publication / eligibility | `internal/store/github_audit_assessment_publish.go` |

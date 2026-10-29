@@ -114,6 +114,28 @@ func assessmentReceipt(t *testing.T, name string, value any) {
 // Failure inventory is docs/AUDIT_ASSESSMENT_FAILURES.md, written first.
 // This exercises real HTTP start/findings, provider HTTP and worker publication.
 func TestGithubAssessmentHTTPWorker(t *testing.T) {
+	activeAssessment := func(result, placement, action string) func(map[string]any) {
+		return func(r map[string]any) {
+			c := r["conditions"].([]map[string]any)[0]
+			c["result"] = result
+			if result == "unknown" {
+				c["gaps"] = []string{"Runtime behavior was not inspected"}
+			}
+			refs := c["citation_ids"]
+			r["basis"] = []map[string]any{
+				{"kind": "implementation", "explanation": "Some baseline implementation was read", "citation_ids": refs},
+				{"kind": "work_remaining", "explanation": "Required behavior remains unverified", "citation_ids": refs},
+			}
+			r["placement"], r["lifecycle_action"] = placement, action
+			// The server binds the captured destination; the model supplies its meaning.
+			delete(r, "target_column_id")
+			r["target_semantic_state"] = "active"
+			if placement == "unable_to_verify" {
+				r["target_semantic_state"] = nil
+				r["basis"] = []any{}
+			}
+		}
+	}
 	cases := []struct {
 		name, state string
 		mutate      func(map[string]any)
@@ -121,6 +143,10 @@ func TestGithubAssessmentHTTPWorker(t *testing.T) {
 	}{
 		{"complete-backlog", "backlog", nil, false},
 		{"correct-despite-unread", "completed", nil, false},
+		{"unknown-is-not-correct-active", "active", activeAssessment("unknown", "column_correct", "none"), true},
+		{"unknown-cannot-reopen", "completed", activeAssessment("unknown", "correction_recommended", "reopen"), true},
+		{"contradicted-correct-active", "active", activeAssessment("contradicted", "column_correct", "none"), false},
+		{"unknown-active-unable", "active", activeAssessment("unknown", "unable_to_verify", "none"), false},
 		{"unknown-is-not-done", "backlog", func(r map[string]any) { r["conditions"].([]map[string]any)[0]["result"] = "unknown" }, true},
 		{"invented-citation", "backlog", func(r map[string]any) {
 			r["conditions"].([]map[string]any)[0]["citation_ids"] = []string{"invented:path"}
@@ -155,6 +181,17 @@ func TestGithubAssessmentHTTPWorker(t *testing.T) {
 			}
 			if tc.state == "completed" {
 				task, err = data.CompleteTask(ctx, task.ID, actor.ID, task.Version)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.state == "active" {
+				// Fixture placement only; the audit itself must leave this version intact.
+				_, err = data.DB.ExecContext(ctx, `UPDATE tasks SET column_id=(SELECT id FROM columns WHERE project_id=? AND semantic_state='active') WHERE id=?`, p.ID, task.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				task, err = data.GetTask(ctx, task.ID)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -7,38 +7,48 @@ import (
 )
 
 type semanticCandidate struct {
-	Path      string `json:"path"`
-	Size      int64  `json:"size"`
-	Preferred bool   `json:"linked_pr_hint"`
-	Kind      string `json:"kind"`
+	Path       string `json:"path"`
+	Size       int64  `json:"size"`
+	Preferred  bool   `json:"linked_pr_hint"`
+	SearchHint bool   `json:"criterion_search_hint"`
+	Kind       string `json:"kind"`
 }
 
 // A bounded file index must not hide every later-sorting ownership directory.
-// For large trees, first offer exact server-known owning directories, then the
-// selected directory's pinned files. This is semantic routing, not word ranking.
+// Supplementary tests/docs must not force a small production tree into a
+// single-directory guess. Explicit criterion paths and linked-PR hints remain
+// inspectable. Genuinely large production trees still use bounded routing.
 func semanticIndex(w *retrievalWork) ([]semanticCandidate, bool) {
 	files := []semanticCandidate{}
 	for _, entry := range w.source.tree {
-		if sourceClass(entry.Path) == "other" || len(entry.Path) > 512 {
+		explicit := false
+		for _, p := range append(append([]string{}, w.anchors.paths...), w.source.preferred...) {
+			explicit = explicit || p == entry.Path
+		}
+		if sourceClass(entry.Path) != "implementation" && !explicit || len(entry.Path) > 512 {
 			continue
 		}
-		if w.semanticDirectory == "." && path.Dir(entry.Path) != "." {
+		searchHint := false
+		for _, p := range w.searchPaths {
+			searchHint = searchHint || p == entry.Path
+		}
+		if !searchHint && w.semanticDirectory == "." && path.Dir(entry.Path) != "." {
 			continue
 		}
-		if w.semanticDirectory != "" && w.semanticDirectory != "." && !strings.HasPrefix(entry.Path, w.semanticDirectory+"/") {
+		if !searchHint && w.semanticDirectory != "" && w.semanticDirectory != "." && !strings.HasPrefix(entry.Path, w.semanticDirectory+"/") {
 			continue
 		}
 		preferred := false
 		for _, p := range w.source.preferred {
 			preferred = preferred || p == entry.Path
 		}
-		files = append(files, semanticCandidate{Path: entry.Path, Size: entry.Size, Preferred: preferred, Kind: "file"})
+		files = append(files, semanticCandidate{Path: entry.Path, Size: entry.Size, Preferred: preferred, SearchHint: searchHint, Kind: "file"})
 	}
 	totalBytes := 0
 	for _, f := range files {
 		totalBytes += len(f.Path)
 	}
-	directories := w.semanticDirectory == "" && (len(files) > 512 || totalBytes > 48*1024)
+	directories := w.semanticDirectory == "" && len(w.searchPaths) == 0 && (len(files) > 512 || totalBytes > 48*1024)
 	if directories {
 		owners := map[string]semanticCandidate{}
 		roots := []semanticCandidate{}
@@ -52,6 +62,7 @@ func semanticIndex(w *retrievalWork) ([]semanticCandidate, bool) {
 			owner.Path = dir
 			owner.Kind = "directory"
 			owner.Preferred = owner.Preferred || f.Preferred
+			owner.SearchHint = owner.SearchHint || f.SearchHint
 			owners[dir] = owner
 		}
 		files = roots
@@ -60,6 +71,9 @@ func semanticIndex(w *retrievalWork) ([]semanticCandidate, bool) {
 		}
 	}
 	sort.Slice(files, func(i, j int) bool {
+		if files[i].SearchHint != files[j].SearchHint {
+			return files[i].SearchHint
+		}
 		if files[i].Preferred != files[j].Preferred {
 			return files[i].Preferred
 		}

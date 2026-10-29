@@ -87,3 +87,63 @@ Uniform whole-file sampling can also omit middle declarations. The final bounded
 index compacts declaration names with exact source line numbers into the same
 40-by-160 signature envelope before sampling exceptionally large owners. A
 second red regression covers a middle declaration hidden by uniform sampling.
+
+
+The [ordinary-language retrieval inventory](AUDIT_SOURCE_RETRIEVAL_FAILURES.md)
+and test-first provider/store/worker scenarios cover production indexing despite
+710 supplementary files, constructor-prefix refinement ordering, whole-window
+middle calls, SQL receiver provenance, same-name owned methods, missing owned
+source, and refinement cancellation/revocation/source/path fences. Existing
+synthetic route fixtures now declare their actual net/http imports and receiver
+types; the ordinary-language renderer fixture supplies its required Label body.
+Their original assertions remain intact. Focused HTTP/store acceptance passes.
+
+The single subsequent actual semantic probe at unchanged main
+`c0f119cf330811389dfd38fbcbd7269dbf6680d5` is **not an acceptance pass**.
+Audit `243a5ccc3d20034bba065e2700a88f7b` captured database/server prefixes,
+then selected offline database preflight rather than the operator readiness
+body. Unknown os.Open-result provenance caused Close/Stat helper searches and
+consumed the existing eight-file ceiling. The goal remains unknown; the model
+published column_correct:active with no lifecycle action, not the expected Done
+correction. Neither preflight nor filesystem helpers establish the complete
+operator-facing database/schema readiness behavior. The model's use of unknown
+coverage as work_remaining is also a parent review concern, not demonstrated
+missing implementation. No validator or model contract was weakened to pass.
+
+Receipts and concrete next architecture are indexed at
+`/tmp/helm-tc311-semantic-handoff/index.json`. The new grant, copied credentials,
+environment file and candidate container were removed; all 19 candidate attempts
+are retained, with integrity/foreign keys and live beta/prod preservation checked.
+TC-311 remains active for parent integration and the unresolved release gates.
+
+Parent HTTP/provider/worker regressions reproduced both unsupported Active
+confirmation and reopening from an unknown condition with a `work_remaining`
+basis. The strict validator now requires an implementation basis and at least
+one contradicted required condition for Active; the inference guidance states
+the same distinction. Unknown remains a valid `unable_to_verify` result. These
+regressions and existing assessment tests pass; this does not close the actual
+ordinary-language evidence gate. Red/green logs are
+`/tmp/helm-tc311-unknown-active-{red,green}.log`.
+
+Subsequent bounded concept-search work uses criterion questions, selected source
+excerpts and exact Go declaration bodies instead of incidental call chasing.
+The actual comparison `59a1cad448eb59d786d1ed37730dcc54` reached the right file
+but selected metrics/storage windows. Its unsupported Active judgment was
+rejected by the new proof guard, with no finding published. A red regression
+then reproduced earlier metrics mentions hiding a later named function and its
+late migration condition; exact pinned function-body windows made it green.
+
+The next actual comparison `95ebe7feded39bcc7eb4dd060d3544c1` returned
+`unable_to_verify`, not Done. It selected server/database owners without using
+concept search, captured offline preflight and endpoint dispatch, and still
+missed the readiness body. This is an honest unknown, not an accuracy pass.
+The remaining architecture issue is that a vague initial criterion can still
+bypass concept search in favor of filename guesses. Do not retry unchanged or
+claim that the new body capture was exercised by this actual attempt.
+
+Both runs kept the same main baseline and configured model. Receipts are under
+`/tmp/helm-tc311-{criterion,named-body}-handoff/`. All 21 candidate attempts are
+retained. Each temporary grant was revoked and its copied credentials, token,
+environment and container removed; beta/prod images and live tables remained
+unchanged. Focused API/store acceptance passes, but useful ordinary-language
+placement, legitimate human application and beta promotion remain open.
