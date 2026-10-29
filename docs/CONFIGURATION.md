@@ -67,7 +67,9 @@ Changing configuration affects new jobs after restart; existing jobs and
 idempotent replays retain their captured values. A new retry job captures the
 current profile. There is no silent fallback to the everyday model when an audit
 model is unavailable. Verify that the selected model and effort are supported by
-the deployed Codex runtime and the account. `HELM_LUNA_ENABLED=false` disables
+the deployed Codex runtime and the account. The evidence-only adapter currently
+admits only validated `gpt-5.6-sol` and `gpt-5.6-luna` with Codex CLI 0.153.0;
+another model or version requires a new isolation proof. `HELM_LUNA_ENABLED=false` disables
 model turns for both ordinary assistance and audits.
 
 See [LUNA_TASK_ASSIST.md](LUNA_TASK_ASSIST.md).

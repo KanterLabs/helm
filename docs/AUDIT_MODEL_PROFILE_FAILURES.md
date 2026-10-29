@@ -10,6 +10,12 @@ Written before the profile implementation and its isolation checks.
 - A client or scoped agent can choose an arbitrary model or reasoning effort.
 - A configuration change rewrites an existing job or changes an idempotent replay.
 - Retrieval and final judgment use different profiles instead of the captured job.
+- The real evidence adapter still rejects the stronger profile despite scripted
+  route tests passing; the runtime currently admits only a validated Luna pair.
+- Admitting a new model exposes tools, local instructions, account files, MCP,
+  network authority, or delegated agents that the original model could not use.
+- A model-specific transport probe labels its artifact Sol but actually sends
+  Luna because the adapter test silently overrides the probe's requested model.
 - A stronger model produces an expected destination with incorrect citations.
 - A probe changes the live database, resets candidate history, or leaves credentials.
 

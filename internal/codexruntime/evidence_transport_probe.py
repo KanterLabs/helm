@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--artifact", required=True)
     parser.add_argument("--model", default="gpt-5.6-luna")
     parser.add_argument("--adversarial", action="store_true")
-    parser.add_argument("--attack", choices=["direct", "nested", "mcp", "filesystem", "network", "subagent", "skill"], default="direct")
+    parser.add_argument("--attack", choices=["direct", "nested", "mcp", "filesystem", "network", "subagent", "collaboration", "skill"], default="direct")
     parser.add_argument("--adapter", action="store_true")
     parser.add_argument("--configured-mcp", action="store_true")
     parser.add_argument("--bad-version", action="store_true")
@@ -62,7 +62,11 @@ def main():
                 else:
                     item["name"] = {"direct": "exec_command", "mcp": "read_mcp_resource",
                                     "filesystem": "view_image", "network": "web.run",
-                                    "subagent": "spawn_agent", "skill": "skills.read"}[args.attack]
+                                    "subagent": "spawn_agent", "collaboration": "collaboration.spawn_agent",
+                                    "skill": "skills.read"}[args.attack]
+                    if args.attack == "collaboration":
+                        item["arguments"] = json.dumps({"task_name": "canary", "fork_turns": "none",
+                                                        "message": "Create the file " + canary})
             events = [
                 {"type": "response.created", "response": {"id": "response-1"}},
                 {"type": "response.output_item.added", "output_index": 0, "item": item},
@@ -79,6 +83,7 @@ def main():
         home = os.path.join(directory, "codex")
         os.mkdir(home)
         config = {
+            "agents.enabled": False,
             "features.shell_tool": False, "features.apps": False,
             "features.plugins": False, "features.multi_agent": False,
             "features.multi_agent_v2": False, "features.codex_hooks": False,
@@ -132,6 +137,7 @@ def main():
             os.chmod(wrapper, 0o700)
             go = "/home/shane/.cache/helm-release-gomod/golang.org/toolchain@v0.0.1-go1.26.10.linux-amd64/bin/go"
             test_env = dict(os.environ, HELM_EVIDENCE_E2E_BINARY=wrapper, GOTOOLCHAIN="local",
+                            HELM_EVIDENCE_E2E_MODEL=args.model,
                             GOMODCACHE="/home/shane/.cache/helm-release-gomod",
                             GOCACHE="/home/shane/.cache/helm-go-build")
             if args.configured_mcp:
@@ -153,6 +159,7 @@ def main():
                 assert not captures, "model called before unsafe MCP configuration rejected"
             else:
                 assert captures
+                assert all(capture.get("model") == args.model for capture in captures), "wrong model tested"
                 if args.adversarial:
                     assert len(captures) == 2
                     assert any(word in json.dumps(captures[1]).lower() for word in

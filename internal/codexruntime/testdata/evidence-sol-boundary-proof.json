@@ -1,0 +1,146 @@
+{
+  "scope": "Synthetic local-provider proof through Manager.DraftEvidence. No live credentials or inference. Full captures retained under /tmp/helm-audit-sol-boundary; reproduce using evidence_transport_probe.py.",
+  "binary_version": "codex-cli 0.153.0",
+  "binary_sha256": "fce635028842bfe9257140e8b7d53162732945e2f356fc35225be0702b4974be",
+  "controls": "Original controls retained, plus agents.enabled=false to override model-selected delegation. Strict tool-authority assertion unchanged.",
+  "cases": [
+    {
+      "case": "nested-fixed",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "9f6e96b86c2d7d32ada07f8555bf849445629925f72b48e189b895e2ba0e291e"
+    },
+    {
+      "case": "direct",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "ac4c7c777f57ad480d46f07774828ad8643165079e9283828eefdbc23130e029"
+    },
+    {
+      "case": "mcp",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "61c12dc5c3133563e2f085c758e987c85dec3a16c863346d29e1152d23d5ce0b"
+    },
+    {
+      "case": "filesystem",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "b38d927fb3fb765ab1cf61587b475b9cda182afeb932f51026dcf854842c6cf4"
+    },
+    {
+      "case": "network",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "eeafdd51c464c5f86e50e2e749fa1749f0dd60cf68bf91e4fe9818cb45afdc08"
+    },
+    {
+      "case": "subagent",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "1437bf7a26d1fef1f11e6a7c4191bfdd40ccf6241cb92274a61876dc8404b422"
+    },
+    {
+      "case": "collaboration",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "99547204b8924e567a1e5ecc998bca7e51496325e1ac00fd02454c951f0f758b"
+    },
+    {
+      "case": "skill",
+      "model": "gpt-5.6-sol",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "cd77b4815e0d30881763aa91e061a688e0215031330e207a8ca5221cf8e52911"
+    },
+    {
+      "case": "plain",
+      "model": "gpt-5.6-sol",
+      "requests": 1,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "2e11b6a4fe2c59d812dae68e16abc00481fbcab54a33c1c4379849cba78d0722"
+    },
+    {
+      "case": "configured-mcp",
+      "model": "gpt-5.6-sol",
+      "requests": 0,
+      "tools_observed": [],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "15829a472c336a86061c0f47b3b403650bfcdb0619e241ad2eb08cef30386ddd"
+    },
+    {
+      "case": "bad-version",
+      "model": "gpt-5.6-sol",
+      "requests": 0,
+      "tools_observed": [],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "e74a0f94016a328b2d965c5a915f7ef230defe4749f824ad74174d150613f9b6"
+    },
+    {
+      "case": "luna-regression",
+      "model": "gpt-5.6-luna",
+      "requests": 2,
+      "tools_observed": [
+        "functions.exec",
+        "functions.wait"
+      ],
+      "canary_created": false,
+      "adapter_passed": true,
+      "capture_sha256": "2c70faf0e96b22a1b11a03cce5c4ae5f1e1d9b167eb4c852f8cb986c641b7e81"
+    }
+  ]
+}

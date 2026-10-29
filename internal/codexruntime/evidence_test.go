@@ -44,7 +44,7 @@ func TestEvidenceHelperProcess(t *testing.T) {
 		case "thread/start":
 			config, _ := request.Params["config"].(map[string]any)
 			environments, ok := request.Params["environments"].([]any)
-			if !ok || len(environments) != 0 || config["orchestrator.skills.enabled"] != false || config["features.shell_tool"] != false || config["orchestrator.mcp.enabled"] != false {
+			if !ok || len(environments) != 0 || config["orchestrator.skills.enabled"] != false || config["features.shell_tool"] != false || config["orchestrator.mcp.enabled"] != false || config["agents.enabled"] != false {
 				_ = encoder.Encode(map[string]any{"id": *request.ID, "error": map[string]any{"code": -32602, "message": "unsafe evidence envelope"}})
 				continue
 			}
@@ -147,6 +147,11 @@ func TestDraftEvidenceIsolatedProtocol(t *testing.T) {
 	manager := NewManager(Options{Binary: wrapper, HomeRoot: filepath.Join(directory, "actors"), WorkingDir: directory, ShutdownGrace: 100 * time.Millisecond})
 	defer manager.Close(context.Background())
 	request := RunRequest{Model: "gpt-5.6-luna", Effort: "medium", Prompt: "SYNTHETIC_SNAPSHOT", OutputSchema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`)}
+	// The synthetic transport probe must exercise the requested model through
+	// the adapter, not merely label a Luna request as a stronger-model proof.
+	if model := os.Getenv("HELM_EVIDENCE_E2E_MODEL"); model != "" {
+		request.Model = model
+	}
 	result, err := manager.DraftEvidence(context.Background(), "actor-a", request)
 	if os.Getenv("HELM_EVIDENCE_EXPECT_VERSION_REJECTION") == "1" {
 		if err == nil || !strings.Contains(err.Error(), "validated codex-cli") {

@@ -13,11 +13,11 @@ const maxEvidenceBytes = 512 * 1024
 // DraftEvidence uses the requesting actor's existing CODEX_HOME credentials in
 // a separate, short-lived app-server with no execution environment. It never
 // reads, copies, exports, or otherwise handles actor credentials itself.
-// Only the pinned executable/model pair proven by the synthetic transport
+// Only the pinned executable/model pairs proven by the synthetic transport
 // probe is accepted. Ordinary Draft and account sessions retain their behavior.
 func (m *Manager) DraftEvidence(ctx context.Context, actorID string, request RunRequest) (RunResult, error) {
-	if request.Model != "gpt-5.6-luna" {
-		return RunResult{}, fmt.Errorf("evidence inference requires the validated gpt-5.6-luna model")
+	if request.Model != "gpt-5.6-luna" && request.Model != "gpt-5.6-sol" {
+		return RunResult{}, fmt.Errorf("evidence inference requires a validated gpt-5.6-luna or gpt-5.6-sol model")
 	}
 	if strings.TrimSpace(request.Prompt) == "" || len(request.Prompt) > maxEvidenceBytes {
 		return RunResult{}, fmt.Errorf("evidence snapshot must contain 1 to %d bytes", maxEvidenceBytes)
@@ -90,6 +90,9 @@ func (m *Manager) DraftEvidence(ctx context.Context, actorID string, request Run
 func evidenceConfig() map[string]any {
 	config := map[string]any{
 		"web_search": "disabled", "project_doc_max_bytes": 0,
+		// A model's catalog can select an agent backend even when the feature
+		// flags below are false. This explicit operator setting overrides it.
+		"agents.enabled": false,
 		"orchestrator.skills.enabled": false, "orchestrator.mcp.enabled": false,
 		"tools.update_plan.enabled":                     false,
 		"tools.experimental_request_user_input.enabled": false,

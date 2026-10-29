@@ -34,7 +34,7 @@ Pinned executable: `codex-cli 0.153.0`, SHA-256
 Its generated `v2/ThreadStartParams`
 and `v2/TurnStartParams` schemas document `environments: []` as disabling
 environment access. `Manager.DraftEvidence` accepts only this version and
-`gpt-5.6-luna`; other models and versions fail before inference. The deployment
+`gpt-5.6-luna` and `gpt-5.6-sol`; other models and versions fail before inference. The deployment
 must retain the validated binary; the runtime version check is a compatibility
 guard, not binary attestation. A different binary or model needs another proof.
 
@@ -67,6 +67,22 @@ citations. Helm does not interpret model output as commands or tool requests.
 
 ## Real executable transport proof
 
+The separate audit profile defaults to Sol; ordinary Luna assistance is
+unchanged. The original Luna capture below is retained. Sol was checked through
+the same pinned executable and adapter with a synthetic provider, including
+direct and nested execution, MCP, file/image reads, network, subagents,
+namespaced collaboration, and skills. Configured MCP and an unvalidated version
+still stop before any model request. The probe verifies the actual transmitted
+model, not only its artifact label. Compact receipts and full-capture hashes are
+in [`evidence-sol-boundary-proof.json`](../internal/codexruntime/testdata/evidence-sol-boundary-proof.json).
+
+The first Sol capture exposed collaboration metadata despite both agent feature
+flags being false. The explicit `agents.enabled=false` setting overrides that
+model-selected backend. With it, Sol exposes only the same inert code-mode
+metadata described below. The strict external-authority check was preserved;
+all injected calls are rejected and no execution canary is created. A Luna
+regression capture passes with the added setting as well.
+
 Luna's built-in catalog forces code mode, so the actual request includes
 `functions.exec` and `functions.wait` metadata in `additional_tools`. **This is
 not a literal zero-tool request.** There are no nested external authorities.
@@ -95,7 +111,8 @@ python3 internal/codexruntime/evidence_transport_probe.py \
   --adapter --adversarial --attack nested --artifact /tmp/evidence-proof.json
 ```
 
-Other attack choices: `direct`, `mcp`, `filesystem`, `network`, `subagent`,
+Add `--model gpt-5.6-sol` to repeat the Sol proof. Other attack choices:
+`direct`, `mcp`, `filesystem`, `network`, `subagent`, `collaboration`,
 `skill`. Run `--adapter --configured-mcp` and `--adapter --bad-version` for
 the pre-inference failure cases. Each invocation captures a complete synthetic
 HTTP request/response artifact at the requested path. The probe's wrapper
