@@ -115,11 +115,15 @@ func (s *Store) applyCorrectionLifecycleTx(ctx context.Context, tx *sql.Tx, c co
 	case "complete":
 		return s.transitionTaskTx(ctx, tx, t, target, actorID, t.Version, "completed", "task.completed", "", false)
 	case "block":
-		return s.transitionTaskTx(ctx, tx, t, target, actorID, t.Version, "blocked", "task.blocked", a.Reason, false)
+		reason := c.blockReason
+		if reason == "" {
+			reason = "Waiting for prerequisite work to finish (reviewed audit correction)."
+		}
+		return s.transitionTaskTx(ctx, tx, t, target, actorID, t.Version, "blocked", "task.blocked", reason, false)
 	case "reopen", "start":
 		return s.updateTaskColumnTx(ctx, tx, t, target, t.Version, actorID, false)
 	case "move":
-		return s.moveTaskTx(ctx, tx, t, TaskMoveInput{DestinationColumnID: target.ID, ExpectedSourceColumnID: t.ColumnID, Source: "github_audit", Reason: a.Reason}, t.Version, actorID)
+		return s.moveTaskTx(ctx, tx, t, TaskMoveInput{DestinationColumnID: target.ID, ExpectedSourceColumnID: t.ColumnID, Source: "github_audit", Reason: "Reviewed GitHub audit correction"}, t.Version, actorID)
 	case "bug_resolve":
 		return s.resolveBugTx(ctx, tx, t, target, actorID, t.Version, input.Resolution, "", "", now(), false)
 	case "bug_reopen":

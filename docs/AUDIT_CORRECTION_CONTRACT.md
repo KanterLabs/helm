@@ -88,6 +88,12 @@ normal history/events, provenance event and receipt commit together. Receipts
 bind the assessment, source, actor, task, action, preview hash and request identity.
 They are operational records and are absent from portable archives.
 
+Detailed source/model explanations remain in the protected audit. Ordinary move
+events use a generic audit provenance reason; block comments reuse the existing
+public task blocker or prerequisite context. They never copy protected finding
+prose into general task activity. A user-entered bug reopening reason follows the
+normal shared-comment lifecycle.
+
 `skipped` gives concrete recovery: open the card, finish prerequisites/checklist,
 wait for the claim owner, restore source access, or re-audit changed facts.
 A business conflict does not undo another item's committed result. `failed` with

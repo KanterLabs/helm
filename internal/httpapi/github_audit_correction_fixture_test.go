@@ -39,6 +39,9 @@ func newCorrectionFixture(t *testing.T, action string, extras ...int) *correctio
 		t.Fatal(err)
 	}
 	input := store.TaskInput{Title: stringPtr("Synthetic correction"), Description: stringPtr("Goal: Implement internal/opaque.go.")}
+	if action == "block-private" {
+		input.Description = stringPtr("Goal: Implement internal/opaque.go.\nBlocker: Waiting for external approval.")
+	}
 	if strings.HasPrefix(action, "bug_") {
 		input.Kind = stringPtr("bug")
 		input.Bug = &store.BugInput{ActualBehavior: stringPtr("Synthetic regression")}
@@ -117,6 +120,19 @@ func newCorrectionFixture(t *testing.T, action string, extras ...int) *correctio
 	}
 	remote := &retrievalFixture{files: map[string]string{retrievalSHA + ":internal/opaque.go": "package app\nfunc Render() string { return \"done\" }\n", retrievalSHA + ":unrelated.png": "unread"}}
 	ai := &assessmentAI{}
+	if action == "block-private" {
+		var blocked string
+		if err = d.DB.QueryRow(`SELECT id FROM columns WHERE project_id=? AND semantic_state='blocked'`, p.ID).Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		ai.mutate = func(r map[string]any) {
+			r["target_column_id"], r["target_semantic_state"], r["lifecycle_action"] = blocked, "blocked", "block"
+			r["reason"] = "PRIVATE_SOURCE_REASON_SENTINEL"
+			c := r["conditions"].([]map[string]any)[0]
+			c["result"], c["gaps"] = "unknown", []string{"The task has an unresolved blocker"}
+			r["basis"] = []map[string]any{{"kind": "blocker", "explanation": "Captured task blocker", "citation_ids": []string{"task:context:" + r["task_id"].(string)}}}
+		}
+	}
 	if action == "bug_resolve" {
 		ai.mutate = func(r map[string]any) { r["lifecycle_action"] = "bug_resolve" }
 	}

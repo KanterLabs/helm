@@ -34,6 +34,7 @@ type correctionContext struct {
 	target                     Column
 	job                        GithubAuditJob
 	assessmentHash, sourceHash string
+	blockReason                string
 }
 
 func correctionResult(auditID, actorID string, input GithubAuditCorrectionInput) GithubAuditCorrectionResult {
@@ -135,6 +136,9 @@ func (s *Store) inspectCorrectionTx(ctx context.Context, tx *sql.Tx, auditID, ac
 		r.Message = "Task, criteria, claim, dependency or project policy changed; re-audit this card"
 		return r, c, nil
 	}
+	// This is existing task/comment context visible under normal task access.
+	// Protected model/source explanations must not become general activity.
+	c.blockReason = original.Context.Blocker
 	// Compare mapping identities and versions, excluding ordering revisions. Another
 	// independent correction may append a card without invalidating this preview.
 	type mapping struct {

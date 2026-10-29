@@ -219,6 +219,9 @@ func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
 		t.Helper()
 		req, _ := http.NewRequest(method, server.URL+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		if method == http.MethodPost && strings.HasSuffix(path, "/apply") {
+			req.Header.Set("Idempotency-Key", "synthetic-branch-apply")
+		}
 		if etag != "" {
 			req.Header.Set("If-Match", etag)
 		}
@@ -267,12 +270,19 @@ func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
 	if approved.Version != task.Version {
 		t.Fatal("approval moved task")
 	}
-	payload := fmt.Sprintf(`{"finding_ids":[%q],"preview":true}`, finding.ID)
+	payload := fmt.Sprintf(`{"assessment_version":2,"items":[{"finding_id":%q}],"preview":true}`, finding.ID)
 	status, raw = call("POST", "/audit/"+job.AuditID+"/apply", payload, "")
 	if status != 200 || !strings.Contains(string(raw), `"eligible"`) {
 		t.Fatalf("preview %d %s", status, raw)
 	}
-	status, raw = call("POST", "/audit/"+job.AuditID+"/apply", strings.Replace(payload, "true", "false", 1), "")
+	var preview struct {
+		Data []store.GithubAuditCorrectionResult `json:"data"`
+	}
+	if err = json.Unmarshal(raw, &preview); err != nil || len(preview.Data) != 1 || preview.Data[0].ConfirmationToken == "" {
+		t.Fatal("versioned preview did not bind a confirmation")
+	}
+	payload = fmt.Sprintf(`{"assessment_version":2,"items":[{"finding_id":%q,"confirmation_token":%q}],"preview":false}`, finding.ID, preview.Data[0].ConfirmationToken)
+	status, raw = call("POST", "/audit/"+job.AuditID+"/apply", payload, "")
 	if status != 200 || !strings.Contains(string(raw), `"applied"`) {
 		t.Fatalf("apply %d %s", status, raw)
 	}
