@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 
 	"github.com/KanterLabs/helm/internal/githubprovider"
@@ -104,6 +105,23 @@ func validatePortableGithub(archive *PortableArchive, report *PortableImportRepo
 		if _, err := validateAuditFindingInput(input); err != nil {
 			issue("audit_finding", finding.ID, "snapshot", "invalid finding snapshot or citations")
 		}
+		if finding.Assessment != nil {
+			var manifest *GithubAuditEvidence
+			for i := range g.AuditEvidence {
+				if g.AuditEvidence[i].AuditID == finding.AuditID {
+					manifest = &g.AuditEvidence[i]
+				}
+			}
+			if manifest == nil || finding.Assessment.AssessmentVersion != 2 || manifest.AssessmentVersion != 2 {
+				issue("audit_finding", finding.ID, "assessment", "versioned assessment needs its v2 retained manifest")
+			} else {
+				capture := GithubAuditCapture{AssessmentVersion: 2, Tasks: manifest.Tasks, Columns: manifest.Columns}
+				_, projection, err := validateGithubAssessment(finding.Assessment.GithubAssessmentInput, capture, *manifest)
+				if err != nil || projection.TaskID != finding.TaskID || projection.CapturedVersion != finding.CapturedVersion || projection.SourceColumn != finding.SourceColumn || projection.Verdict != finding.Verdict || projection.Reason != finding.Reason || projection.Confidence != finding.Confidence || !reflect.DeepEqual(projection.ProposedSemanticDestination, finding.ProposedSemanticDestination) || !reflect.DeepEqual(projection.EvidenceRefs, finding.EvidenceRefs) {
+					issue("audit_finding", finding.ID, "assessment", "invalid assessment or inconsistent legacy projection")
+				}
+			}
+		}
 		if !portableSafeID(finding.ID) || findings[finding.ID] || finding.Version <= 0 || !validAuditReviewState(finding.ReviewState) {
 			issue("audit_finding", finding.ID, "id", "invalid or duplicate finding")
 		}
@@ -153,7 +171,7 @@ func validatePortableGithub(archive *PortableArchive, report *PortableImportRepo
 				associated[taskID] = true
 			}
 			parsed, err := url.Parse(item.URL)
-			if !portableSafeID(item.ID) || seen[item.ID] || !auditSafeRefPattern.MatchString(item.ID) || len(item.Text) > 1024*1024 || len(item.Title) > 2000 || err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || len(item.SHA) != 40 || (item.Kind != "file" && item.Kind != "pull_request" && item.Kind != "check") {
+			if !portableSafeID(item.ID) || seen[item.ID] || !auditSafeRefPattern.MatchString(item.ID) || len(item.Text) > 1024*1024 || len(item.Title) > 2000 || err != nil || ((item.Kind != "task_context") && (parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || len(item.SHA) != 40)) || (item.Kind != "file" && item.Kind != "pull_request" && item.Kind != "check" && item.Kind != "task_context") || (item.Kind == "task_context" && (e.AssessmentVersion != 2 || item.EvidenceClass != "task_fact" || item.SourceRole != "task_context" || item.URL != "" || item.SHA != "")) {
 				issue("audit_evidence", e.AuditID, "items", "invalid retained evidence item")
 			}
 			seen[item.ID] = true

@@ -1,5 +1,11 @@
 # GitHub token prototype for Helm beta
 
+Current column-audit direction (28 October 2026):
+[committed-work reconciliation plan](AUDIT_COLUMN_RECONCILIATION_PLAN.md) and
+[review UX](AUDIT_COLUMN_RECONCILIATION_UX.md) supersede the placement/reconciliation
+limitations below, including the Backlog/Ready-only Apply scope. The prototype
+history and credential/provider boundaries remain relevant.
+
 Status: planned, 2026-10-26. Planning: TC-295, revised by TC-299.
 Implementation: TC-296, TC-297, TC-291, TC-292, TC-300, TC-293, TC-298,
 all unclaimed Backlog work.

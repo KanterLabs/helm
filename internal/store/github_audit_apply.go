@@ -50,6 +50,10 @@ func (s *Store) ApplyGithubAuditFinding(ctx context.Context, job GithubAuditJob,
 			return err
 		}
 		result.TaskID = finding.TaskID
+		if finding.Assessment != nil {
+			result.Message = "Use the v2 correction preview and confirmation contract"
+			return nil
+		}
 		var applied sql.NullString
 		err = tx.QueryRowContext(ctx, `SELECT applied_at FROM github_audit_apply_previews WHERE audit_id=? AND finding_id=? AND actor_id=?`, job.AuditID, findingID, actorID).Scan(&applied)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

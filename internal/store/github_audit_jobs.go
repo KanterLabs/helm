@@ -161,21 +161,27 @@ func (s *Store) SaveGithubAuditEvidence(ctx context.Context, j GithubAuditJob, e
 	})
 }
 func (s *Store) CancelGithubAudit(ctx context.Context, id, outcome string) (GithubAuditJob, error) {
-	return s.terminateGithubAudit(ctx, id, outcome, outcome, -1)
+	return s.terminateGithubAudit(ctx, id, outcome, outcome, -1, "")
 }
 
 func (s *Store) FailGithubAudit(ctx context.Context, j GithubAuditJob, code string) error {
-	_, err := s.terminateGithubAudit(ctx, j.AuditID, "failed", code, j.Fence)
+	return s.FailGithubAuditDiagnostic(ctx, j, code, "")
+}
+
+// FailGithubAuditDiagnostic preserves the public code and appends only a closed,
+// sanitized stage category to the existing job message. It needs no migration.
+func (s *Store) FailGithubAuditDiagnostic(ctx context.Context, j GithubAuditJob, code, diagnostic string) error {
+	_, err := s.terminateGithubAudit(ctx, j.AuditID, "failed", code, j.Fence, diagnostic)
 	return err
 }
 
-func (s *Store) terminateGithubAudit(ctx context.Context, id, outcome, code string, fence int64) (GithubAuditJob, error) {
+func (s *Store) terminateGithubAudit(ctx context.Context, id, outcome, code string, fence int64, diagnostic string) (GithubAuditJob, error) {
 	if outcome != "cancelled" && outcome != "interrupted" && outcome != "failed" {
 		return GithubAuditJob{}, invalid("invalid termination outcome", nil)
 	}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		timestamp := now()
-		_, err := tx.ExecContext(ctx, `UPDATE github_audit_jobs SET outcome=?,stage='finished',fence=fence+1,lease_owner='',lease_until='',updated_at=?,finished_at=?,message=?,error_code=? WHERE audit_id=? AND outcome='' AND (?<0 OR fence=?)`, outcome, timestamp, timestamp, githubAuditFailureMessage(code), code, id, fence, fence)
+		_, err := tx.ExecContext(ctx, `UPDATE github_audit_jobs SET outcome=?,stage='finished',fence=fence+1,lease_owner='',lease_until='',updated_at=?,finished_at=?,message=?,error_code=? WHERE audit_id=? AND outcome='' AND (?<0 OR fence=?)`, outcome, timestamp, timestamp, githubAuditFailureMessage(code)+githubAuditDiagnostic(diagnostic), code, id, fence, fence)
 		if err != nil {
 			return err
 		}
@@ -237,4 +243,17 @@ func (s *Store) GithubAuditProtected(ctx context.Context, id string) (bool, erro
 	var count int
 	err := s.DB.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM github_audit_jobs WHERE audit_id=?)+(SELECT COUNT(*) FROM github_audit_retained_evidence WHERE audit_id=?)`, id, id).Scan(&count)
 	return count > 0, err
+}
+
+// CheckGithubAuditAttempt is a read-only phase fence. Cancellation from another
+// process must stop extra planning/reads before a later heartbeat notices it.
+func (s *Store) CheckGithubAuditAttempt(ctx context.Context, j GithubAuditJob) error {
+	var count int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM github_audit_jobs WHERE audit_id=? AND fence=? AND lease_owner=? AND outcome='' AND lease_until>? AND deadline>?`, j.AuditID, j.Fence, j.LeaseOwner, now(), now()).Scan(&count); err != nil {
+		return err
+	}
+	if count != 1 {
+		return conflict("audit attempt was fenced or expired", nil)
+	}
+	return nil
 }

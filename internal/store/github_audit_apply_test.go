@@ -25,6 +25,10 @@ func TestGithubAuditApplyRequiresPreviewAndMovesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Preserve an explicitly legacy capture for the retained-v1 compatibility scenario.
+	if _, err = s.DB.ExecContext(ctx, `UPDATE github_audit_jobs SET capture_json=json_remove(capture_json,'$.assessment_version') WHERE audit_id=?`, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := s.ClaimGithubAudit(ctx, "apply-worker", time.Minute)
 	if err != nil {
 		t.Fatal(err)

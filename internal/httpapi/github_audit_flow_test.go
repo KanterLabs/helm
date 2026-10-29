@@ -46,19 +46,32 @@ func (a *auditFlowAI) DraftEvidence(_ context.Context, _ string, r codexruntime.
 	if err := json.Unmarshal([]byte(r.Prompt), &input); err != nil {
 		panic(err)
 	}
-	findings := []map[string]any{}
+	assessments := []store.GithubAssessmentInput{}
 	for _, task := range input.Evidence.Tasks {
-		finding := map[string]any{"task_id": task.ID, "verdict": "correct", "confidence": 0.8, "reason": "Synthetic branch evidence reviewed.", "evidence_refs": []string{"github:file:1"}}
+		state, target, placement, action := task.SemanticState, task.ColumnID, "column_correct", "none"
 		if task.ID == a.task {
-			finding["verdict"] = "move_proposed"
-			finding["proposed_semantic_destination"] = "ready"
+			state, placement, action = "ready", "correction_recommended", "move"
+			for _, col := range input.Evidence.Columns {
+				if col.SemanticState == state {
+					target = col.ID
+				}
+			}
 		}
+		conditions := []store.GithubConditionAssessment{}
+		refs := []string{"task:context:" + task.ID}
 		if a.invented {
-			finding["evidence_refs"] = []string{"github:file:invented"}
+			refs = []string{"github:file:invented"}
 		}
-		findings = append(findings, finding)
+		for _, c := range task.Conditions {
+			conditions = append(conditions, store.GithubConditionAssessment{ID: c.ID, Text: c.Text, Origin: c.Origin, Result: "unknown", Explanation: "Synthetic explicit unstarted/readiness facts", CitationIDs: refs, Gaps: []string{"This fixture proves task context, not implementation completion"}})
+		}
+		readiness := "not_ready"
+		if task.ID == a.task {
+			readiness = "ready"
+		}
+		assessments = append(assessments, store.GithubAssessmentInput{TaskID: task.ID, CapturedVersion: task.Version, SourceColumnID: task.ColumnID, Conditions: conditions, Placement: placement, TargetColumnID: &target, TargetSemanticState: &state, LifecycleAction: action, Reason: "Synthetic branch evidence reviewed.", Basis: []store.GithubAssessmentBasis{{Kind: "unstarted", Explanation: "Explicit unstarted context", CitationIDs: refs}, {Kind: readiness, Explanation: "Explicit readiness context", CitationIDs: refs}}})
 	}
-	output, _ := json.Marshal(map[string]any{"findings": findings})
+	output, _ := json.Marshal(map[string]any{"assessment_version": 2, "assessments": assessments})
 	return codexruntime.RunResult{Status: "completed", Output: string(output)}, nil
 }
 func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
@@ -72,12 +85,12 @@ func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Synthetic branch task")}, actor.ID)
+	task, err := data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr("Synthetic branch task"), Description: stringPtr("Goal: Inspect main.go synthetic source.\nWork status: unstarted\nReadiness: ready")}, actor.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 50; i++ {
-		if _, err = data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr(fmt.Sprintf("Synthetic task %d", i))}, actor.ID); err != nil {
+		if _, err = data.CreateTask(ctx, p.ID, store.TaskInput{Title: stringPtr(fmt.Sprintf("Synthetic task %d", i)), Description: stringPtr("Goal: Inspect main.go synthetic source.\nWork status: unstarted\nReadiness: not_ready")}, actor.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -189,7 +202,13 @@ func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
 	if len(evidence.Tasks) != 51 || evidence.Tasks[0].SemanticState == "" || evidence.Tasks[0].ColumnName == "" {
 		t.Fatal("missing task placement capture")
 	}
-	if len(evidence.Items) != 1 || evidence.Repositories[0].SHA != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+	files := 0
+	for _, item := range evidence.Items {
+		if item.Kind == "file" {
+			files++
+		}
+	}
+	if files != 1 || evidence.Repositories[0].SHA != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("evidence=%+v", evidence)
 	}
 	unchanged, _ := data.GetTask(ctx, task.ID)
@@ -200,6 +219,9 @@ func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
 		t.Helper()
 		req, _ := http.NewRequest(method, server.URL+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		if method == http.MethodPost && strings.HasSuffix(path, "/apply") {
+			req.Header.Set("Idempotency-Key", "synthetic-branch-apply")
+		}
 		if etag != "" {
 			req.Header.Set("If-Match", etag)
 		}
@@ -248,12 +270,19 @@ func TestGithubAuditRealHTTPBranchFlow(t *testing.T) {
 	if approved.Version != task.Version {
 		t.Fatal("approval moved task")
 	}
-	payload := fmt.Sprintf(`{"finding_ids":[%q],"preview":true}`, finding.ID)
+	payload := fmt.Sprintf(`{"assessment_version":2,"items":[{"finding_id":%q}],"preview":true}`, finding.ID)
 	status, raw = call("POST", "/audit/"+job.AuditID+"/apply", payload, "")
 	if status != 200 || !strings.Contains(string(raw), `"eligible"`) {
 		t.Fatalf("preview %d %s", status, raw)
 	}
-	status, raw = call("POST", "/audit/"+job.AuditID+"/apply", strings.Replace(payload, "true", "false", 1), "")
+	var preview struct {
+		Data []store.GithubAuditCorrectionResult `json:"data"`
+	}
+	if err = json.Unmarshal(raw, &preview); err != nil || len(preview.Data) != 1 || preview.Data[0].ConfirmationToken == "" {
+		t.Fatal("versioned preview did not bind a confirmation")
+	}
+	payload = fmt.Sprintf(`{"assessment_version":2,"items":[{"finding_id":%q,"confirmation_token":%q}],"preview":false}`, finding.ID, preview.Data[0].ConfirmationToken)
+	status, raw = call("POST", "/audit/"+job.AuditID+"/apply", payload, "")
 	if status != 200 || !strings.Contains(string(raw), `"applied"`) {
 		t.Fatalf("apply %d %s", status, raw)
 	}

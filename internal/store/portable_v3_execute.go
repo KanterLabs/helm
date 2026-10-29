@@ -53,7 +53,15 @@ func executePortableGithub(ctx context.Context, tx *sql.Tx, plan *portableImport
 		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO audit_findings(id,audit_id,task_id,captured_version,source_column,verdict,proposed_semantic_destination,confidence,reason,evidence_refs,review_state,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AuditID, v.TaskID, v.CapturedVersion, v.SourceColumn, v.Verdict, portableStringArg(v.ProposedSemanticDestination), v.Confidence, v.Reason, string(raw), v.ReviewState, v.Version, v.CreatedAt, v.UpdatedAt); err != nil {
+		var assessment any
+		if v.Assessment != nil {
+			b, e := json.Marshal(v.Assessment)
+			if e != nil {
+				return e
+			}
+			assessment = string(b)
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO audit_findings(id,audit_id,task_id,captured_version,source_column,verdict,proposed_semantic_destination,confidence,reason,evidence_refs,review_state,version,created_at,updated_at,assessment_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AuditID, v.TaskID, v.CapturedVersion, v.SourceColumn, v.Verdict, portableStringArg(v.ProposedSemanticDestination), v.Confidence, v.Reason, string(raw), v.ReviewState, v.Version, v.CreatedAt, v.UpdatedAt, assessment); err != nil {
 			return err
 		}
 	}

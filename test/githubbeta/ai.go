@@ -53,6 +53,10 @@ func (a *syntheticAI) DraftEvidence(ctx context.Context, actorID string, request
 	if len(prompt.Evidence.Items) == 0 {
 		return codexruntime.RunResult{}, errors.New("missing real captured evidence")
 	}
+	if prompt.Evidence.AssessmentVersion == store.GithubAssessmentVersion {
+		output, err := syntheticAssessments(prompt.Evidence)
+		return codexruntime.RunResult{Status: "completed", Output: output}, err
+	}
 	ref := prompt.Evidence.Items[0].ID
 	findings := []map[string]any{}
 	for _, task := range prompt.Evidence.Tasks {

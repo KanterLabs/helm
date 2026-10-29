@@ -6,18 +6,20 @@ import { ApiError, type GithubAuditEvidence, type GithubAuditJob, type GithubEvi
 export const JOB_POLL_MS = 2000;
 
 export const jobStages: { id: string; label: string }[] = [
-  { id: 'queued', label: 'Queued' },
-  { id: 'fetching', label: 'Reading GitHub' },
-  { id: 'analyzing', label: 'Analyzing' },
-  { id: 'validating', label: 'Checking findings' }
+  { id: 'queued', label: 'Waiting to start' },
+  { id: 'fetching', label: 'Reading committed work' },
+  { id: 'analyzing', label: 'Checking card criteria' },
+  { id: 'validating', label: 'Preparing corrections' }
 ];
 
+// Finished runs with findings lead with their results; failures never look like
+// an empty successful audit, and no card changes without a reviewed apply.
 const outcomes: Record<string, { label: string; help: string }> = {
-  complete: { label: 'Complete', help: 'Every in-scope source was captured. Findings are ready for review.' },
-  partial: { label: 'Partial', help: 'Some evidence could not be captured. Findings cover only what was read; missing evidence never proves work is absent or complete.' },
-  failed: { label: 'Failed', help: 'This run did not publish findings. Retry starts a fresh capture.' },
-  cancelled: { label: 'Cancelled', help: 'Cancelled before publishing. Late results from this attempt are discarded.' },
-  interrupted: { label: 'Interrupted', help: 'The server stopped before this run finished. AI work is never repeated automatically; Retry starts a fresh capture.' }
+  complete: { label: 'Audit finished', help: 'Results are below. Nothing moves until you review and apply corrections.' },
+  partial: { label: 'Audit finished', help: 'Results are below. Unread files unrelated to a card never count against it.' },
+  failed: { label: 'Audit failed', help: 'No cards were changed. Retry starts a fresh source capture with the same scope.' },
+  cancelled: { label: 'Audit canceled', help: 'No cards were changed. Retry starts a fresh source capture with the same scope.' },
+  interrupted: { label: 'Audit interrupted', help: 'No cards were changed. The server stopped before this run finished; AI work is never repeated automatically.' }
 };
 
 export function jobActive(job: GithubAuditJob | null): boolean {
@@ -30,7 +32,7 @@ export function jobStageLabel(job: GithubAuditJob): string {
 }
 
 export function jobOutcomeHelp(job: GithubAuditJob): string {
-  return job.stage === 'finished' ? outcomes[job.outcome]?.help || '' : 'Helm is running this audit on the server. You can leave this page; it keeps running.';
+  return job.stage === 'finished' ? outcomes[job.outcome]?.help || '' : 'Leaving this page is safe. The audit keeps running on the server and this link returns to it.';
 }
 
 export function jobStepState(job: GithubAuditJob, index: number): 'done' | 'current' | 'upcoming' {
@@ -48,10 +50,15 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 
 export function coverageParts(job: GithubAuditJob): string[] {
   return [
-    plural(job.task_count || 0, 'task', 'tasks'),
-    `${plural(job.captured_files || 0, 'file', 'files')} captured`,
-    `${job.omitted_files || 0} omitted`
+    plural(job.task_count || 0, 'card', 'cards'),
+    `${plural(job.captured_files || 0, 'file', 'files')} read`,
+    `${job.omitted_files || 0} not read`
   ];
+}
+
+/** Ended without publishing results; these never present as an audit result. */
+export function jobEndedWithoutResults(job: GithubAuditJob | null): boolean {
+  return Boolean(job && job.stage === 'finished' && ['failed', 'interrupted', 'cancelled'].includes(job.outcome));
 }
 
 /** The authorized existing audit ID returned with a start conflict, if any. */

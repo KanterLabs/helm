@@ -94,6 +94,9 @@
           },
           "updated_at": {
             "$ref": "#/components/schemas/Timestamp"
+          },
+          "assessment": {
+            "$ref": "#/components/schemas/GithubAssessment"
           }
         },
         "additionalProperties": false

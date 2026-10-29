@@ -4,13 +4,24 @@ paths:
       - $ref: "#/components/parameters/AuditPath"
     post:
       operationId: applyGithubAuditFindings
-      summary: Preview or apply reviewed safe moves
-      description: Requires a signed-in human with project access. Explicit preview=true performs no task
-        mutation. Each request rechecks review approval, task version/source column, claims, safe
-        destination and complete fresh repository evidence. Changed or incomplete evidence produces
-        skipped results. Apply uses a deterministic finding receipt; HTTP idempotency responses are
-        deliberately not cached, so every attempt revalidates freshness. Lifecycle destinations
-        still require normal task actions.
+      summary: Preview or apply exact audit corrections
+      description: |
+        Human sessions only; agent audit grants and bearer read tokens cannot mutate.
+        Use assessment_version=2 for criterion assessments. Preview is read-only,
+        requires no prior approval and returns exact action/column, blockers and
+        an actor-bound five-minute confirmation token. Final Apply supplies that
+        token and identical policy inputs, with a bounded Idempotency-Key.
+        Approval, ordinary lifecycle and durable per-card receipt commit in one
+        transaction. Task/criteria/policy/dependency/column/source drift is skipped
+        with recovery. Independent items continue; inspect every receipt.
+        Retry the identical body/key after a lost response. Authorized durable
+        receipts are returned before requiring fresh source; expired previews
+        require refresh only when no receipt exists. Network timeout means unknown
+        outcome, never nothing changed. Partial unread unrelated evidence does
+        not block otherwise valid v2 corrections. Imported history cannot apply.
+        Without assessment_version the legacy finding_ids/preview contract remains
+        approval-first and Backlog/Ready-only, including its persisted preview.
+        A malformed v2 request never falls back to legacy.
       tags:
         - GitHub
         - Audits
@@ -25,14 +36,18 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/GithubAuditApplyRequest"
+              oneOf:
+                - $ref: "#/components/schemas/GithubAuditApplyRequest"
+                - $ref: "#/components/schemas/GithubAuditCorrectionRequest"
       responses:
         "200":
           description: Successful response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GithubAuditApplyResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/GithubAuditApplyResponse"
+                  - $ref: "#/components/schemas/GithubAuditCorrectionResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

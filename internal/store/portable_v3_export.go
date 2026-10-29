@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 )
@@ -19,7 +20,11 @@ func scanPortableAuditRun(row interface{ Scan(...any) error }) (PortableAuditRun
 func scanPortableAuditFinding(row interface{ Scan(...any) error }) (PortableAuditFinding, error) {
 	var v PortableAuditFinding
 	var refs string
-	err := row.Scan(&v.ID, &v.AuditID, &v.TaskID, &v.CapturedVersion, &v.SourceColumn, &v.Verdict, &v.ProposedSemanticDestination, &v.Confidence, &v.Reason, &refs, &v.ReviewState, &v.Version, &v.CreatedAt, &v.UpdatedAt)
+	var assessment sql.NullString
+	err := row.Scan(&v.ID, &v.AuditID, &v.TaskID, &v.CapturedVersion, &v.SourceColumn, &v.Verdict, &v.ProposedSemanticDestination, &v.Confidence, &v.Reason, &refs, &v.ReviewState, &v.Version, &v.CreatedAt, &v.UpdatedAt, &assessment)
+	if err == nil && assessment.Valid {
+		err = json.Unmarshal([]byte(assessment.String), &v.Assessment)
+	}
 	if err == nil {
 		err = json.Unmarshal([]byte(refs), &v.EvidenceRefs)
 	}
@@ -28,7 +33,7 @@ func scanPortableAuditFinding(row interface{ Scan(...any) error }) (PortableAudi
 
 const portableArtifactColumns = `a.id,a.project_id,a.repository,a.repository_id,a.number,a.url,a.created_at`
 const portableAuditRunColumns = `r.id,r.project_id,r.actor_id,r.scope,r.status,r.started_at,r.finalized_at,r.created_at,r.updated_at`
-const portableAuditFindingColumns = `f.id,f.audit_id,f.task_id,f.captured_version,f.source_column,f.verdict,f.proposed_semantic_destination,f.confidence,f.reason,f.evidence_refs,f.review_state,f.version,f.created_at,f.updated_at`
+const portableAuditFindingColumns = `f.id,f.audit_id,f.task_id,f.captured_version,f.source_column,f.verdict,f.proposed_semantic_destination,f.confidence,f.reason,f.evidence_refs,f.review_state,f.version,f.created_at,f.updated_at,f.assessment_json`
 
 func exportPortableGithub(ctx context.Context, q portableSQL, archive PortableArchive) (*PortableGithubArchive, error) {
 	out := &PortableGithubArchive{Artifacts: []PortableGithubArtifact{}, TaskArtifacts: []PortableTaskArtifact{}, AuditRuns: []PortableAuditRun{}, AuditFindings: []PortableAuditFinding{}, AuditEvidence: []GithubAuditEvidence{}}

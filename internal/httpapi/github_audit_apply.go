@@ -11,6 +11,17 @@ import (
 )
 
 func (s *Server) githubAuditApply(w http.ResponseWriter, r *http.Request, identity auth.Identity, job store.GithubAuditJob) {
+	requestBody, readErr := requestBodyData(r)
+	var discriminator map[string]json.RawMessage
+	if readErr != nil || json.Unmarshal(requestBody, &discriminator) != nil || discriminator == nil {
+		s.writeError(w, 400, "invalid_request", "one request object is required", nil)
+		return
+	}
+	if _, versioned := discriminator["assessment_version"]; versioned {
+		s.githubAuditCorrections(w, r, identity, job)
+		return
+	}
+
 	var input struct {
 		FindingIDs []string `json:"finding_ids"`
 		Preview    *bool    `json:"preview"`

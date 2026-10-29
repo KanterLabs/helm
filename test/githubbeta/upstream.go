@@ -52,6 +52,8 @@ func (s *syntheticState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"base": map[string]any{"sha": baseSHA, "repo": map[string]int{"id": 7401}}})
 	case path == "/pulls/42/reviews":
 		writeJSON(w, []any{map[string]any{"id": 1, "state": "APPROVED", "commit_id": sourceSHA, "user": map[string]int{"id": 31}}})
+	case path == "/pulls/42/files":
+		writeJSON(w, []any{map[string]string{"filename": "ready.go"}})
 	case strings.HasSuffix(path, "/check-runs"):
 		writeJSON(w, map[string]any{"total_count": 1, "check_runs": []any{map[string]string{
 			"name": "Synthetic source validation", "head_sha": sourceSHA, "status": "completed", "conclusion": "success",

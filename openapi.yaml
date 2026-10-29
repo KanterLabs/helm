@@ -245,8 +245,11 @@ x-helm-fragments:
   - openapi/schemas/events.yaml
   - openapi/schemas/github-artifacts.yaml
   - openapi/schemas/github-audit-authorizations.yaml
+  - openapi/schemas/github-audit-assessments.yaml
+  - openapi/schemas/github-audit-retrieval.yaml
   - openapi/schemas/github-audit-evidence.yaml
   - openapi/schemas/github-audit-jobs.yaml
+  - openapi/schemas/github-audit-corrections.yaml
   - openapi/schemas/github-integration.yaml
   - openapi/schemas/health.yaml
   - openapi/schemas/intelligence.yaml

@@ -1,5 +1,11 @@
 # Server-run GitHub audits for beta
 
+Current placement/reconciliation requirements are in the
+[column audit plan](AUDIT_COLUMN_RECONCILIATION_PLAN.md) and
+[UX specification](AUDIT_COLUMN_RECONCILIATION_UX.md). They supersede the older
+limited lifecycle-application scope; retain this document's execution, access
+and evidence-isolation boundaries.
+
 Scope decision: TC-299. Implementation: TC-300; user flow/review: TC-293.
 Companions: [plan](GITHUB_TOKEN_BETA_PLAN.md) and
 [validation and rollout](GITHUB_TOKEN_BETA_VALIDATION.md).

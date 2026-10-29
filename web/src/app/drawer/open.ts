@@ -242,6 +242,10 @@ export function restoreTaskRouteOrigin(origin: string): Promise<unknown> | void 
     } else {
       workspace.view = 'releases';
     }
+  } else if (/^\/p\/[^/]+\/audits(?:\/[^/]+)?\/?$/.test(path)) {
+    // A card opened from an audit returns to that same audit and its results.
+    workspace.auditIdFromRoute = decodeURIComponent(path.match(/\/audits\/([^/]+)/)?.[1] || '');
+    workspace.view = 'audits';
   } else if (/^\/admin\/?$/.test(path)) {
     workspace.view = 'admin';
   } else if (/^\/tickets\/?$/.test(path)) {

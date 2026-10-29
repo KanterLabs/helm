@@ -181,6 +181,13 @@ func (c *Client) deny(repository string, generation uint64) {
 }
 
 func (c *Client) get(ctx context.Context, repository, relative string, target any) (bool, error) {
+	return c.getWithPolicy(ctx, repository, relative, target, false)
+}
+
+// Code-search discovery is optional and can have a separate permission boundary.
+// Its 403/404 cannot revoke verified Contents access; a 401 always rejects the
+// credential. Every ordinary source/PR/check request keeps fail-closed behavior.
+func (c *Client) getWithPolicy(ctx context.Context, repository, relative string, target any, optionalSearch bool) (bool, error) {
 	token, err := c.credentials()
 	if err != nil {
 		return false, err
@@ -238,7 +245,18 @@ func (c *Client) get(ctx context.Context, repository, relative string, target an
 		return false, providerError("rate_limited")
 	}
 	if response.StatusCode == 401 || response.StatusCode == 403 || response.StatusCode == 404 {
-		c.deny(repository, generation)
+		if response.StatusCode == 401 || !optionalSearch || !strings.HasPrefix(relative, "/search/code?") {
+			c.deny(repository, generation)
+		} else {
+			c.mu.Lock()
+			if c.generation == generation {
+				if old, ok := c.cache[relative]; ok {
+					c.cacheBytes -= len(old.body)
+					delete(c.cache, relative)
+				}
+			}
+			c.mu.Unlock()
+		}
 		return false, providerError("permission_required")
 	}
 	var data []byte

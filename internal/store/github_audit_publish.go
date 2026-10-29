@@ -31,6 +31,9 @@ func (s *Store) PublishGithubAudit(ctx context.Context, j GithubAuditJob, inputs
 				return err
 			}
 		}
+		if capture.AssessmentVersion != 0 {
+			return invalid("versioned capture requires assessment publication", nil)
+		}
 		if outcome == "complete" && (evidence.Partial || !evidenceRaw.Valid || len(inputs) != len(capture.Tasks)) {
 			return invalid("incomplete evidence cannot publish a complete audit", nil)
 		}

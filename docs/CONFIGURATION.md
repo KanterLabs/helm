@@ -54,10 +54,23 @@ Never distribute assertion or TLS signing keys to owner/agent clients.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HELM_LUNA_ENABLED` | `true` | Offer task assist through each user's own Codex subscription. |
-| `HELM_LUNA_MODEL` | `gpt-5.6-luna` | Model requested from Codex. |
+| `HELM_LUNA_MODEL` | `gpt-5.6-luna` | Model for ordinary Luna task and project assistance. |
 | `HELM_LUNA_EFFORT` | `medium` | `low`, `medium`, `high`, `xhigh`, `max` or `ultra`. |
+| `HELM_AUDIT_MODEL` | `gpt-5.6-sol` | Independent server-owned model for new GitHub audits, including evidence discovery. Does not change ordinary Luna assistance. |
+| `HELM_AUDIT_EFFORT` | `medium` | Independent audit reasoning effort; same allowed values as `HELM_LUNA_EFFORT`, subject to the selected model's support. |
 | `HELM_CODEX_BINARY` | `codex` | Codex CLI used for sign-in and runs. |
 | `HELM_CODEX_HOME_ROOT` | `data/codex-users` | Per-user Codex credential directories. |
+
+Audit model selection is operator-owned, not a client request or grant option.
+Each new job captures its profile, including discovery and final assessment.
+Changing configuration affects new jobs after restart; existing jobs and
+idempotent replays retain their captured values. A new retry job captures the
+current profile. There is no silent fallback to the everyday model when an audit
+model is unavailable. Verify that the selected model and effort are supported by
+the deployed Codex runtime and the account. The evidence-only adapter currently
+admits only validated `gpt-5.6-sol` and `gpt-5.6-luna` with Codex CLI 0.153.0;
+another model or version requires a new isolation proof. `HELM_LUNA_ENABLED=false` disables
+model turns for both ordinary assistance and audits.
 
 See [LUNA_TASK_ASSIST.md](LUNA_TASK_ASSIST.md).
 

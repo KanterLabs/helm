@@ -6,29 +6,28 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { api } from '../api';
   import { createAuditFocus } from './audit/focus';
   import AuditDetailHeading from './audit/AuditDetailHeading.svelte';
-  import AuditFindingGroups from './audit/AuditFindingGroups.svelte';
-  import AuditApplyFlow from './audit/AuditApplyFlow.svelte';
+  import LegacyAuditFindings from './audit/LegacyAuditFindings.svelte';
+  import ColumnAudit from './audit/columns/ColumnAudit.svelte';
+  import { isV2 } from './audit/columns/model';
+  import { requestScope } from './audit/columns/scopeIntent';
   import AuditRunList from './audit/AuditRunList.svelte';
   import AuditEvidenceManifest from './audit/AuditEvidenceManifest.svelte';
   import GithubAuditJobPanel from './audit/GithubAuditJob.svelte';
-  import { evidenceIndex, loadMissingTasks } from './audit/githubAudit';
-  import { createAuditHelpers, verdicts, verdictLabels } from './audit/helpers';
+  import { evidenceIndex, jobActive, jobEndedWithoutResults, loadMissingTasks } from './audit/githubAudit';
+  import { createAuditHelpers } from './audit/helpers';
   import {
     ApiError,
     type AuditDetail,
     type AuditFinding,
-    type AuditFindingPatch,
-    type AuditReviewState,
     type AuditRun,
     type Column,
     type GithubAuditEvidence,
     type GithubAuditJob,
     type Project,
-    type SemanticState,
     type Task
   } from '../types';
 
@@ -44,6 +43,8 @@
   export let onTaskUpdated: AuditTaskUpdate = () => undefined;
   /** Optional in-app opener for a finding's task; links work without it. */
   export let onOpenTask: ((finding: AuditFinding) => void) | null = null;
+  /** Opens any card by ID over this audit, including cards beyond the board's first page. */
+  export let onOpenTaskId: ((taskId: string) => void) | null = null;
 
   const auditFocus = createAuditFocus();
 
@@ -58,45 +59,41 @@
   let job: GithubAuditJob | null = null;
   let serverRun = false;
   let evidence: GithubAuditEvidence | null = null;
+  let evidenceError = '';
+  let accessChecking = false;
   let extraTasks: Task[] = [];
   let detailFor = '';
   let evidenceRevision = 0;
-  let applyFlow: AuditApplyFlow;
-  let activeMutation = '';
   let listRequest = 0;
   let detailRequest = 0;
-  let mutationRequest = 0;
   let loadKey = '';
-  let editingFindingId = '';
-  let destinationDraft: SemanticState | '' = '';
+  let protectedContext = `${project.id}:${sessionGeneration}`;
 
   let helpers = createAuditHelpers({ currentProjectId: project?.id || '', selectedAuditId, selectedAudit, tasks, columns });
   $: captured = new Map((evidence?.tasks || []).map((item) => [item.id, item]));
   $: evidenceItems = evidenceIndex(evidence);
   $: helpers = createAuditHelpers({ currentProjectId, selectedAuditId, selectedAudit, tasks: extraTasks.length ? [...tasks, ...extraTasks] : tasks, columns, captured });
-  $: evidenceReady = serverRun && Boolean(job && ['analyzing', 'validating', 'finished'].includes(job.stage));
+  // Evidence is read once a run has published; an active capture is not lost access.
+  $: evidenceReady = serverRun && Boolean(job && job.stage === 'finished' && !jobEndedWithoutResults(job));
 
   $: currentProjectId = project?.id || '';
+  $: if (`${currentProjectId}:${sessionGeneration}` !== protectedContext) {
+    protectedContext = `${currentProjectId}:${sessionGeneration}`;
+    resetProtectedContext();
+  }
   $: routeKey = `${currentProjectId}:${initialAuditId || ''}:${sessionGeneration}:${refreshToken}`;
   $: if (currentProjectId && routeKey !== loadKey) {
     loadKey = routeKey;
     void loadAuditList(initialAuditId);
   }
   $: findings = selectedAudit?.findings || [];
-  $: groupedFindings = verdicts.map((verdict) => ({
-    verdict,
-    label: verdictLabels[verdict],
-    items: findings.filter((finding) => finding.verdict === verdict)
-  }));
-  $: approvedCount = findings.filter((finding) => finding.review_state === 'approved').length;
-  $: pendingCount = findings.filter((finding) => finding.review_state === 'pending').length;
-  $: changedCount = findings.filter((finding) => helpers.changedSinceAudit(finding)).length;
+  // v2 assessments use the column audit flow; legacy rows keep their original flow.
+  $: columnAudit = findings.some(isV2);
+  $: runWithoutResults = serverRun && !findings.length && (jobActive(job) || jobEndedWithoutResults(job));
 
-  function isCurrent(requestedSession: number, requestId: number, kind: 'list' | 'detail' | 'mutation'): boolean {
+  function isCurrent(requestedSession: number, requestId: number, kind: 'list' | 'detail'): boolean {
     if (!project?.id || project.id !== currentProjectId || sessionGeneration !== requestedSession) return false;
-    if (kind === 'list') return requestId === listRequest;
-    if (kind === 'detail') return requestId === detailRequest;
-    return requestId === mutationRequest;
+    return requestId === (kind === 'list' ? listRequest : detailRequest);
   }
 
   async function loadAuditList(preferredId = ''): Promise<void> {
@@ -161,8 +158,7 @@
   }
 
   function clearProtectedContent(message: string): void {
-    mutationRequest += 1;
-    activeMutation = '';
+    // Unmounting the review discards in-memory selections, proofs and requests.
     selectedAudit = null;
     evidence = null;
     extraTasks = [];
@@ -170,6 +166,21 @@
     serverRun = false;
     audits = audits.map((audit) => ({ ...audit, findings: undefined }));
     detailError = message;
+  }
+
+  function resetProtectedContext(): void {
+    // End the old review synchronously, before the new context's reads finish.
+    listRequest += 1;
+    detailRequest += 1;
+    selectedAudit = null;
+    evidence = null;
+    evidenceError = '';
+    extraTasks = [];
+    audits = [];
+    job = null;
+    serverRun = false;
+    detailFor = '';
+    accessChecking = false;
   }
 
   function onJob(next: GithubAuditJob | null): void {
@@ -181,10 +192,12 @@
 
   async function loadOffPageTasks(): Promise<void> {
     const auditId = selectedAuditId;
+    const requestedSession = sessionGeneration;
+    const projectId = currentProjectId;
     const missing = findings.filter((finding) => finding.task_id && !helpers.findingTask(finding)).map((finding) => finding.task_id);
     if (!missing.length) return;
     const found = await loadMissingTasks(missing, (id) => api.getTask(id));
-    if (auditId === selectedAuditId) extraTasks = [...extraTasks.filter((task) => !found.some((item) => item.id === task.id)), ...found];
+    if (auditId === selectedAuditId && requestedSession === sessionGeneration && projectId === currentProjectId) extraTasks = [...extraTasks.filter((task) => !found.some((item) => item.id === task.id)), ...found];
   }
 
   function showAudit(auditId: string): void {
@@ -214,84 +227,23 @@
     onNavigate(`/p/${encodeURIComponent(project.slug)}/audits`);
   }
 
-  function editDestination(finding: AuditFinding): void {
-    editingFindingId = finding.id;
-    destinationDraft = helpers.destinationState(finding) || '';
-    void tick().then(() => document.querySelector<HTMLSelectElement>(`[data-audit-destination="${CSS.escape(finding.id)}"]`)?.focus());
+  /** Re-audit: the scope opens with these cards selected. */
+  function reaudit(taskIds: string[]): void {
+    requestScope(currentProjectId, taskIds);
+    showList();
   }
 
-  function cancelDestination(): void {
-    editingFindingId = '';
-    destinationDraft = '';
-  }
-
-  async function saveDestination(finding: AuditFinding): Promise<void> {
-    const proposed = destinationDraft || null;
-    await updateFinding(finding, {
-      review_state: (finding.review_state as AuditReviewState) || 'pending',
-      proposed_semantic_destination: proposed
-    }, 'destination updated');
-    if (!activeMutation) cancelDestination();
-  }
-
-  async function approveFinding(finding: AuditFinding): Promise<void> {
-    if (helpers.changedSinceAudit(finding)) {
-      detailError = 'This finding changed since the audit and cannot be approved. Refresh the board and review the current task.';
-      return;
-    }
-    await updateFinding(finding, { review_state: 'approved' }, 'approved');
-  }
-
-  async function dismissFinding(finding: AuditFinding): Promise<void> {
-    await updateFinding(finding, { review_state: 'dismissed' }, 'dismissed');
-  }
-
-  async function updateFinding(finding: AuditFinding, patch: AuditFindingPatch, actionLabel: string): Promise<void> {
-    if (!selectedAudit || !finding.id || activeMutation) return;
-    if (!helpers.auditReadyForReview()) {
-      detailError = 'The agent must finish this audit before findings can be reviewed.';
-      return;
-    }
-    const requestId = ++mutationRequest;
-    const requestedSession = sessionGeneration;
-    activeMutation = finding.id;
-    detailError = '';
+  /** Restored repository access is only trusted after GitHub is checked again. */
+  async function checkAccess(): Promise<void> {
+    accessChecking = true;
     try {
-      const result = await api.patchAuditFinding(finding.id, patch, helpers.mutationVersion(finding));
-      if (!isCurrent(requestedSession, requestId, 'mutation')) return;
-      const updated = helpers.normalizeFinding(result);
-      selectedAudit = {
-        ...selectedAudit,
-        findings: selectedAudit.findings.map((item) => item.id === updated.id ? updated : item)
-      };
-      audits = audits.map((audit) => audit.id === selectedAudit?.id
-        ? { ...audit, findings: selectedAudit?.findings }
-        : audit);
-      onNotice('success', `${helpers.taskLabel(updated)} ${actionLabel}.`);
-      auditFocus.announce(`${helpers.taskLabel(updated)} ${actionLabel}.`);
+      await api.checkGithubIntegration();
+      await loadAuditDetail(selectedAuditId);
     } catch (error) {
-      if (isCurrent(requestedSession, requestId, 'mutation')) {
-        if (error instanceof ApiError && (error.code === 'evidence_unavailable' || [401, 403, 404].includes(error.status))) {
-          clearProtectedContent(helpers.friendlyError(error, 'Source access is unavailable.'));
-          return;
-        }
-        detailError = helpers.friendlyError(error, 'The finding changed elsewhere. Refresh and try again.');
-        if (error instanceof ApiError && error.details.current) {
-          const current = helpers.normalizeFinding(error.details.current);
-          selectedAudit = {
-            ...selectedAudit,
-            findings: selectedAudit.findings.map((item) => item.id === current.id ? current : item)
-          };
-          detailError = 'This finding changed elsewhere. The authoritative review state is shown below.';
-        }
-      }
+      detailError = helpers.friendlyError(error, 'GitHub access could not be checked.');
     } finally {
-      if (requestId === mutationRequest) activeMutation = '';
+      accessChecking = false;
     }
-  }
-
-  function openPreview(finding: AuditFinding): void {
-    applyFlow?.openPreview(finding);
   }
 
   function rememberTask(task: Task): void {
@@ -305,38 +257,33 @@
 <section class="audit-review" aria-labelledby="audit-heading">
   {#if selectedAuditId && selectedAudit}
     <AuditDetailHeading {helpers} {selectedAudit} {selectedAuditId} {detailLoading} {listLoading}
-      {detailError} {refresh} {showList} {loadAuditDetail} {serverRun} />
-    <GithubAuditJobPanel auditId={selectedAuditId} {onJob} onFinished={() => void refresh()} onRetried={showAudit} />
-    <AuditEvidenceManifest auditId={selectedAuditId} enabled={evidenceReady} reloadKey={`${evidenceRevision}:${job?.stage === 'finished' ? 'final' : 'capture'}`} onEvidence={(next) => { evidence = next; }} onUnavailable={clearProtectedContent} />
-    {#if detailLoading && !findings.length}
-      <div class="audit-loading" aria-label="Loading audit findings"><div></div><div></div><div></div></div>
-    {:else}
-      <section class="audit-summary" aria-label="Audit summary">
-        <div><span class="eyebrow">{project.name} · {selectedAudit.scope || 'Board scope'}</span><h2>{findings.length} {findings.length === 1 ? 'finding' : 'findings'} to review</h2><p>Captured {helpers.formatDate(selectedAudit.started_at || selectedAudit.created_at)} · {helpers.ageLabel(selectedAudit)}{#if selectedAudit.finalized_at} · Finalized {helpers.formatDate(selectedAudit.finalized_at)}{/if}</p></div>
-        <div class="audit-summary-metrics"><span><strong>{approvedCount}</strong> approved</span><span><strong>{pendingCount}</strong> pending</span>{#if changedCount}<span class="changed-metric"><strong>{changedCount}</strong> changed</span>{/if}</div>
-      </section>
-      <AuditFindingGroups {helpers} {groupedFindings} {columns} {editingFindingId} bind:destinationDraft
-        {activeMutation} {saveDestination} {cancelDestination} {editDestination} {approveFinding}
-        {dismissFinding} {openPreview} projectSlug={project.slug} {evidenceItems} {onOpenTask} />
+      {detailError} {refresh} {showList} {loadAuditDetail} {serverRun} title={columnAudit || runWithoutResults ? 'Column audit' : 'Board audit'}
+      statusLabel={columnAudit ? 'Finished' : ''} />
+    <GithubAuditJobPanel auditId={selectedAuditId} compact={columnAudit} {onJob} onFinished={() => void refresh()} onRetried={showAudit}>
+      {#if columnAudit}<AuditEvidenceManifest auditId={selectedAuditId} enabled={evidenceReady} reloadKey={`${evidenceRevision}:${job?.stage === 'finished' ? 'final' : 'capture'}`} onEvidence={(next, error) => { evidence = next; evidenceError = error; }} onUnavailable={clearProtectedContent} />{/if}
+    </GithubAuditJobPanel>
+    {#if !columnAudit}<AuditEvidenceManifest auditId={selectedAuditId} enabled={evidenceReady} reloadKey={`${evidenceRevision}:${job?.stage === 'finished' ? 'final' : 'capture'}`} onEvidence={(next, error) => { evidence = next; evidenceError = error; }} onUnavailable={clearProtectedContent} />{/if}
+    {#if columnAudit}
+      {#key `${currentProjectId}:${sessionGeneration}:${selectedAuditId}`}
+        <ColumnAudit {project} audit={selectedAudit} {columns} tasks={extraTasks.length ? [...tasks, ...extraTasks] : tasks} {evidence} {evidenceError}
+          {onTaskUpdated} onOpenTask={onOpenTaskId} onReaudit={reaudit} onRefresh={() => void loadAuditDetail(selectedAuditId)}
+          onUnavailable={clearProtectedContent} announce={auditFocus.announce} />
+      {/key}
+    {:else if !runWithoutResults}
+      <LegacyAuditFindings {project} audit={selectedAudit} {columns} {helpers} {serverRun} {detailLoading} {sessionGeneration}
+        {evidenceItems} focus={auditFocus} {onOpenTask} {onNotice} {onTaskUpdated} onAuditUpdated={(next) => { selectedAudit = next; audits = audits.map((audit) => audit.id === next.id ? { ...audit, findings: next.findings } : audit); }}
+        onError={(message) => { detailError = message; }} onUnavailable={clearProtectedContent} onTaskLoaded={rememberTask} />
     {/if}
   {:else if selectedAuditId && detailError}
     <section class="page-heading audit-heading">
       <div><h1 id="audit-heading">Board audit</h1><p>Restore access before reviewing this audit.</p></div>
       <button class="button quiet-button" type="button" on:click={showList}>All audits</button>
     </section>
-    <div class="inline-alert error content-alert" role="alert"><span>{detailError}</span><button class="text-button" type="button" on:click={() => loadAuditDetail(selectedAuditId)}>Retry</button></div>
+    <div class="inline-alert error content-alert" role="alert"><span>{detailError}</span><button class="text-button" type="button" disabled={accessChecking} on:click={() => void checkAccess()}>Check GitHub access</button><button class="text-button" type="button" on:click={() => loadAuditDetail(selectedAuditId)}>Retry</button></div>
   {:else}
-    <AuditRunList {helpers} {project} {audits} {listLoading} {listError}
+    <AuditRunList {helpers} {project} {columns} {audits} {listLoading} {listError}
       {refresh} {openAudit} {onStarted} onOpenExisting={showAudit} />
   {/if}
 </section>
-
-{#if selectedAudit}
-{#key `${currentProjectId}:${sessionGeneration}:${selectedAuditId}`}
-<AuditApplyFlow bind:this={applyFlow} {helpers} {columns} auditId={selectedAuditId} {serverRun} focus={auditFocus}
-  sessionKey={`${currentProjectId}:${sessionGeneration}`} {onTaskUpdated} {onNotice}
-  onBlocked={(message) => { detailError = message; }} onUnavailable={clearProtectedContent} onTaskLoaded={rememberTask} />
-{/key}
-{/if}
 
 <div class="sr-only" data-audit-live-region aria-live="polite" aria-atomic="true"></div>

@@ -44,7 +44,7 @@ func (s *Server) githubAuditStart(w http.ResponseWriter, r *http.Request, identi
 		return
 	}
 	for field := range fields {
-		if field != "repositories" && field != "states" && field != "task_ids" && field != "authorization_id" {
+		if field != "repositories" && field != "states" && field != "task_ids" && field != "authorization_id" && field != "baseline" {
 			s.writeError(w, 400, "invalid_request", "unknown audit scope field", nil)
 			return
 		}
@@ -129,8 +129,7 @@ func (s *Server) startGithubAudit(w http.ResponseWriter, r *http.Request, identi
 	input.ProviderGeneration = s.GithubAudits.providerGeneration()
 	input.AccountGeneration = generation
 	input.RetryOf = retryOf
-	input.Model = "gpt-5.6-luna"
-	input.Effort = "medium"
+	input.Model, input.Effort = s.Cfg.AuditProfile()
 	s.mutationRateOnly(w, r, identity, func() (int, []byte, string, error) {
 		run, job, err := s.Store.StartGithubAudit(ctx, projectID, identity.Actor.ID, input)
 		if err != nil {
@@ -271,7 +270,7 @@ func (g *GithubAuditService) evidenceAccess(ctx context.Context, projectID strin
 	for _, repo := range e.Repositories {
 		allowed := false
 		for _, selected := range selection.Repositories {
-			if selected.Repository == repo.Repository && selected.Ref == repo.Ref {
+			if selected.Repository == repo.Repository && (selected.Ref == repo.Ref || repo.PullRequest > 0) {
 				allowed = true
 			}
 		}

@@ -169,6 +169,7 @@ func planPortableGithub(ctx context.Context, q portableSQL, plan *portableImport
 	}
 	for _, source := range g.AuditFindings {
 		v := source
+		v.Assessment = remapPortableAssessment(source.Assessment, plan)
 		v.AuditID = runMap[v.AuditID]
 		v.TaskID = plan.taskMap[v.TaskID]
 		if mapped, ok := plan.columnMap[v.SourceColumn]; ok {

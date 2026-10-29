@@ -3,7 +3,7 @@
     "schemas": {
       "GithubAuditStartRequest": {
         "type": "object",
-        "description": "Captures at most 1000 tasks; truncation is reported as an omission. Capture JSON is limited to 192 KiB. No null scope fields.",
+        "description": "Captures the complete selected scope up to 1000 tasks. Oversized scope rejects atomically. New runs use assessment v2; legacy records keep their original semantics. No null scope fields.",
         "required": [],
         "properties": {
           "repositories": {
@@ -19,7 +19,7 @@
               "$ref": "#/components/schemas/SemanticState"
             },
             "maxItems": 5,
-            "description": "Alternative to non-empty task_ids; defaults to backlog, ready and active. Human starts only; agents must use explicit task_ids."
+            "description": "Alternative to non-empty task_ids; defaults to backlog, ready, active, blocked and completed. Human starts only; agents use explicit task_ids."
           },
           "task_ids": {
             "type": "array",
@@ -33,6 +33,9 @@
           "authorization_id": {
             "$ref": "#/components/schemas/Identifier",
             "description": "Required for agent bearer starts; forbidden for human starts. Agent starts require non-empty task_ids within the grant max_tasks (at most 100) and no non-empty states."
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/GithubAuditBaseline"
           }
         },
         "additionalProperties": false,

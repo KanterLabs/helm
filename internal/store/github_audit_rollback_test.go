@@ -39,6 +39,10 @@ func TestGithubAuditRetainedSQLGuardsPreserveQueuedJobs(t *testing.T) {
 	if queued.Stage != "queued" || queued.Outcome != "" {
 		t.Fatal("guard destroyed resumable queue")
 	}
+	// Preserve an explicitly legacy capture for the retained-v1 compatibility scenario.
+	if _, err = s.DB.ExecContext(ctx, `UPDATE github_audit_jobs SET capture_json=json_remove(capture_json,'$.assessment_version') WHERE audit_id=?`, run.ID); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := s.ClaimGithubAudit(ctx, "restarted", time.Minute)
 	if err != nil {
 		t.Fatal(err)

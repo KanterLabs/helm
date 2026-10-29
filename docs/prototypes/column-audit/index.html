@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
+  <title>Audit columns · Helm prototype (TC-306)</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/results.css">
+  <link rel="stylesheet" href="css/panels.css">
+</head>
+<body>
+  <div class="proto-banner" data-testid="prototype-banner" role="note">
+    <strong>Prototype</strong> · synthetic data, no network requests · TC-306 column audit
+  </div>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">H</span><span class="brand-name">Helm</span></div>
+    <nav class="crumbs" aria-label="Location"><span>Harbor (synthetic)</span><span aria-hidden="true">/</span><span aria-current="page">Audits</span></nav>
+    <button type="button" class="icon-btn" id="theme-toggle" aria-pressed="false"></button>
+  </header>
+  <main id="view" tabindex="-1"></main>
+  <div class="review-bar" id="review-bar" hidden></div>
+  <div id="panel-host"></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <div class="sr-only" id="live" aria-live="polite"></div>
+
+  <script src="fixtures/project.js"></script>
+  <script src="fixtures/corrections.js"></script>
+  <script src="fixtures/other-results.js"></script>
+  <script src="js/dom.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/view-scope.js"></script>
+  <script src="js/view-results.js"></script>
+  <script src="js/view-evidence.js"></script>
+  <script src="js/view-apply.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

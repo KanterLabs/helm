@@ -11,6 +11,7 @@
 @import './styles/roadmap.css';
 @import './styles/settings.css';
 @import './styles/audits-utility.css';
+@import './styles/column-audit.css';
 @import './styles/responsive.css';
 @import './styles/releases.css';
 @import './styles/board-timeline.css';
