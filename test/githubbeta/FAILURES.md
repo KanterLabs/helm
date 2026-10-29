@@ -5,6 +5,18 @@ fulfills application API traffic: SQLite, authentication, routes, provider HTTP,
 job claims, evidence validation, finding review and apply are the real modules.
 Only GitHub upstream HTTP and the personal AI adapter use synthetic data.
 
+- New server runs use v2 assessments. A legacy-only synthetic model response
+  must not be mistaken for a worker or browser timeout. Retain v1 compatibility
+  for older captures, but return exact captured condition/task identities for v2.
+- Ready recommendations require affirmative unstarted/readiness task context;
+  the placeholder `ready.go` constant and merged PR do not prove completion.
+  Unknown completion conditions remain unknown and cite captured source only.
+- The current column-review selection, preview and receipt must preserve the
+  earlier no-mutation-on-review, explicit apply, stale-skip, exact-citation,
+  revocation, cancellation/retry and delegated-attribution coverage. Terminal
+  failed jobs should report safe diagnostics promptly instead of exhausting
+  every browser timeout/retry.
+
 - A selected repository is required; a PR URL must persist its task version,
   verify from upstream, survive server restart, and appear in the board summary.
 - Creating or analyzing a merged PR must never complete its task. Approval and

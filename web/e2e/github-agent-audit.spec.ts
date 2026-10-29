@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type TestInfo } from '@playwright/test';
-import { api, repository, seed, sentinel, sourceSHA, type BetaTask } from './support/githubBetaFixture';
+import { api, repository, seed, sentinel, sourceSHA, waitJob, waitJobStage, type BetaTask } from './support/githubBetaFixture';
 
 // Tokens are real, short-lived credentials. Only sanitized JSON receipts are
 // retained: Playwright traces would include token issue responses and headers.
@@ -8,7 +8,7 @@ test.use({ trace: 'off', video: 'off', screenshot: 'off' });
 type Token = { id: string; token: string };
 type Grant = { id: string; project_id: string; agent_id: string; token_id: string; account_owner_id: string; max_tasks: number };
 type Job = { requested_by: string; account_owner_id: string; authorization_id: string; outcome: string; stage: string };
-type Finding = { id: string; task_id: string; evidence_refs: string[] };
+type Finding = { id: string; task_id: string; assessment: import('../src/lib/types').GithubAssessment };
 const origin = process.env.HELM_E2E_BASE_URL || 'http://127.0.0.1:18082';
 const expires = (ms = 60 * 60_000) => new Date(Date.now() + ms).toISOString();
 const grantsPath = (project: string) => `/projects/${project}/github-audit-authorizations`;
@@ -104,7 +104,7 @@ test.describe('GitHub delegated audit real backend', () => {
     const started = await agentJSON(request, agent.token, 'POST', auditPath(project.id), scope, key);
     const replay = await agentJSON(request, agent.token, 'POST', auditPath(project.id), scope, key);
     expect(replay.audit.id).toBe(started.audit.id);
-    await expect.poll(async () => (await job(request, started.audit.id)).outcome, { timeout: 35_000 }).toBe('complete');
+    await waitJob(request, started.audit.id);
     const completed = await agentJSON(request, agent.token, 'GET', `/audits/${started.audit.id}/job`);
     expect(completed).toMatchObject({ requested_by: agent.id, account_owner_id: human.id, authorization_id: authorization.id });
     const upstream = await state(request);
@@ -116,8 +116,17 @@ test.describe('GitHub delegated audit real backend', () => {
     const findings: Finding[] = (await agentJSON(request, agent.token, 'GET', `/audits/${started.audit.id}/findings`)).data;
     expect(findings).toHaveLength(1);
     expect(findings[0].task_id).toBe(tasks[0].id);
-    expect(findings[0].evidence_refs.every(ref => evidence.items.some((item: { id: string }) => item.id === ref))).toBe(true);
-    expect((await agentRequest(request, agent.token, 'POST', `/audits/${started.audit.id}/apply`, { finding_ids: [findings[0].id], preview: false })).status).toBe(403);
+    const assessment = findings[0].assessment;
+    expect(assessment).toMatchObject({ assessment_version: 2, placement: 'correction_recommended', target_semantic_state: 'ready', lifecycle_action: 'move' });
+    const citations = [...assessment.conditions, ...assessment.basis].flatMap(item => item.citation_ids);
+    expect(citations.length).toBeGreaterThan(0);
+    expect(citations.every(ref => evidence.items.some((item: { id: string }) => item.id === ref))).toBe(true);
+    expect(assessment.basis.some(basis => basis.citation_ids.some(ref => evidence.items.some((item: { id: string; source_role: string; evidence_class: string }) =>
+      item.id === ref && item.source_role === 'task_context' && item.evidence_class === 'task_fact')))).toBe(true);
+    const applyDenied = await agentRequest(request, agent.token, 'POST', `/audits/${started.audit.id}/apply`, {
+      assessment_version: 2, preview: false, items: [{ finding_id: findings[0].id }],
+    }, `agent-apply-denied-${project.id}`);
+    expect(applyDenied.status).toBe(403);
     await assertUnchanged(request, tasks);
 
     const restarted = await request.post('/__githubbeta/restart');
@@ -128,7 +137,7 @@ test.describe('GitHub delegated audit real backend', () => {
     expect((await state(request)).ai_calls).toBe(upstream.ai_calls);
     await receipt(info, 'delegated-audit-attribution.json', {
       project: project.id, authorization, job: completed, inference: { calls: 1, account_owner: upstream.last_ai_actor },
-      source: evidence.repositories, findings: findings.map(({ id, task_id, evidence_refs }) => ({ id, task_id, evidence_refs })),
+      evidence, findings, apply_denied: applyDenied.status,
       tasks_unchanged: true, restart_persisted: true,
     }, [agent.token, outsider.token]);
   });
@@ -179,7 +188,7 @@ test.describe('GitHub delegated audit real backend', () => {
         const token = reason === 'grant_revoked' ? agent.token : await issue(request, agent.id, [project.id]);
         const activeGrant = reason === 'grant_revoked' ? authorization : await grant(request, project.id, agent.id, token);
         const started = await agentJSON(request, token, 'POST', auditPath(project.id), { authorization_id: activeGrant.id, task_ids: [tasks[0].id] }, `${reason}-${project.id}`);
-        await expect.poll(async () => (await job(request, started.audit.id)).stage, { timeout: 20_000 }).toBe('analyzing');
+        await waitJobStage(request, started.audit.id, 'analyzing');
         if (reason === 'grant_revoked') {
           const revoked = await request.delete(`/api/v1${grantsPath(project.id)}/${activeGrant.id}`, { headers: { Origin: origin } });
           expect([200, 204]).toContain(revoked.status());
