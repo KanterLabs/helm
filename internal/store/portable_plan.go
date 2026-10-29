@@ -167,6 +167,9 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 	if err != nil {
 		return plan, err
 	}
+	if err := planPortableMetadata(ctx, q, &plan, actorMap); err != nil {
+		return plan, err
+	}
 	plan, err = planPortableRelationships(ctx, q, archive, options, plan, actorMap, &dependencyCycleConflict)
 	if err != nil {
 		return plan, err

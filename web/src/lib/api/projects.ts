@@ -28,7 +28,7 @@ export const projectsApi = {
     request<Project>(`/projects/${encodeURIComponent(project)}`, { method: 'PATCH', body: input, ifMatch: version, idempotencyKey: key() }),
 
   exportProject: (project?: string) =>
-    request<PortableArchive>(pathWithQuery(project ? `/projects/${encodeURIComponent(project)}/export` : '/export', { version: 3 })),
+    request<PortableArchive>(pathWithQuery(project ? `/projects/${encodeURIComponent(project)}/export` : '/export', { version: 4 })),
 
   importPortable: (archive: PortableArchive | unknown, options: { targetProject?: string; conflict?: 'remap' | 'fail'; dryRun?: boolean } = {}) =>
     request<PortableImportReport>('/import', {

@@ -44,6 +44,10 @@ func portableEventFieldsEqualIgnoringID(a, b PortableEvent) bool {
 
 func portableEventPayloadTargets(key, parentKey, eventType string, maps portableEventPayloadMaps) map[string]string {
 	switch key {
+	case "item_id", "item_ids":
+		if strings.HasPrefix(eventType, "task.checklist_") {
+			return maps.checklists
+		}
 	case "artifact_id":
 		return maps.artifacts
 	case "audit_id":
@@ -54,7 +58,7 @@ func portableEventPayloadTargets(key, parentKey, eventType string, maps portable
 		return maps.projects
 	case "release_id", "previous_release_id", "new_release_id", "old_release_id":
 		return maps.releases
-	case "task_id", "dependent_id", "prerequisite_id", "parent_id", "previous_parent_id", "child_id", "before_task_id", "after_task_id", "duplicate_of":
+	case "task_id", "dependent_id", "prerequisite_id", "parent_id", "parent_task_id", "previous_parent_id", "previous_parent_task_id", "child_id", "before_task_id", "after_task_id", "duplicate_of":
 		return maps.tasks
 	case "actor_id", "actor", "released_by", "assignee", "previous_assignee", "assignee_id", "previous_assignee_id", "created_by", "resolved_by", "reporter_id":
 		return maps.actors

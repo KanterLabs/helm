@@ -31,6 +31,9 @@ func planPortableProjects(ctx context.Context, q portableSQL, archive PortableAr
 			if !exists {
 				addPortableIssue(&plan.report, "import", targetID, "target_project", "target project was not found")
 			}
+			if exists && archive.Version >= PortableVersionCurrent && portableProjectPolicy(existing) != portableProjectPolicy(source) {
+				addPortableIssue(&plan.report, "project", targetID, "checklist_completion_policy", "target project policy differs; import never changes completion safeguards")
+			}
 			if exists && !portableProjectMetadataEqual(existing, source) {
 				plan.report.Warnings = append(plan.report.Warnings, "target project metadata was retained; import never overwrites an existing project")
 			}

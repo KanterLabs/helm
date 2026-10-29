@@ -19,6 +19,9 @@ func portableExistingProject(q portableSQL, id string) (PortableProject, bool, e
 	if err != nil {
 		return PortableProject{}, false, err
 	}
+	if err := q.QueryRowContext(context.Background(), `SELECT checklist_completion_policy FROM projects WHERE id=?`, id).Scan(&project.ChecklistCompletionPolicy); err != nil {
+		return PortableProject{}, false, err
+	}
 	project.Favorite, project.ArchivedAt = boolValue(favorite), nullableString(archived)
 	return project, true, nil
 }
@@ -77,6 +80,9 @@ func portableExistingTask(q portableSQL, id string) (PortableTask, bool, error) 
 		return PortableTask{}, false, err
 	}
 	task.AssigneeID, task.ClaimedBy, task.ClaimExpiresAt, task.DueAt, task.CompletedAt, task.ReleaseID = nullableString(assignee), nullableString(claimed), nullableString(expiry), nullableString(due), nullableString(completed), nullableString(releaseID)
+	if err := readPortableTaskMetadata(context.Background(), q, &task); err != nil {
+		return PortableTask{}, false, err
+	}
 	var bug Bug
 	bug, bugErr := bugFromRow(q.QueryRowContext(context.Background(), `SELECT reporter_id, severity, actual_behavior, expected_behavior, reproduction_steps, environment, affected_version, resolution, resolved_by, resolved_at, duplicate_of FROM bug_details WHERE task_id=?`, id))
 	if bugErr == nil {
@@ -137,11 +143,11 @@ func portableIDSet(q portableSQL, table string) (map[string]struct{}, error) {
 }
 
 func portableProjectFieldsEqual(a PortableProject, b PortableProject) bool {
-	return a.Key == b.Key && a.Slug == b.Slug && a.Name == b.Name && a.Description == b.Description && a.Color == b.Color && a.Favorite == b.Favorite && stringPointerValue(a.ArchivedAt) == stringPointerValue(b.ArchivedAt) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt
+	return portableProjectPolicyMatches(a, b) && a.Key == b.Key && a.Slug == b.Slug && a.Name == b.Name && a.Description == b.Description && a.Color == b.Color && a.Favorite == b.Favorite && stringPointerValue(a.ArchivedAt) == stringPointerValue(b.ArchivedAt) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt
 }
 
 func portableProjectMetadataEqual(a PortableProject, b PortableProject) bool {
-	return a.Name == b.Name && a.Description == b.Description && a.Color == b.Color && a.Favorite == b.Favorite && stringPointerValue(a.ArchivedAt) == stringPointerValue(b.ArchivedAt) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt
+	return portableProjectPolicyMatches(a, b) && a.Name == b.Name && a.Description == b.Description && a.Color == b.Color && a.Favorite == b.Favorite && stringPointerValue(a.ArchivedAt) == stringPointerValue(b.ArchivedAt) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt
 }
 
 func stringPointerValue(value *string) string {
@@ -176,7 +182,7 @@ func portableLabelFieldsEqual(a PortableLabel, b PortableLabel) bool {
 }
 
 func portableTaskFieldsEqual(a, b PortableTask) bool {
-	return a.Number == b.Number && a.ProjectID == b.ProjectID && a.Kind == b.Kind && a.ColumnID == b.ColumnID && a.Title == b.Title && a.Description == b.Description && a.Priority == b.Priority && a.Position == b.Position && stringPointerValue(a.AssigneeID) == stringPointerValue(b.AssigneeID) && stringPointerValue(a.ClaimedBy) == stringPointerValue(b.ClaimedBy) && stringPointerValue(a.ClaimExpiresAt) == stringPointerValue(b.ClaimExpiresAt) && stringPointerValue(a.DueAt) == stringPointerValue(b.DueAt) && a.Version == b.Version && stringPointerValue(a.CompletedAt) == stringPointerValue(b.CompletedAt) && stringPointerValue(a.ReleaseID) == stringPointerValue(b.ReleaseID) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt && portableBugFieldsEqual(a.Bug, b.Bug)
+	return portableChecklistEqual(a.Checklist, b.Checklist) && a.Number == b.Number && a.ProjectID == b.ProjectID && a.Kind == b.Kind && a.ColumnID == b.ColumnID && a.Title == b.Title && a.Description == b.Description && a.Priority == b.Priority && a.Position == b.Position && stringPointerValue(a.AssigneeID) == stringPointerValue(b.AssigneeID) && stringPointerValue(a.ClaimedBy) == stringPointerValue(b.ClaimedBy) && stringPointerValue(a.ClaimExpiresAt) == stringPointerValue(b.ClaimExpiresAt) && stringPointerValue(a.DueAt) == stringPointerValue(b.DueAt) && a.Version == b.Version && stringPointerValue(a.CompletedAt) == stringPointerValue(b.CompletedAt) && stringPointerValue(a.ReleaseID) == stringPointerValue(b.ReleaseID) && a.CreatedAt == b.CreatedAt && a.UpdatedAt == b.UpdatedAt && portableBugFieldsEqual(a.Bug, b.Bug)
 }
 
 func portableTaskFieldsEqualIgnoringNumber(a, b PortableTask) bool {

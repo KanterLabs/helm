@@ -11,6 +11,11 @@ func planPortableTasks(ctx context.Context, q portableSQL, archive PortableArchi
 	usedNumbers := map[string]map[int]struct{}{}
 	for _, source := range archive.Tasks {
 		projectID := plan.projectMap[source.ProjectID]
+		if archive.Version < PortableVersionCurrent {
+			if err := rejectLegacyRichTaskRetry(q, source.ID, projectID, plan.report); err != nil {
+				return plan, err
+			}
+		}
 		if usedNumbers[projectID] == nil {
 			usedNumbers[projectID] = map[int]struct{}{}
 			rows, err := q.QueryContext(ctx, `SELECT number FROM tasks WHERE project_id=?`, projectID)
@@ -33,6 +38,13 @@ func planPortableTasks(ctx context.Context, q portableSQL, archive PortableArchi
 		}
 		targetID, create := source.ID, true
 		mappedSource := source
+		mappedSource.Checklist = append([]PortableChecklistItem(nil), source.Checklist...)
+		for i := range mappedSource.Checklist {
+			mappedSource.Checklist[i].CompletedBy, err = portableMapOptionalActor(q, source.Checklist[i].CompletedBy, options.ActorID, &plan.report, actorMap)
+			if err != nil {
+				return plan, err
+			}
+		}
 		mappedSource.ProjectID, mappedSource.ColumnID = projectID, plan.columnMap[source.ColumnID]
 		if source.ReleaseID != nil {
 			mappedReleaseID, mapped := plan.releaseMap[*source.ReleaseID]

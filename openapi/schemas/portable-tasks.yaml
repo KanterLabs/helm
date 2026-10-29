@@ -103,6 +103,16 @@ components:
           $ref: "#/components/schemas/Timestamp"
         bug:
           $ref: "#/components/schemas/PortableBug"
+        parent_task_id:
+          $ref: "#/components/schemas/Identifier"
+          description: Version 4 project-local parent; omitted means no parent. Cycles and missing parents are
+            rejected.
+        checklist:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/PortableChecklistItem"
+          description: Version 4 ordered checklist; omitted means empty.
       additionalProperties: false
     PortableComment:
       type: object
@@ -200,5 +210,35 @@ components:
           minLength: 1
           maxLength: 200
         created_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    PortableChecklistItem:
+      type: object
+      required:
+        - id
+        - text
+        - position
+        - completed
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        position:
+          type: integer
+          minimum: 0
+        completed:
+          type: boolean
+        completed_at:
+          $ref: "#/components/schemas/Timestamp"
+        completed_by:
+          $ref: "#/components/schemas/Identifier"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
           $ref: "#/components/schemas/Timestamp"
       additionalProperties: false

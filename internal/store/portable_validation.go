@@ -90,7 +90,7 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	if archive.Format != PortableFormat {
 		addPortableIssue(report, "archive", "", "format", "format must be helm.portable")
 	}
-	if archive.Version != 1 && archive.Version != PortableVersion && archive.Version != PortableVersionGithub {
+	if archive.Version != 1 && archive.Version != PortableVersion && archive.Version != PortableVersionGithub && archive.Version != PortableVersionCurrent {
 		addPortableIssue(report, "archive", "", "version", fmt.Sprintf("version %d is not supported", archive.Version))
 	}
 	if archive.ExportedAt != "" && !portableTimestamp(archive.ExportedAt, false) {
@@ -132,6 +132,7 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	projectSet, columnSet, taskSet, releaseSet := map[string]PortableProject{}, map[string]PortableColumn{}, map[string]PortableTask{}, map[string]PortableRelease{}
 	validatePortableProjectsAndTasks(archive, report, projectSet, columnSet, taskSet, releaseSet)
 	validatePortableRelationsAndActivity(archive, report, projectSet, taskSet)
+	validatePortableMetadata(archive, report, taskSet)
 	validatePortableGithub(archive, report, projectSet, taskSet)
 }
 

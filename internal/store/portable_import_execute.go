@@ -13,7 +13,7 @@ func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableIm
 		if !project.create {
 			continue
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO projects(id,key,slug,name,description,color,favorite,archived_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, project.id, project.key, project.slug, project.source.Name, project.source.Description, project.source.Color, boolInt(project.source.Favorite), portableStringArg(project.source.ArchivedAt), project.source.CreatedAt, project.source.UpdatedAt)
+		_, err := tx.ExecContext(ctx, `INSERT INTO projects(id,key,slug,name,description,color,favorite,archived_at,created_at,updated_at,checklist_completion_policy) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, project.id, project.key, project.slug, project.source.Name, project.source.Description, project.source.Color, boolInt(project.source.Favorite), portableStringArg(project.source.ArchivedAt), project.source.CreatedAt, project.source.UpdatedAt, portableProjectPolicy(project.source))
 		if err != nil {
 			return err
 		}
@@ -56,6 +56,9 @@ func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableIm
 		if err != nil {
 			return err
 		}
+	}
+	if err := executePortableMetadata(ctx, tx, plan); err != nil {
+		return err
 	}
 	// Bug details reference tasks, including duplicate_of, so insert them only
 	// after all task rows exist. This preserves the complete typed-task state.

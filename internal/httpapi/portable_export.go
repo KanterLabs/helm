@@ -22,11 +22,17 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 	if !requireScope(w, identity, "projects:read") || !requireScope(w, identity, "tasks:read") || !requireScope(w, identity, "events:read") {
 		return
 	}
-	version := store.PortableVersion
+	version := store.PortableVersionCurrent
 	if values, present := r.URL.Query()["version"]; present {
-		if len(values) != 1 || (values[0] != "2" && values[0] != "3") {
-			s.writeError(w, http.StatusBadRequest, "invalid_request", "portable export version must be 2 or 3", nil)
+		if len(values) != 1 || (values[0] != "2" && values[0] != "3" && values[0] != "4") {
+			s.writeError(w, http.StatusBadRequest, "invalid_request", "portable export version must be 2, 3 or 4", nil)
 			return
+		}
+		if values[0] == "2" {
+			version = store.PortableVersion
+		}
+		if values[0] == "4" {
+			version = store.PortableVersionCurrent
 		}
 		if values[0] == "3" {
 			version = store.PortableVersionGithub

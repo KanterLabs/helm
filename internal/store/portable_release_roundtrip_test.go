@@ -41,7 +41,7 @@ func TestPortableReleaseV2RoundTripAndLegacyV1Assignment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	archive, err := source.ExportPortable(ctx, []string{project.ID})
+	archive, err := source.ExportPortableVersion(ctx, []string{project.ID}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestPortableReleasedReleaseRoundTripStagesMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	archive, err := source.ExportPortable(ctx, []string{project.ID})
+	archive, err := source.ExportPortableVersion(ctx, []string{project.ID}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

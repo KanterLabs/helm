@@ -107,11 +107,11 @@ components:
         - relationships
         - activity
         - comments
-      description: Version 2 archives include releases and task release_id references. Explicit version 3
-        export additionally retains durable GitHub PR relationships, audit runs/findings and
-        immutable evidence in github. Credentials, project repository selections, disposable
-        provider caches and executable jobs are excluded. Versions 1 and 2 remain import-compatible;
-        version 1 normalizes to no releases and unassigned tasks. Unknown versions are rejected.
+      description: Version 4 preserves checklist items, parent hierarchy and project completion policy
+        together with v3 GitHub PR/audit history and v2 Focus/release membership. Versions 1-3
+        remain readable with explicit omission warnings. Version 1 has no releases. Credentials,
+        repository selections, caches and executable jobs are excluded. Unknown versions are
+        rejected.
       properties:
         format:
           type: string
@@ -122,6 +122,7 @@ components:
             - 1
             - 2
             - 3
+            - 4
         exported_at:
           $ref: "#/components/schemas/Timestamp"
         source:
@@ -173,6 +174,11 @@ components:
             $ref: "#/components/schemas/PortableAgentNote"
         github:
           $ref: "#/components/schemas/PortableGithubArchive"
+        warnings:
+          type: array
+          description: Explicit compatibility limitations, including data omitted by older export formats.
+          items:
+            type: string
       additionalProperties: false
       allOf:
         - if:
@@ -181,7 +187,9 @@ components:
           then:
             properties:
               version:
-                const: 3
+                enum:
+                  - 3
+                  - 4
     PortableImportRequest:
       type: object
       required:

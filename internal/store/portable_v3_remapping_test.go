@@ -25,7 +25,7 @@ func TestPortableV3RemapsConflictsAndPreservesProjectCeiling(t *testing.T) {
 		t.Fatal("export crossed project ceiling")
 	}
 	target, targetActor, targetProject, _ := portableV3Fixture(t)
-	legacy, err := source.ExportPortable(ctx, []string{project.ID})
+	legacy, err := source.ExportPortableVersion(ctx, []string{project.ID}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

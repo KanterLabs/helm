@@ -39,6 +39,13 @@ components:
           $ref: "#/components/schemas/Timestamp"
         updated_at:
           $ref: "#/components/schemas/Timestamp"
+        checklist_completion_policy:
+          type: string
+          enum:
+            - warn
+            - require
+          description: Required for version 4. Existing target project policy must match; imports never weaken
+            it.
       additionalProperties: false
     PortableColumn:
       type: object

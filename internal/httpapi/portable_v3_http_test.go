@@ -17,7 +17,7 @@ import (
 	"github.com/KanterLabs/helm/internal/store"
 )
 
-// HTTP failure scenarios: implicit exports must retain v2 compatibility; explicit
+// HTTP failure scenarios: implicit exports must select complete v4; explicit
 // v3 must identify its body/download correctly; unsupported, empty, or repeated
 // versions must fail closed. Retained private evidence must be reauthorized even
 // with zero findings, and loss of provider access or service availability must
@@ -37,7 +37,7 @@ func TestPortableHTTPExportVersionNegotiation(t *testing.T) {
 		for _, tc := range []struct {
 			query   string
 			version int
-		}{{"", 2}, {"?version=2", 2}, {"?version=3", 3}} {
+		}{{"", 4}, {"?version=2", 2}, {"?version=3", 3}, {"?version=4", 4}} {
 			response := request(t, s, http.MethodGet, route+tc.query, nil, nil)
 			if response.Code != http.StatusOK {
 				t.Fatalf("export %s%s: status=%d body=%s", route, tc.query, response.Code, response.Body.String())
@@ -54,7 +54,7 @@ func TestPortableHTTPExportVersionNegotiation(t *testing.T) {
 				t.Fatalf("export headers=%v", response.Header())
 			}
 		}
-		for _, query := range []string{"?version=1", "?version=4", "?version=three", "?version=", "?version=3&version=2", "?version=3&version=3"} {
+		for _, query := range []string{"?version=1", "?version=5", "?version=three", "?version=", "?version=3&version=2", "?version=3&version=3"} {
 			response := request(t, s, http.MethodGet, route+query, nil, nil)
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("invalid version %s: status=%d body=%s", query, response.Code, response.Body.String())
@@ -142,7 +142,7 @@ func TestPortableV3HTTPRevalidatesEveryRetainedEvidence(t *testing.T) {
 			}
 			t.Logf("Synthetic portable HTTP response: %s", proof)
 			revoked.Store(true)
-			for _, exportRoute := range []string{route, "/api/v1/export?version=3"} {
+			for _, exportRoute := range []string{route, strings.Replace(route, "version=3", "version=4", 1), strings.TrimSuffix(route, "?version=3"), "/api/v1/export?version=3", "/api/v1/export?version=4"} {
 				denied := request(t, s, http.MethodGet, exportRoute, nil, nil)
 				if denied.Code != http.StatusConflict || strings.Contains(denied.Body.String(), "SYNTHETIC_PRIVATE_") || strings.Contains(denied.Body.String(), "SYNTHETIC_EXPORT_PROVIDER_TOKEN") {
 					t.Fatalf("revoked export: status=%d body=%s", denied.Code, denied.Body.String())
@@ -153,7 +153,7 @@ func TestPortableV3HTTPRevalidatesEveryRetainedEvidence(t *testing.T) {
 			if unavailable.Code != http.StatusConflict || strings.Contains(unavailable.Body.String(), "SYNTHETIC_PRIVATE_") {
 				t.Fatalf("unavailable source: status=%d body=%s", unavailable.Code, unavailable.Body.String())
 			}
-			legacy := request(t, s, http.MethodGet, strings.TrimSuffix(route, "?version=3"), nil, nil)
+			legacy := request(t, s, http.MethodGet, strings.TrimSuffix(route, "?version=3")+"?version=2", nil, nil)
 			if legacy.Code != http.StatusOK || strings.Contains(legacy.Body.String(), "SYNTHETIC_PRIVATE_") {
 				t.Fatalf("legacy export: status=%d body=%s", legacy.Code, legacy.Body.String())
 			}

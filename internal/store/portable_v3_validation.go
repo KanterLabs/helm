@@ -15,8 +15,8 @@ func validatePortableGithub(archive *PortableArchive, report *PortableImportRepo
 		return
 	}
 	issue := func(entity, id, field, message string) { addPortableIssue(report, entity, id, field, message) }
-	if archive.Version != PortableVersionGithub {
-		issue("github", "", "version", "github records require portable version 3")
+	if archive.Version < PortableVersionGithub {
+		issue("github", "", "version", "github records require portable version 3 or newer")
 		return
 	}
 	if len(g.Artifacts) > 50000 || len(g.TaskArtifacts) > 100000 || len(g.AuditRuns) > 10000 || len(g.AuditFindings) > 100000 || len(g.AuditEvidence) > 10000 {

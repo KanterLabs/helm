@@ -15,7 +15,7 @@ paths:
         insert records transactionally and never replace or delete the
 
         destination database.
-         Accepts portable versions 1, 2 and 3. Version 3 github history is validated and remapped transactionally with core records; imported terminal history and evidence do not restore credentials, repository selection, running jobs or source access.
+         Accepts portable versions 1, 2, 3 and 4. Version 3 github history is validated and remapped transactionally with core records; imported terminal history and evidence do not restore credentials, repository selection, running jobs or source access. Version 4 preserves checklists, parent hierarchy and project completion policy. Older formats report explicit omissions. Import into an existing project requires matching completion policy; destination rows are never overwritten.
       tags:
         - Projects
       parameters:

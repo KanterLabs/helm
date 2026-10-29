@@ -4,7 +4,7 @@
       "get": {
         "operationId": "exportPortableArchive",
         "summary": "Export a versioned portable archive",
-        "description": "Exports live projects, columns, tasks, labels, comments, relationships,\nand activity references as a `helm.portable` v2 JSON archive. A\nv2 archive includes project-local releases and explicit task release\nreferences; v1 archives remain import-compatible and treat every task\nas unassigned.\n`project` query selects one project; an unscoped caller may omit it to\nexport every accessible project. This is a portability snapshot, not\na database backup or restore operation.\n Export defaults to version 2. Request version=3 to include retained GitHub PR relationships and audit history; source credentials, repository selections, disposable caches and executable audit jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
+        "description": "Exports live project records as a helm.portable v4 JSON archive, preserving checklists, hierarchy, completion policy, Focus, bugs, dependencies, comments, agent history and retained PR/audit history. Explicit versions 2 and 3 remain available with omission warnings. Credentials, repository selections, provider caches and executable jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
         "tags": [
           "Projects"
         ],
@@ -22,14 +22,15 @@
             "name": "version",
             "in": "query",
             "required": false,
-            "description": "Portable envelope version. Omit for existing v2 compatibility; explicitly select 3 for durable GitHub/audit history.",
+            "description": "Defaults to complete version 4. Versions 2 and 3 omit checklists, hierarchy and completion policy and include warnings.",
             "schema": {
               "type": "integer",
               "enum": [
                 2,
-                3
+                3,
+                4
               ],
-              "default": 2
+              "default": 4
             }
           }
         ],
@@ -56,9 +57,10 @@
                   "type": "integer",
                   "enum": [
                     2,
-                    3
+                    3,
+                    4
                   ],
-                  "example": 2
+                  "example": 4
                 }
               }
             },

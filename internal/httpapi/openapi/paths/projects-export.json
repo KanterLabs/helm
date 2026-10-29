@@ -9,7 +9,7 @@
       "get": {
         "operationId": "exportProjectPortableArchive",
         "summary": "Export one project's portable archive",
-        "description": "Exports the live project and its related records in the versioned `helm.portable` v2 format, including releases and explicit task release references. v1 archives remain import-compatible and treat tasks as unassigned. Export defaults to version 2. Request version=3 to include retained GitHub PR relationships and audit history; source credentials, repository selections, disposable caches and executable audit jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
+        "description": "Exports live project records as a helm.portable v4 JSON archive, preserving checklists, hierarchy, completion policy, Focus, bugs, dependencies, comments, agent history and retained PR/audit history. Explicit versions 2 and 3 remain available with omission warnings. Credentials, repository selections, provider caches and executable jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
         "tags": [
           "Projects"
         ],
@@ -30,9 +30,10 @@
                   "type": "integer",
                   "enum": [
                     2,
-                    3
+                    3,
+                    4
                   ],
-                  "example": 2
+                  "example": 4
                 }
               }
             }
@@ -61,14 +62,15 @@
             "name": "version",
             "in": "query",
             "required": false,
-            "description": "Portable envelope version. Omit for existing v2 compatibility; explicitly select 3 for durable GitHub/audit history.",
+            "description": "Defaults to complete version 4. Versions 2 and 3 omit checklists, hierarchy and completion policy and include warnings.",
             "schema": {
               "type": "integer",
               "enum": [
                 2,
-                3
+                3,
+                4
               ],
-              "default": 2
+              "default": 4
             }
           }
         ]

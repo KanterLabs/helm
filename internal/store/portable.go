@@ -11,20 +11,21 @@ import (
 // replaces, deletes, or restores the database.
 
 const (
-	PortableFormat        = "helm.portable"
-	PortableVersion       = 2
-	portableMaxProjects   = 100
-	portableMaxColumns    = 1000
-	portableMaxTasks      = 10000
-	portableMaxReleases   = 1000
-	portableMaxLabels     = 5000
-	portableMaxComments   = 50000
-	portableMaxAgentNotes = 50000
-	portableMaxRelations  = 50000
-	portableMaxEvents     = 100000
-	portableMaxActivity   = 100000
-	portableConflictRemap = "remap"
-	portableConflictFail  = "fail"
+	PortableFormat         = "helm.portable"
+	PortableVersion        = 2 // Retained v2 constant for legacy callers.
+	PortableVersionCurrent = 4
+	portableMaxProjects    = 100
+	portableMaxColumns     = 1000
+	portableMaxTasks       = 10000
+	portableMaxReleases    = 1000
+	portableMaxLabels      = 5000
+	portableMaxComments    = 50000
+	portableMaxAgentNotes  = 50000
+	portableMaxRelations   = 50000
+	portableMaxEvents      = 100000
+	portableMaxActivity    = 100000
+	portableConflictRemap  = "remap"
+	portableConflictFail   = "fail"
 )
 
 // PortableSource identifies the producer without carrying deployment or
@@ -36,16 +37,17 @@ type PortableSource struct {
 }
 
 type PortableProject struct {
-	ID          string  `json:"id"`
-	Key         string  `json:"key"`
-	Slug        string  `json:"slug"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	Color       string  `json:"color"`
-	Favorite    bool    `json:"favorite"`
-	ArchivedAt  *string `json:"archived_at,omitempty"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ChecklistCompletionPolicy string  `json:"checklist_completion_policy,omitempty"`
+	ID                        string  `json:"id"`
+	Key                       string  `json:"key"`
+	Slug                      string  `json:"slug"`
+	Name                      string  `json:"name"`
+	Description               string  `json:"description"`
+	Color                     string  `json:"color"`
+	Favorite                  bool    `json:"favorite"`
+	ArchivedAt                *string `json:"archived_at,omitempty"`
+	CreatedAt                 string  `json:"created_at"`
+	UpdatedAt                 string  `json:"updated_at"`
 }
 
 type PortableColumn struct {
@@ -100,25 +102,27 @@ type PortableBug struct {
 }
 
 type PortableTask struct {
-	ID             string       `json:"id"`
-	Number         int          `json:"number"`
-	ProjectID      string       `json:"project_id"`
-	Kind           string       `json:"kind"`
-	ColumnID       string       `json:"column_id"`
-	Title          string       `json:"title"`
-	Description    string       `json:"description"`
-	Priority       string       `json:"priority"`
-	Position       float64      `json:"position"`
-	AssigneeID     *string      `json:"assignee_id,omitempty"`
-	ClaimedBy      *string      `json:"claimed_by,omitempty"`
-	ClaimExpiresAt *string      `json:"claim_expires_at,omitempty"`
-	DueAt          *string      `json:"due_at,omitempty"`
-	Version        int64        `json:"version"`
-	CompletedAt    *string      `json:"completed_at,omitempty"`
-	ReleaseID      *string      `json:"release_id,omitempty"`
-	CreatedAt      string       `json:"created_at"`
-	UpdatedAt      string       `json:"updated_at"`
-	Bug            *PortableBug `json:"bug,omitempty"`
+	ParentTaskID   *string                 `json:"parent_task_id,omitempty"`
+	Checklist      []PortableChecklistItem `json:"checklist,omitempty"`
+	ID             string                  `json:"id"`
+	Number         int                     `json:"number"`
+	ProjectID      string                  `json:"project_id"`
+	Kind           string                  `json:"kind"`
+	ColumnID       string                  `json:"column_id"`
+	Title          string                  `json:"title"`
+	Description    string                  `json:"description"`
+	Priority       string                  `json:"priority"`
+	Position       float64                 `json:"position"`
+	AssigneeID     *string                 `json:"assignee_id,omitempty"`
+	ClaimedBy      *string                 `json:"claimed_by,omitempty"`
+	ClaimExpiresAt *string                 `json:"claim_expires_at,omitempty"`
+	DueAt          *string                 `json:"due_at,omitempty"`
+	Version        int64                   `json:"version"`
+	CompletedAt    *string                 `json:"completed_at,omitempty"`
+	ReleaseID      *string                 `json:"release_id,omitempty"`
+	CreatedAt      string                  `json:"created_at"`
+	UpdatedAt      string                  `json:"updated_at"`
+	Bug            *PortableBug            `json:"bug,omitempty"`
 }
 
 type PortableTaskLabel struct {
@@ -232,6 +236,7 @@ type PortableActivity struct {
 // relationships/activity sections are canonical.  The flat fields are
 // accepted as import aliases for early clients and are omitted by exports.
 type PortableArchive struct {
+	Warnings      []string                 `json:"warnings,omitempty"`
 	Format        string                   `json:"format"`
 	Version       int                      `json:"version"`
 	ExportedAt    string                   `json:"exported_at"`
@@ -256,73 +261,8 @@ type PortableArchive struct {
 	AgentNotes       []PortableAgentNote        `json:"agent_notes,omitempty"`
 }
 
-type PortableImportOptions struct {
-	// TargetProjectID imports a one-project archive into an existing project.
-	// The target is never overwritten; source IDs are mapped to it.
-	TargetProjectID string
-	// Conflict is "remap" (the default) or "fail".  Remapping never silently
-	// overwrites a record and is reported in ImportReport.Remaps.
-	Conflict string
-	DryRun   bool
-	ActorID  string
-}
-
-type PortableImportRemap struct {
-	Entity string `json:"entity"`
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Field  string `json:"field,omitempty"`
-	Reason string `json:"reason"`
-}
-
-type PortableImportIssue struct {
-	Entity  string `json:"entity"`
-	ID      string `json:"id,omitempty"`
-	Field   string `json:"field,omitempty"`
-	Message string `json:"message"`
-}
-
-type PortableImportCounts struct {
-	ProjectsCreated     int `json:"projects_created"`
-	ProjectsSkipped     int `json:"projects_skipped"`
-	ColumnsCreated      int `json:"columns_created"`
-	ColumnsSkipped      int `json:"columns_skipped"`
-	ReleasesCreated     int `json:"releases_created"`
-	ReleasesSkipped     int `json:"releases_skipped"`
-	TasksCreated        int `json:"tasks_created"`
-	TasksSkipped        int `json:"tasks_skipped"`
-	LabelsCreated       int `json:"labels_created"`
-	LabelsSkipped       int `json:"labels_skipped"`
-	TaskLabelsCreated   int `json:"task_labels_created"`
-	TaskLabelsSkipped   int `json:"task_labels_skipped"`
-	CommentsCreated     int `json:"comments_created"`
-	CommentsSkipped     int `json:"comments_skipped"`
-	AgentNotesCreated   int `json:"agent_notes_created"`
-	AgentNotesSkipped   int `json:"agent_notes_skipped"`
-	DependenciesCreated int `json:"dependencies_created"`
-	DependenciesSkipped int `json:"dependencies_skipped"`
-	LinksCreated        int `json:"links_created"`
-	LinksSkipped        int `json:"links_skipped"`
-	EventsCreated       int `json:"events_created"`
-	EventsSkipped       int `json:"events_skipped"`
-	AgentWorkCreated    int `json:"agent_work_created"`
-	AgentWorkSkipped    int `json:"agent_work_skipped"`
-	HistoryCreated      int `json:"agent_work_history_created"`
-	HistorySkipped      int `json:"agent_work_history_skipped"`
-}
-
-type PortableImportReport struct {
-	Format   string                `json:"format"`
-	Version  int                   `json:"version"`
-	DryRun   bool                  `json:"dry_run"`
-	Conflict string                `json:"conflict"`
-	Counts   PortableImportCounts  `json:"counts"`
-	Remaps   []PortableImportRemap `json:"remaps"`
-	Warnings []string              `json:"warnings"`
-	Errors   []PortableImportIssue `json:"errors"`
-}
-
 func (a *PortableArchive) normalize() {
+	normalizePortableChecklistOrder(a)
 	// Version 1 predates releases. Treat any release-shaped fields supplied by
 	// a permissive decoder as unknown v1 extensions so importing a legacy
 	// archive can never assign existing tasks to a release. Copy the task slice

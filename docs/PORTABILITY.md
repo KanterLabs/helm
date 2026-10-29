@@ -7,7 +7,21 @@ SQLite backup/restore tools used for disaster recovery.
 ## Format
 
 `GET /api/v1/projects/{project}/export` (or `GET /api/v1/export?project=...`)
-returns a JSON attachment with:
+defaults to the complete **version 4** JSON attachment. It preserves project
+checklist completion policy, task parent hierarchy and complete ordered checklist
+items alongside Focus membership, bugs, dependencies, comments, agent history
+and retained PR/audit history. See the [v4 preservation contract](PORTABLE_TRANSFER_V4.md).
+Private audit evidence is reauthorized before export; unavailable source access
+rejects the entire export.
+
+Explicit `?version=2` and `?version=3` exports remain available with warnings:
+versions 1–3 omit checklists, hierarchy and project completion policy; versions
+1–2 also omit PR/audit history. A new project imported from these old formats
+uses `warn` policy. Existing destination policy is retained. An old archive
+cannot safely retry onto tasks that already have checklist/hierarchy data; that
+ambiguous collision fails with a conflict requesting a v4 archive.
+
+A legacy v1 example (still readable, with omission warnings):
 
 ```json
 {
@@ -72,8 +86,12 @@ When an `Idempotency-Key` is supplied, the canonical import query options
 so reusing a key with different import behavior returns an idempotency conflict.
 
 Imports validate all records and relationships before the first insert. The
-actual operation then runs as one transaction and only inserts records: it
-does not update, delete, restore, or replace destination rows. Repeating an
+actual operation runs as one transaction and adds records. Parent edges are
+attached to newly inserted tasks after every referenced task exists. It never
+updates, deletes, restores or replaces pre-existing destination rows. V4 import
+into an existing project requires the same completion policy; mismatches fail
+without weakening safeguards. Checklist completion attribution follows the same
+actor remapping rule as other history. Repeating an
 archive is safe: equal stable records are skipped, while any attribution to
 the importing actor or destination remap is reported. Event cursors are
 instance-local SQLite sequence values, so imported events receive destination

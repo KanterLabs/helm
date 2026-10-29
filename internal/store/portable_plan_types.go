@@ -93,16 +93,17 @@ type portableEventPlan struct {
 }
 
 type portableEventPayloadMaps struct {
-	artifacts map[string]string
-	audits    map[string]string
-	findings  map[string]string
-	projects  map[string]string
-	releases  map[string]string
-	tasks     map[string]string
-	actors    map[string]string
-	comments  map[string]string
-	columns   map[string]string
-	labels    map[string]string
+	checklists map[string]string
+	artifacts  map[string]string
+	audits     map[string]string
+	findings   map[string]string
+	projects   map[string]string
+	releases   map[string]string
+	tasks      map[string]string
+	actors     map[string]string
+	comments   map[string]string
+	columns    map[string]string
+	labels     map[string]string
 }
 
 type portableWorkPlan struct {
@@ -122,6 +123,7 @@ type portableHistoryPlan struct {
 }
 
 type portableImportPlan struct {
+	checklistMap   map[string]string
 	github         portableGithubPlan
 	archive        PortableArchive
 	report         PortableImportReport

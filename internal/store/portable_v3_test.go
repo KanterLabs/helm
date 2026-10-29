@@ -67,7 +67,7 @@ func TestPortableV3PopulatedRoundTripAndLegacyBoundary(t *testing.T) {
 	ctx := context.Background()
 	source, actor, project, task := portableV3Fixture(t)
 	portableV3Populate(t, source, actor, project, task)
-	legacy, err := source.ExportPortable(ctx, []string{project.ID})
+	legacy, err := source.ExportPortableVersion(ctx, []string{project.ID}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
