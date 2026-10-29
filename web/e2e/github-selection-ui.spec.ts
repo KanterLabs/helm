@@ -1,16 +1,14 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { expectNoAuditMutations } from './support/auditContainment';
 import { API, columns, installGithubMocks, json, project, WEB } from './support/githubFixture';
 
 // Synthetic API overlays exercise the real mounted UI and in-app navigation.
+// TC-316 parks the audit-page repository editor and audit start; selection
+// stays in admin Settings and audit history keeps stale-response protection.
 test.use({ serviceWorkers: 'block' });
 
 const other = { ...project, id: 'project-gh-other', key: 'GHO', slug: 'github-other', name: 'Other GitHub project' };
 type Selection = { repository: string; ref: string };
-const ready = (repositories: Selection[]) => ({
-  ready: true, repositories,
-  github: { state: 'connected', message: 'Synthetic GitHub ready.' },
-  ai: { state: 'connected', message: 'Synthetic AI ready.' }
-});
 
 async function installProjects(page: Page): Promise<void> {
   await installGithubMocks(page);
@@ -52,14 +50,15 @@ test('clears old selection while a project loads and ignores its late save', asy
     // The backend sorts pairs by repository/ref; allowlist order differs.
     return json(route, { version: 4, repositories: [{ repository: API, ref: 'next' }, { repository: WEB, ref: 'main' }] });
   });
-  await page.goto(`/p/${project.slug}/audits`);
-  await page.getByRole('button', { name: 'GitHub repositories', exact: true }).click();
-  const panel = page.locator('[data-github-repositories]');
+  await page.goto('/settings');
+  const settings = page.locator('[data-github-settings]');
+  const panel = settings.locator('[data-github-repositories]');
   await expect(panel.getByRole('button', { name: 'Save repositories' })).toBeDisabled();
   await panel.getByLabel(`Branch for ${WEB}`, { exact: true }).fill('release');
   await panel.getByRole('button', { name: 'Save repositories' }).click();
   await expect.poll(() => Boolean(oldSave)).toBe(true);
-  await changeProject(page);
+  // The wrapping label's name includes the selected option, so target the control.
+  await settings.locator('.github-project select').selectOption(other.id);
   await expect.poll(() => Boolean(nextSelection)).toBe(true);
   await expect(panel.getByRole('textbox')).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Save repositories' })).toHaveCount(0);
@@ -90,9 +89,8 @@ test('keeps every selected branch when saving another repository', async ({ page
     }
     return json(route, selection);
   });
-  await page.goto(`/p/${project.slug}/audits`);
-  await page.getByRole('button', { name: 'GitHub repositories', exact: true }).click();
-  const panel = page.locator('[data-github-repositories]');
+  await page.goto('/settings');
+  const panel = page.locator('[data-github-settings] [data-github-repositories]');
   await expect(panel.getByRole('textbox', { name: `Branch for ${WEB}`, exact: false })).toHaveCount(2);
   await expect(panel.getByRole('button', { name: 'Save repositories' })).toBeDisabled();
   await panel.getByRole('checkbox', { name: API, exact: true }).check();
@@ -104,55 +102,23 @@ test('keeps every selected branch when saving another repository', async ({ page
   await page.screenshot({ path: testInfo.outputPath('multiple-branches-preserved.png'), fullPage: true });
 });
 
-test('reloads scope for a new project and ignores late previous-project readiness', async ({ page }, testInfo) => {
+test('the audit page has no repository editor or start, and ignores a late previous-project list', async ({ page }, testInfo) => {
   await installProjects(page);
-  let oldRoute: Route | undefined;
-  let reads = 0;
-  const starts: Array<{ project: string; body: unknown }> = [];
-  await page.route('**/api/v1/projects/*/github/readiness', async (route) => {
-    reads += 1;
-    if (route.request().url().includes(`/projects/${project.id}/`)) { oldRoute = route; return; }
-    return json(route, ready([{ repository: API, ref: 'other-only' }]));
-  });
-  await page.route('**/api/v1/projects/*/github-audits', async (route) => {
-    starts.push({ project: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });
-    return json(route, { error: { code: 'synthetic_stop', message: 'Captured scope request.' } }, 422);
-  });
+  let oldList: Route | undefined;
+  await page.route(new RegExp(`/api/v1/projects/${project.id}/audits(?:\\?|$)`), (route) => { oldList = route; });
   await page.goto(`/p/${project.slug}/audits`);
-  await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-  await expect.poll(() => Boolean(oldRoute)).toBe(true);
+  await expect.poll(() => Boolean(oldList)).toBe(true);
+  await expectNoAuditMutations(page);
   await changeProject(page);
-  const scope = page.locator('[data-github-audit-scope]');
-  await expect(scope.getByRole('checkbox', { name: `${API} @ other-only` })).toBeChecked();
-  const oldResponse = page.waitForResponse((response) => response.url().includes(`/projects/${project.id}/github/readiness`));
-  await json(oldRoute!, ready([{ repository: WEB, ref: 'old-only' }]));
+  await expect(page.getByRole('heading', { name: 'No recorded board audits', exact: true })).toBeVisible();
+  const oldResponse = page.waitForResponse((response) => response.url().includes(`/projects/${project.id}/audits`));
+  await json(oldList!, { data: [{ id: 'audit-late-old-project', project_id: project.id, scope: 'board', status: 'complete', finding_count: 2, created_at: '2026-10-26T10:00:00Z' }], next_cursor: null });
   await (await oldResponse).finished();
-  await expect(scope).not.toContainText('old-only');
-  await scope.getByRole('button', { name: 'Start audit', exact: true }).click();
-  await expect(scope).toContainText('Captured scope request.');
-  expect(reads).toBe(2);
-  expect(starts).toEqual([{ project: `/api/v1/projects/${other.id}/github-audits`, body: { repositories: [{ repository: API, ref: 'other-only' }], states: ['backlog', 'ready', 'active'] } }]);
-  await testInfo.attach('project-scoped-start', { body: JSON.stringify(starts, null, 2), contentType: 'application/json' });
-});
-
-test('ignores a late start response after switching projects', async ({ page }, testInfo) => {
-  await installProjects(page);
-  let pendingStart: Route | undefined;
-  await page.route('**/api/v1/projects/*/github/readiness', (route) => json(route, ready([{ repository: WEB, ref: 'main' }])));
-  await page.route(`**/api/v1/projects/${project.id}/github-audits`, (route) => { pendingStart = route; });
-  await page.goto(`/p/${project.slug}/audits`);
-  await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-  const scope = page.locator('[data-github-audit-scope]');
-  await scope.getByRole('button', { name: 'Start audit', exact: true }).click();
-  await expect.poll(() => Boolean(pendingStart)).toBe(true);
-  await changeProject(page);
-  await expect(scope.getByRole('button', { name: 'Start audit', exact: true })).toBeEnabled();
-  const oldResponse = page.waitForResponse((response) => response.url().includes(`/projects/${project.id}/github-audits`));
-  await json(pendingStart!, { audit: { id: 'late-old-project-audit' }, job: { audit_id: 'late-old-project-audit' } }, 202);
-  await (await oldResponse).finished();
-  // A browser frame drains the response callback before checking its navigation side effect.
+  // A browser frame drains the response callback before checking its side effect.
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect(page).toHaveURL(`/p/${other.slug}/audits`);
-  await expect(scope).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('late-start-ignored.png'), fullPage: true });
+  await expect(page.getByRole('button', { name: /audit-late-old-project/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'No recorded board audits', exact: true })).toBeVisible();
+  await expectNoAuditMutations(page);
+  await page.screenshot({ path: testInfo.outputPath('late-previous-project-list-ignored.png'), fullPage: true });
 });

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { api, repository, seed, selectRepository, sentinel, sourceSHA, startInUI, waitJob } from './support/githubBetaFixture';
+import { expectNoAuditMutations } from './support/auditContainment';
+import { api, repository, seed, selectRepository, sentinel, sourceSHA, startAudit, waitJob } from './support/githubBetaFixture';
 
 test.use({ trace: 'on' });
 
@@ -7,7 +8,7 @@ test.describe('GitHub beta real backend', () => {
   test.skip(process.env.HELM_GITHUB_BETA_E2E !== '1', 'Dedicated synthetic upstream harness required');
   test.setTimeout(120_000);
 
-  test('persists PRs, reviews exact evidence and explicitly applies only a safe unchanged Ready move', async ({ page }, info) => {
+  test('persists PRs, shows exact evidence read-only and applies only a safe unchanged Ready move through the API', async ({ page }, info) => {
     const leaks: string[] = [];
     page.on('response', async response => {
       if (response.url().includes('/api/')) {
@@ -33,7 +34,7 @@ test.describe('GitHub beta real backend', () => {
     await page.goto(`/p/${project.slug}`);
     await expect(page.locator('.task-card').filter({ hasText: tasks[0].title })).toContainText('#42');
 
-    const auditID = await startInUI(page, project);
+    const auditID = await startAudit(page.request, project);
     await page.goto(`/p/${project.slug}`);
     await waitJob(page.request, auditID);
     await page.goto(`/p/${project.slug}/audits/${auditID}`);
@@ -53,16 +54,19 @@ test.describe('GitHub beta real backend', () => {
     await finding.getByRole('button', { name: /ready.go/ }).click();
     await expect(finding.locator('[data-audit-evidence-viewer]')).toContainText(sourceSHA);
     await finding.getByRole('button', { name: 'Close', exact: true }).click();
-    await finding.getByRole('button', { name: 'Approve', exact: true }).click();
-    await expect(finding.locator('.audit-review-state')).toHaveText('Approved');
-    const approved = await api(page.request, 'GET', `/tasks/${tasks[0].id}`);
-    expect(approved.column_id).toBe(tasks[0].column_id);
-    await finding.getByRole('button', { name: 'Preview approved finding', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'Preview approved finding' })).toBeVisible();
+    // TC-316: the UI is read-only; the retained API carries the human lifecycle.
+    await expectNoAuditMutations(page);
+    const target = findings.find((item: { task_id: string }) => item.task_id === tasks[0].id);
+    await api(page.request, 'PATCH', `/audit-findings/${target.id}`, { review_state: 'approved' }, target.version);
     expect((await api(page.request, 'GET', `/tasks/${tasks[0].id}`)).column_id).toBe(tasks[0].column_id);
-    await page.getByRole('button', { name: 'Continue to apply', exact: true }).click();
-    await page.getByRole('alertdialog', { name: 'Apply this move?' }).getByRole('button', { name: 'Apply move', exact: true }).click();
-    await expect(page.getByRole('alertdialog', { name: 'Apply this move?' })).toBeHidden();
+    const preview = await api(page.request, 'POST', `/audits/${auditID}/apply`, { finding_ids: [target.id], preview: true });
+    expect(preview.data[0].outcome).toBe('eligible');
+    expect((await api(page.request, 'GET', `/tasks/${tasks[0].id}`)).column_id).toBe(tasks[0].column_id);
+    const applied = await api(page.request, 'POST', `/audits/${auditID}/apply`, { finding_ids: [target.id], preview: false });
+    expect(applied.data[0].outcome).toBe('applied');
+    await page.reload();
+    await expect(finding.locator('.audit-review-state')).toHaveText('Approved');
+    await expectNoAuditMutations(page);
     const columns = (await api(page.request, 'GET', `/projects/${project.id}/columns`)).data;
     expect((await api(page.request, 'GET', `/tasks/${tasks[0].id}`)).column_id).toBe(columns.find((c: { semantic_state: string }) => c.semantic_state === 'ready').id);
     expect((await api(page.request, 'GET', `/tasks/${tasks[1].id}`)).column_id).toBe(tasks[1].column_id);
@@ -98,19 +102,21 @@ test.describe('GitHub beta real backend', () => {
     await api(page.request, 'POST', '/integrations/github/check');
   });
 
-  test('audits a branch without PRs and fences cancellation before explicit retry', async ({ page }, info) => {
+  test('audits a branch without PRs and fences API cancellation before explicit retry', async ({ page }, info) => {
     const { project, tasks } = await seed(page.request, `B${Date.now().toString().slice(-7)}`);
     await selectRepository(page, project);
     await page.request.put('/__githubbeta/state', { data: { delay_ms: 8000 } });
-    const auditID = await startInUI(page, project);
+    const auditID = await startAudit(page.request, project);
     await page.goto(`/p/${project.slug}/audits/${auditID}`);
     await expect.poll(async () => (await api(page.request, 'GET', `/audits/${auditID}/job`)).stage).toBe('analyzing');
-    await page.getByRole('button', { name: /Cancel audit/i }).click();
+    await expectNoAuditMutations(page);
+    await api(page.request, 'POST', `/audits/${auditID}/cancel`);
     await waitJob(page.request, auditID, 'cancelled');
+    await page.reload();
+    await expect(page.locator('[data-github-audit-job]')).toHaveAttribute('data-outcome', 'cancelled');
+    await expectNoAuditMutations(page);
     await page.request.put('/__githubbeta/state', { data: { delay_ms: 0 } });
-    const retryResponse = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith(`/audits/${auditID}/retry`));
-    await page.getByRole('button', { name: /Retry audit/i }).click();
-    const retryID = (await (await retryResponse).json()).audit.id;
+    const retryID = (await api(page.request, 'POST', `/audits/${auditID}/retry`, undefined, undefined, `beta-retry-${auditID}`)).audit.id;
     const job = await waitJob(page.request, retryID);
     expect(job.retry_of).toBe(auditID);
     const evidence = await api(page.request, 'GET', `/audits/${retryID}/evidence`);

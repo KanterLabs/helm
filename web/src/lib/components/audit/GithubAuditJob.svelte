@@ -10,6 +10,8 @@
   export let onJob: (job: GithubAuditJob | null) => void = () => undefined;
   export let onFinished: (job: GithubAuditJob) => void = () => undefined;
   export let onRetried: (auditId: string) => void = () => undefined;
+  /** TC-316: false parks Cancel and Retry; progress and outcome stay readable. */
+  export let actionsAvailable = false;
 
   let job: GithubAuditJob | null = null;
   let error = '';
@@ -70,7 +72,7 @@
   }
 
   async function cancel(): Promise<void> {
-    if (!job || cancelling) return;
+    if (!actionsAvailable || !job || cancelling) return;
     cancelling = true;
     error = '';
     try {
@@ -83,7 +85,7 @@
   }
 
   async function retry(): Promise<void> {
-    if (!job || retrying) return;
+    if (!actionsAvailable || !job || retrying) return;
     retrying = true;
     error = '';
     try {
@@ -111,10 +113,10 @@
         <h2 id="gh-job-heading">{jobStageLabel(job)}</h2>
         <p role="status">{jobOutcomeHelp(job)}</p>
       </div>
-      <div class="gh-job-actions">
+      {#if actionsAvailable}<div class="gh-job-actions">
         {#if jobActive(job)}<button class="button quiet-button compact-button" type="button" disabled={cancelling} on:click={() => void cancel()}>{#if cancelling}<span class="button-spinner"></span>{/if}Cancel audit</button>{/if}
         {#if canRetry(job)}<button class="button primary compact-button" type="button" disabled={retrying} on:click={() => void retry()}>{#if retrying}<span class="button-spinner"></span>{/if}Retry audit</button>{/if}
-      </div>
+      </div>{/if}
     </div>
     {#if jobActive(job)}
       <ol class="gh-job-steps" aria-label="Audit stages">

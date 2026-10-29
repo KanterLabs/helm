@@ -5,6 +5,8 @@ import { workspace } from './workspace.svelte';
 class RoadmapDataState {
   roadmapRequest = $state.raw(0);
   roadmap = $state.raw<RoadmapSummary | null>(null);
+  /** Scope of `roadmap`: '' for the workspace, otherwise the project ID. */
+  roadmapScope = $state.raw<string | null>(null);
   roadmapProjectId = $state.raw<string | undefined>();
   roadmapLoading = $state.raw(false);
   roadmapError = $state.raw('');
@@ -30,8 +32,19 @@ class RoadmapDataState {
   roadmapDueSoon = $derived(roadmapData.roadmap?.due_soon_count ?? roadmapData.roadmap?.due_soon ?? 0);
   roadmapUpcoming = $derived(roadmapData.roadmap?.upcoming_tasks ?? roadmapData.roadmap?.upcoming ?? []);
   roadmapProject = $derived(workspace.projects.find((project) => project.id === roadmapData.roadmapProjectId));
+  /** Figures are shown only for the scope on screen and never after a failed read. */
+  roadmapSummaryCurrent = $derived(Boolean(roadmapData.roadmap) && !roadmapData.roadmapError
+    && roadmapData.roadmapScope === (roadmapData.roadmapProjectId ?? ''));
   roadmapActivityEvents = $derived(roadmapData.roadmap?.recent_activity ?? []);
-  roadmapProjectRowsUnordered = $derived(roadmapData.roadmap?.projects?.length
+  roadmapProjectRowsUnordered = $derived(roadmapData.roadmapProject
+    // A project-scoped summary describes only that project.
+    ? [{
+        project: roadmapData.roadmapProject,
+        total_tasks: roadmapData.roadmapTotal,
+        completed_tasks: roadmapData.roadmapCompleted,
+        completion_percentage: roadmapData.roadmapCompletion
+      }]
+    : roadmapData.roadmap?.projects?.length
     ? roadmapData.roadmap.projects
     : workspace.projects.map((project) => ({
         project,

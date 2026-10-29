@@ -17,6 +17,7 @@
   import GithubAuditJobPanel from './audit/GithubAuditJob.svelte';
   import { evidenceIndex, loadMissingTasks } from './audit/githubAudit';
   import { createAuditHelpers, verdicts, verdictLabels } from './audit/helpers';
+  import { auditReviewActionsAvailable as actionsAvailable } from './audit/capability';
   import {
     ApiError,
     type AuditDetail,
@@ -194,6 +195,7 @@
   }
 
   function onStarted(auditId: string): void {
+    if (!actionsAvailable) return;
     onNotice('success', 'Audit started on the server. You can leave this page; nothing moves until you apply it.');
     auditFocus.announce('Audit started. No task moves were applied.');
     showAudit(auditId);
@@ -247,7 +249,7 @@
   }
 
   async function updateFinding(finding: AuditFinding, patch: AuditFindingPatch, actionLabel: string): Promise<void> {
-    if (!selectedAudit || !finding.id || activeMutation) return;
+    if (!actionsAvailable || !selectedAudit || !finding.id || activeMutation) return;
     if (!helpers.auditReadyForReview()) {
       detailError = 'The agent must finish this audit before findings can be reviewed.';
       return;
@@ -291,7 +293,7 @@
   }
 
   function openPreview(finding: AuditFinding): void {
-    applyFlow?.openPreview(finding);
+    if (actionsAvailable) applyFlow?.openPreview(finding);
   }
 
   function rememberTask(task: Task): void {
@@ -305,19 +307,19 @@
 <section class="audit-review" aria-labelledby="audit-heading">
   {#if selectedAuditId && selectedAudit}
     <AuditDetailHeading {helpers} {selectedAudit} {selectedAuditId} {detailLoading} {listLoading}
-      {detailError} {refresh} {showList} {loadAuditDetail} {serverRun} />
-    <GithubAuditJobPanel auditId={selectedAuditId} {onJob} onFinished={() => void refresh()} onRetried={showAudit} />
+      {detailError} {refresh} {showList} {loadAuditDetail} {serverRun} {actionsAvailable} />
+    <GithubAuditJobPanel auditId={selectedAuditId} {actionsAvailable} {onJob} onFinished={() => void refresh()} onRetried={showAudit} />
     <AuditEvidenceManifest auditId={selectedAuditId} enabled={evidenceReady} reloadKey={`${evidenceRevision}:${job?.stage === 'finished' ? 'final' : 'capture'}`} onEvidence={(next) => { evidence = next; }} onUnavailable={clearProtectedContent} />
     {#if detailLoading && !findings.length}
       <div class="audit-loading" aria-label="Loading audit findings"><div></div><div></div><div></div></div>
     {:else}
       <section class="audit-summary" aria-label="Audit summary">
-        <div><span class="eyebrow">{project.name} · {selectedAudit.scope || 'Board scope'}</span><h2>{findings.length} {findings.length === 1 ? 'finding' : 'findings'} to review</h2><p>Captured {helpers.formatDate(selectedAudit.started_at || selectedAudit.created_at)} · {helpers.ageLabel(selectedAudit)}{#if selectedAudit.finalized_at} · Finalized {helpers.formatDate(selectedAudit.finalized_at)}{/if}</p></div>
+        <div><span class="eyebrow">{project.name} · {selectedAudit.scope || 'Board scope'}</span><h2>{findings.length} {findings.length === 1 ? 'finding' : 'findings'} {actionsAvailable ? 'to review' : 'recorded'}</h2><p>Captured {helpers.formatDate(selectedAudit.started_at || selectedAudit.created_at)} · {helpers.ageLabel(selectedAudit)}{#if selectedAudit.finalized_at} · Finalized {helpers.formatDate(selectedAudit.finalized_at)}{/if}</p></div>
         <div class="audit-summary-metrics"><span><strong>{approvedCount}</strong> approved</span><span><strong>{pendingCount}</strong> pending</span>{#if changedCount}<span class="changed-metric"><strong>{changedCount}</strong> changed</span>{/if}</div>
       </section>
       <AuditFindingGroups {helpers} {groupedFindings} {columns} {editingFindingId} bind:destinationDraft
         {activeMutation} {saveDestination} {cancelDestination} {editDestination} {approveFinding}
-        {dismissFinding} {openPreview} projectSlug={project.slug} {evidenceItems} {onOpenTask} />
+        {dismissFinding} {openPreview} projectSlug={project.slug} {evidenceItems} {onOpenTask} {actionsAvailable} />
     {/if}
   {:else if selectedAuditId && detailError}
     <section class="page-heading audit-heading">
@@ -327,11 +329,11 @@
     <div class="inline-alert error content-alert" role="alert"><span>{detailError}</span><button class="text-button" type="button" on:click={() => loadAuditDetail(selectedAuditId)}>Retry</button></div>
   {:else}
     <AuditRunList {helpers} {project} {audits} {listLoading} {listError}
-      {refresh} {openAudit} {onStarted} onOpenExisting={showAudit} />
+      {refresh} {openAudit} {onStarted} onOpenExisting={showAudit} {actionsAvailable} />
   {/if}
 </section>
 
-{#if selectedAudit}
+{#if selectedAudit && actionsAvailable}
 {#key `${currentProjectId}:${sessionGeneration}:${selectedAuditId}`}
 <AuditApplyFlow bind:this={applyFlow} {helpers} {columns} auditId={selectedAuditId} {serverRun} focus={auditFocus}
   sessionKey={`${currentProjectId}:${sessionGeneration}`} {onTaskUpdated} {onNotice}

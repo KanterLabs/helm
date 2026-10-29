@@ -38,6 +38,8 @@ export type GithubMockOptions = {
   tasksOffBoard?: boolean;
   evidenceError?: boolean;
   slowRefresh?: boolean;
+  /** Seed server-run audit history (finished, running, cancelled). */
+  auditHistory?: boolean;
 };
 
 export type GithubMockState = {

@@ -7,13 +7,14 @@ export const sentinel = ['HELM_GITHUB_BETA_', 'SENTINEL_DO_NOT_EXPOSE_', '74bf8c
 export type BetaTask = { id: string; key: string; title: string; version: number; column_id: string };
 export type BetaProject = { id: string; slug: string; key: string; name: string };
 
-export async function api(request: APIRequestContext, method: string, path: string, body?: unknown, version?: number) {
+export async function api(request: APIRequestContext, method: string, path: string, body?: unknown, version?: number, key?: string) {
   const response = await request.fetch(`/api/v1${path}`, {
     method,
     data: body,
     headers: {
       Origin: process.env.HELM_E2E_BASE_URL || 'http://127.0.0.1:18082',
       ...(version === undefined ? {} : { 'If-Match': `"v${version}"` }),
+      ...(key === undefined ? {} : { 'Idempotency-Key': key }),
     },
   });
   const text = await response.text();
@@ -31,27 +32,22 @@ export async function seed(request: APIRequestContext, suffix: string): Promise<
   return { project, tasks };
 }
 
+// TC-316 parks the audit-page editor and audit start in the UI; the retained
+// API lifecycle is driven directly and the UI is checked read-only.
 export async function selectRepository(page: Page, project: BetaProject) {
-  await page.goto(`/p/${project.slug}/audits`);
-  await page.getByRole('button', { name: /GitHub repositor/i }).click();
-  await page.getByRole('checkbox', { name: repository, exact: true }).check();
-  await page.getByRole('textbox', { name: `Branch for ${repository}`, exact: true }).fill('main');
-  await page.getByRole('button', { name: /Save repositor/i }).click();
+  const current = await api(page.request, 'GET', `/projects/${project.id}/github`);
+  await api(page.request, 'PUT', `/projects/${project.id}/github`, { repositories: [{ repository, ref: 'main' }] }, current.version);
   await expect.poll(async () => (await api(page.request, 'GET', `/projects/${project.id}/github`)).repositories)
     .toEqual([{ repository, ref: 'main' }]);
+}
+
+export async function startAudit(request: APIRequestContext, project: BetaProject): Promise<string> {
+  const started = await api(request, 'POST', `/projects/${project.id}/github-audits`,
+    { repositories: [{ repository, ref: 'main' }], states: ['backlog', 'ready', 'active'] }, undefined, `beta-start-${project.id}`);
+  return started.audit.id;
 }
 
 export async function waitJob(request: APIRequestContext, auditID: string, outcome = 'complete') {
   await expect.poll(async () => (await api(request, 'GET', `/audits/${auditID}/job`)).outcome, { timeout: 35_000 }).toBe(outcome);
   return api(request, 'GET', `/audits/${auditID}/job`);
-}
-
-export async function startInUI(page: Page, project: BetaProject): Promise<string> {
-  await page.goto(`/p/${project.slug}/audits`);
-  const response = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith(`/projects/${project.id}/github-audits`));
-  await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-  await page.getByRole('button', { name: /Start audit|Run audit now/i }).click();
-  const started = await response;
-  expect(started.status()).toBe(202);
-  return (await started.json()).audit.id;
 }

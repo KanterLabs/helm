@@ -39,7 +39,7 @@ export function serverFindings(auditId: string): Json[] {
 
 type AuditMockContext = {
   findTask: (id: string) => Json | undefined;
-  options: { evidenceError?: boolean };
+  options: { evidenceError?: boolean; auditHistory?: boolean };
 };
 
 export function createAuditMock({ findTask, options }: AuditMockContext) {
@@ -47,6 +47,7 @@ export function createAuditMock({ findTask, options }: AuditMockContext) {
   const jobs = new Map<string, Json>();
   const findings = new Map<string, Json[]>([['audit-external', []]]);
   let nextAudit = 1;
+  if (options.auditHistory) seedHistory();
 
   /** Returns null when the request is not an audit route. */
   function handle(route: Route, method: string, path: string, parts: string[], body: any): Promise<void> | null {
@@ -115,6 +116,25 @@ export function createAuditMock({ findTask, options }: AuditMockContext) {
     jobs.set(id, job);
     findings.set(id, []);
     return { audit: run, job };
+  }
+
+  /** Server-run history recorded before audits were parked: finished, running and cancelled. */
+  function seedHistory(): void {
+    const job = (id: string, extra: Json) => ({
+      audit_id: id, project_id: project.id, created_at: stamp, updated_at: stamp, task_count: 4, captured_files: 6, omitted_files: 1, ...extra
+    });
+    const finished = 'audit-gh-partial';
+    runs.push(auditRun(finished, 'partial', { finding_count: 3, finalized_at: stamp }));
+    jobs.set(finished, job(finished, { stage: 'finished', outcome: 'partial', message: 'One binary file was omitted.', finished_at: stamp }));
+    findings.set(finished, serverFindings(finished));
+    const running = 'audit-gh-running';
+    runs.push(auditRun(running, 'running'));
+    jobs.set(running, job(running, { stage: 'fetching', outcome: '', message: 'Reading GitHub.', paused: true }));
+    findings.set(running, []);
+    const cancelled = 'audit-gh-cancelled';
+    runs.push(auditRun(cancelled, 'failed'));
+    jobs.set(cancelled, job(cancelled, { stage: 'finished', outcome: 'cancelled', message: 'Cancelled by Synthetic reviewer.', finished_at: stamp }));
+    findings.set(cancelled, []);
   }
 
   function advance(job: Json, run: Json): void {
