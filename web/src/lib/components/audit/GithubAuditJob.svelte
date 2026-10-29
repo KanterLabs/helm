@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { api } from '../../api';
   import { ApiError, type GithubAuditJob } from '../../types';
-  import { canRetry, coverageParts, jobActive, jobOutcomeHelp, jobStageLabel, jobStages, jobStepState, JOB_POLL_MS } from './githubAudit';
+  import { canRetry, coverageParts, jobActive, jobEndedWithoutResults, jobOutcomeHelp, jobStageLabel, jobStages, jobStepState, JOB_POLL_MS } from './githubAudit';
 
   /** Durable server job progress. Navigation never cancels it; only Cancel does. */
   export let auditId: string;
@@ -10,6 +10,8 @@
   export let onJob: (job: GithubAuditJob | null) => void = () => undefined;
   export let onFinished: (job: GithubAuditJob) => void = () => undefined;
   export let onRetried: (auditId: string) => void = () => undefined;
+  /** Results lead once they exist; the run collapses to its technical details. */
+  export let compact = false;
 
   let job: GithubAuditJob | null = null;
   let error = '';
@@ -104,28 +106,35 @@
 </script>
 
 {#if job}
-  <section class="gh-job" data-github-audit-job data-stage={job.stage} data-outcome={job.outcome} aria-labelledby="gh-job-heading">
-    <div class="gh-job-top">
-      <div>
-        <span class="eyebrow">Server-run GitHub audit</span>
-        <h2 id="gh-job-heading">{jobStageLabel(job)}</h2>
-        <p role="status">{jobOutcomeHelp(job)}</p>
+  <section class="gh-job" class:compact={compact && !jobActive(job) && !jobEndedWithoutResults(job)} data-github-audit-job data-column-audit-run data-stage={job.stage} data-outcome={job.outcome} aria-labelledby="gh-job-heading">
+    {#if !(compact && !jobActive(job) && !jobEndedWithoutResults(job))}
+      <div class="gh-job-top">
+        <div>
+          <span class="eyebrow">Column audit</span>
+          <h2 id="gh-job-heading">{!jobActive(job) ? jobStageLabel(job) : job.task_count ? `Auditing ${job.task_count} ${job.task_count === 1 ? 'card' : 'cards'}` : 'Starting column audit'}</h2>
+          <p role="status">{jobOutcomeHelp(job)}</p>
+        </div>
+        <div class="gh-job-actions">
+          {#if jobActive(job)}<button class="button quiet-button compact-button" type="button" disabled={cancelling} on:click={() => void cancel()}>{#if cancelling}<span class="button-spinner"></span>{/if}Cancel audit</button>{/if}
+          {#if canRetry(job)}<button class="button primary compact-button" type="button" disabled={retrying} on:click={() => void retry()}>{#if retrying}<span class="button-spinner"></span>{/if}Retry audit</button>{/if}
+        </div>
       </div>
-      <div class="gh-job-actions">
-        {#if jobActive(job)}<button class="button quiet-button compact-button" type="button" disabled={cancelling} on:click={() => void cancel()}>{#if cancelling}<span class="button-spinner"></span>{/if}Cancel audit</button>{/if}
-        {#if canRetry(job)}<button class="button primary compact-button" type="button" disabled={retrying} on:click={() => void retry()}>{#if retrying}<span class="button-spinner"></span>{/if}Retry audit</button>{/if}
-      </div>
-    </div>
-    {#if jobActive(job)}
-      <ol class="gh-job-steps" aria-label="Audit stages">
-        {#each jobStages as stage, index}
-          <li data-step={jobStepState(job, index)} aria-current={jobStepState(job, index) === 'current' ? 'step' : undefined}><span aria-hidden="true">{jobStepState(job, index) === 'done' ? '✓' : jobStepState(job, index) === 'current' ? '◌' : '·'}</span>{stage.label}</li>
-        {/each}
-      </ol>
+      {#if jobActive(job)}
+        <ol class="gh-job-steps" aria-label="Audit stages">
+          {#each jobStages as stage, index}
+            <li data-step={jobStepState(job, index)} aria-current={jobStepState(job, index) === 'current' ? 'step' : undefined}><span aria-hidden="true">{jobStepState(job, index) === 'done' ? '✓' : jobStepState(job, index) === 'current' ? '◌' : '·'}</span>{stage.label}</li>
+          {/each}
+        </ol>
+      {/if}
     {/if}
-    <p class="gh-job-coverage">{coverageParts(job).join(' · ')}</p>
-    {#if job.message}<p class="gh-job-message">{job.message}</p>{/if}
-    {#if job.retry_of}<p class="gh-job-meta">Retry of <span class="gh-mono">{job.retry_of}</span></p>{/if}
+    <details class="gh-job-details">
+      <summary>Run details</summary>
+      <p class="gh-job-coverage">{jobStageLabel(job)} · {coverageParts(job).join(' · ')}</p>
+      {#if job.message}<p class="gh-job-message">{job.message}</p>{/if}
+      <p class="gh-job-meta">Started {new Date(job.created_at).toLocaleString()}{#if job.finished_at} · Finished {new Date(job.finished_at).toLocaleString()}{/if}</p>
+      {#if job.retry_of}<p class="gh-job-meta">Retry of <span class="gh-mono">{job.retry_of}</span></p>{/if}
+      <slot />
+    </details>
     {#if error}<p class="gh-job-error" role="alert">{error}</p>{/if}
   </section>
 {:else if error}
@@ -146,4 +155,7 @@
   .gh-job .gh-job-message { font-size: var(--text-xs); }
   .gh-job .gh-job-error { color: var(--semantic-red); font-size: var(--text-xs); }
   .gh-mono { font-family: var(--font-mono); }
+  .gh-job.compact { padding: 8px 14px; background: transparent; }
+  .gh-job-details summary { color: var(--muted); font-size: var(--text-xs); cursor: pointer; }
+  .gh-job-details[open] { display: grid; gap: 6px; }
 </style>

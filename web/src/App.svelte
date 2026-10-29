@@ -7,6 +7,7 @@
   import { onMount, untrack } from 'svelte';
   import { retainSelectedTaskSnapshots } from './app/bulk';
   import { openWorkTask } from './app/drawer/open';
+  import { openAuditedTask } from './app/columnAudit';
   import { readExploreZoom, syncExploreFromLocation } from './app/explore';
   import { toast } from './app/feedback';
   import { syncIssueViewURL } from './app/issues';
@@ -209,6 +210,7 @@
               onNavigate={navigateAudit}
               onNotice={toast}
               onTaskUpdated={(updated) => replaceTask(updated, true)}
+              onOpenTaskId={(taskId) => void openAuditedTask(taskId)}
             />
           {:else}
             <div class="empty-state welcome-state"><div class="welcome-orbit"><span>R</span></div><span class="eyebrow">Choose a project</span><h1>Audits live with a board.</h1><p>Select a project first, then review its captured board audits.</p><button class="button primary button-large" type="button" on:click={() => setView('board')}>Browse projects</button></div>

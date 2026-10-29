@@ -1,5 +1,6 @@
 import type { AuditRun } from './audits';
 import type { Task } from './tasks';
+import type { AuditBaselineChoice, AuditBaselinePin } from './columnAudit';
 
 // GitHub beta wire shapes. Source of truth: docs/GITHUB_BETA_API.md.
 
@@ -111,6 +112,8 @@ export interface GithubAuditJob {
 
 /** `states` and `task_ids` are alternative scopes; never send both. */
 export interface GithubAuditStartInput {
+  /** Explicit PR head for one selected repository; omission keeps the saved ref. */
+  baseline?: AuditBaselineChoice;
   repositories?: GithubRepositorySelection[];
   states?: string[];
   task_ids?: string[];
@@ -134,6 +137,12 @@ export interface GithubEvidenceItem {
   end_line?: number;
   text: string;
   task_ids?: string[];
+  ref?: string;
+  /** `baseline`, `linked_pr` or `task_context`. */
+  source_role?: string;
+  /** e.g. `implementation`, `test_source`, `observed_check`, `pull_request`, `task_fact`. */
+  evidence_class?: string;
+  criterion_ids?: string[];
 }
 
 /** Task identity as captured by the run, independent of board pagination. */
@@ -147,6 +156,7 @@ export interface GithubAuditTask {
   semantic_state?: string;
   column_name?: string;
   criteria: string[];
+  kind?: string;
 }
 
 export interface GithubAuditEvidence {
@@ -155,9 +165,13 @@ export interface GithubAuditEvidence {
   partial: boolean;
   omitted_files?: number;
   omissions: string[];
-  repositories: (GithubRepositorySelection & { sha: string; repository_id?: number })[];
+  repositories: AuditBaselinePin[];
   items: GithubEvidenceItem[];
   tasks: GithubAuditTask[];
+  assessment_version?: number;
+  criterion_gaps?: { task_id: string; criterion_id?: string; source_role: string; path?: string; code: string; message: string }[];
+  source_coverage?: { repository: string; ref: string; sha: string; source_role: string; indexed_files: number; inspected_files: number; unread_files: number; index_partial: boolean }[];
+  retrieval_budget?: Record<string, number>;
 }
 
 export type GithubApplyOutcome = 'eligible' | 'applied' | 'skipped' | 'needs_follow_up';

@@ -19,6 +19,8 @@ async function installProjects(page: Page): Promise<void> {
     if (path === '/projects') return json(route, { data: [project, other], next_cursor: null });
     if (path.startsWith(`/projects/${other.id}/`)) {
       if (path.endsWith('/columns')) return json(route, { data: columns.map((column) => ({ ...column, project_id: other.id })), next_cursor: null });
+      // Audit columns counts cards through server pagination; one card keeps start enabled.
+      if (path.endsWith('/tasks')) return json(route, { data: [{ id: 'other-task-1', key: 'OTH-1', project_id: other.id, column_id: columns[0].id, title: 'Other project card', version: 1 }], next_cursor: null });
       if (!path.includes('/github')) return json(route, { data: [], next_cursor: null });
     }
     return route.fallback();
@@ -119,19 +121,19 @@ test('reloads scope for a new project and ignores late previous-project readines
     return json(route, { error: { code: 'synthetic_stop', message: 'Captured scope request.' } }, 422);
   });
   await page.goto(`/p/${project.slug}/audits`);
-  await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+  await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
   await expect.poll(() => Boolean(oldRoute)).toBe(true);
   await changeProject(page);
-  const scope = page.locator('[data-github-audit-scope]');
-  await expect(scope.getByRole('checkbox', { name: `${API} @ other-only` })).toBeChecked();
+  const scope = page.locator('[data-column-audit-scope]');
+  await expect(scope.getByLabel(`Baseline for ${API}`)).toContainText('other-only (saved branch)');
   const oldResponse = page.waitForResponse((response) => response.url().includes(`/projects/${project.id}/github/readiness`));
   await json(oldRoute!, ready([{ repository: WEB, ref: 'old-only' }]));
   await (await oldResponse).finished();
   await expect(scope).not.toContainText('old-only');
-  await scope.getByRole('button', { name: 'Start audit', exact: true }).click();
+  await scope.getByRole('button', { name: /^Audit \d+ cards?$/ }).click();
   await expect(scope).toContainText('Captured scope request.');
   expect(reads).toBe(2);
-  expect(starts).toEqual([{ project: `/api/v1/projects/${other.id}/github-audits`, body: { repositories: [{ repository: API, ref: 'other-only' }], states: ['backlog', 'ready', 'active'] } }]);
+  expect(starts).toEqual([{ project: `/api/v1/projects/${other.id}/github-audits`, body: {} }]);
   await testInfo.attach('project-scoped-start', { body: JSON.stringify(starts, null, 2), contentType: 'application/json' });
 });
 
@@ -141,12 +143,12 @@ test('ignores a late start response after switching projects', async ({ page }, 
   await page.route('**/api/v1/projects/*/github/readiness', (route) => json(route, ready([{ repository: WEB, ref: 'main' }])));
   await page.route(`**/api/v1/projects/${project.id}/github-audits`, (route) => { pendingStart = route; });
   await page.goto(`/p/${project.slug}/audits`);
-  await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-  const scope = page.locator('[data-github-audit-scope]');
-  await scope.getByRole('button', { name: 'Start audit', exact: true }).click();
+  await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
+  const scope = page.locator('[data-column-audit-scope]');
+  await scope.getByRole('button', { name: /^Audit \d+ cards?$/ }).click();
   await expect.poll(() => Boolean(pendingStart)).toBe(true);
   await changeProject(page);
-  await expect(scope.getByRole('button', { name: 'Start audit', exact: true })).toBeEnabled();
+  await expect(scope.getByRole('button', { name: /^Audit \d+ cards?$/ })).toBeEnabled();
   const oldResponse = page.waitForResponse((response) => response.url().includes(`/projects/${project.id}/github-audits`));
   await json(pendingStart!, { audit: { id: 'late-old-project-audit' }, job: { audit_id: 'late-old-project-audit' } }, 202);
   await (await oldResponse).finished();

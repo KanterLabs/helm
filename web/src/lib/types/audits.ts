@@ -1,4 +1,5 @@
 import type { Column, SemanticState } from './core';
+import type { AssessmentSummary, GithubAssessment } from './columnAudit';
 import type { Task } from './tasks';
 
 /** A server-owned board audit lifecycle state. */
@@ -28,6 +29,8 @@ export interface AuditRun {
   finding_count?: number;
   findings_count?: number;
   counts?: Partial<Record<AuditVerdict, number>> & Record<string, number>;
+  /** Present for v2 column audits; balances independently of findings pages. */
+  assessment_summary?: AssessmentSummary;
   findings?: AuditFinding[];
 }
 
@@ -50,6 +53,8 @@ export interface AuditFinding {
   current_column?: string | Pick<Column, 'id' | 'name' | 'semantic_state'>;
   current_column_id?: string;
   changed_since_audit?: boolean;
+  /** Immutable v2 observation. Absent on legacy/external findings. */
+  assessment?: GithubAssessment;
   current_task?: Task;
   task?: Task;
   current?: {

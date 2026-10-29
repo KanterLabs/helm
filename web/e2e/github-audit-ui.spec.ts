@@ -14,10 +14,10 @@ async function openAudits(page: Page): Promise<void> {
 }
 
 async function startAudit(page: Page, state: GithubMockState): Promise<string> {
-  await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-  const scope = page.locator('[data-github-audit-scope]');
+  await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
+  const scope = page.locator('[data-column-audit-scope]');
   await expect(scope.getByText('GitHub access is ready.')).toBeVisible();
-  await scope.getByRole('button', { name: 'Start audit', exact: true }).dblclick();
+  await scope.getByRole('button', { name: /^Audit \d+ cards?$/ }).dblclick();
   await expect(page).toHaveURL(/\/audits\/audit-gh-\d+$/);
   const posts = writes(state, 'POST', '/github-audits');
   expect(new Set(posts.map((post) => post.key)).size).toBe(1);
@@ -67,21 +67,22 @@ test.describe('Server-run GitHub audits', () => {
     await repos.getByRole('button', { name: 'Save repositories' }).click();
     await expect(repos).toContainText('Repositories saved');
 
-    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-    const scope = page.locator('[data-github-audit-scope]');
+    await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
+    const scope = page.locator('[data-column-audit-scope]');
     await expect(scope).toContainText('demo-org/helm-api');
     await expect(scope).toContainText('Your AI connection is ready.');
-    await expect(scope.getByRole('checkbox', { name: 'Backlog' })).toBeChecked();
-    await expect(scope.getByRole('checkbox', { name: 'Blocked' })).not.toBeChecked();
+    // Column audits default to every card, including Done and Blocked.
+    await expect(scope.getByRole('radio', { name: /All cards/ })).toBeChecked();
+    await expect(scope).toContainText(/Includes \d+ Done and \d+ Blocked/);
     await expect(scope.getByText(/terminal|local agent|copy this request/i)).toHaveCount(0);
-    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
+    await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
     await expect(scope).toBeHidden();
 
     const auditId = await startAudit(page, state);
-    expect(writes(state, 'POST', '/github-audits')[0].body).toMatchObject({ states: ['backlog', 'ready', 'active'] });
+    expect(writes(state, 'POST', '/github-audits')[0].body).toEqual({});
     state.jobs.get(auditId)!.paused = true;
     const job = page.locator('[data-github-audit-job]');
-    await expect(job).toContainText(/Queued|Reading GitHub/);
+    await expect(job).toContainText(/Waiting to start|Reading committed work/);
     await expect(job.getByRole('button', { name: 'Cancel audit' })).toBeEnabled();
 
     // Leaving and returning reads server state; navigation never cancels the run.
@@ -90,11 +91,11 @@ test.describe('Server-run GitHub audits', () => {
     await expect(job).toBeVisible();
     expect(writes(state, 'POST', '/cancel')).toHaveLength(0);
     state.jobs.get(auditId)!.paused = false;
-    await expect(job).toContainText('Partial', { timeout: 20_000 });
+    await expect(job).toContainText('Audit finished', { timeout: 20_000 });
     await expect(job).toContainText('One binary file was omitted.');
-    await expect(job).toContainText('4 tasks');
-    await expect(job).toContainText('6 files captured');
-    await expect(job).toContainText('1 omitted');
+    await expect(job).toContainText('4 cards');
+    await expect(job).toContainText('6 files read');
+    await expect(job).toContainText('1 not read');
     await expect(job.getByRole('button', { name: 'Cancel audit' })).toHaveCount(0);
 
     const manifest = page.locator('[data-audit-evidence-manifest]');
@@ -156,7 +157,7 @@ test.describe('Server-run GitHub audits', () => {
     state.jobs.get(first)!.paused = true;
     const job = page.locator('[data-github-audit-job]');
     await job.getByRole('button', { name: 'Cancel audit' }).click();
-    await expect(job).toContainText('Cancelled');
+    await expect(job).toContainText('Audit canceled');
     expect(writes(state, 'POST', `/audits/${first}/cancel`)).toHaveLength(1);
     await job.getByRole('button', { name: 'Retry audit' }).click();
     await expect(page).toHaveURL(/\/audits\/audit-gh-2$/);
@@ -164,8 +165,8 @@ test.describe('Server-run GitHub audits', () => {
     state.jobs.get('audit-gh-2')!.paused = true;
 
     await openAudits(page);
-    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-    await page.locator('[data-github-audit-scope]').getByRole('button', { name: 'Start audit' }).click();
+    await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
+    await page.locator('[data-column-audit-scope]').getByRole('button', { name: /^Audit \d+ cards?$/ }).click();
     await expect(page.getByText('An audit is already running for this project.')).toBeVisible();
     await page.getByRole('button', { name: 'Open running audit' }).click();
     await expect(page).toHaveURL(/\/audits\/audit-gh-2$/);
@@ -175,10 +176,10 @@ test.describe('Server-run GitHub audits', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     const state = await installGithubMocks(page, { readiness: { github: 'connected', ai: 'not_connected' } });
     await openAudits(page);
-    await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-    const scope = page.locator('[data-github-audit-scope]');
-    await expect(scope).toContainText('Connect your AI account in Settings.');
-    await expect(scope.getByRole('button', { name: 'Start audit' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
+    const scope = page.locator('[data-column-audit-scope]');
+    await expect(scope).toContainText('Connect your AI account in Settings');
+    await expect(scope.getByRole('button', { name: /^Audit \d+ cards?$/ })).toBeDisabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 
     await page.getByRole('button', { name: /audit-external/ }).click();

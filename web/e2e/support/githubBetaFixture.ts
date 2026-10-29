@@ -49,8 +49,8 @@ export async function waitJob(request: APIRequestContext, auditID: string, outco
 export async function startInUI(page: Page, project: BetaProject): Promise<string> {
   await page.goto(`/p/${project.slug}/audits`);
   const response = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith(`/projects/${project.id}/github-audits`));
-  await page.getByRole('button', { name: 'Run audit', exact: true }).click();
-  await page.getByRole('button', { name: /Start audit|Run audit now/i }).click();
+  await page.getByRole('button', { name: 'Audit columns', exact: true }).click();
+  await page.locator('[data-column-audit-scope]').getByRole('button', { name: /^Audit \d+ cards?$/ }).click();
   const started = await response;
   expect(started.status()).toBe(202);
   return (await started.json()).audit.id;
