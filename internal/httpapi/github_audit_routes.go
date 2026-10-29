@@ -129,8 +129,7 @@ func (s *Server) startGithubAudit(w http.ResponseWriter, r *http.Request, identi
 	input.ProviderGeneration = s.GithubAudits.providerGeneration()
 	input.AccountGeneration = generation
 	input.RetryOf = retryOf
-	input.Model = "gpt-5.6-luna"
-	input.Effort = "medium"
+	input.Model, input.Effort = s.Cfg.AuditProfile()
 	s.mutationRateOnly(w, r, identity, func() (int, []byte, string, error) {
 		run, job, err := s.Store.StartGithubAudit(ctx, projectID, identity.Actor.ID, input)
 		if err != nil {

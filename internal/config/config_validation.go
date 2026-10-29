@@ -16,6 +16,9 @@ import (
 // environment aliases and basic runtime settings have been resolved.
 func validateEnvironment(c Config, tailnetAllowedPeers resolvedEnv) (Config, error) {
 	var err error
+	if err = validateAuditProfile(c); err != nil {
+		return Config{}, err
+	}
 	if c.AuthMode != "local" && c.AuthMode != "cloudflare" && c.AuthMode != "tailnet" && c.AuthMode != "disabled" {
 		return Config{}, fmt.Errorf("HELM_AUTH_MODE must be local, cloudflare, tailnet, or disabled")
 	}

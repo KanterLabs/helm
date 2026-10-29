@@ -36,6 +36,10 @@ type Config struct {
 	LunaDisabled bool
 	CodexModel   string
 	CodexEffort  string
+	// AuditModel and AuditEffort are an independent, operator-owned profile.
+	// A new audit captures this profile; existing jobs retain their own values.
+	AuditModel  string
+	AuditEffort string
 	// ReleaseSHA is an optional immutable deployment revision exposed by
 	// health/discovery responses. It is accepted only in canonical git SHA
 	// form so an env-file typo cannot masquerade as a release identifier.
@@ -127,6 +131,14 @@ func FromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	auditModel, err := resolveEnv("HELM_AUDIT_MODEL", "ROADMAP_AUDIT_MODEL")
+	if err != nil {
+		return Config{}, err
+	}
+	auditEffort, err := resolveEnv("HELM_AUDIT_EFFORT", "ROADMAP_AUDIT_EFFORT")
+	if err != nil {
+		return Config{}, err
+	}
 	releaseSHA, err := resolveEnv("HELM_RELEASE_SHA", "ROADMAP_RELEASE_SHA")
 	if err != nil {
 		return Config{}, err
@@ -214,6 +226,8 @@ func FromEnv() (Config, error) {
 		CodexHomeRoot:           valueOr(codexHomeRoot, "data/codex-users"),
 		CodexModel:              valueOr(codexModel, "gpt-5.6-luna"),
 		CodexEffort:             strings.ToLower(valueOr(codexEffort, "medium")),
+		AuditModel:              valueOr(auditModel, defaultAuditModel),
+		AuditEffort:             strings.ToLower(valueOr(auditEffort, defaultAuditEffort)),
 		ReleaseSHA:              releaseSHA.value,
 		CloudflareIssuer:        cloudflareIssuer.value,
 		CloudflareAudience:      cloudflareAudience.value,
