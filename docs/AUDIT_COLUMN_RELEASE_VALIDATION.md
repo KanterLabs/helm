@@ -178,3 +178,39 @@ Receipts: `/tmp/helm-tc311-context-schema-v1-handoff/`. All 25 candidate attempt
 are retained, all 24 prior audit/job rows and all prior tasks/comments/links
 are unchanged, and integrity/FKs pass. Temporary grants, copied credentials,
 tokens, environments and containers were removed. TC-311 remains at 2/5.
+
+## Independent stronger audit profile
+
+The stronger-model choice was approved. New jobs capture the operator-owned
+`HELM_AUDIT_MODEL`/`HELM_AUDIT_EFFORT` profile, defaulting to
+`gpt-5.6-sol`/`medium`; ordinary Luna remains unchanged. Beta's actual Codex CLI
+0.153.0 catalog lists that model, but not GPT-6.1 Sol. Existing jobs and
+idempotent replays keep their original profile. Clients and grants cannot
+choose a model. Configuration, HTTP/store/worker, and focused regressions pass.
+
+Attempt `023047db3f03ec22fa91a5414e6c5cfd` stopped at the adapter's old
+Luna-only restriction before inference. That failure is retained. Sol was then
+validated with the pinned executable against a local synthetic model provider.
+The first capture exposed a model-selected collaboration backend despite false
+feature flags; explicit `agents.enabled=false` removes it. Twelve transport
+cases, including the retained Luna path, pass without weakening the tool
+authority assertion. See [the boundary proof](AUDIT_INFERENCE_BOUNDARY.md).
+
+One actual comparison after that fix, `c84ebdbc0b3b14842f0ec3cc4a737147`, used
+the unchanged HB-5 and HB-7 descriptions and the same `c0f119cf…` baseline.
+Sol retrieved the runtime readiness body in `internal/httpapi/observability.go`
+and the preflight body in `internal/db/db.go`, alongside unrelated source. Its
+output failed strict `assessment_basis_shape` validation. No findings were
+published and no cards moved. This is not an accuracy pass. Remaining work
+includes aligning generated placement-basis constraints with strict validation,
+preserving honest unknowns and proving relevant invocation evidence. Do not
+silently repair an unsupported placement or accept matching destinations alone.
+
+All 27 attempts are retained. The prior 26 audit/job rows and every prior task,
+actor, comment, link and finding remain unchanged; integrity and foreign keys
+pass. The temporary grant was revoked, copied credentials/token/environment and
+candidate container removed, and live beta/prod tables and images preserved.
+Receipts are in `/tmp/helm-tc311-audit-profile-v3-handoff/`; synthetic boundary
+captures are in `/tmp/helm-audit-sol-boundary/`. Actual useful judgments,
+legitimate owner-human application, and beta promotion remain open. TC-311 is
+still 2/5.
