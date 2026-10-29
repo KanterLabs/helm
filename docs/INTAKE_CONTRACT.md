@@ -1,6 +1,6 @@
 # Unified Intake read contract
 
-TC-320 adds `GET /api/v1/intake`; `/tickets`, `/issues`, task mutations and
+TC-320 adds `GET /api/v1/intake` (`listIntake`); `/tickets`, `/issues`, task mutations and
 filing retain their existing behavior. No migration or copied entity is needed.
 
 Before implementation, the failure inventory is:
