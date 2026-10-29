@@ -45,22 +45,23 @@ func TestGithubAssessmentCriterionLinkedConceptSearch(t *testing.T) {
 			ai := &conceptAI{t: t, mode: mode}
 			ai.planOutputs = []string{
 				`{"paths":[],"searches":[{"term":"readiness","question":"Where does runtime readiness verify database usability and migration currency?"}],"gap":"Locate runtime readiness"}`,
-				`{"paths":[{"path":"internal/observability.go","start_line":2,"end_line":4,"reason":"Runtime database and migration checks"}],"gap":"Read the runtime checks"}`,
+				`{"paths":[{"path":"internal/observability.go","declaration":"readiness","reason":"Runtime database and migration checks"}],"searches":[],"source_complete":true,"gap":"Read the runtime checks"}`,
 			}
 			if mode == "late-body" {
 				source := "package app\n"
 				for i := 0; i < 3; i++ {
 					source += fmt.Sprintf("var metric%d = struct { readiness bool }{}\n", i) + strings.Repeat("// unrelated metrics padding\n", 45)
 				}
-				source += "func readiness(database Database) bool {\n ok := database.Ping() == nil\n" + strings.Repeat("// behavior body padding\n", 110) + " return ok && database.MigrationsCurrent()\n}\n"
+				source += "func metricSnapshot() {}\nfunc readiness(database Database) bool {\n ok := database.Ping() == nil\n" + strings.Repeat("// behavior body padding\n", 110) + " return ok && database.MigrationsCurrent()\n}\n"
 				f.files[retrievalSHA+":internal/observability.go"] = source
 				// Reproduce the actual planner's irrelevant refinement. Exact named
 				// behavior must already be retained from the concept search read.
-				ai.planOutputs[1] = `{"paths":[{"path":"internal/observability.go","start_line":2,"end_line":4,"reason":"Inspect metrics helper"}],"gap":"Inspect the selected helper"}`
+				ai.planOutputs[1] = `{"paths":[{"path":"internal/observability.go","declaration":"metricSnapshot","reason":"Inspect metrics helper"}],"searches":[],"source_complete":true,"gap":"Inspect the selected helper"}`
 			}
 			if mode == "refine-excerpt" {
-				ai.planOutputs[0] = `{"paths":[{"path":"internal/a.go","start_line":232,"end_line":235,"reason":"Inspect offline preflight"}],"gap":"Is this the runtime check?"}`
-				ai.planOutputs[1] = `{"paths":[],"searches":[{"term":"readiness","question":"Where are the runtime database and migration checks rather than offline file validation?"}],"gap":"Locate runtime checks"}`
+				f.hints["Preflight"] = []string{"internal/a.go"}
+				ai.planOutputs[0] = `{"paths":[],"searches":[{"term":"Preflight","question":"Does offline validation establish runtime readiness?"}],"gap":"Is this the runtime check?"}`
+				ai.planOutputs[1] = `{"paths":[],"searches":[{"term":"readiness","question":"Where are the runtime database and migration checks rather than offline file validation?"}],"source_complete":false,"gap":"Locate runtime checks"}`
 			}
 			if mode == "unsafe-query" {
 				ai.planOutputs[0] = strings.Replace(ai.planOutputs[0], `"readiness"`, `"readiness repo:private/other"`, 1)
@@ -89,7 +90,11 @@ func TestGithubAssessmentCriterionLinkedConceptSearch(t *testing.T) {
 				t.Fatal(err)
 			}
 			assessmentReceipt(t, "criterion-linked-"+mode, map[string]any{"evidence": e, "reads": f.reads, "queries": f.queries, "prompts": ai.prompts})
-			if len(f.queries) != 1 || !strings.Contains(f.queries[0], "readiness") {
+			expectedQueries := 1
+			if mode == "refine-excerpt" {
+				expectedQueries = 2
+			}
+			if len(f.queries) != expectedQueries || !strings.Contains(f.queries[len(f.queries)-1], "readiness") {
 				t.Fatalf("criterion search absent or irrelevant calls chased: %v", f.queries)
 			}
 			found := false

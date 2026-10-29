@@ -261,6 +261,14 @@ func (g *GithubAuditService) RunOnce(parent context.Context) error {
 			return fail("authorization_changed")
 		}
 		diagnostic = githubDiscoveryDiagnostic(err)
+		switch diagnostic {
+		case "discovery_decode", "discovery_schema", "discovery_path", "discovery_range", "discovery_search":
+			return fail("invalid_model_output")
+		case "discovery_inference":
+			return fail("inference_unavailable")
+		case "discovery_deadline":
+			return fail("deadline_exceeded")
+		}
 		return fail(githubprovider.ErrorCode(err))
 	}
 	if err = check(); err != nil {

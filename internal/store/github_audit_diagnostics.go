@@ -55,7 +55,7 @@ func GithubAssessmentDiagnostic(err error) string {
 func githubAuditDiagnostic(code string) string {
 	switch code {
 	case "assessment_decode", "assessment_schema", "assessment_identity", "assessment_condition_identity", "assessment_citation", "assessment_proof", "assessment_basis_shape", "assessment_basis_kind", "assessment_basis_proof", "assessment_active_proof", "assessment_readiness_proof", "assessment_blocker_proof", "assessment_destination", "assessment_destination_ambiguous", "assessment_destination_identity", "assessment_destination_id_missing", "assessment_destination_state_missing", "assessment_completion_meaning", "assessment_source_meaning", "assessment_lifecycle", "assessment_publication",
-		"discovery_inference", "discovery_decode", "discovery_schema", "discovery_path", "discovery_range", "discovery_deadline":
+		"discovery_inference", "discovery_decode", "discovery_schema", "discovery_path", "discovery_range", "discovery_search", "discovery_deadline":
 		return " [" + code + "]"
 	default:
 		return ""

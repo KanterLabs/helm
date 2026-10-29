@@ -147,3 +147,34 @@ retained. Each temporary grant was revoked and its copied credentials, token,
 environment and container removed; beta/prod images and live tables remained
 unchanged. Focused API/store acceptance passes, but useful ordinary-language
 placement, legitimate human application and beta promotion remain open.
+
+## Current parent acceptance gate
+
+The subsequent search-first actual run `a10b61f6cc360e71e11271f51e268cfd`
+matched the expected Done destination but failed semantic acceptance: it claimed
+original migration currency from checks after upgrading a temporary copy.
+The parent retained the staged discovery mechanisms, corrected same-file helper
+and qualified-selector handling, and clarified invocation and subject/timing
+proof. All focused HTTP/store checks pass; fixtures remain scripted proof of
+mechanisms rather than evidence of model accuracy.
+
+Two later two-card runs reported generic source unavailability. Both connections
+verified ready, and a direct bounded provider probe passed resolve, tree, fresh
+resolve, file read and search. Regression reproduced malformed generated search
+terms losing their diagnostic and being mislabeled as GitHub failures. The
+schema now enforces the provider's literal format and discovery failures retain
+their closed category. Do not infer a missing PAT from the old generic message.
+
+Actual `e4446a436dd80658062112cbdeb65dec` then captured evidence but failed
+strict Active proof validation. It selected offline preflight for the original
+readiness card and unrelated runtime/build code for the original-state
+counterexample. No findings were published and no cards were changed. This
+does not pass accuracy merely because malformed output was safely rejected.
+The current lightweight model still needs a dependable evidence-selection and
+judgment path before promotion; an audit-specific stronger-model choice is
+pending. The regular AI profile and all live services remain unchanged.
+
+Receipts: `/tmp/helm-tc311-context-schema-v1-handoff/`. All 25 candidate attempts
+are retained, all 24 prior audit/job rows and all prior tasks/comments/links
+are unchanged, and integrity/FKs pass. Temporary grants, copied credentials,
+tokens, environments and containers were removed. TC-311 remains at 2/5.

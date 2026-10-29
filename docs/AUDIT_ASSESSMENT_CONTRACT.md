@@ -187,6 +187,25 @@ hits remain visible beyond the initial index. Refinement sees selected excerpts
 before generic prefixes, within the same 12-KiB observed-text allowance. Semantic
 follow-ups explicitly request required helpers instead of chasing every call.
 
+Ambiguous unanchored criteria with multiple production owners now start with
+a schema-enforced search-only stage. Go refinement uses exact server-indexed
+declaration selectors; receiver identity stays distinct from the provider's
+lexical query. A selected caller cannot shadow a requested helper in the same
+file. Required definitions resolve only when their complete pinned bodies are
+captured within the existing shared window/excerpt bounds. Explicit paths,
+linked-PR hints and single-owner captures retain their compatibility route.
+An explicit `source_complete` result distinguishes no further retrieval from
+a named unresolved question; it never establishes criterion support or clears
+missing helpers or budget failures.
+
+Assessment must match the observed subject and timing: a check after modifying
+a copy cannot establish that the original already passed. User/operator-facing
+requirements need an invocation/result surface connected to the behavior. A
+CLI or an appropriately linked candidate check can be valid; automatic traffic
+or deployment gating is required only when explicitly stated by the card.
+Discovery output schemas enforce literal query format. Malformed generated
+searches are `invalid_model_output` with a closed diagnostic, not GitHub outages.
+
 When a concept exactly names a Go function, its pinned syntax-tree declaration
 supplies body windows before earlier field/metric mentions. At most three
 101-line windows share the existing whole-line byte/excerpt limits; truncation

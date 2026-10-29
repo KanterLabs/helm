@@ -30,6 +30,7 @@ func TestGithubAuditClosedDiagnosticsWorker(t *testing.T) {
 		}},
 		{name: "discovery-decode", diagnostic: "discovery_decode", plan: `{"private sentinel":true}`},
 		{name: "discovery-schema", diagnostic: "discovery_schema", plan: `{"paths":null,"gap":"private sentinel"}`},
+		{name: "discovery-search", diagnostic: "discovery_search", plan: `{"paths":[],"searches":[{"term":"private sentinel","question":"Find the requested behavior"}],"gap":"Missing behavior"}`},
 		{name: "discovery-path", diagnostic: "discovery_path", plan: `{"paths":[{"path":"private sentinel","start_line":1,"end_line":1,"reason":"private sentinel"}],"gap":"private sentinel"}`},
 		{name: "discovery-range", diagnostic: "discovery_range", plan: `{"paths":[{"path":"internal/opaque.go","start_line":1,"end_line":400,"reason":"private sentinel"}],"gap":"private sentinel"}`},
 	}
@@ -78,6 +79,9 @@ func TestGithubAuditClosedDiagnosticsWorker(t *testing.T) {
 			assessmentReceipt(t, "diagnostic-"+tc.name, map[string]any{"job": job, "finding_count": result.FindingCount})
 			if job.Outcome != "failed" || result.FindingCount != 0 || !strings.Contains(job.Message, "["+tc.diagnostic+"]") {
 				t.Fatalf("missing closed diagnostic %s: %+v count=%d", tc.diagnostic, job, result.FindingCount)
+			}
+			if tc.plan != "" && job.ErrorCode != "invalid_model_output" {
+				t.Fatalf("invalid generated discovery mislabeled as upstream failure: %+v", job)
 			}
 			if strings.Contains(job.Message, "private sentinel") {
 				t.Fatal("raw model content escaped into diagnostic")

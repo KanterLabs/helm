@@ -43,7 +43,9 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 				return err
 			}
 		}
-		w.queue = appendUnique(w.queue, likelyOwners(w.source.tree, len(w.anchors.terms) > 0)...)
+		if !w.searchFirst {
+			w.queue = appendUnique(w.queue, likelyOwners(w.source.tree, len(w.anchors.terms) > 0)...)
+		}
 		w.rounds = 1
 	}
 	var entry *githubprovider.TreeEntry
@@ -102,7 +104,7 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 			explicit = true
 		}
 	}
-	if planned, ok := w.semantic[entry.Path]; ok {
+	if planned, ok := w.semantic[entry.Path]; ok && planned.Declaration == "" {
 		count := len(strings.Split(read.file.Text, "\n"))
 		if planned.StartLine > count {
 			w.problem = "semantic_range_unavailable"
@@ -112,6 +114,9 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 		for line := planned.StartLine - 1; line < planned.EndLine && line < count; line++ {
 			lines = append(lines, line)
 		}
+		explicit = true
+	}
+	if plan, ok := w.semantic[entry.Path]; ok && plan.Declaration != "" {
 		explicit = true
 	}
 	if len(lines) == 0 && !explicit {
@@ -124,7 +129,21 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 	var ids []string
 	var limited bool
 	if planned, ok := w.semantic[entry.Path]; ok {
-		ids, limited = r.plannedExcerpts(w, read.file, planned, class)
+		if planned.Declaration != "" {
+			planned = semanticRequestedDeclarations(w, planned, read.file.Text)
+			bodies, truncated, valid := semanticSelectedBody(planned, read.file.Text)
+			if !valid {
+				return githubDiscoveryFailure("discovery_path")
+			}
+			for _, body := range bodies {
+				more, cut := r.plannedExcerpts(w, read.file, body, class)
+				ids = appendUnique(ids, more...)
+				limited = limited || cut
+			}
+			limited = limited || truncated
+		} else {
+			ids, limited = r.plannedExcerpts(w, read.file, planned, class)
+		}
 	} else {
 		bodies, truncated := semanticSearchBodies(entry.Path, read.file.Text, w.searchTerms)
 		if len(bodies) > 0 {
@@ -156,6 +175,9 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 	// Once a matching pinned owner supplies an excerpt, the evaluator judges
 	// whether that source answers the model's named criterion question.
 	for term, owners := range w.searchOwners {
+		if w.searchDefinitions[term] {
+			continue
+		}
 		for _, owner := range owners {
 			if owner == entry.Path {
 				w.pending = removeValue(w.pending, term)
@@ -169,18 +191,36 @@ func (r *retrievalRun) step(w *retrievalWork) error {
 		}
 	}
 	for _, term := range w.pending {
-		if regexpDefinition(term).MatchString(read.file.Text) {
-			w.pending = removeValue(w.pending, term)
+		if w.searchDefinitions[term] && strings.HasSuffix(entry.Path, ".go") {
+			if semanticDefinitionCovered(w, *r.evidence, entry.Path, read.file.Text, term) {
+				w.pending = removeValue(w.pending, term)
+			}
+			continue
+		}
+		for _, item := range r.evidence.Items {
+			linked := false
+			for _, id := range w.evidenceIDs {
+				linked = linked || item.ID == id
+			}
+			resolved := regexpDefinition(term).MatchString(item.Text) || !w.searchDefinitions[term] && len(relevantLines(item.Text, []string{term})) > 0
+			if linked && item.Path == entry.Path && item.Repository == w.source.repository && item.SHA == w.source.sha && resolved {
+				w.pending = removeValue(w.pending, term)
+				break
+			}
 		}
 	}
 	// Ownership prefixes are context for the next semantic request. Chasing
 	// constructor helpers here can consume the card before its behavior is read.
-	if plan, ok := w.semantic[entry.Path]; ok && plan.StartLine == 1 && len(strings.Split(read.file.Text, "\n")) > 40 {
+	if plan, ok := w.semantic[entry.Path]; ok && plan.Declaration == "" && plan.StartLine == 1 && len(strings.Split(read.file.Text, "\n")) > 40 {
 		ready, err := r.semanticOwnersReady(w)
 		if err != nil {
 			return err
 		}
 		if !ready {
+			return nil
+		}
+		if w.semanticComplete {
+			w.done = true
 			return nil
 		}
 		w.problem = "semantic_discovery_unresolved"

@@ -20,7 +20,17 @@ func (r *retrievalRun) semanticSearch(w *retrievalWork, searches []semanticSearc
 		w.searchOwners = map[string][]string{}
 	}
 	for _, search := range searches {
-		hints, err := r.discover(w.source, w.task.ID, search.Term)
+		if w.searchQuestions == nil {
+			w.searchQuestions = map[string]string{}
+		}
+		w.searchQuestions[search.Term] = search.Question
+		if w.searchFirst && w.semanticRounds > 1 {
+			if w.searchDefinitions == nil {
+				w.searchDefinitions = map[string]bool{}
+			}
+			w.searchDefinitions[search.Term] = true
+		}
+		hints, err := r.discover(w.source, w.task.ID, r.semanticQueryTerm(w, search.Term))
 		if err != nil {
 			return nil, err
 		}

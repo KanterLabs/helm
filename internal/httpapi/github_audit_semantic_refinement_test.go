@@ -30,13 +30,15 @@ func TestGithubAssessmentSemanticRefinesLargeOwnerAndReadsSelectedOwners(t *test
 			}
 			f := &retrievalFixture{files: map[string]string{retrievalSHA + ":internal/opaque.go": "package app\nfunc Render(card Card) string { return card.Prerequisites.Label() }\n", retrievalSHA + ":internal/support.go": "package app\nfunc Labels(card Card) string { return card.Prerequisites.Label() }\n"}}
 			ai := &assessmentAI{}
+			f.hints = map[string][]string{"Render": {"internal/opaque.go"}}
 			if mode == "large-owner" {
 				f.files[retrievalSHA+":internal/opaque.go"] = "package app\n" + strings.Repeat("// Unrelated synthetic prefix padding\n", 199) + "func Render(card Card) string {\n return card.Prerequisites.Label()\n}\n"
-				ai.planOutputs = []string{`{"paths":[{"path":"internal/opaque.go","start_line":1,"end_line":1,"reason":"Find the owner"}],"gap":"Locate dependency display"}`, `{"paths":[{"path":"internal/opaque.go","start_line":201,"end_line":203,"reason":"Inspect the server-indexed renderer"}],"gap":"Read the renderer body beyond its prefix"}`}
+				ai.planOutputs = []string{`{"paths":[],"searches":[{"term":"Render","question":"Where does the card show dependencies?"}],"gap":"Locate dependency display"}`, `{"paths":[{"path":"internal/opaque.go","declaration":"Render","reason":"Inspect the server-indexed renderer"}],"searches":[],"source_complete":true,"gap":"Read the renderer body beyond its prefix"}`}
 			} else {
 				f.files[retrievalSHA+":internal/opaque.go"] = "package app\nfunc Render(card Card) string { return card.Prerequisites }\n"
 				f.files[retrievalSHA+":internal/support.go"] = "package app\nfunc Labels(card Card) string { return card.Prerequisites }\n"
-				ai.planOutput = `{"paths":[{"path":"internal/opaque.go","start_line":1,"end_line":2,"reason":"Card renderer"},{"path":"internal/support.go","start_line":1,"end_line":2,"reason":"Dependency labels"}],"gap":"Inspect both owners"}`
+				f.hints["Render"] = []string{"internal/opaque.go", "internal/support.go"}
+				ai.planOutputs = []string{`{"paths":[],"searches":[{"term":"Render","question":"Where do cards show dependency labels?"}],"gap":"Find dependency display"}`, `{"paths":[{"path":"internal/opaque.go","declaration":"Render","reason":"Card renderer"},{"path":"internal/support.go","declaration":"Labels","reason":"Dependency labels"}],"searches":[],"source_complete":true,"gap":"Inspect both owners"}`}
 			}
 			service := NewGithubAuditService(data, newRetrievalProvider(t, f), ai, nil)
 			run, _, err := data.StartGithubAudit(ctx, p.ID, actor.ID, store.GithubAuditStartInput{Repositories: sel.Repositories, SelectionVersion: sel.Version, TaskIDs: []string{task.ID}, RequestKey: mode, Fingerprint: mode})

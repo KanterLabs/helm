@@ -26,11 +26,12 @@ func TestGithubAssessmentSemanticLargeTreeRoutesToLateDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &retrievalFixture{files: map[string]string{retrievalSHA + ":web/src/cards/Opaque.svelte": "<article>{card.Prerequisites}</article>\n"}}
+	f := &retrievalFixture{files: map[string]string{retrievalSHA + ":web/src/cards/Opaque.svelte": "<article class=\"dependencies\">{card.Prerequisites}</article>\n"}}
 	for i := 0; i < 700; i++ {
 		f.files[fmt.Sprintf("%s:internal/unrelated/owner%03d.go", retrievalSHA, i)] = "package app\nvar unused = 1\n"
 	}
-	ai := &assessmentAI{planOutputs: []string{`{"paths":[{"path":"web/src/cards","start_line":1,"end_line":1,"reason":"Choose card UI ownership directory"}],"gap":"Locate the task-card implementation"}`, `{"paths":[{"path":"web/src/cards/Opaque.svelte","start_line":1,"end_line":1,"reason":"Inspect the card renderer"}],"gap":"Read the dependency display"}`}}
+	f.hints = map[string][]string{} // Search miss must still permit bounded directory routing.
+	ai := &assessmentAI{planOutputs: []string{`{"paths":[],"searches":[{"term":"dependencies","question":"Where are dependencies displayed on task cards?"}],"gap":"Find dependency display"}`, `{"paths":[{"path":"web/src/cards","start_line":1,"end_line":1,"reason":"Choose card UI ownership directory"}],"searches":[],"source_complete":false,"gap":"Locate the task-card implementation"}`, `{"paths":[{"path":"web/src/cards/Opaque.svelte","declaration":"","start_line":1,"end_line":1,"reason":"Inspect the card renderer"}],"searches":[],"source_complete":true,"gap":"Read the dependency display"}`}}
 	service := NewGithubAuditService(data, newRetrievalProvider(t, f), ai, nil)
 	run, _, err := data.StartGithubAudit(ctx, p.ID, actor.ID, store.GithubAuditStartInput{Repositories: sel.Repositories, SelectionVersion: sel.Version, TaskIDs: []string{task.ID}, RequestKey: "large-tree", Fingerprint: "large-tree"})
 	if err != nil {
@@ -42,7 +43,7 @@ func TestGithubAssessmentSemanticLargeTreeRoutesToLateDirectory(t *testing.T) {
 	job, _ := data.GetGithubAuditJob(ctx, run.ID)
 	e, _ := data.GetGithubAuditEvidence(ctx, run.ID)
 	assessmentReceipt(t, "semantic-large-tree", map[string]any{"job": job, "evidence": e, "model_boundary": ai.receipts, "reads": f.reads})
-	if job.Outcome == "failed" || ai.plans != 2 || f.reads[retrievalSHA+":web/src/cards/Opaque.svelte"] != 1 {
+	if job.Outcome == "failed" || ai.plans != 3 || f.reads[retrievalSHA+":web/src/cards/Opaque.svelte"] != 1 {
 		t.Fatalf("late owner excluded %+v calls=%d reads=%v", job, ai.plans, f.reads)
 	}
 	if len(f.reads) != 1 {

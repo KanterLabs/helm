@@ -16,6 +16,12 @@ captures retain v1 semantics; malformed v2 must never fall back to v1.
   assertion falsely confirms Active or reopens Done. Unknown evidence must stay
   unverifiable; Active needs baseline implementation and a contradicted required
   condition. A known contradiction may coexist with other unknown conditions.
+- Actual semantic false positive: a helper checks an upgraded temporary copy,
+  but the assessment claims that it rejects pending migrations on the original
+  database. Match the observed subject, timing and changes before checking.
+  An operator-facing capability also needs its invocation/result surface;
+  an isolated exported helper is insufficient. A check must not acquire an
+  invented requirement to automatically gate traffic or deployment.
 - Context: checklist ticks/prose become code proof; actual columns, claims,
   dependency/checklist policy or concrete blocker facts disappear from capture.
 - Discovery: ordinary English without literal anchors never produces excerpts;

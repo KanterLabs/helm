@@ -46,7 +46,7 @@ func TestGithubAssessmentSemanticSourceBehaviorBeforeReferences(t *testing.T) {
 				retrievalSHA + ":internal/connection.go": prefix,
 				retrievalSHA + ":internal/probe.go":      body,
 				retrievalSHA + ":internal/policy.go":     "package app\nfunc (p *Pool) SetMaxIdleConns(n int) {}\nfunc CheckSchemaCurrency(database *DB) bool { return true }\n",
-			}, hints: map[string][]string{"SetMaxIdleConns": {"internal/policy.go"}, "CheckSchemaCurrency": {"internal/policy.go"}}}
+			}, hints: map[string][]string{"SetMaxIdleConns": {"internal/connection.go", "internal/policy.go"}, "CheckSchemaCurrency": {"internal/policy.go"}}}
 			for i := 0; i < 710; i++ {
 				name := fmt.Sprintf("docs/guide%03d.md", i)
 				if i%2 == 0 {
@@ -61,8 +61,8 @@ func TestGithubAssessmentSemanticSourceBehaviorBeforeReferences(t *testing.T) {
 				f.denied = map[string]bool{retrievalSHA + ":internal/policy.go": true}
 			}
 			ai := &semanticSourceAI{t: t, fixture: f, assessmentAI: assessmentAI{planOutputs: []string{
-				`{"paths":[{"path":"internal/connection.go","start_line":1,"end_line":5,"reason":"Initial ownership guess"}],"gap":"Locate operator behavior"}`,
-				`{"paths":[{"path":"internal/probe.go","start_line":41,"end_line":141,"reason":"Operator checks in another production owner"}],"gap":"Read database and schema behavior","searches":[{"term":"SetMaxIdleConns","question":"Does the owned pool enforce the criterion capacity check?"},{"term":"CheckSchemaCurrency","question":"Does the owned helper reject stale migrations?"}]}`,
+				`{"paths":[],"searches":[{"term":"SetMaxIdleConns","question":"Where is database capacity configured for safe operation?"}],"gap":"Locate operator behavior"}`,
+				`{"paths":[{"path":"internal/probe.go","declaration":"operatorReady","reason":"Operator checks in another production owner"}],"source_complete":false,"gap":"Read database and schema behavior","searches":[{"term":"SetMaxIdleConns","question":"Does the owned pool enforce the criterion capacity check?"},{"term":"CheckSchemaCurrency","question":"Does the owned helper reject stale migrations?"}]}`,
 			}}}
 			revoked := false
 			service := NewGithubAuditService(data, newRetrievalProvider(t, f), ai, func(context.Context, string, string) error {
@@ -187,7 +187,7 @@ func (a *semanticSourceAI) DraftEvidence(ctx context.Context, owner string, r co
 			a.t.Error("global production candidate disappeared after initial guess")
 		}
 		if a.plans == 1 {
-			if len(a.fixture.queries) != 0 {
+			if len(a.fixture.queries) != 1 || !strings.Contains(a.fixture.queries[0], "SetMaxIdleConns") {
 				a.t.Errorf("initial prefix chased helpers before refinement: %v", a.fixture.queries)
 			}
 			if a.beforeRefine != nil {

@@ -36,6 +36,10 @@ func TestGithubAssessmentOrdinaryLanguageDiscovery(t *testing.T) {
 				f.files[fmt.Sprintf("%s:internal/a%02d.go", retrievalSHA, i)] = "package app\nvar unrelated = 1\n"
 			}
 			ai := &assessmentAI{}
+			if !linked {
+				f.hints = map[string][]string{"Render": {"internal/opaque.go"}}
+				ai.planOutputs = []string{`{"paths":[],"searches":[{"term":"Render","question":"Where are dependencies displayed on cards?"}],"gap":"Find card rendering"}`, `{"paths":[{"path":"internal/opaque.go","declaration":"Render","reason":"Card renderer"}],"searches":[],"source_complete":true,"gap":"Inspect dependencies"}`}
+			}
 			service := NewGithubAuditService(data, newRetrievalProvider(t, f), ai, nil)
 			run, _, err := data.StartGithubAudit(ctx, p.ID, actor.ID, store.GithubAuditStartInput{Repositories: selection.Repositories, SelectionVersion: selection.Version, TaskIDs: []string{task.ID}, RequestKey: "semantic", Fingerprint: "semantic"})
 			if err != nil {

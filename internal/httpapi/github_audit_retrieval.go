@@ -133,6 +133,11 @@ func (r *retrievalRun) read(source *retrievalSource, taskID string, entry github
 }
 
 type retrievalWork struct {
+	searchFirst                                                 bool
+	searchDefinitions                                           map[string]bool
+	searchQuestions                                             map[string]string
+	semanticGap                                                 string
+	semanticComplete                                            bool
 	semanticIndexRounds                                         int
 	semanticDirectory                                           string
 	semanticRounds                                              int
@@ -247,6 +252,9 @@ func (r *retrievalRun) finish(w *retrievalWork) {
 		code = "no_matching_implementation"
 	}
 	message := "No implementation owner was established in the pinned source; unread unrelated files are not criterion failures."
+	if strings.HasPrefix(code, "semantic_") && w.semanticGap != "" {
+		message = "Unresolved source question: " + w.semanticGap
+	}
 	if w.implementation && len(w.remaining) > 0 {
 		code = "criterion_anchor_unresolved"
 		message = "Required criterion anchors were not inspected in implementation: " + strings.Join(w.remaining, ", ")
@@ -259,6 +267,11 @@ func (r *retrievalRun) finish(w *retrievalWork) {
 	if len(w.pending) > 0 {
 		code = "source_reference_unresolved"
 		message = "Implementation references need inspection: " + strings.Join(w.pending, ", ")
+		for _, term := range w.pending {
+			if question := w.searchQuestions[term]; question != "" {
+				message += "; " + term + ": " + question
+			}
+		}
 	}
 	r.gap(w.source, w.task.ID, w.condition.ID, code, w.problemPath, message)
 }
