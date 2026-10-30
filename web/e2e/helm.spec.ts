@@ -32,7 +32,7 @@ test.describe('Helm workspace', () => {
   });
 
 
-  test('loads in disabled-auth mode and manages a task from the board', async ({ page, request }) => {
+  test('loads in disabled-auth mode and manages a task from the board', async ({ page, request }, testInfo) => {
     const statusResponse = await request.get('/api/v1/auth/status');
     expect(statusResponse.ok()).toBeTruthy();
     const status = (await statusResponse.json()) as { mode?: string };
@@ -159,8 +159,12 @@ test.describe('Helm workspace', () => {
     await expect(page).toHaveURL(/\/p\/[^/]+\/roadmap\/?$/);
     await expect(page.getByRole('heading', { name: `${projectName} progress`, exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Project progress', exact: true })).toBeVisible();
-    await expect(page.getByText('0 total tasks', { exact: true })).toBeVisible();
-    await expect(page.getByText('0 completed', { exact: true })).toBeVisible();
+    await expect(page.locator('.roadmap-hero')).toContainText('No tasks yet');
+    const completed = page.locator('.metric-card').filter({ hasText: 'Tasks marked complete' });
+    await expect(completed.locator('strong')).toHaveText('0');
+    await testInfo.attach('empty-project-progress.png', {
+      body: await page.screenshot(), contentType: 'image/png'
+    });
 
     const commandTrigger = page.getByRole('button', { name: 'Search anything', exact: true });
     await commandTrigger.click();
