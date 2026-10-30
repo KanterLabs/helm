@@ -7,7 +7,7 @@
    the columns start directly beneath with an even margin on every side. */
 
 /* Page actions sit on the title's row; the description runs beneath the title. */
-.board-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 24px; margin-bottom: 20px; }
+.board-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 24px; margin-bottom: 12px; }
 .board-heading > div:first-child { display: contents; }
 .board-heading > div:first-child > * { grid-column: 1; min-width: 0; }
 .board-heading .heading-actions { grid-column: 2; grid-row: 1; max-width: 100%; flex-wrap: wrap; }
