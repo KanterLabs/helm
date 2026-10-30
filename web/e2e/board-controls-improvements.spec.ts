@@ -1,54 +1,8 @@
-import { expect, test, type APIRequestContext, type APIResponse, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { fixture, headers, json, tasksFor, type Task } from './support/boardControlsFixture';
 
 // Keep API failure injection observable in WebKit; PWA behavior has its own suite.
 test.use({ hasTouch: true, serviceWorkers: 'block' });
-
-type Project = { id: string; key: string; slug: string };
-type Column = { id: string; name: string; semantic_state: string };
-type Task = { id: string; key: string; title: string; column_id: string; position: number; version: number; priority: string };
-type Collection<T> = { data: T[] };
-const origin = new URL(process.env.HELM_E2E_BASE_URL || process.env.ROADMAP_E2E_BASE_URL || 'http://127.0.0.1:18080').origin;
-const headers = (version?: number) => ({
-  Origin: origin,
-  'Content-Type': 'application/json',
-  'Idempotency-Key': `board-controls-${crypto.randomUUID()}`,
-  ...(version === undefined ? {} : { 'If-Match': `"v${version}"` })
-});
-
-async function json<T>(response: APIResponse): Promise<T> {
-  expect(response.ok(), `Fixture/API request returned ${response.status()}`).toBeTruthy();
-  return response.json() as Promise<T>;
-}
-
-async function fixture(request: APIRequestContext) {
-  const status = await json<{ mode: string }>(await request.get('/api/v1/auth/status'));
-  expect(status.mode, 'Use the documented auth-disabled E2E server').toBe('disabled');
-  const suffix = Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
-  const project = await json<Project>(await request.post('/api/v1/projects', {
-    headers: headers(), data: { key: `CTRL${suffix}`.slice(0, 16), name: `Board controls ${suffix}`, description: 'Synthetic mobile and keyboard browser evidence.' }
-  }));
-  const response = await json<Collection<Column> | Column[]>(await request.get(`/api/v1/projects/${project.id}/columns?limit=20`));
-  const columns = Array.isArray(response) ? response : response.data;
-  const ready = columns.find((column) => column.semantic_state === 'ready')!;
-  const backlog = columns.find((column) => column.semantic_state === 'backlog')!;
-  expect(ready).toBeTruthy();
-  expect(backlog).toBeTruthy();
-  const tasks: Task[] = [];
-  for (let index = 0; index < 3; index += 1) {
-    tasks.push(await json<Task>(await request.post(`/api/v1/projects/${project.id}/tasks`, {
-      headers: headers(),
-      data: {
-        column_id: ready.id,
-        title: index === 1 ? `A long synthetic task title that must leave Actions reachable on every phone ${suffix}` : `Synthetic neighbor ${index} ${suffix}`,
-        description: index === 1 ? 'Long synthetic metadata and a detailed description exercise compact uniform card heights without exposing user content.' : '',
-        priority: 'normal'
-      }
-    })));
-  }
-  // Left/right commands follow physical adjacency; Bugs now sits before Ready.
-  const leftOfReady = columns[columns.findIndex(column => column.id === ready.id) - 1];
-  return { project, ready, backlog, leftOfReady, tasks, moving: tasks[1] };
-}
 
 function trigger(page: Page, task: Task) { return page.locator(`[data-card-actions="${task.key}"]`); }
 function menu(page: Page, task: Task) { return page.getByRole('menu', { name: `Actions for ${task.key}`, exact: true }); }
@@ -65,10 +19,6 @@ async function targetBounds(locator: Locator) {
 }
 async function screenshot(page: Page, info: TestInfo, name: string) {
   await info.attach(name, { body: await page.screenshot({ fullPage: false }), contentType: 'image/png' });
-}
-async function tasksFor(request: APIRequestContext, project: Project) {
-  const response = await json<Collection<Task>>(await request.get(`/api/v1/projects/${project.id}/tasks?limit=100`));
-  return response.data;
 }
 
 const filterNames = ['Filter by state', 'Filter by priority', 'Filter by focus', 'Filter by agent work', 'Filter by dependency readiness', 'Filter by label', 'Filter by assignee', 'Sort tasks', 'Sort direction'];
@@ -144,7 +94,9 @@ test('compact card actions and filter sheet stay reachable at all five required 
     const searchBounds = await page.getByRole('textbox', { name: 'Search tasks', exact: true }).boundingBox();
     expect(searchBounds!.x).toBeGreaterThanOrEqual(0);
     expect(searchBounds!.x + searchBounds!.width).toBeLessThanOrEqual(width);
-    const create = page.locator('.board-toolbar [data-task-modal-trigger]');
+    // The board keeps one New task action (TC-318); it must stay reachable on phones.
+    const create = page.getByRole('button', { name: 'New task', exact: true });
+    await create.scrollIntoViewIfNeeded();
     await expect(create).toBeVisible();
     const createBounds = await targetBounds(create);
     expect(createBounds.x + createBounds.width).toBeLessThanOrEqual(width);

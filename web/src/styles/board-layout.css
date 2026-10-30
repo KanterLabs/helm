@@ -11,6 +11,7 @@
 .board-heading > div:first-child { display: contents; }
 .board-heading > div:first-child > * { grid-column: 1; min-width: 0; }
 .board-heading .heading-actions { grid-column: 2; grid-row: 1; max-width: 100%; flex-wrap: wrap; }
+.board-heading .heading-actions .button { min-height: 44px; }
 
 /* Search and controls start at the left; the task count follows them and the
    column arrows close the row above the columns they move. */

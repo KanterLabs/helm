@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { evidence, project } from './creation-safety-helpers';
+import { evidence, project, tasks } from './creation-safety-helpers';
 
 test('keeps Connect Codex usable during a background account refresh', async ({ page }) => {
   let accountReads = 0;
@@ -36,70 +36,44 @@ test('keeps Connect Codex usable during a background account refresh', async ({ 
   await expect(page.getByText('TEST-CODE')).toBeVisible();
 });
 
-test('previews and selectively applies a Luna task draft', async ({ page, request }, info) => {
-  const destination = await project(request);
-  await page.route('**/api/v1/codex/account*', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ connected: true, account_type: 'chatgpt', plan_type: 'plus', requires_openai_auth: true })
-  }));
-  await page.route('**/api/v1/projects/*/task-draft', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      title: 'Connect personal Codex subscriptions',
-      description: 'Add an isolated connection for each Helm user.',
-      acceptance_criteria: ['Each user can connect independently', 'Priority is recommended from project context'],
-      priority: 'high',
-      rationale: 'This unlocks the assisted task workflow.',
-      supporting_task_keys: []
-    })
-  }));
+type SavedTask = Awaited<ReturnType<typeof tasks>>[number] & { description: string; priority: string; due_at?: string | null };
 
-  await page.goto(`/p/${destination.slug}`);
-  const trigger = page.getByRole('button', { name: 'New task', exact: true });
-  await trigger.click();
+// TC-318 retired the Luna panel from ordinary creation. This replaces the old
+// preview/apply journey: typed manual fields survive a destination change and
+// are persisted together without any Codex account or task-draft request.
+test('captures a manual draft across a project change without contacting Luna', async ({ page, request }, info) => {
+  const first = await project(request);
+  const second = await project(request);
+  const retired: string[] = [];
+  page.on('request', (sent) => {
+    const path = new URL(sent.url()).pathname;
+    if (/^\/api\/v1\/(codex\/|projects\/[^/]+\/task-draft)/.test(path)) retired.push(`${sent.method()} ${path}`);
+  });
+
+  await page.goto(`/p/${first.slug}`);
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Create a task' });
-  await expect(dialog.getByRole('combobox', { name: 'Project', exact: true })).toHaveValue(destination.id);
-  const idea = dialog.getByLabel('Rough idea');
-  await expect(idea).toBeFocused();
-  await idea.fill('Help users connect Codex and pick a priority');
-  await dialog.getByRole('button', { name: /Assist with Luna/ }).click();
-  await expect(dialog.getByRole('heading', { name: 'Review before applying' })).toBeVisible();
-
-  const titleSuggestion = dialog.locator('[data-luna-field="title"]');
-  const titleApply = titleSuggestion.getByRole('button');
-  await titleApply.click();
-  await expect(titleApply).toHaveText('✓ Applied');
-  await expect(titleApply).toBeDisabled();
-  await expect(dialog.getByRole('status')).toContainText('Title suggestion applied');
-  await dialog.getByLabel('Task title').fill('Edited before applying all');
-  await expect(titleSuggestion.getByRole('button', { name: /Apply title suggestion/ })).toHaveText('Apply');
-
-  const prioritySuggestion = dialog.locator('[data-luna-field="priority"]');
-  await prioritySuggestion.getByRole('button', { name: /Apply priority suggestion/ }).click();
-  await expect(dialog.locator('.task-details-fields').getByLabel('Priority')).toHaveValue('high');
-  await dialog.getByRole('button', { name: 'Apply all' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Luna applied all suggested fields');
-  await expect(dialog.getByRole('button', { name: '✓ All applied' })).toBeDisabled();
-  await expect(dialog.locator('#luna-suggestion-details')).toBeHidden();
-  const reviewSuggestion = dialog.getByRole('button', { name: 'Review suggestion', exact: true });
-  await expect(reviewSuggestion).toHaveAttribute('aria-expanded', 'false');
-  await expect(dialog.getByLabel('Task title')).toHaveValue('Connect personal Codex subscriptions');
-  await expect(dialog.locator('.task-details-fields').getByLabel(/Description/)).toHaveValue(/## Acceptance criteria/);
-  await reviewSuggestion.click();
-  await expect(dialog.locator('#luna-suggestion-details')).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Hide suggestion', exact: true })).toHaveAttribute('aria-expanded', 'true');
-  await dialog.getByLabel('Task title').fill('Editable after Luna');
-  await expect(titleSuggestion.getByRole('button', { name: /Apply title suggestion/ })).toHaveText('Apply');
-  await expect(dialog.getByRole('status')).toContainText('Task details changed after applying');
-  await expect(dialog.getByRole('button', { name: 'Reapply all' })).toBeEnabled();
-  await expect(dialog.getByRole('button', { name: 'Create task' })).toBeEnabled();
-  await evidence(page, info, 'task-draft-applied', { project_id: destination.id });
-
-  await page.keyboard.press('Escape');
+  const title = dialog.getByLabel('Task title', { exact: true });
+  await expect(title).toBeFocused();
+  const typedTitle = `Manual capture ${Date.now().toString(36)}`;
+  await title.fill(typedTitle);
+  await dialog.getByLabel('Description', { exact: false }).fill('Typed by hand.\n\n- [ ] Persisted with the task');
+  await dialog.getByRole('combobox', { name: 'Priority', exact: true }).selectOption('high');
+  await dialog.getByLabel('Due date', { exact: true }).fill('2026-12-01');
+  await dialog.getByRole('combobox', { name: 'Project', exact: true }).selectOption(second.id);
+  await expect(dialog.getByRole('combobox', { name: 'Column', exact: true })).toBeEnabled();
+  await expect(title).toHaveValue(typedTitle);
+  await expect(dialog.getByRole('combobox', { name: 'Priority', exact: true })).toHaveValue('high');
+  await dialog.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(trigger).toBeFocused();
+
+  const saved = ((await tasks(request, second)) as SavedTask[]).filter((task) => task.title === typedTitle);
+  expect(saved).toHaveLength(1);
+  expect(saved[0]).toMatchObject({ description: 'Typed by hand.\n\n- [ ] Persisted with the task', priority: 'high' });
+  expect(saved[0].due_at).toContain('2026-12-01');
+  expect((await tasks(request, first)).filter((task) => task.title === typedTitle)).toHaveLength(0);
+  expect(retired).toEqual([]);
+  await evidence(page, info, 'manual-capture-no-luna', { saved: saved.map(({ priority, due_at, project_id }) => ({ priority, due_at, project_id })), retiredRequests: retired });
 });
 
 test('keeps the task modal within the viewport on desktop and mobile', async ({ page, request }, info) => {
