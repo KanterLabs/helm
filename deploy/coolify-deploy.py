@@ -12,8 +12,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-IMAGE_RE = re.compile(r"ghcr\.io/kanterlabs/helm@sha256:[0-9a-f]{64}\Z")
-SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
+from deployment_transition import transition
+from rollback_policy import Acceptance, FLOOR_KEY, IMAGE_RE, SHA_RE, PolicyError
+from stop_witness import StopWitness
+
 ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 
 
@@ -27,6 +29,8 @@ class RejectRedirects(urllib.request.HTTPRedirectHandler):
 
 
 class Deployer:
+    error_type = DeployError
+
     def __init__(self):
         def required(key):
             value = os.environ.get(key, "").strip()
@@ -66,6 +70,17 @@ class Deployer:
             raise DeployError("invalid deployment polling bounds")
         self.opener = urllib.request.build_opener(RejectRedirects)
         self.evidence = {"service_uuid": self.uuid, "image": self.image, "revision": self.sha}
+        target = {"lane": required("HELM_DEPLOY_LANE"), "service_uuid": self.uuid,
+                  "service_name": self.name, "project_uuid": self.project,
+                  "environment_uuid": self.environment, "server_uuid": self.server,
+                  "site_url": self.site, "api_url": self.api,
+                  "data_identity": required("HELM_DATA_IDENTITY")}
+        self.policy = Acceptance(required("HELM_ACCEPTANCE_BUNDLE"), required("HELM_ACCEPTANCE_SHA256"),
+            target, {"image": self.image, "sha": self.sha},
+            {"image": required("HELM_RECOVERY_IMAGE"), "sha": required("HELM_RECOVERY_SHA")})
+        self.witness = StopWitness(required("HELM_STOP_OBSERVER"),
+                                   required("HELM_STOP_OBSERVER_SHA256"), target)
+        self.observe_transport = self.witness.transport
 
     def request(self, method, path, body=None, *, route=False):
         headers = {"Accept": "application/json", "User-Agent": "helm-coolify-deployer/1"}
@@ -108,7 +123,7 @@ class Deployer:
             raise DeployError("service must contain exactly the Helm application and no databases")
         return value
 
-    def preflight(self):
+    def preflight(self, *, configuration=True):
         value = self.service()
         env = self.request("GET", f"/projects/{self.project}/{self.environment}")
         if (not isinstance(env, dict) or env.get("uuid") != self.environment
@@ -121,45 +136,85 @@ class Deployer:
         # response does not eager-load its environment relationship.
         if env.get("id") is not None and value.get("environment_id") != env["id"]:
             raise DeployError("service environment ID disagrees with UUID membership")
-        return self.current()
+        return self.current() if configuration else None
 
     def current(self):
         envs = self.request("GET", self.service_path + "/envs")
         if not isinstance(envs, list):
             raise DeployError("invalid service environment response")
         result = {}
-        for key, pattern in [("HELM_IMAGE", IMAGE_RE), ("HELM_RELEASE_SHA", SHA_RE)]:
+        for key, pattern in [("HELM_IMAGE", IMAGE_RE), ("HELM_RELEASE_SHA", SHA_RE), (FLOOR_KEY, None)]:
             matches = [e for e in envs if isinstance(e, dict) and e.get("key") == key]
             if len(matches) != 1 or not isinstance(matches[0].get("value"), str):
                 raise DeployError("previous release environment is missing, hidden, or duplicated: " + key)
             value = matches[0]["value"]
-            if not pattern.fullmatch(value):
+            if pattern is not None and not pattern.fullmatch(value):
                 raise DeployError("previous release is not immutable: " + key)
             result[key] = value
+        self.policy.floor(result[FLOOR_KEY])
         return result
 
-    def update(self, image, sha):
-        self.preflight()
-        # PATCH only existing keys; never upsert arbitrary service configuration.
-        for key, value in [("HELM_IMAGE", image), ("HELM_RELEASE_SHA", sha)]:
-            self.request("PATCH", self.service_path + "/envs", {
-                "key": key, "value": value, "is_literal": True, "is_multiline": False,
-            })
-        if self.current() != {"HELM_IMAGE": image, "HELM_RELEASE_SHA": sha}:
-            raise DeployError("Coolify did not retain the requested release")
+    def patch_env(self, key, value):
+        self.policy.fresh()
+        if key not in {"HELM_IMAGE", "HELM_RELEASE_SHA", FLOOR_KEY}:
+            raise DeployError("unsupported deployment environment mutation")
+        self.request("PATCH", self.service_path + "/envs", {
+            "key": key, "value": value, "is_literal": True, "is_multiline": False,
+        })
 
-    def start(self):
-        service = self.service()
-        status = service.get("status", "")
+    def require_stopped(self, previous):
+        self.preflight()
+        receipt = self.witness.observe(previous, self.observe_transport)
+        # Keep only latest receipt; repeated polling cannot grow evidence.
+        self.evidence["stop_witness"] = receipt
+        return receipt
+
+    def stop(self, previous):
+        self.witness.containers = None
+        self.halt()
+        self.require_stopped(previous)
+
+    def halt(self):
+        # Stopping an exact target is safe even when its floor/coordinates
+        # disappeared. This path can never PATCH or start a process.
+        self.preflight(configuration=False)
+        # Explicitly suppress Coolify's automatic Docker cleanup/image pruning.
+        # A queued response or cached exited status is never the barrier.
+        status = self.service().get('status')
         if not isinstance(status, str):
-            raise DeployError("invalid Coolify service status")
-        action = "/restart?latest=true" if "running" in status else "/start"
-        self.request("POST", self.service_path + action, {})
+            raise DeployError('invalid Coolify status during stop')
+        if status not in {'exited', 'stopped', 'exited:unhealthy', 'stopped:unhealthy'}:
+            self.request("POST", self.service_path + "/stop?docker_cleanup=false", {})
+
+    def activate(self, pair, previous, floor_raw):
+        self.policy.fresh()
+        if pair not in [self.policy.candidate, self.policy.recovery]:
+            raise DeployError("artifact not eligible for supported recovery")
+        self.require_stopped(previous)
+        if self.current()[FLOOR_KEY] != floor_raw:
+            raise DeployError("authorization floor changed during activation")
+        for key, value in [("HELM_IMAGE", pair['image']), ("HELM_RELEASE_SHA", pair['sha'])]:
+            self.patch_env(key, value)
+        current = self.current()
+        if current != {"HELM_IMAGE": pair['image'], "HELM_RELEASE_SHA": pair['sha'], FLOOR_KEY: floor_raw}:
+            raise DeployError("Coolify did not retain exact release/floor")
+        self.require_stopped(previous)
+        self.policy.fresh()
+        self.request("POST", self.service_path + "/start", {})
 
     def wait(self, image, sha):
         deadline = time.monotonic() + self.timeout
         last_error = "service did not become healthy"
         while time.monotonic() < deadline:
+            # Check policy before every poll, including unhealthy services and
+            # already-current replay. A changed valid floor must not produce
+            # successful evidence carrying the pre-start floor checksum.
+            current = self.current()
+            if current[FLOOR_KEY] != self.floor_snapshot:
+                raise PolicyError('authorization floor changed during verification')
+            self.policy.provenance(current[FLOOR_KEY], self.witness.checksum)
+            if current['HELM_IMAGE'] != image or current['HELM_RELEASE_SHA'] != sha:
+                raise DeployError('configured release changed during verification')
             # Target drift is fatal, and API failure must not be hidden by
             # successful route checks against an unrelated workload.
             service = self.service()
@@ -173,12 +228,19 @@ class Deployer:
                             or ready.get("service") != "helm" or health.get("revision") != sha
                             or ready.get("revision") != sha):
                         raise DeployError("private health/readiness revision mismatch")
-                    if self.current() != {"HELM_IMAGE": image, "HELM_RELEASE_SHA": sha}:
-                        raise DeployError("configured release changed during route verification")
-                    return {"coolify_status": "running:healthy", "health_revision": sha,
-                            "ready_revision": sha, "ready": True}
                 except DeployError as exc:
                     last_error = str(exc)
+                else:
+                    # Invalid/unknown policy or coordinate drift is immediately
+                    # fatal, rather than a reason to keep an uncertain writer up.
+                    current = self.current()
+                    if current[FLOOR_KEY] != self.floor_snapshot:
+                        raise PolicyError('authorization floor changed during route verification')
+                    if current["HELM_IMAGE"] != image or current["HELM_RELEASE_SHA"] != sha:
+                        raise DeployError("configured release changed during route verification")
+                    self.policy.provenance(current[FLOOR_KEY], self.witness.checksum)
+                    return {"coolify_status": "running:healthy", "health_revision": sha,
+                            "ready_revision": sha, "ready": True}
             time.sleep(self.poll)
         raise DeployError("verification timed out: " + last_error)
 
@@ -189,36 +251,12 @@ class Deployer:
         path.chmod(0o600)
 
     def deploy(self):
-        previous = self.preflight()
-        self.evidence["previous_image"] = previous["HELM_IMAGE"]
-        self.evidence["previous_revision"] = previous["HELM_RELEASE_SHA"]
-        if previous == {"HELM_IMAGE": self.image, "HELM_RELEASE_SHA": self.sha}:
-            self.evidence.update(self.wait(self.image, self.sha))
-            self.evidence["status"] = "already-current"
-            self.save()
-            return
-        # Persist nonsecret recovery coordinates before a potentially lost PATCH.
-        self.evidence["status"] = "deploying"
-        self.save()
         try:
-            self.update(self.image, self.sha)
-            self.start()
-            self.evidence.update(self.wait(self.image, self.sha))
-            self.evidence["status"] = "deployed"
-        except DeployError as original:
-            self.evidence["deployment_error"] = str(original)
-            try:
-                self.update(previous["HELM_IMAGE"], previous["HELM_RELEASE_SHA"])
-                self.start()
-                self.evidence["rollback"] = self.wait(previous["HELM_IMAGE"], previous["HELM_RELEASE_SHA"])
-                self.evidence["status"] = "failed-rollback-verified"
-            except DeployError as rollback:
-                self.evidence["status"] = "failed-rollback-failed"
-                self.evidence["rollback_error"] = str(rollback)
-                raise DeployError(f"deployment failed ({original}); rollback failed ({rollback})") from None
-            raise DeployError(f"deployment failed ({original}); previous image/revision rollback verified") from None
-        finally:
+            transition(self)
+        except PolicyError as exc:
+            self.evidence.update(status="failed-policy-closed", deployment_error=str(exc))
             self.save()
+            raise DeployError(str(exc)) from None
 
 
 def main():
@@ -227,7 +265,7 @@ def main():
         deployer.deploy()
         print(json.dumps(deployer.evidence, sort_keys=True))
         return 0
-    except (DeployError, ValueError, OSError) as exc:
+    except (DeployError, PolicyError, ValueError, OSError) as exc:
         print("helm-coolify-deploy: " + str(exc), file=sys.stderr)
         return 1
 

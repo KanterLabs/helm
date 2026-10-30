@@ -41,11 +41,22 @@ The existing CI validates, smoke-tests, scans and publishes an immutable image
 in `ghcr.io/kanterlabs/helm`. Each branch's protected environment supplies its
 exact Coolify service identifiers and a separate API token. The deployer
 checks the branch tip, service, project, environment, host, prior digest and
-revision, updates only `HELM_IMAGE` and `HELM_RELEASE_SHA`, redeploys, then
+revision. The membership-aware controller requires protected runtime acceptance
+for the exact candidate and recovery digest/source pairs, proves old-writer
+exclusion, advances the independent `HELM_AUTHORIZATION_FLOOR`, updates
+`HELM_IMAGE` and `HELM_RELEASE_SHA`, starts the accepted image, then
 requires healthy status and the exact revision from the private HTTPS
 `/healthz` and `/readyz`. Deployment artifacts contain only sanitized evidence.
-A failed image deployment restores the preceding image and revision and
-verifies them; it never restores an older database.
+A failed deployment uses only the explicitly accepted membership-aware recovery
+pair and verifies it against current data. It remains a failed deployment;
+there is no automatic preceding-image or database restore.
+
+**Migration041 activation remains blocked.** Parent must integrate both
+protected workflows, provision the controller-owned floor and actual read-only
+stop observer with continuing exclusion, and supply TC-336 receipts. See the
+[TC-335 policy contract](../../docs/TC335_POLICY_CONTRACT.md) and
+[integration handoff](../../docs/TC335_HANDOFF.md). Cached Coolify status and
+SQL/readiness compatibility cannot certify authorization-safe recovery.
 
 CI retains the repository's hosted-runner cutover: live platform admission
 requires the retired `homelab-heavy` pool to stay zero, and the current
@@ -86,12 +97,17 @@ CT106 and CT103 keep their final stopped source datasets, release binaries,
 and verified pre-migration backups. They are rollback material, not current
 replicas. **Do not restart their Helm writers against those old datasets.**
 Normal rollback changes the Coolify image only and keeps current data.
-Retained binaries passed readiness against populated migrated database copies.
+Historical readiness results do not make schema35/40 binaries eligible after041:
+they can ignore human grants and re-elevate configured email. Retain every
+historical image/backup while excluding incompatible binaries from supported
+recovery. The lane floor must never be lowered with the image/revision.
 
 If moving back to an LXC is necessary, stop the Coolify writer, take and verify
 a fresh backup of its current database, transfer the entire current data and
 account state into a separately staged LXC directory, verify row counts and
-stable IDs, then activate the retained binary and edge route. Keep the Coolify
+stable IDs, then activate only an explicitly accepted authorization-compatible
+binary and edge route. A pre-membership binary is ineligible once the floor
+has advanced. Keep the Coolify
 data intact. A destructive restore requires separate explicit authorization
 and an exact backup target.
 

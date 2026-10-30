@@ -40,6 +40,13 @@ def finish(runtime, version):
         raise ReleaseError('Local version tag points elsewhere; refusing overwrite')
     body = (notes + '\n\n## Verified production artifact\n\n'
             f'- Revision: `{merged}`\n- Image: `{evidence["image"]}`\n'
+            f'- Authorization acceptance: `{evidence["authorization"]["bundle_sha256"]}`\n'
+            f'- Authorization floor: `{evidence["authorization"]["minimum"]}` '
+            f'(`{evidence["authorization"]["floor_sha256"]}`)\n'
+            f'- Recovery image: `{evidence["authorization"]["recovery"]["image"]}`\n'
+            f'- Recovery revision: `{evidence["authorization"]["recovery"]["sha"]}`\n'
+            f'- Stop observer: `{evidence["authorization"]["stop_observer_sha256"]}`\n'
+            f'- Beta acceptance: `{manifest["beta_authorization"]["bundle_sha256"]}`\n'
             f'- CI and deployment: {evidence["url"]}\n')
     if len(body.encode()) > 20_000:
         raise ReleaseError('Published release notes exceed 20,000 bytes')
