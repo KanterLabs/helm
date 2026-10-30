@@ -85,6 +85,7 @@ export function clearBetaState() {
 }
 
 export async function loadBetaBuilds(options: BetaBuildLoadOptions = {}): Promise<boolean> {
+  if (!session.workspaceAdmin) { clearBetaState(); return false; }
   const requestId = ++beta.betaBuildRequest;
   const requestedSession = session.sessionGeneration;
   if (!options.silent) beta.betaBuildsLoading = true;

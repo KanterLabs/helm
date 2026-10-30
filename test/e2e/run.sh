@@ -55,6 +55,9 @@ collect_evidence() {
   if [[ -n "${HELM_E2E_METADATA_FILE:-}" && -f "$HELM_E2E_METADATA_FILE" ]]; then
     cp -a "$HELM_E2E_METADATA_FILE" "$artifact_dir/source.metadata"
   fi
+  # All reporter, console and database-copy writers have finished. Do not
+  # retain credential-bearing failure output for the CI uploader.
+  python3 "$root/test/e2e/evidence_credentials.py" "$artifact_dir" "$work_dir" || exit_status=1
   {
     printf 'revision=%s\n' "${HELM_E2E_REVISION:-$(git -C "$root" rev-parse HEAD)}"
     printf 'command=test/e2e/run.sh\n'

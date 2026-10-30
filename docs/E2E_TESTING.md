@@ -47,8 +47,9 @@ Within the run's artifact bundle, each worker writes evidence under
 `disabled/worker-N/`. The supervisor writes `disabled/workers.json` with the
 worker results and captures each worker's console output in
 `disabled/worker-N.console.log`. Inspect these paths when a worker fails; the
-bundle's checksums cover the retained evidence. Local onboarding and GitHub
-integration remain separate phases after the main browser suite.
+bundle's checksums cover the retained evidence. Local onboarding, local
+membership (`e2e/membership-sessions.spec.ts`, TC-113) and GitHub integration
+remain separate phases after the main browser suite.
 
 ## Replacement rule
 

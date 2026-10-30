@@ -10,11 +10,15 @@ HELM_E2E_WORKERS=6 HELM_E2E_GOFLAGS=-race ./test/e2e/run.sh
 ./test/e2e/run.sh e2e/board.spec.ts --grep 'card'
 ```
 
-Full runs default to four isolated main shards, then run local onboarding and
-GitHub integration. CI also enables the stalled-account deadline suite. The
-ancillary suites share the same worker budget (1–8), each with private state,
-ports and evidence. Onboarding runs once. Focused invocations preserve their
-selectors and existing onboarding check; they do not add GitHub integration.
+Full runs default to four isolated main shards, then run local onboarding,
+local membership and GitHub integration. CI also enables the stalled-account
+deadline suite. The ancillary suites share the same worker budget (1–8), each
+with private state, ports and evidence. Onboarding runs once. Focused
+invocations preserve their selectors and existing onboarding check; they do not
+add GitHub integration. They add the local membership fixture only when the
+exact `e2e/membership-sessions.spec.ts` operand is selected; that phase always
+runs the whole membership file. It binds the unused upper half (+50..+80) of
+the onboarding port block. See [its failure inventory](MEMBERSHIP_SUITE_FAILURES.md).
 Tests within a fixture remain sequential. `HELM_E2E_SERVER_GOMAXPROCS` defaults
 to two for fixture servers; `HELM_CI_BUILD_JOBS` defaults to six for compilation
 only (allowed 1–6). These are independent controls.
