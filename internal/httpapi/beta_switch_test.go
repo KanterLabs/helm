@@ -44,7 +44,7 @@ func (c *betaSwitchClientStub) GetJob(context.Context, string) (betaswitch.Job, 
 }
 
 func betaAdminIdentity() auth.Identity {
-	return auth.Identity{Actor: store.Actor{ID: "beta-admin", Kind: "human", Admin: true}}
+	return auth.Identity{Actor: store.Actor{ID: "beta-admin", Kind: "human", Admin: true, WorkspaceRole: "owner"}}
 }
 
 func betaRequestWithIdentity(method, target string, payload string, identity auth.Identity) *http.Request {

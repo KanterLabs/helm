@@ -15,8 +15,11 @@ type portableSQL interface {
 }
 
 func portableIDsClause(column string, ids []string) (string, []any) {
-	if len(ids) == 0 {
+	if ids == nil {
 		return "", nil
+	}
+	if len(ids) == 0 {
+		return " AND 1=0", nil
 	}
 	pl := make([]string, len(ids))
 	args := make([]any, len(ids))

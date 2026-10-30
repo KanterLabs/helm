@@ -32,8 +32,14 @@ func (s *Server) lunaRuns(w http.ResponseWriter, r *http.Request, identity auth.
 		s.writeInternal(w, err)
 		return
 	}
+	visible := make([]store.LunaRun, 0, len(runs))
+	for _, run := range runs {
+		if scopedProjectIDs(identity) == nil || (run.ProjectID != nil && identity.CanProject(*run.ProjectID)) {
+			visible = append(visible, run)
+		}
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	s.writeCollection(w, runs, "")
+	s.writeCollection(w, visible, "")
 }
 
 type lunaRunDetailResponse struct {
@@ -53,6 +59,10 @@ func (s *Server) lunaRunDetail(w http.ResponseWriter, r *http.Request, identity 
 	run, content, available, err := s.Store.GetLunaRunDetail(r.Context(), identity.Actor.ID, strings.TrimSpace(runID))
 	if err != nil {
 		s.writeStoreError(w, err)
+		return
+	}
+	if scopedProjectIDs(identity) != nil && (run.ProjectID == nil || !identity.CanProject(*run.ProjectID)) {
+		s.writeError(w, 404, "not_found", "run not found", nil)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

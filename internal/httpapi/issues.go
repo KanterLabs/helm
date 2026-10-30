@@ -27,7 +27,7 @@ func (s *Server) issues(w http.ResponseWriter, r *http.Request, identity auth.Id
 		return
 	}
 	filter := store.TaskFilter{Kind: "bug", Cursor: offset, Limit: limit}
-	if identity.IsToken && identity.Token.ProjectsScoped {
+	if scopedProjectIDs(identity) != nil {
 		filter.ProjectIDs = scopedProjectIDs(identity)
 	}
 	if reference, parseErr := parseOptionalIdentifier(r, "project"); parseErr != nil {

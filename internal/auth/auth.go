@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -19,26 +20,6 @@ import (
 )
 
 const sessionCookie = "roadmap_session"
-
-type Identity struct {
-	Actor   store.Actor
-	IsToken bool
-	Token   store.AuthToken
-}
-
-func (i Identity) HasScope(scope string) bool {
-	if !i.IsToken {
-		return true
-	}
-	return i.Token.Scopes[scope]
-}
-
-func (i Identity) CanProject(projectID string) bool {
-	if !i.IsToken || !i.Token.ProjectsScoped {
-		return true
-	}
-	return i.Token.Projects[projectID]
-}
 
 type Manager struct {
 	Store              *store.Store
@@ -52,6 +33,8 @@ type Manager struct {
 	TailnetAdminEmail  string
 	TailnetAudience    string
 	tailnetInitErr     error
+	loginMu            sync.Mutex
+	loginAttempts      map[string][]time.Time
 }
 
 func NewManager(s *store.Store, cfg config.Config) *Manager {
@@ -150,7 +133,7 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) (Identity, 
 		if err != nil {
 			return Identity{}, err
 		}
-		return Identity{Actor: actor}, nil
+		return Identity{Actor: actor, DevelopmentBypass: true}, nil
 	case "cloudflare":
 		if m.CloudflareVerifier == nil {
 			if m.cloudflareInitErr != nil {
@@ -209,14 +192,14 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) (Identity, 
 		if err != nil {
 			return Identity{}, errors.New("authentication required")
 		}
-		actor, err := m.Store.ActorForSession(ctx, cookie.Value)
+		actor, session, err := m.Store.SessionForToken(ctx, cookie.Value)
 		if err != nil {
 			return Identity{}, errors.New("authentication required")
 		}
-		if actor.DisabledAt != nil {
+		if actor.DisabledAt != nil || actor.Kind != "human" || actor.WorkspaceRole == "" {
 			return Identity{}, errors.New("actor is disabled")
 		}
-		return Identity{Actor: actor}, nil
+		return Identity{Actor: actor, SessionID: session.ID}, nil
 	default:
 		return Identity{}, errors.New("authentication mode is unavailable")
 	}
@@ -254,45 +237,6 @@ func (m *Manager) Setup(ctx context.Context, email, name, password string) (stor
 	return m.Store.CreateFirstAdmin(ctx, store.Actor{Kind: "human", Name: name, Email: &email, Admin: true}, hash)
 }
 
-func (m *Manager) Login(ctx context.Context, email, password string, w http.ResponseWriter, secureOverride ...bool) (store.Actor, error) {
-	if m.Mode != "local" {
-		return store.Actor{}, &store.Error{Kind: store.ErrForbidden, Message: "password login is only available in local authentication mode"}
-	}
-	email = strings.TrimSpace(email)
-	if !validEmail(email) {
-		return store.Actor{}, &store.Error{Kind: store.ErrInvalid, Message: "a valid email is required"}
-	}
-	if password == "" {
-		return store.Actor{}, &store.Error{Kind: store.ErrInvalid, Message: "password is required"}
-	}
-	actor, hash, err := m.Store.GetPasswordHash(ctx, email)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return store.Actor{}, &store.Error{Kind: store.ErrForbidden, Message: "invalid email or password"}
-		}
-		return store.Actor{}, err
-	}
-	if hash == "" || !CheckPassword(password, hash) {
-		return store.Actor{}, &store.Error{Kind: store.ErrForbidden, Message: "invalid email or password"}
-	}
-	if actor.DisabledAt != nil {
-		return store.Actor{}, &store.Error{Kind: store.ErrForbidden, Message: "actor is disabled"}
-	}
-	raw, err := randomSession()
-	if err != nil {
-		return store.Actor{}, err
-	}
-	if err := m.Store.CreateSession(ctx, actor.ID, raw, time.Now().UTC().Add(30*24*time.Hour)); err != nil {
-		return store.Actor{}, err
-	}
-	secure := m.SecureCookie
-	if len(secureOverride) > 0 {
-		secure = secureOverride[0]
-	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: raw, Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 30 * 24 * 60 * 60, Expires: time.Now().UTC().Add(30 * 24 * time.Hour)})
-	return actor, nil
-}
-
 func cloudflareAssertion(r *http.Request) (string, error) {
 	values := r.Header.Values("Cf-Access-Jwt-Assertion")
 	if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
@@ -323,7 +267,9 @@ func ValidEmail(value string) bool { return validEmail(value) }
 
 func (m *Manager) Logout(ctx context.Context, r *http.Request, w http.ResponseWriter) error {
 	if cookie, err := r.Cookie(sessionCookie); err == nil {
-		_ = m.Store.DeleteSession(ctx, cookie.Value)
+		if err := m.Store.DeleteSession(ctx, cookie.Value); err != nil {
+			return err
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: m.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(0, 0)})
 	return nil

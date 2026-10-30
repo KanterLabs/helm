@@ -48,6 +48,9 @@ func (s *Store) CreateActor(ctx context.Context, actor Actor, passwordHash strin
 	if actor.Kind != "human" && actor.Kind != "agent" {
 		return Actor{}, invalid("kind must be human or agent", nil)
 	}
+	if actor.Kind == "human" {
+		return s.createHumanActor(ctx, actor, passwordHash, actor.Admin, actor.ProjectIDs, "")
+	}
 	name := strings.TrimSpace(actor.Name)
 	if err := validateActorName(name); err != nil {
 		return Actor{}, err
@@ -149,6 +152,9 @@ func (s *Store) CreateFirstAdmin(ctx context.Context, actor Actor, passwordHash 
 			}
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_memberships(actor_id,role,created_at,updated_at) VALUES (?,'owner',?,?)`, actor.ID, created, created); err != nil {
+			return err
+		}
 		_, err = insertEvent(ctx, tx, "actor.created", actor.ID, "", "", map[string]any{"actor_id": actor.ID, "kind": actor.Kind})
 		return err
 	})
@@ -172,20 +178,16 @@ func (a Actor) DisabledValue() string {
 	return *a.DisabledAt
 }
 
+// EnsureCloudflareActor accepts only a cryptographically verified identity.
+// Configured email is a first-workspace bootstrap hint, never a role source
+// for an existing actor. Reviewed roles and revocations are authoritative.
 func (s *Store) EnsureCloudflareActor(ctx context.Context, email, name, adminEmail string) (Actor, error) {
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return Actor{}, invalid("Cloudflare identity email is missing", nil)
-	}
 	actor, err := s.FindActorByEmail(ctx, email)
 	if err == nil {
-		if actor.Kind != "human" {
-			return Actor{}, &Error{Kind: ErrForbidden, Message: "Cloudflare identity is not a human actor"}
+		if actor.Kind != "human" || actor.DisabledAt != nil {
+			return Actor{}, forbidden("identity is unavailable")
 		}
-		if actor.DisabledAt != nil {
-			return Actor{}, &Error{Kind: ErrForbidden, Message: "actor is disabled"}
-		}
-		return s.reconcileCloudflareAdmin(ctx, actor, email, adminEmail)
+		return actor, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return Actor{}, err
@@ -193,34 +195,11 @@ func (s *Store) EnsureCloudflareActor(ctx context.Context, email, name, adminEma
 	if strings.TrimSpace(name) == "" {
 		name = strings.Split(email, "@")[0]
 	}
-	admin := strings.EqualFold(email, strings.TrimSpace(adminEmail)) && strings.TrimSpace(adminEmail) != ""
-	mail := email
-	created, createErr := s.CreateActor(ctx, Actor{Kind: "human", Name: name, Email: &mail, Admin: admin}, "")
-	if errors.Is(createErr, ErrAlreadyExists) {
-		actor, findErr := s.FindActorByEmail(ctx, email)
-		if findErr != nil {
-			return Actor{}, findErr
-		}
-		if actor.Kind != "human" {
-			return Actor{}, &Error{Kind: ErrForbidden, Message: "Cloudflare identity is not a human actor"}
-		}
-		if actor.DisabledAt != nil {
-			return Actor{}, &Error{Kind: ErrForbidden, Message: "actor is disabled"}
-		}
-		return s.reconcileCloudflareAdmin(ctx, actor, email, adminEmail)
+	actor, err = s.createCloudflarePending(ctx, Actor{Kind: "human", Name: name, Email: &email}, adminEmail)
+	if errors.Is(err, ErrAlreadyExists) {
+		return s.EnsureCloudflareActor(ctx, email, name, adminEmail)
 	}
-	return created, createErr
-}
-
-func (s *Store) reconcileCloudflareAdmin(ctx context.Context, actor Actor, email, adminEmail string) (Actor, error) {
-	wanted := strings.EqualFold(email, strings.TrimSpace(adminEmail)) && strings.TrimSpace(adminEmail) != ""
-	if actor.Admin == wanted {
-		return actor, nil
-	}
-	if _, err := s.DB.ExecContext(ctx, `UPDATE actors SET admin=?, updated_at=? WHERE id=?`, boolInt(wanted), now(), actor.ID); err != nil {
-		return Actor{}, err
-	}
-	return s.GetActor(ctx, actor.ID)
+	return actor, err
 }
 
 func validateActorName(name string) error {
@@ -250,6 +229,9 @@ func attachActorProjects(ctx context.Context, tx *sql.Tx, actorID string, refere
 }
 
 func (s *Store) enrichActor(ctx context.Context, actor *Actor) error {
+	if actor.Kind == "human" {
+		return s.enrichWorkspaceMembership(ctx, actor)
+	}
 	rows, err := s.DB.QueryContext(ctx, `SELECT project_id FROM actor_projects WHERE actor_id=? ORDER BY project_id`, actor.ID)
 	if err != nil {
 		return err
@@ -399,6 +381,9 @@ func (s *Store) GetPasswordHash(ctx context.Context, email string) (Actor, strin
 		return Actor{}, "", err
 	}
 	actor.Email, actor.DisabledAt, actor.Admin = nullableString(actorEmail), nullableString(disabled), boolValue(admin)
+	if err := s.enrichActor(ctx, &actor); err != nil {
+		return Actor{}, "", err
+	}
 	if !hash.Valid {
 		return actor, "", nil
 	}

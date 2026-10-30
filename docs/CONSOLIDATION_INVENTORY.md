@@ -127,6 +127,11 @@ The following remain later acceptance gates, not excuses to stop safe core work:
   desktop emulation alone do not prove that transition.
 - TC-311: real audit judgments and legitimate owner-human application remain
   incomplete; the consolidation core can release with the capability parked.
+- TC-8/113: the assignee directory depends on unmerged membership/session work
+  (`98e4292`, `backlog/tc113-membership`). Its historical migration 013 is not
+  an upgrade plan for today's schema 40. Review an additive port and retained
+  binary compatibility before accepting the picker; current project ceilings
+  remain authoritative in the meantime.
 - TC-329/330: refresh the backup at deployment time and prove retained binary
   compatibility for the exact schema/revision being promoted.
 

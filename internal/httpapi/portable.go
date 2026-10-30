@@ -211,7 +211,7 @@ func (s *Server) importPortable(w http.ResponseWriter, r *http.Request, identity
 		}
 		targetProjectID = targetProject.ID
 	}
-	if !projectRoute && identity.IsToken && identity.Token.ProjectsScoped && strings.TrimSpace(targetProjectID) == "" {
+	if !projectRoute && scopedProjectIDs(identity) != nil && strings.TrimSpace(targetProjectID) == "" {
 		s.writeError(w, http.StatusForbidden, "forbidden", "project-scoped tokens must select an allowed target project", nil)
 		return
 	}
@@ -311,7 +311,7 @@ func (s *Server) importTrello(w http.ResponseWriter, r *http.Request, identity a
 		}
 		targetProjectID = targetProject.ID
 	}
-	if identity.IsToken && identity.Token.ProjectsScoped && targetProjectID == "" {
+	if scopedProjectIDs(identity) != nil && targetProjectID == "" {
 		s.writeError(w, http.StatusForbidden, "forbidden", "project-scoped tokens must select an allowed target project", portableWarningsDetails(warnings))
 		return
 	}

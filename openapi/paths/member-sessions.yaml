@@ -1,0 +1,198 @@
+paths:
+  /api/v1/auth/password:
+    post:
+      operationId: changeOwnPassword
+      summary: Change the current local password
+      description: Verifies the current password and replaces it with a new local password.
+        Cloudflare-only accounts cannot use this route. Requires an admitted human
+        identity. Password mutations reject Idempotency-Key. Revocation expires the
+        legacy session row as well as recording revoked_at. Session inspection returns
+        at most 200 newest descriptors.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeRequest"
+      responses:
+        "200":
+          description: Password changed
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/sessions:
+    get:
+      operationId: listSessions
+      summary: List sessions without exposing session secrets
+      tags:
+        - Authentication
+      parameters:
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Identifier"
+          description: Administrator-only target actor; omitted lists the current actor's
+            sessions.
+      responses:
+        "200":
+          description: Session descriptors
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+      description: " Requires an admitted human identity. Password mutations reject
+        Idempotency-Key. Revocation expires the legacy session row as well as
+        recording revoked_at. Session inspection returns at most 200 newest
+        descriptors."
+  /api/v1/sessions/{session}:
+    delete:
+      operationId: revokeSession
+      summary: Revoke one local session
+      tags:
+        - Authentication
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Identifier"
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Identifier"
+          description: Administrator-only target actor; omitted targets the current actor.
+      responses:
+        "204":
+          description: Session revoked
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+      description: " Requires an admitted human identity. Password mutations reject
+        Idempotency-Key. Revocation expires the legacy session row as well as
+        recording revoked_at. Session inspection returns at most 200 newest
+        descriptors."
+  /api/v1/auth/sessions:
+    get:
+      operationId: listSessionsAuthAlias
+      summary: List sessions without exposing session secrets
+      tags:
+        - Authentication
+      parameters:
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Identifier"
+          description: Administrator-only target actor; omitted lists the current actor's
+            sessions.
+      responses:
+        "200":
+          description: Session descriptors
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+      description: " Requires an admitted human identity. Password mutations reject
+        Idempotency-Key. Revocation expires the legacy session row as well as
+        recording revoked_at. Session inspection returns at most 200 newest
+        descriptors."
+  /api/v1/auth/sessions/{session}:
+    delete:
+      operationId: revokeSessionAuthAlias
+      summary: Revoke one local session
+      tags:
+        - Authentication
+      parameters:
+        - name: session
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Identifier"
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Identifier"
+          description: Administrator-only target actor; omitted targets the current actor.
+      responses:
+        "204":
+          description: Session revoked
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+      description: " Requires an admitted human identity. Password mutations reject
+        Idempotency-Key. Revocation expires the legacy session row as well as
+        recording revoked_at. Session inspection returns at most 200 newest
+        descriptors."
