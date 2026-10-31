@@ -1,9 +1,16 @@
 # TC-335 parent source acceptance
 
-Migration041 is **not approved for rollout**. The membership source at
+**Update2026-10-31:** beta was activated through the separately validated native
+operator path at `f045958`, schema41. See the
+[actual rollout receipt](HELM_BETA_MEMBERSHIP_ROLLOUT.md) for exact artifacts,
+backups, preservation, verified access and remaining limits. Automatic deploy
+and production membership remain gated. The historical source-review record
+below describes the state before that operator rollout.
+
+At that source-review stage, migration041 was **not approved for rollout**. The membership source at
 `19dfdeadfc4706a1c322780ba02e84ccee403daa` passed PR58's six checks; this
-document records the subsequent recovery-controller review. Beta remains on
-`a414c69` with schema40; production remains on `c0f119cf` with schema35.
+document records the subsequent recovery-controller review. Beta was then on
+`a414c69` with schema40; production was on `c0f119cf` with schema35.
 No live data, service configuration, host access or image selection was changed
 during this review. TC-335, TC-336 and TC-113 are still incomplete.
 

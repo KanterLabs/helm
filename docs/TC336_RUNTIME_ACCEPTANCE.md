@@ -116,7 +116,7 @@ The reviewed22-proof bundle is under
 `.artifacts/tc336/accepted-beta-20261031-r3/`, with checksum
 `be9fa4e27a9d49ac8fad9263df1723ebe6ba89bae7ff98b798cf38558eb94aa2`.
 The parent independently validated the real Acceptance reader, input hashes,
-OCI manifests/configuration and the producer code. Full work databases remain
-only in private local state. Live profile/authority installation and private
+OCI manifests/configuration and the producer code. Disposable private input/work databases were removed after exporting all324
+sanitized exchanges into bounded files under `.artifacts/tc336/final-real-copy-exchanges/`. Live profile/authority installation and private
 identity/readiness remain separate operator gates; these tests alone do not
 claim deployment.

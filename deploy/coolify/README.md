@@ -51,12 +51,20 @@ A failed deployment uses only the explicitly accepted membership-aware recovery
 pair and verifies it against current data. It remains a failed deployment;
 there is no automatic preceding-image or database restore.
 
-**Migration041 activation remains blocked.** Parent must integrate both
+**Automatic migration041 activation remains blocked.** Parent must integrate both
 protected workflows, provision the controller-owned floor and actual read-only
 stop observer with continuing exclusion, and supply TC-336 receipts. See the
 [TC-335 policy contract](../../docs/TC335_POLICY_CONTRACT.md) and
 [integration handoff](../../docs/TC335_HANDOFF.md). Cached Coolify status and
 SQL/readiness compatibility cannot certify authorization-safe recovery.
+
+Beta exception accepted on2026-10-31: the existing service now runs schema41
+at `f045958` through the independently installed native operator path. See the
+[live rollout receipt](../../docs/HELM_BETA_MEMBERSHIP_ROLLOUT.md). Beta uses the
+literal guarded70541 profile and monotonic floor41; automatic deployment stays
+paused. Production remains schema35 and the automatic integration above is
+still required. Historical images remain retained and cannot serve beta's
+membership database through the protected profile.
 
 CI retains the repository's hosted-runner cutover: live platform admission
 requires the retired `homelab-heavy` pool to stay zero, and the current
