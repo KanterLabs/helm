@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Repeatable, sanitized TC335 snapshot journeys; no application data is used."""
-import importlib.util
 import json
-import mmap
 import os
 from pathlib import Path
 import subprocess
@@ -10,37 +8,10 @@ import sys
 import tempfile
 from unittest.mock import patch
 
+from drain_fixture import fixture, load
+
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT = ROOT / '.artifacts/tc335/drain'
-
-
-def load():
-    spec = importlib.util.spec_from_file_location('tc335_drain', ROOT / 'deploy/admission/drain.py')
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def fixture(base):
-    data, proc = base / 'data', base / 'proc'
-    data.mkdir()
-    (data / 'helm.db').write_bytes(b'synthetic database placeholder')
-    (data / 'helm.db-wal').write_bytes(b'synthetic wal placeholder')
-    for name in ('1', 'self', '200'):
-        p = proc / name
-        (p / 'ns').mkdir(parents=True)
-        for namespace in ('pid', 'mnt'):
-            (p / 'ns' / namespace).symlink_to(f'{namespace}:[123]')
-        (p / 'status').write_text(f'Pid:\t{200 if name == "200" else 1}\nNSpid:\t1\n')
-        (p / 'stat').write_text(f'{200 if name == "200" else 1} (fixture) S ' + '0 ' * 18 + '123 0\n')
-        (p / 'mountinfo').write_text('1 0 0:1 / / rw - proc proc rw\n')
-    (proc / '200/fd').mkdir()
-    (proc / '200/maps').write_text('')
-    (proc / '200/cwd').symlink_to(base)
-    (proc / '1/fd').mkdir()
-    (proc / '1/maps').write_text('')
-    (proc / '1/cwd').symlink_to(base)
-    return data, proc
 
 
 def run():
@@ -63,8 +34,16 @@ def run():
             assert expected in value['reasons'], value
             results.append({'journey': name, 'result': value})
     journey('restricted visibility', lambda d, p: None, 'restricted-proc-visibility')
+    with tempfile.TemporaryDirectory(prefix='tc335-nsfs-') as temp:
+        data, proc = fixture(Path(temp))
+        for name in ('self', '200'):
+            with (proc / name / 'mountinfo').open('a') as stream:
+                stream.write('999998 1 0:5 mnt:[123] /synthetic-namespace rw - nsfs nsfs rw\n')
+        value = observe(data, proc)
+        assert value['reasons'] == ['restricted-proc-visibility'] and value['scanned_process_count'] == 2, value
+        results.append({'journey': 'unrelated nsfs mount root', 'result': value})
     journey('kernel metadata conflict', lambda d, p: (
-        (p / '200/status').write_text('Pid:\t200\nKthread:\t1\n'),
+        (p / '200/status').write_text('Pid:\t200\nKthread:\t1\nUid:\t0\t0\t0\t0\n'),
         (p / '200/fd/4').symlink_to(d / 'helm.db')), 'kernel-thread-conflict')
     journey('missing maps', lambda d, p: (p / '200/maps').unlink(), 'process-unreadable')
     journey('malformed maps', lambda d, p: (p / '200/maps').write_text('bad\n'), 'maps-malformed')
@@ -77,6 +56,26 @@ def run():
     journey('nested mount', lambda d, p: (p / 'self/mountinfo').write_text(f'1 0 0:1 / {d}/nested rw - tmpfs tmpfs rw\n'), 'nested-mount')
     journey('pid limit', lambda d, p: [ (p / str(n + 1000)).mkdir() for n in range(mod.MAX_PIDS + 1)], 'pid-limit')
     journey('fd limit', lambda d, p: [(p / '200/fd' / str(n)).symlink_to(d / 'helm.db') for n in range(mod.MAX_FDS + 1)], 'fd-limit')
+    for kind in ('bound-namespace', 'native-legacy', 'unrelated-namespace'):
+        with tempfile.TemporaryDirectory(prefix='tc335-actor-scope-') as temp:
+            data, proc = fixture(Path(temp))
+            (proc / '200/status').write_text('Pid:\t200\nNSpid:\t200\nUid:\t65532\t65532\t65532\t65532\n')
+            if kind != 'native-legacy':
+                (proc / '200/ns/pid').unlink()
+                (proc / '200/ns/pid').symlink_to('pid:[456]')
+            if kind == 'bound-namespace':
+                device = data.stat().st_dev
+                with (proc / '200/mountinfo').open('a') as stream:
+                    stream.write(f'999999 1 {os.major(device)}:{os.minor(device)} {data} /different-container-path rw - ext4 synthetic rw\n')
+            value = observe(data, proc)
+            matches = [p for p in value['matching_processes'] if p['pid'] == 200]
+            if kind == 'unrelated-namespace':
+                assert not matches, value
+            else:
+                assert matches and matches[0]['fd_count'] == matches[0]['mapping_count'] == 0, value
+                assert not matches[0]['cwd_match'], value
+                assert matches[0].get('namespace_mount_count') or matches[0].get('native_legacy_identity'), value
+            results.append({'journey': kind + ' without target handles', 'result': value})
     with tempfile.TemporaryDirectory(prefix='tc335-live-shape-') as temp:
         data, proc = fixture(Path(temp))
         outside = Path(temp) / 'synthetic-outside'
@@ -104,7 +103,7 @@ def run():
         results.append({'journey': 'descriptor mapping and cwd identity', 'result': value})
     with tempfile.TemporaryDirectory(prefix='tc335-kthread-') as temp:
         data, proc = fixture(Path(temp))
-        (proc / '200/status').write_text('Pid:\t200\nKthread:\t1\n')
+        (proc / '200/status').write_text('Pid:\t200\nKthread:\t1\nUid:\t0\t0\t0\t0\n')
         (proc / '200/cwd').unlink()
         value = observe(data, proc)
         assert value['reasons'] == ['restricted-proc-visibility'], value
@@ -117,7 +116,7 @@ def run():
         for pid in range(201, 265):
             p = proc / str(pid)
             shutil.copytree(proc / '200', p, symlinks=True)
-            (p / 'status').write_text(f'Pid:\t{pid}\nNSpid:\t{pid}\n')
+            (p / 'status').write_text(f'Pid:\t{pid}\nNSpid:\t{pid}\nUid:\t1000\t1000\t1000\t1000\n')
             (p / 'stat').write_text(f'{pid} (fixture) S ' + '0 ' * 18 + '123 0\n')
         value = observe(data, proc)
         assert len(value['matching_processes']) == 64, value
@@ -129,7 +128,7 @@ def run():
                         'reasons': value['reasons']})
     with tempfile.TemporaryDirectory(prefix='tc335-kthread-link-') as temp:
         data, proc = fixture(Path(temp))
-        (proc / '200/status').write_text('Pid:\t200\nKthread:\t1\n')
+        (proc / '200/status').write_text('Pid:\t200\nKthread:\t1\nUid:\t0\t0\t0\t0\n')
         (proc / '200/cwd').unlink()
         (proc / '200/cwd').symlink_to(Path(temp) / 'no-userspace-cwd')
         value = observe(data, proc)
@@ -138,7 +137,7 @@ def run():
         results.append({'journey': 'kernel procfs dangling cwd link', 'result': value})
     with tempfile.TemporaryDirectory(prefix='tc335-kthread-cwd-') as temp:
         data, proc = fixture(Path(temp))
-        (proc / '200/status').write_text('Pid:\t200\nKthread:\t1\n')
+        (proc / '200/status').write_text('Pid:\t200\nKthread:\t1\nUid:\t0\t0\t0\t0\n')
         value = observe(data, proc)
         assert value['reasons'] == ['restricted-proc-visibility'], value
         assert value['scanned_process_count'] == 2, value
@@ -157,6 +156,40 @@ def run():
         assert value['scanned_process_count'] == 0 and value['status'] == 'unknown', value
         results.append({'journey': 'collector restricted proc mount', 'result': value})
     # EACCES must dominate apparent absence; only verified ENOENT races skip.
+    for failure in ('missing-maps', 'malformed-maps', 'missing-cwd', 'identity-drift'):
+        with tempfile.TemporaryDirectory(prefix='tc335-provisional-') as temp:
+            data, proc = fixture(Path(temp))
+            identity = (data / 'helm.db').stat()
+            dev = f'{os.major(identity.st_dev):x}:{os.minor(identity.st_dev):x}'
+            if failure in ('missing-maps', 'malformed-maps'):
+                (proc / '200/fd/4').symlink_to(data / 'helm.db')
+                if failure == 'missing-maps':
+                    (proc / '200/maps').unlink()
+                else:
+                    (proc / '200/maps').write_text('synthetic malformed\n')
+            else:
+                (proc / '200/maps').write_text(f'1-2 rw-s 0 {dev} {identity.st_ino} /redacted\n')
+            if failure == 'missing-cwd':
+                (proc / '200/cwd').unlink()
+            original_starttime = mod._starttime
+            calls = [0]
+            def drift(path, pid, budget):
+                value = original_starttime(path, pid, budget)
+                if pid == 200:
+                    calls[0] += 1
+                    if calls[0] == 2:
+                        return str(int(value) + 1)
+                return value
+            with patch.object(mod, '_starttime', drift if failure == 'identity-drift' else original_starttime):
+                value = observe(data, proc)
+            matches = [p for p in value['matching_processes'] if p['pid'] == 200]
+            assert matches and matches[0].get('provisional') is True, value
+            expected = 'fd_count' if 'maps' in failure else 'mapping_count'
+            assert matches[0][expected] == 1 and matches[0].get('uncertainty'), value
+            assert value['status'] == 'unknown', value
+            results.append({'journey': 'positive evidence before ' + failure,
+                            'status': value['status'], 'matching_processes': matches,
+                            'reasons': value['reasons']})
     with tempfile.TemporaryDirectory(prefix='tc335-denied-') as temp:
         data, proc = fixture(Path(temp))
         original_open = Path.open

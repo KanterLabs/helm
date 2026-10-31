@@ -4,10 +4,11 @@ import os
 import stat
 
 from .filesystem import (BootstrapError, FLAGS, PRIVATE_ID, bounded_read, canonical,
-                         bounded_names, digest, identity, no_acl, strict_json)
+                         bounded_names, digest, identity, lower_hex, no_acl, strict_json)
 from .inventory_pages import MAX_INDEXES, MAX_PAGES, build as inventory_pages, load as load_inventory
 
-JOURNAL_KEYS = {'format', 'phase', 'plan_sha256', 'marker', 'indexes'}
+JOURNAL_KEYS = {'format', 'phase', 'plan_sha256', 'marker', 'indexes',
+                'host_context_sha256', 'metadata_exclusion'}
 METADATA_LIMIT = 20000
 
 
@@ -75,7 +76,7 @@ def check_lock(directory, lock, marker):
         raise BootstrapError('permanent lock identity differs; manual reconciliation required')
 
 
-def load_state(directory, lock, plan):
+def load_state(directory, lock, plan, context):
     s = os.fstat(directory)
     metadata = s.st_uid, s.st_gid, stat.S_IMODE(s.st_mode)
     if metadata not in ((0, 0, 0o700), (0, PRIVATE_ID, 0o700), (0, PRIVATE_ID, 0o750)):
@@ -83,9 +84,21 @@ def load_state(directory, lock, plan):
     no_acl(directory)
     journal = strict_json(read_authority(directory, 'journal.json'))
     if (not isinstance(journal, dict) or set(journal) != JOURNAL_KEYS
-            or type(journal['format']) is not int or journal['format'] != 2
+            or type(journal['format']) is not int or journal['format'] != 3
             or journal['phase'] not in ('preparing', 'prepared') or journal['plan_sha256'] != digest(plan)):
         raise BootstrapError('same original plan required; reconcile CLOSED authority manually')
+    if journal['host_context_sha256'] != context:
+        raise BootstrapError('original native host context differs; manual reconciliation required')
+    exclusion = journal['metadata_exclusion']
+    keys = {'mechanism', 'host_context_sha256', 'data_snapshot_sha256', 'config_snapshot_sha256'}
+    if exclusion is None:
+        if journal['phase'] == 'prepared':
+            raise BootstrapError('prepared native metadata exclusion evidence missing')
+    elif (not isinstance(exclusion, dict) or set(exclusion) != keys
+          or exclusion['mechanism'] != 'directory-handover-and-native-host-drain-v1'
+          or exclusion['host_context_sha256'] != context
+          or not all(lower_hex(exclusion[key], 64) for key in keys - {'mechanism'})):
+        raise BootstrapError('invalid native metadata exclusion evidence')
     if journal['phase'] == 'prepared' and metadata != (0, PRIVATE_ID, 0o750):
         raise BootstrapError('prepared authority directory metadata differs')
     marker = strict_json(read_authority(directory, 'marker.json', mode=0o640, gid=PRIVATE_ID, maximum=4096))
@@ -102,11 +115,12 @@ def load_state(directory, lock, plan):
     return journal, records
 
 
-def create_state(parent, plan, source):
+def create_state(parent, plan, source, context):
     pages, indexes, descriptors = inventory_pages(source.records)
     # Ensure the eventual journal fits before committing the first authority inode.
-    template = dict(format=2, phase='preparing', plan_sha256=digest(plan),
-                    marker=marker_for(plan, os.fstat(source.fds['data'])), indexes=descriptors)
+    template = dict(format=3, phase='preparing', plan_sha256=digest(plan),
+                    marker=marker_for(plan, os.fstat(source.fds['data'])), indexes=descriptors,
+                    host_context_sha256=context, metadata_exclusion=None)
     if len(canonical(template)) > METADATA_LIMIT:
         raise BootstrapError('durable journal bound exceeded')
     os.mkdir('security', mode=0o700, dir_fd=parent)
@@ -128,7 +142,8 @@ def create_state(parent, plan, source):
         write_new(directory, 'marker.json', canonical(marker), mode=0o640, gid=PRIVATE_ID)
         for name, body in pages + indexes:
             write_new(directory, name, body)
-        journal = dict(format=2, phase='preparing', plan_sha256=digest(plan), marker=marker, indexes=descriptors)
+        journal = dict(format=3, phase='preparing', plan_sha256=digest(plan), marker=marker,
+                       indexes=descriptors, host_context_sha256=context, metadata_exclusion=None)
         write_new(directory, 'journal.json', canonical(journal))
         os.fsync(parent)
         return directory, lock, journal
@@ -142,3 +157,12 @@ def create_state(parent, plan, source):
 def pinned_authority(parent, directory):
     if identity(os.stat('security', dir_fd=parent, follow_symlinks=False)) != identity(os.fstat(directory)):
         raise BootstrapError('authority directory identity changed')
+
+
+def check_closed(parent, directory, lock, plan):
+    pinned_authority(parent, directory)
+    marker = marker_for(plan, os.fstat(lock))
+    check_lock(directory, lock, marker)
+    body = read_authority(directory, 'marker.json', mode=0o640, gid=PRIVATE_ID, maximum=4096)
+    if canonical(strict_json(body)) != canonical(marker):
+        raise BootstrapError('CLOSED marker identity differs; manual reconciliation required')

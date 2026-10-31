@@ -1,4 +1,4 @@
-"""Bounded two-level authenticated inventory pages for journal format 2."""
+"""Bounded two-level authenticated inventory pages for the CLOSED journal."""
 import hashlib
 import os
 

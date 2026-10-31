@@ -2,7 +2,8 @@
 
 Written before implementation and isolation tests. This operator tool can only
 prepare CLOSED authority. It cannot activate a runtime or prove the candidate
-image/binary pair, writer drain, or deployment acceptance.
+image/binary pair or deployment acceptance. Regular-file metadata changes require
+the native access observations and conditional directory barrier described below.
 
 | Failure | Required outcome |
 | --- | --- |
@@ -47,8 +48,9 @@ After source metadata preparation, the permanent marker still has phase
 the original metadata needed for a same-plan retry. Missing or unknown partial
 authority requires manual reconciliation. A crash while committing a journal
 replacement can leave `journal.next`; this deliberately requires manual review
-instead of discarding uncertain state. No bootstrap receipt proves a complete
-writer drain, and the module never stops services or host processes.
+instead of discarding uncertain state. A receipt alone does not prove the required
+execution profiles or an unrestricted host fence. The module never stops services
+or host processes.
 
 ## Actual lane shape extension: failure inventory before implementation
 
@@ -69,9 +71,61 @@ metadata without following their targets or changing link ownership or mode.
 | Existing hard limit cannot support this particular source and backup | Refuse on actual exhaustion with an actionable fixed reason; small fixtures still work. |
 | App-writable directory grows during enumeration | Count a bounded scandir stream and refuse; never collect an unbounded listdir result. |
 
-The hierarchy uses journal format 2, up to 2,048 sequential record pages and 32
+The hierarchy introduced in journal format 2, and retained in format 3, uses up
+to 2,048 sequential record pages and 32
 sequential index pages. Each index contains at most 64 page descriptors. Every
 loaded page must be canonical JSON, match its pinned SHA-256, appear in canonical
 order, and fit its bound. The runtime marker remains the same 14-field format 1
 prepared marker. Scale journeys retain only counts and hashes, never symlink
 targets or source filenames.
+
+## P1 continuing exclusion: failure inventory before implementation
+
+1. A legacy file descriptor can chmod a still-owned regular file between a
+   per-inode check and chown. Regular-file chown can also erase special bits.
+   Therefore no regular-file metadata mutation is permitted until all source
+   directories have transferred ownership and a complete native host drain
+   observes no retained access to either data or config.
+2. Transfer directories root-to-leaf. Immediately before chown, require original
+   or supported partial metadata. Immediately after directory chown, require
+   unchanged full mode and mtime before chmod. A racing ordinary or special mode
+   must survive and cause refusal; never repair it or roll ownership back.
+3. A legacy actor retaining a directory descriptor must be unable to perform a
+   fresh path open after directory ownership and mode become 70541:70541/0700.
+   Any existing file, O_PATH, mapping or cwd access still refuses the drain before
+   any regular file is changed. Closing only the synthetic holder permits a
+   same-plan retry if source content and metadata remain unchanged.
+4. Missing or mismatched root-private external host binding refuses before
+   authority or source changes. Binding compares actual native boot ID and
+   self/init PID and mount namespaces; namespace equality alone is insufficient.
+   Production never creates a binding, accepts caller trust booleans or bypasses
+   this check through environment settings.
+5. Native observation errors, positive/provisional access, and unknown results
+   refuse. Only a bounded retry of pure process-set churn without access evidence
+   is permitted. Snapshot hashes attest observations, never execution profiles.
+6. Prepared authority and held permanent lane lock block guarded UID70541
+   execution. Supported legacy actors must use UID65532 with effective,
+   permitted, inheritable and ambient capabilities zero and no privilege gain;
+   trusted root maintenance must serialize under that lock.
+   Installer verification of these execution profiles is still required before
+   any live use. Privileged administrators deliberately bypassing the contract
+   remain outside this boundary.
+
+Journal format 3 records the directory-handover/native-drain mechanism, trusted
+host context hash and both clean snapshot hashes. Every preparing retry obtains
+fresh host observations; stored evidence never authorizes a later mutation.
+Native test fixtures alone provision their own binding under a new root-private
+fixture. Tests run through native `sudo /usr/bin/python3 -B`, never an inner PID1
+container, and retain bounded synthetic receipts under the existing artifact root.
+
+The fixed production binding is `/srv/helm/operator/host.json`, root:root mode
+0600 inside a root:root mode0700 directory. Its strict bounded dictionary is
+`{format:1, boot_id, pid_namespace, mnt_namespace}`. A trusted native installer
+provisions it; production code never does. It attests context only. It does not
+prove legacy credentials, exclusive use of guarded UID70541, root maintenance
+serialization, or the absence of alternate file-only bind aliases that bypass
+private directories. The future installer must audit those aliases, including
+stopped or read-only Docker file bindings. Normal directory paths are closed by
+the ownership barrier; an alternate file alias can bypass that barrier before
+regular-file handover. These execution/profile/alias checks remain required
+installation gates, and this source stage remains uninstalled.

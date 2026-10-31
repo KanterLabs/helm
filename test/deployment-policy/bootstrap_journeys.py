@@ -189,10 +189,10 @@ class Journeys:
         script = ('import json,sys; from pathlib import Path; from admission.bootstrap import prepare; '
                   'print(json.dumps(prepare(Path(sys.argv[1]),base=Path(sys.argv[2]))))')
         env = {**os.environ, 'PYTHONPATH': str(ROOT / 'deploy')}
-        commands = [subprocess.Popen([sys.executable, '-c', script, str(path), str(base)],
+        commands = [subprocess.Popen([sys.executable, '-B', '-c', script, str(path), str(base)],
                                     env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
         results = [p.communicate(timeout=30) for p in commands]
-        assert any(p.returncode == 0 for p in commands)
+        # Competing observers may see each other's pinned FDs and both refuse.
         assert self.prepare(path, base=base)['closed']
         self.records.append(dict(case='competing-first', result='closed',
                                  successful=sum(p.returncode == 0 for p in commands)))
@@ -230,13 +230,16 @@ class Journeys:
             self.refused(name, lambda: self.plan(base), lane / 'data')
 
         base, lane, backup = self.fixture('wal-preservation')
-        db = sqlite3.connect(lane / 'data/roadmap.db')
+        staging = base / 'SYNTHETIC-wal-staging'
+        shutil.copyfile(lane / 'data/roadmap.db', staging)
+        db = sqlite3.connect(staging)
         db.execute('PRAGMA journal_mode=WAL')
         db.execute('INSERT INTO p VALUES(7)')
         db.commit()
-        for item in (lane / 'data').iterdir():
-            if item.is_file():
-                os.chown(item, 65532, 65532)
+        for suffix in ('', '-wal', '-shm'):
+            shutil.copyfile(Path(str(staging) + suffix), lane / ('data/roadmap.db' + suffix))
+            os.chown(lane / ('data/roadmap.db' + suffix), 65532, 65532)
+        db.close()
         shutil.rmtree(backup / 'data')
         shutil.copytree(lane / 'data', backup / 'data')
         for item in [backup / 'data', *(backup / 'data').rglob('*')]:
@@ -245,7 +248,6 @@ class Journeys:
         before = snapshot(lane / 'data')
         assert self.prepare(self.plan(base), base=base)['closed']
         assert snapshot(lane / 'data') == before
-        db.close()
         self.records.append(dict(case='wal-preserved', result='closed'))
 
         base, lane, _ = self.fixture('bounded-inventory')
@@ -288,7 +290,7 @@ def main():
     args = parser.parse_args()
     if args.inside:
         if os.geteuid() != 0:
-            raise SystemExit('root fixture container required')
+            raise SystemExit('native root fixture required')
         args.output.mkdir(parents=True, exist_ok=True)
         os.chown(args.output, 0, 0)
         args.output.chmod(0o700)
@@ -296,35 +298,8 @@ def main():
         journey.additional()
         journey.run()
         return
-    output = ROOT / '.artifacts/tc335/bootstrap' / ('run-' + secrets.token_hex(6))
-    output.mkdir(parents=True)
-    result = subprocess.run([
-        'docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
-        '--ulimit', 'nofile=131072:131072',
-        '--cap-add', 'CHOWN', '--cap-add', 'FOWNER', '--cap-add', 'DAC_OVERRIDE',
-        '--security-opt', 'no-new-privileges', '--user', '0:0',
-        '--tmpfs', '/tmp:rw,nosuid,nodev,noexec',
-        '--mount', f'type=bind,src={ROOT},dst=/source,readonly',
-        '--mount', f'type=bind,src={output},dst=/fixtures',
-        '--entrypoint', 'python3', SETUP,
-        '/source/test/deployment-policy/bootstrap_journeys.py', '--inside', '--output', '/fixtures'],
-        text=True, capture_output=True, timeout=180)
-    # Retain sanitized receipts only; synthetic root fixtures are cleaned in a separate container.
-    cleanup = subprocess.run([
-        'docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
-        '--cap-add', 'CHOWN', '--cap-add', 'FOWNER', '--cap-add', 'DAC_OVERRIDE',
-        '--mount', f'type=bind,src={output},dst=/fixtures', '--entrypoint', '/bin/sh', SETUP,
-        '-eu', '-c', 'find /fixtures -mindepth 1 -delete; chown 1000:1000 /fixtures; chmod 700 /fixtures'],
-        text=True, capture_output=True, timeout=30)
-    if cleanup.returncode:
-        raise SystemExit('synthetic fixture cleanup failed')
-    (output / 'receipt.jsonl').write_text(result.stdout)
-    (output / 'result.json').write_text(json.dumps(dict(exit_code=result.returncode,
-                                                      error=result.stderr[-2500:]), indent=2) + '\n')
-    print(str(output.relative_to(ROOT)))
-    if result.returncode:
-        print(result.stderr[-2500:], file=sys.stderr)
-        raise SystemExit(result.returncode)
+    from bootstrap_native import launch
+    raise SystemExit(launch(Path(__file__), 'native-basic', timeout=600))
 
 
 if __name__ == '__main__':

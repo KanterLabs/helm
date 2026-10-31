@@ -143,7 +143,7 @@ strengthens the drain requirement; it does not close the activation gate.
 ## Closed bootstrap and snapshot source stage
 
 The [closed bootstrap contract](TC335_CLOSED_BOOTSTRAP.md) documents operator
-preparation with an exact verified snapshot, permanent lock, durable format2
+preparation with an exact verified snapshot, permanent lock, durable format3
 journal and metadata inventory. It preserves opaque links and supports the
 roughly10,000 objects found by read-only live metadata discovery. A prepared
 marker remains unusable by Helm; bootstrap has no activation command.
@@ -156,3 +156,10 @@ Python helper compatibility are covered by portable scanner checks, now called
 by the deployment-security harness. Source, privileged DEV tests and live
 installation remain distinct. The installed collector still returns unknown;
 activation/recovery integration and TC-336 acceptance remain open.
+
+The subsequent [review corrections](TC335_REVIEW_FIXES.md) close directories
+before a verified native-host drain and regular-file handover. They preserve
+racing modes and provisional evidence, and block namespace-only potential
+actors. Native fixtures verify the host binding, actual legacy credentials,
+retained handles and safe same-plan resume. These source fixes do not establish
+the still-uninstalled execution-time profiles or approve activation.

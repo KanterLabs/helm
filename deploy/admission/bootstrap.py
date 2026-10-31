@@ -1,7 +1,7 @@
 """One-time root operator preparation of permanent CLOSED admission authority.
 
 Candidate coordinates are labels only. No command in this module activates an
-application, accepts an image/binary pair, drains writers or restores data.
+application, accepts an image/binary pair, stops writers or restores data.
 """
 import functools
 import os
@@ -9,11 +9,12 @@ from pathlib import Path
 import secrets
 import stat
 
-from . import backup
+from . import backup, host_context
 from .filesystem import (BootstrapError, FLAGS, Inventory, MAX_ENTRIES, ORIGINAL_ID, PRIVATE_ID,
-                         apply_private, canonical, desired_mode, digest,
-                         bounded_names, lower_hex, matches_original, open_directory, read_private_json)
-from .authority import (METADATA_LIMIT, check_lock, create_state, inventory_pages,
+                         canonical, digest, bounded_names, lower_hex, open_directory, read_private_json)
+from .ownership import (MECHANISM, apply_regular, close_directories, desired_mode,
+                        matches_original, native_snapshots)
+from .authority import (METADATA_LIMIT, check_closed, create_state, inventory_pages,
                         load_state, lock_existing, pinned_authority, write_new)
 
 BASE = Path('/srv/helm')
@@ -119,6 +120,7 @@ def prepare(plan_path, *, base=BASE):
     """Independently verify a saved plan and leave only CLOSED authority."""
     plan = read_private_json(Path(plan_path))
     validate_plan(plan)
+    context = host_context.verify(base)
     lane_path = Path(base) / plan['lane']
     parent = open_directory(lane_path)
     directory = lock = None
@@ -130,37 +132,52 @@ def prepare(plan_path, *, base=BASE):
             if 'security' in bounded_names(parent):
                 directory = os.open('security', FLAGS | os.O_DIRECTORY, dir_fd=parent)
                 lock = lock_existing(directory)
-                journal, original = load_state(directory, lock, plan)
+                journal, original = load_state(directory, lock, plan, context)
                 matches_original(source.records, original, prepared=journal['phase'] == 'prepared')
                 pinned_authority(parent, directory)
                 if journal['phase'] == 'prepared':
                     source.rehash()
-                    check_lock(directory, lock, journal['marker'])
+                    check_closed(parent, directory, lock, plan)
+                    if host_context.verify(base) != context:
+                        raise BootstrapError('native host context changed during observation')
+                    native_snapshots(lane_path)
+                    source.rehash()
+                    check_closed(parent, directory, lock, plan)
                     return receipt(plan, journal)
             else:
                 if digest(source.records) != plan['original_inventory_sha256']:
                     raise BootstrapError('original source identity, content or metadata differs from saved plan')
                 original = source.records
-                directory, lock, journal = create_state(parent, plan, source)
+                directory, lock, journal = create_state(parent, plan, source, context)
             # CLOSED marker + journal + paged originals are already durable.
-            pinned_authority(parent, directory)
-            check_lock(directory, lock, journal['marker'])
-            apply_private(source, original)
+            check_closed(parent, directory, lock, plan)
+            close_directories(source, original)
+            check_closed(parent, directory, lock, plan)
+            if host_context.verify(base) != context:
+                raise BootstrapError('native host context changed before observation')
+            observations = native_snapshots(lane_path)
+            check_closed(parent, directory, lock, plan)
+            source.rehash()
+            journal['metadata_exclusion'] = dict(mechanism=MECHANISM, host_context_sha256=context, **observations)
+            save_journal(directory, journal)
+            check_closed(parent, directory, lock, plan)
+            apply_regular(source, original)
             for record in original:
                 if record['kind'] == 'symlink':
                     continue  # Immutable opaque link metadata was rechecked, never changed.
                 s = os.fstat(source.fds[record['path']])
                 if (s.st_uid, s.st_gid, stat.S_IMODE(s.st_mode)) != (PRIVATE_ID, PRIVATE_ID, desired_mode(record)):
                     raise BootstrapError('private metadata verification failed; authority remains CLOSED')
-            pinned_authority(parent, directory)
-            check_lock(directory, lock, journal['marker'])
+            check_closed(parent, directory, lock, plan)
             os.fchown(directory, 0, PRIVATE_ID)
             os.fchmod(directory, 0o750)
             os.fsync(directory)
             journal['phase'] = 'prepared'
-            write_new(directory, 'journal.next', canonical(journal))
-            os.rename('journal.next', 'journal.json', src_dir_fd=directory, dst_dir_fd=directory)
-            os.fsync(directory)
+            source.rehash()
+            check_closed(parent, directory, lock, plan)
+            save_journal(directory, journal)
+            source.rehash()
+            check_closed(parent, directory, lock, plan)
             os.fsync(parent)
             return receipt(plan, journal)
     finally:
@@ -169,3 +186,9 @@ def prepare(plan_path, *, base=BASE):
         if directory is not None:
             os.close(directory)
         os.close(parent)
+
+
+def save_journal(directory, journal):
+    write_new(directory, 'journal.next', canonical(journal))
+    os.rename('journal.next', 'journal.json', src_dir_fd=directory, dst_dir_fd=directory)
+    os.fsync(directory)

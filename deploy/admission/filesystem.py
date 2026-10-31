@@ -181,7 +181,7 @@ class Inventory:
         self.records = []
         self.fds = {}
         self.children = {}
-        self._metadata_transition = False
+        self.expected_metadata = {}
         self.started = time.monotonic()
         self.bytes = 0
         try:
@@ -268,6 +268,7 @@ class Inventory:
                       uid=s.st_uid, gid=s.st_gid, mode=stat.S_IMODE(s.st_mode),
                       mtime_ns=s.st_mtime_ns, size=s.st_size if kind == 'file' else 0)
         self.records.append(record)
+        self.expected_metadata[path] = (record['uid'], record['gid'], record['mode'])
         if kind == 'file':
             record['sha256'] = self._hash(fd, s.st_size)
         elif kind == 'symlink':
@@ -295,11 +296,7 @@ class Inventory:
                     or identity(os.fstat(fd)) != identity(s)
                     or s.st_mtime_ns != record['mtime_ns']):
                 raise BootstrapError('source identity or mtime changed')
-            allowed = {(record['uid'], record['gid'], record['mode'])}
-            if self._metadata_transition and record['kind'] != 'symlink':
-                allowed.update(((PRIVATE_ID, PRIVATE_ID, record['mode']),
-                                (PRIVATE_ID, PRIVATE_ID, desired_mode(record))))
-            if (s.st_uid, s.st_gid, stat.S_IMODE(s.st_mode)) not in allowed:
+            if (s.st_uid, s.st_gid, stat.S_IMODE(s.st_mode)) != self.expected_metadata[path]:
                 raise BootstrapError('source ownership or permissions changed')
             no_link_acl(parent_fd, name, fd) if record['kind'] == 'symlink' else no_acl(fd)
             if record['kind'] == 'file':
@@ -328,50 +325,3 @@ def content(records):
     return [{key: record[key] for key in ('path', 'kind', 'size')}
             | ({'sha256': record['sha256']} if record['kind'] in ('file', 'symlink') else {})
             for record in records]
-
-
-def desired_mode(record):
-    if record['kind'] == 'directory':
-        return 0o700
-    if record['path'] == 'data/roadmap.db':
-        return 0o600
-    return record['mode'] & 0o700
-
-
-def matches_original(current, original, prepared=False):
-    if len(current) != len(original):
-        raise BootstrapError('saved source inventory differs')
-    for actual, old in zip(current, original):
-        if old['kind'] == 'symlink':
-            if actual != old:
-                raise BootstrapError('saved opaque symlink metadata differs')
-            continue
-        if {k: v for k, v in actual.items() if k not in ('uid', 'gid', 'mode')} != {
-                k: v for k, v in old.items() if k not in ('uid', 'gid', 'mode')}:
-            raise BootstrapError('saved source identity or content differs')
-        before = old['uid'], old['gid'], old['mode']
-        after = PRIVATE_ID, PRIVATE_ID, desired_mode(old)
-        found = actual['uid'], actual['gid'], actual['mode']
-        # chown and chmod are separate syscalls: interrupted chown may retain
-        # original mode, but no arbitrary owner/mode combinations are accepted.
-        partial = PRIVATE_ID, PRIVATE_ID, old['mode']
-        if found not in ((after,) if prepared else (before, partial, after)):
-            raise BootstrapError('saved source metadata differs')
-
-
-def apply_private(inventory, original):
-    inventory.rehash()
-    inventory._metadata_transition = True
-    for record in original:
-        if record['kind'] == 'symlink':
-            parent = record['path'].rpartition('/')[0]
-            os.fsync(inventory.fds[parent])
-            continue
-        fd = inventory.fds[record['path']]
-        s = os.fstat(fd)
-        if identity(s) != (record['device'], record['inode']):
-            raise BootstrapError('source identity changed before ownership')
-        os.fchown(fd, PRIVATE_ID, PRIVATE_ID)
-        os.fchmod(fd, desired_mode(record))
-        os.fsync(fd)
-    inventory.rehash()

@@ -76,11 +76,11 @@ def inside(output):
     assert raised > 2 * 10229 and unchanged_hard == hard
     script = ('import resource; from pathlib import Path; from bootstrap_fixture import fixture; '
               'from admission.bootstrap import preview; resource.setrlimit(resource.RLIMIT_NOFILE,(1024,1024)); '
-              'base,_,_=fixture(Path("/fixtures"),"small-hard-limit"); '
+              'import sys; base,_,_=fixture(Path(sys.argv[1]),"small-hard-limit"); '
               'p=preview("beta","synthetic-snapshot","ghcr.io/kanterlabs/helm@sha256:"+"ab"*32,'
               '"cd"*20,"ef"*32,"12"*32,base=base); assert p["entries"]==7')
     env = {**os.environ, 'PYTHONPATH': str(ROOT / 'deploy') + ':' + str(ROOT / 'test/deployment-policy')}
-    small = subprocess.run([sys.executable, '-c', script], env=env, text=True, capture_output=True, timeout=20)
+    small = subprocess.run([sys.executable, '-B', '-c', script, str(output)], env=env, text=True, capture_output=True, timeout=20)
     assert small.returncode == 0, 'small fixture must fit existing low hard limit'
     path = base / 'plan.json'
     save(path, value)
@@ -114,7 +114,7 @@ def inside(output):
         else:
             assert s.st_uid == s.st_gid == 70541 and not s.st_mode & 0o077
     journal = json.loads((security / 'journal.json').read_text())
-    assert journal['format'] == 2 and 2 <= len(journal['indexes']) <= 32
+    assert journal['format'] == 3 and 2 <= len(journal['indexes']) <= 32
     pages = []
     for descriptor in journal['indexes']:
         index = security / descriptor['name']
@@ -171,36 +171,13 @@ def inside(output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--inside', action='store_true')
+    parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     if args.inside:
-        inside(Path('/fixtures'))
+        inside(args.output)
         return
-    output = ROOT / '.artifacts/tc335/bootstrap' / ('scale-' + secrets.token_hex(6))
-    output.mkdir(parents=True)
-    result = subprocess.run([
-        'docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
-        '--ulimit', 'nofile=131072:131072', '--cap-add', 'CHOWN', '--cap-add', 'FOWNER',
-        '--cap-add', 'DAC_OVERRIDE', '--security-opt', 'no-new-privileges', '--user', '0:0',
-        '--tmpfs', '/tmp:rw,nosuid,nodev,noexec',
-        '--mount', f'type=bind,src={ROOT},dst=/source,readonly',
-        '--mount', f'type=bind,src={output},dst=/fixtures', '--entrypoint', 'python3', SETUP,
-        '/source/test/deployment-policy/bootstrap_scale_journeys.py', '--inside'],
-        text=True, capture_output=True, timeout=240)
-    cleanup = subprocess.run([
-        'docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
-        '--cap-add', 'CHOWN', '--cap-add', 'FOWNER', '--cap-add', 'DAC_OVERRIDE',
-        '--mount', f'type=bind,src={output},dst=/fixtures', '--entrypoint', '/bin/sh', SETUP,
-        '-eu', '-c', 'find /fixtures -mindepth 1 -delete; chown 1000:1000 /fixtures; chmod 700 /fixtures'],
-        text=True, capture_output=True, timeout=60)
-    if cleanup.returncode:
-        raise SystemExit('SYNTHETIC fixture cleanup failed')
-    (output / 'receipt.jsonl').write_text(result.stdout)
-    (output / 'result.json').write_text(json.dumps(dict(exit_code=result.returncode,
-                                                      error=result.stderr[-2500:]), indent=2) + '\n')
-    print(str(output.relative_to(ROOT)))
-    if result.returncode:
-        print(result.stderr[-2500:], file=sys.stderr)
-        raise SystemExit(result.returncode)
+    from bootstrap_native import launch
+    raise SystemExit(launch(Path(__file__), 'native-scale', timeout=600))
 
 
 if __name__ == '__main__':

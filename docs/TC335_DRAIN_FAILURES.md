@@ -13,6 +13,13 @@ Before implementation, the failure inventory is:
   revoke either access. Count all descriptor and mapping access, including
   read-only access, deleted names, and aliases, using device/inode identity.
 - A process uses a protected directory as its working directory.
+- A process can have an in-flight path operation without a visible protected
+  handle. Count namespaces mounting the target filesystem root or a descendant,
+  and legacy/reserved UID actors in the host PID namespace. Preserve unrelated
+  lanes as distinct. Resolve source mount ID through fdinfo, and translate
+  mountinfo filesystem roots using device identities, not container path names.
+  Unrelated devices can legitimately have namespace-handle roots instead of
+  paths; they must not break the protected filesystem translation.
 - An input is missing, contains a SQLite-path symlink, special file, hard-linked file,
   extended ACL, nested mount, crosses devices, exceeds inventory bounds, or
   changes identity/metadata during observation: return unknown.
@@ -33,6 +40,10 @@ inventory is metadata only and must not read linked files outside the tree.
 - Processes, mappings, and descriptors can change between reads; even a complete
   clean observation is only a snapshot. Metadata rechecks detect some changes,
   never establish monotonic closure or guard authority.
+- A positive descriptor, mapping or namespace match can precede a later maps,
+  cwd or process-identity failure. Retain bounded provisional evidence with a
+  fixed uncertainty reason. Never let that evidence suppress unknown or attest
+  that a provisional PID identity is still current.
 - Scanner-owned directory handles can cause false positives. Close inventory
   handles before scanning and exclude only the collector's own PID.
 - Artifacts must contain counts, PID numbers, device/inode identifiers, and
@@ -74,6 +85,9 @@ incompleteness, `access_present` for a complete scan with matches, or
 `no_access_observed` for a complete scan without matches. A nondefault proc
 root always adds `restricted-proc-visibility`; it never returns a clean claim.
 Linux root is mandatory. No process is stopped and no ownership is changed.
+Optional matching-record fields are `namespace_mount_count`,
+`native_legacy_identity`, `provisional`, and `uncertainty`. Namespace and native
+identity matches mean potential actors; they do not assert an open file.
 
 Fixed bounds are32,768 protected objects,4,096 positive PIDs,64 matching records,4,096 descriptors
 per PID, 1 MiB per maps/mountinfo read, 64 KiB per status/stat read, and 128 MiB
@@ -89,3 +103,7 @@ ctypes, so Python before3.13 also works without a hidden duplicated descriptor.
 Fixture observations remain unknown. Full-host clean behavior
 requires a separately verified host-root invocation; these artifacts do not
 assert it. The helper exits through its own stdin and is always reaped.
+
+The current portable suite has32 journeys. Actual native bootstrap and
+container-holder acceptance remains a separate privileged DEV command, covered
+by [the integration inventory](TC335_BOOTSTRAP_RUNTIME_JOURNEYS.md).

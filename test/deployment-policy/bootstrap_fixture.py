@@ -5,6 +5,8 @@ import os
 import shutil
 import sqlite3
 
+from bootstrap_native import binding
+
 
 def snapshot(root):
     result = {}
@@ -40,6 +42,7 @@ def fixture(output, label):
         db.executescript('PRAGMA foreign_keys=ON; CREATE TABLE p(id INTEGER PRIMARY KEY);'
                          'CREATE TABLE c(id INTEGER PRIMARY KEY,p INTEGER REFERENCES p(id));'
                          'INSERT INTO p VALUES(1); INSERT INTO c VALUES(1,1);')
+    db.close()
     for path in [data, config, *data.rglob('*'), *config.rglob('*')]:
         os.chown(path, 65532, 65532)
     backup = lane / 'backups' / 'synthetic-snapshot'
@@ -49,4 +52,5 @@ def fixture(output, label):
     for path in [base, lane, lane / 'backups', backup, *backup.rglob('*')]:
         os.chown(path, 0, 0)
         path.chmod(0o700 if path.is_dir() else 0o600)
+    binding(base)
     return base, lane, backup

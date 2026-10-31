@@ -11,6 +11,8 @@ import re
 import stat
 import sys
 
+from .mount_scope import bound_mount_count, native_legacy_identity, source_scope
+
 MAX_ENTRIES = 32768
 MAX_PIDS = 4096
 MAX_FDS = 4096
@@ -185,7 +187,7 @@ def _starttime(path, pid, budget):
     return fields[19]
 
 
-def _process(proc, pid, identities, directories, budget):
+def _process(proc, pid, identities, directories, budget, match, scope, host_namespace):
     path = proc / str(pid)
     before = path.stat()
     starttime = _starttime(path, pid, budget)
@@ -198,10 +200,19 @@ def _process(proc, pid, identities, directories, budget):
     kernel_thread = kernel_fields == [['1']]
     # Another task's private proc restrictions do not restrict our host view.
     # Its metadata still must be readable, bounded and syntactically complete.
-    _mounts(_read(path / 'mountinfo', MAX_MAP_BYTES, budget), collector_view=False)
+    mountinfo = _read(path / 'mountinfo', MAX_MAP_BYTES, budget)
+    _mounts(mountinfo, collector_view=False)
+    try:
+        count = bound_mount_count(mountinfo, scope)
+        if count:
+            match['namespace_mount_count'] = count
+        namespace = os.readlink(path / 'ns/pid')
+        if native_legacy_identity(status, namespace, host_namespace):
+            match['native_legacy_identity'] = True
+    except ValueError:
+        _fail('process-scope-unavailable')
     # Read all names before filtering: limits cover hostile nonnumeric entries too.
     descriptors = _entries(path / 'fd', MAX_FDS, 'fd-limit')
-    fd_count = 0
     for descriptor in descriptors:
         if not descriptor.isdecimal():
             _fail('fd-malformed')
@@ -213,8 +224,7 @@ def _process(proc, pid, identities, directories, budget):
                 continue
             raise
         if (value.st_dev, value.st_ino) in identities:
-            fd_count += 1
-    mapping_count = 0
+            match['fd_count'] += 1
     maps = _read(path / 'maps', MAX_MAP_BYTES, budget)
     for line in maps.splitlines():
         fields = line.split(None, 5)
@@ -227,10 +237,9 @@ def _process(proc, pid, identities, directories, budget):
             major, minor = fields[3].split(':')
             identity = (os.makedev(int(major, 16), int(minor, 16)), int(fields[4]))
             if identity in identities:
-                mapping_count += 1
+                match['mapping_count'] += 1
         except (ValueError, OverflowError):
             _fail('maps-malformed')
-    cwd_match = False
     if kernel_thread:
         # Kernel tasks may retain a normal fs cwd or have no resolvable cwd.
         # Only explicit kernel identity plus empty FD/maps permits the latter.
@@ -242,17 +251,16 @@ def _process(proc, pid, identities, directories, budget):
             # Linux procfs exposes a dangling cwd symlink for kernel tasks.
             pass
         else:
-            cwd_match = (cwd.st_dev, cwd.st_ino) in directories
+            match['cwd_match'] = (cwd.st_dev, cwd.st_ino) in directories
     else:
         cwd = (path / 'cwd').stat()
-        cwd_match = (cwd.st_dev, cwd.st_ino) in directories
+        match['cwd_match'] = (cwd.st_dev, cwd.st_ino) in directories
     after = path.stat()
     if starttime != _starttime(path, pid, budget):
         _fail('process-changed')
     if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
         _fail('process-changed')
-    return {'pid': pid, 'fd_count': fd_count, 'mapping_count': mapping_count,
-            'cwd_match': cwd_match}
+    return match
 
 
 def observe(data_root: Path, *, proc_root=Path('/proc')) -> dict:
@@ -269,6 +277,22 @@ def observe(data_root: Path, *, proc_root=Path('/proc')) -> dict:
     def reason(code):
         if code not in result['reasons'] and len(result['reasons']) < MAX_REASONS:
             result['reasons'].append(code)
+    def has_access(match):
+        return (match['fd_count'] or match['mapping_count'] or match['cwd_match']
+                or match.get('namespace_mount_count') or match.get('native_legacy_identity'))
+    def retain(match, uncertainty=None):
+        if not has_access(match):
+            return True
+        if len(result['matching_processes']) >= MAX_MATCHES:
+            reason('matching-process-limit')
+            return False
+        record = dict(match)
+        if uncertainty is not None:
+            # Evidence survives later errors, without asserting current PID
+            # identity or completeness of this process inspection.
+            record.update(provisional=True, uncertainty=uncertainty)
+        result['matching_processes'].append(record)
+        return True
     if sys.platform != 'linux' or os.geteuid() != 0:
         reason('linux-root-required')
         return result
@@ -285,6 +309,9 @@ def observe(data_root: Path, *, proc_root=Path('/proc')) -> dict:
         except OSError:
             _fail('provenance-unreadable')
         initial, directories = _inventory(root)
+        scope = source_scope(root.resolve(strict=True), first,
+                             _read(proc / 'self/mountinfo', MAX_MAP_BYTES))
+        host_namespace = os.readlink(proc / '1/ns/pid')
         identities = {(value[0], value[1]) for value in initial.values()}
         names = _entries(proc, MAX_PIDS + 256, 'pid-limit')
         pids = [int(name) for name in names if name.isdecimal() and int(name) > 0]
@@ -294,19 +321,27 @@ def observe(data_root: Path, *, proc_root=Path('/proc')) -> dict:
         for pid in sorted(pids):
             if pid == os.getpid():
                 continue
+            match = {'pid': pid, 'fd_count': 0, 'mapping_count': 0, 'cwd_match': False}
             try:
-                match = _process(proc, pid, identities, directories, budget)
+                _process(proc, pid, identities, directories, budget, match, scope, host_namespace)
                 result['scanned_process_count'] += 1
-                if match['fd_count'] or match['mapping_count'] or match['cwd_match']:
-                    if len(result['matching_processes']) >= MAX_MATCHES:
-                        reason('matching-process-limit')
-                        break
-                    result['matching_processes'].append(match)
+                if not retain(match):
+                    break
             except OSError:
-                if not _gone(proc / str(pid)):
+                if has_access(match):
                     reason('process-unreadable')
+                    if not retain(match, 'process-unreadable'):
+                        break
+                else:
+                    try:
+                        if not _gone(proc / str(pid)):
+                            reason('process-unreadable')
+                    except OSError:
+                        reason('process-unreadable')
             except Uncertain as error:
                 reason(str(error))
+                if not retain(match, str(error)):
+                    break
                 if str(error) == 'aggregate-limit':
                     break
         final, _ = _inventory(root)

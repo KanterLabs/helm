@@ -30,6 +30,29 @@ is read-only. Interrupted ownership changes can resume only on the same
 inodes/content with original/intended metadata. Unexpected data or owner/mode
 drift is preserved and refused, never overwritten or restored from backup.
 
+Prepare also requires an externally provisioned `/srv/helm/operator/host.json`
+in a root:root0700 directory, with a root-private0600 file. Its exact format1
+keys are `format`, `boot_id`, `pid_namespace`, and `mnt_namespace`. The bound
+boot and both native init namespaces must match the caller. The bootstrap
+does not write this binding; a container cannot bless its own proc view through
+an environment flag or generated binding. Preview needs no binding. The
+installer and its actual host-execution verification remain an open gate.
+
+Metadata handover has two phases. First, transfer every data/config directory
+root-to-leaf, checking its full mode after chown and before chmod. Any racing
+mode is preserved and refused. Once all directories are private, require fresh
+complete native-host observations of both trees before transferring regular
+files. Existing descriptors, closed-descriptor mappings, target-bound process
+namespaces, or native legacy/reserved-UID actors block this step. The journal
+records the host-context and observation digests. Same-plan replay rechecks
+the host binding and observations. Only process-set churn with no matches
+receives a bounded three-attempt observation retry; other uncertainty refuses.
+
+This sequence requires verified supported execution profiles: legacy UID65532
+without ownership capabilities, UID70541 reserved for guarded runtimes, no
+file-only bypass aliases, and trusted root maintenance serialized by the lane
+lock. Those are installation requirements, not consequences of a snapshot.
+
 Directories and regular files move to UID/GID70541. Directories become0700;
 roadmap.db becomes0600; other regular files retain private owner permissions,
 including executable bits. Source bytes, inodes and mtimes are checked. Opaque
@@ -38,7 +61,7 @@ and its targets are never followed or modified. SQLite main/WAL/SHM must be
 direct regular files. External hardlinks, special files, ACLs and source mount
 boundaries are refused.
 
-Journal format2 authenticates up to32 index pages, each indexing at most64
+Journal format3 authenticates up to32 index pages, each indexing at most64
 sequential record pages. Index/record pages are each at most16,000 bytes, with
 at most2,048 record pages. Load checks canonical schema/order, hashes, counts
 and the exact authority file set. Runtime marker format1 retains its14 fields
@@ -65,6 +88,11 @@ Another process's private proc mount does not restrict the collector's host
 view. Verified kernel tasks require empty FD/maps; protected cwd still counts.
 At most64 matches are retained; overflow is unknown. Process churn can produce
 unknown while positive matching records remain useful evidence that blocks.
+Matches found before a later inspection failure are retained as provisional,
+with a fixed uncertainty reason; unknown still takes precedence. Process
+namespace exposure uses device identity and filesystem-root coordinates,
+including direct descendant binds. It does not depend on the mount's visible
+container path. Unrelated namespace-handle filesystem roots are ignored.
 
 A clean snapshot is instantaneous. It does not establish continuing exclusion,
 kill a writer, revoke a mapping, sign evidence or activate authority. The private
@@ -78,14 +106,15 @@ bytes and8/4 opaque links. Parents are root-owned; lane/backups are0700. Both
 data/config storage records are directories without chown/chmod overrides.
 No source or target contents were published by these inspections.
 
-Retained evidence under `.artifacts/tc335/` includes38 basic root Docker
-journeys; a10,331-object partial-resume journey with155 pages/3 indexes; a parent
-late-metadata regression; portable scanner journeys; and combined actual Helm
-startup with native DEV host observation. That combined journey retains a
-writable FD and closed-FD mmap through preparation, observes both, rejects
-Helm against prepared authority, stops only test holders, and obtains a complete
-host no-access snapshot. Replay retains the lock; missing marker is refused.
-Synthetic DB bytes and inode survive. These are not TC-336 accepted artifacts.
+Retained evidence under `.artifacts/tc335/` includes38 native-root basic
+journeys; a10,331-object partial-resume journey with155 pages/3 indexes;14
+native metadata/credential regressions;32 portable scanner journeys; and
+combined actual Helm startup with native DEV preparation. The combined journey
+blocks regular-file handover while a target-bound namespace, writable FD or
+closed-FD mmap remains, stops only test holders, then obtains a complete clean
+host snapshot and prepares. Actual Helm rejects prepared authority. Replay
+retains the lock; a missing marker is refused. Synthetic DB bytes, inode and
+mtimes survive. These are not TC-336 accepted artifacts.
 
 The existing deployment-security command runs the portable scanner journeys.
 Privileged bootstrap/scale/runtime acceptance remains a separate explicit DEV
