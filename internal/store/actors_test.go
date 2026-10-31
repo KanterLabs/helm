@@ -9,7 +9,7 @@ import (
 	"github.com/KanterLabs/helm/internal/db"
 )
 
-func TestEnsureCloudflareActorReconcilesAdministrator(t *testing.T) {
+func TestEnsureCloudflareActorPreservesReviewedAdministrator(t *testing.T) {
 	database, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open database: %v", err)
@@ -29,16 +29,16 @@ func TestEnsureCloudflareActorReconcilesAdministrator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile removed owner: %v", err)
 	}
-	if actor.Admin {
-		t.Fatal("old configured owner remained administrator")
+	if !actor.Admin {
+		t.Fatal("configured email change revoked reviewed administrator")
 	}
 
 	other, err := data.EnsureCloudflareActor(context.Background(), "other@example.com", "Other", "other@example.com")
 	if err != nil {
 		t.Fatalf("create new owner: %v", err)
 	}
-	if !other.Admin {
-		t.Fatal("new configured owner was not made administrator")
+	if other.Admin || other.WorkspaceRole != "" {
+		t.Fatal("changed configured email silently admitted an identity")
 	}
 }
 

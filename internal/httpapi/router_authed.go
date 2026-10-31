@@ -6,6 +6,9 @@ import (
 )
 
 func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity auth.Identity, parts []string) {
+	if s.dispatchMembership(w, r, identity, parts) {
+		return
+	}
 	if s.dispatchGithub(w, r, identity, parts) {
 		return
 	}

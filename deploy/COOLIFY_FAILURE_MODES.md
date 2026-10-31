@@ -1,9 +1,11 @@
 # Coolify deployment failure modes and acceptance
 
-Written before implementing the deploy helper. Deployment changes the selected
-service's image and revision only; it never restores a database or modifies a
-persistent mount. Schema compatibility with the retained image is a release
-requirement, and binary rollback cannot undo a database migration.
+Original deployment inventory, extended by TC-335. Deployment changes the
+selected service's image/revision and monotonic authorization floor; it never
+restores a database or modifies persistent mounts. Runtime authorization
+acceptance is required for both selected artifacts. See the pre-implementation
+[TC-335 inventory](../docs/TC335_FAILURES.md) and
+[receipt/stop-witness contract](../docs/TC335_POLICY_CONTRACT.md).
 
 | Failure | Required behavior |
 | --- | --- |
@@ -12,10 +14,14 @@ requirement, and binary rollback cannot undo a database migration.
 | Wrong service UUID/name, environment membership, server UUID, or unexpected extra application/database | Fail before mutation. |
 | Previous image/revision absent, mutable, hidden, duplicated, or malformed | Fail before mutation; bootstrap an accepted immutable release first. |
 | Remote branch advances while validation runs | Skip deployment with a successful stale-run result before mutation. |
-| Environment update partly commits or response is lost | Treat mutation as started before PATCH; restore both prior values. |
+| Missing/stale/malformed/mismatched runtime acceptance | Reject before any mutation, including first041 activation. |
+| Missing/hidden/duplicate/unknown floor | Reject; never infer zero or lower an activated floor. |
+| Old writer, surviving/restart-eligible container, queued operation or uncertain stop witness | No floor advance/start; cached exited/queued response is insufficient. |
+| Floor PATCH fails or its response is lost | Keep stopped; do not start any image or revert the floor. |
+| Image/SHA update partly commits or response is lost | Stop/prove exclusion, select only the accepted recovery pair, retaining current data/floor. |
 | Coolify reports an old container healthy | Require private `/healthz` and `/readyz` to return requested revision; retry within bounded timeout. |
-| Coolify restart/pull/start or private TLS/DNS/readiness fails | Restore previous image and revision; redeploy and verify actual previous revision. |
-| Rollback also fails, or interrupted worker leaves uncertain state | Fail visibly; inspect service before retry. No database restore or automated cleanup. |
+| Candidate start or private TLS/DNS/readiness fails | Stop failed candidate, verify exclusion, then verify exact accepted recovery revision. Failure remains visible. |
+| Recovery also fails, or interrupted worker leaves uncertain state | Attempt stop and fail visibly; operator inspection required. Never select legacy code, restore data or prune artifacts. |
 | Credentials/private content in deployment responses | Capture allowlisted status/revision fields only; never save full API bodies. |
 | Legacy beta candidate workflow dispatch | Fail with migration explanation; no LXC controller mutation. |
 
@@ -48,17 +54,21 @@ are additional boundaries, rather than token-level resource isolation.
 
 CI supplies `HELM_IMAGE=ghcr.io/kanterlabs/helm@sha256:<64 lowercase hex>`,
 `HELM_RELEASE_SHA=<40 lowercase hex>`, and `HELM_DEPLOY_EVIDENCE=<artifact path>`.
-The service must already contain readable, unique `HELM_IMAGE` and
-`HELM_RELEASE_SHA` environment entries pointing to its accepted release.
+The service must already contain readable, unique `HELM_IMAGE`,
+`HELM_RELEASE_SHA` and controller-owned `HELM_AUTHORIZATION_FLOOR` entries.
+Protected membership acceptance/recovery/observer inputs and pending workflow
+wiring are specified in [TC-335's handoff](../docs/TC335_HANDOFF.md).
 The compose service named `helm` uses `${HELM_IMAGE}` and explicitly injects
 `HELM_RELEASE_SHA: ${HELM_RELEASE_SHA}`. Runtime owner configuration remains in
 the protected host env file, excludes image/revision overrides, and is never
 copied to CI. Persistent lane paths and origin authentication remain host-owned.
 
-Running services use documented `POST /services/{uuid}/restart?latest=true`;
-stopped services use `POST /services/{uuid}/start`. Installed Coolify rejects
-`/start` on running services, and service operations return queued messages
-rather than application deployment UUIDs. Poll service health and the real route.
+Replacement explicitly stops the old service using documented
+`POST /services/{uuid}/stop?docker_cleanup=false`, requires an independent
+continuing-exclusion witness, then advances the floor before any candidate
+start. Stopped services use `POST /services/{uuid}/start`. Coolify returns queued
+messages; parent must verify installed stop semantics and the real host
+interlock before activation. Poll service health and the real route.
 
 ## Repeatable acceptance on the real private route
 
@@ -66,11 +76,12 @@ rather than application deployment UUIDs. Poll service health and the real route
    sanitized deployment evidence with the published digest, exact service UUID,
    requested SHA, Coolify healthy status, and both route revisions matching SHA.
 2. Confirm production still has its original digest, UUID, and revision.
-3. During a controlled beta drill, request a deliberately unavailable digest with a
-   synthetic revision. Require deploy failure and
-   evidence showing rollback verified the original digest and revision on both
-   real endpoints. This deliberately exercises real service restart and route
-   verification; never perform it on production merely to test the helper.
+3. Before any live drill, complete TC-336 artifact acceptance on isolated
+   populated copies and parent verification of the actual host stop/fence
+   integration. An unavailable/unaccepted digest must reject before mutation.
+   Accepted-candidate failure must recover only the accepted membership pair
+   against current data and remain a failed job. Live drills require separate
+   parent rollout authorization; these source tests perform no live actions.
 4. Recheck existing private origins and auth. No public DNS, origin exposure,
    restored DB snapshot, or secrets in the artifact is needed.
 

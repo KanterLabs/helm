@@ -1,6 +1,7 @@
 // Reactive state: Session, authentication and unsaved-work guards.
 import { fromStore } from 'svelte/store';
 import { pendingMutationCount } from '../../lib/api';
+import { isAdmissionPending, isWorkspaceAdmin } from '../../lib/components/membership/access';
 import type { Actor, AuthStatus } from '../../lib/types';
 import type { AuthView } from '../types';
 import { admin } from './admin.svelte';
@@ -39,6 +40,10 @@ class SessionState {
   authenticatedActorId = $state.raw('');
 
   // Derived values
+  /** Verified human awaiting owner/admin admission: no workspace UI or reads. */
+  admissionPending = $derived(isAdmissionPending(this.authStatus, this.user));
+  /** Active human owner/admin, or the development auth-disabled bypass. */
+  workspaceAdmin = $derived(isWorkspaceAdmin(this.authStatus, this.user));
   updateBlocked = $derived(Boolean(pendingMutationCountStore.current || creation.projectCreating || taskModal.taskModalCreating || bugModal.bugModalCreating || creation.quickAddCreating
     || creation.projectCreation || creation.taskCreation || creation.bugCreation || creation.quickCreation || drawer.drawerSaving || drawer.commentSending
     || drawer.editedCommentPending || drawer.checklistPending || drawer.taskActionLoading || releasePlan.releaseModalSaving || admin.adminSaving || admin.adminColumnSaving

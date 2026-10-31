@@ -49,7 +49,7 @@ func requireAdmin(w http.ResponseWriter, identity auth.Identity) bool {
 	// Administrative operations are deliberately human-only. Agent bearer
 	// tokens remain least-privilege credentials even if a malformed or legacy
 	// actor record ever carries an administrator bit.
-	if !identity.IsToken && identity.Actor.Admin {
+	if identity.IsAdmin() {
 		return true
 	}
 	sDummyWriteError(w, http.StatusForbidden, "forbidden", "administrator access is required", nil)

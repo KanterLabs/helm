@@ -130,7 +130,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
-	actor, err := s.Auth.Login(r.Context(), *input.Email, *input.Password, w)
+	actor, err := s.Auth.LoginRequest(r.Context(), *input.Email, *input.Password, r, w)
 	if err != nil {
 		if errors.Is(err, store.ErrForbidden) {
 			s.writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password", nil)

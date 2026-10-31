@@ -61,6 +61,7 @@
   import OfflineBoard from './lib/components/OfflineBoard.svelte';
   import PwaStatus from './lib/components/PwaStatus.svelte';
   import TicketsWorkspace from './lib/components/TicketsWorkspace.svelte';
+  import AdmissionRequired from './lib/components/membership/AdmissionRequired.svelte';
   import { offlineReadOnly } from './lib/connectivity';
   import { readSidebarCollapsed } from './lib/navigation';
   import { helmStorageKeys, legacyRoadmapStorageKeys, loadRecentProjects, readMigratedStorage } from './lib/state';
@@ -167,6 +168,9 @@
 
 {#if $offlineReadOnly}
   <OfflineBoard boards={board.offlineBoards} reconnect={() => void reconnectOffline()} reconnecting={board.reconnecting} error={board.reconnectError} clear={() => void clearSavedBoards()} />
+{:else if session.user && session.admissionPending}
+  <!-- Re-checking admission keeps this screen (with its spinner) instead of the splash. -->
+  <AdmissionRequired user={session.user} authStatus={session.authStatus} checking={session.booting} error={session.authError} onCheckAgain={() => void bootstrap()} />
 {:else if session.booting}
   <div class="splash" aria-live="polite">
     <HelmMark size={46} decorative className="brand-mark brand-mark-large" />

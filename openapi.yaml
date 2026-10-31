@@ -17,6 +17,9 @@ info:
     that exactly matches the configured public origin; bearer-token mutations
     do not require Origin. Temporary bearer-authentication or request-body
     admission saturation returns 503 with Retry-After.
+    Mutation receipts are bound to the caller's effective authority; a changed
+    project/scope ceiling can return 409 idempotency_key_reused on retry.
+    The original operation may have committed; resolve it before using a new key.
   license:
     name: MIT
     identifier: MIT
@@ -115,6 +118,8 @@ x-helm-fragments:
   - openapi/paths/admin-metrics.yaml
   - openapi/paths/agents-tokens.yaml
   - openapi/paths/agents.yaml
+  - openapi/paths/membership.yaml
+  - openapi/paths/member-sessions.yaml
   - openapi/paths/audit-findings.yaml
   - openapi/paths/audits-finalize.yaml
   - openapi/paths/audits-findings.yaml
@@ -230,6 +235,7 @@ x-helm-fragments:
   - openapi/schemas/administration.yaml
   - openapi/schemas/agent-work.yaml
   - openapi/schemas/agents.yaml
+  - openapi/schemas/membership.yaml
   - openapi/schemas/alert-intake.yaml
   - openapi/schemas/audit-findings.yaml
   - openapi/schemas/audits.yaml

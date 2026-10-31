@@ -4,6 +4,8 @@ from pathlib import Path
 import tempfile
 
 from release_support import FILE_LIMIT, ReleaseError, bounded_write, version_tuple
+from release_authorization import validate as validate_authorization
+from rollback_policy import PolicyError
 
 MANIFEST = '.helm-release.json'
 
@@ -25,6 +27,11 @@ def manifest_at(runtime, sha, version):
         raise ReleaseError('Release manifest version does not match')
     if value.get('notes') != f'docs/releases/{version}.md':
         raise ReleaseError('Release manifest notes path does not match')
+    try:
+        validate_authorization(value.get('beta_authorization'), 'beta', value.get('beta_sha'),
+                               value.get('beta_image'))
+    except PolicyError:
+        raise ReleaseError('Release manifest lacks exact beta authorization provenance') from None
     return value
 
 
@@ -110,6 +117,9 @@ def prepare(runtime, version, *, dry_run=False, notes_file=None):
     if revisions:
         sha = revisions.pop()
         manifest, existing_notes = validate_branch(runtime, sha, version, beta, main)
+        if (manifest.get('beta_image') != beta_evidence['image']
+                or manifest.get('beta_authorization') != beta_evidence['authorization']):
+            raise ReleaseError('Prepared release records different beta authorization acceptance; inspect before reuse')
         if notes_file and notes.strip() != existing_notes.strip():
             raise ReleaseError('Existing release notes differ; review and commit edits in the retained release checkout')
         notes = existing_notes
@@ -130,6 +140,7 @@ def prepare(runtime, version, *, dry_run=False, notes_file=None):
                                'merge those changes into beta and deploy it before release preparation.')
         manifest = {'format': 1, 'version': version, 'beta_sha': beta, 'main_sha': main,
                     'beta_run_id': beta_evidence['run_id'], 'beta_image': beta_evidence['image'],
+                    'beta_authorization': beta_evidence['authorization'],
                     'notes': f'docs/releases/{version}.md'}
         for name in ['VERSION', MANIFEST, manifest['notes'], 'docs/releases/unreleased.md']:
             path = directory / name

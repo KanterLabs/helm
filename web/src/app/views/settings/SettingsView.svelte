@@ -1,21 +1,40 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  // Settings: project administration, Luna, agents, tokens and appearance.
+  // Settings: your account, human members (admins), project administration,
+  // Luna, agents and tokens (admins) and appearance.
   import LunaRunHistory from '../../../lib/components/LunaRunHistory.svelte';
   import GitHubIntegrationSettings from '../../../lib/components/github/GitHubIntegrationSettings.svelte';
-  import { formatDate, helmStorageKeys } from '../../../lib/state';
-  import { scopeOptions } from '../../constants';
-  import { cancelCodexLogin, connectCodex, copyCodexCode, createAgent, createToken, deleteToken, disconnectCodex, loadAgents, loadCodexAccount, toggleScope, toggleTokenProject } from '../../settings';
+  import AccountSecurity from '../../../lib/components/membership/AccountSecurity.svelte';
+  import MembersAdmin from '../../../lib/components/membership/MembersAdmin.svelte';
+  import { helmStorageKeys } from '../../../lib/state';
+  import { requestConfirm } from '../../dialogs';
+  import { endAuthenticatedSession, refreshSignedInActor } from '../../session';
+  import { cancelCodexLogin, connectCodex, copyCodexCode, disconnectCodex, loadCodexAccount } from '../../settings';
+  import { admin } from '../../state/admin.svelte';
   import { session } from '../../state/session.svelte';
   import { settings } from '../../state/settings.svelte';
   import { workspace } from '../../state/workspace.svelte';
   import { applyTheme } from '../../theme';
+  import AgentsSection from './AgentsSection.svelte';
   import ProjectAdminSection from './ProjectAdminSection.svelte';
+
+  // Destructive account actions return focus to the main content if their
+  // trigger disappears (for example a member row re-sorting after disable).
+  const confirmAction = (request: { title: string; message: string; confirmLabel: string }) =>
+    requestConfirm({ ...request, fallbackSelector: '[data-destructive-focus-target]' });
+  // Grants may name archived or system projects; administrators load them all.
+  const grantProjects = $derived(admin.adminProjects.length ? admin.adminProjects : workspace.projects);
 </script>
 
-<section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Preferences</span></div><h1>Settings</h1><p>Manage the agents and tokens that help your workspace move.</p></div></section>
-{#if session.user?.admin}
+<section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Preferences</span></div><h1>Settings</h1><p>Your account, the people and agents in this workspace, and how Helm looks on this device.</p></div></section>
+{#if session.user}
+  <AccountSecurity user={session.user} authStatus={session.authStatus} projects={workspace.projects} {confirmAction} onSignedOut={endAuthenticatedSession} />
+{/if}
+{#if session.user && session.workspaceAdmin}
+  <MembersAdmin authStatus={session.authStatus} currentUser={session.user} projects={grantProjects} {confirmAction} onSelfChanged={refreshSignedInActor} />
+{/if}
+{#if session.workspaceAdmin}
   <ProjectAdminSection />
   <GitHubIntegrationSettings projects={workspace.projects} defaultProjectId={workspace.activeProject?.id || ''} />
 {/if}
@@ -28,5 +47,4 @@
   {:else}<div class="codex-empty"><p>Luna needs your personal ChatGPT subscription before it can draft tasks. Device-code login works on remote and headless self-hosted Helm installations.</p><button class="button primary" type="button" disabled={settings.codexLoading} on:click={connectCodex}>{#if settings.codexLoading}<span class="button-spinner"></span>{/if}Connect Codex</button></div>{/if}
   <LunaRunHistory />
 </section>
-{#if settings.agentsError}<div class="inline-alert error content-alert" role="alert"><span>!</span>{settings.agentsError}<button class="text-button" type="button" on:click={loadAgents}>Retry</button></div>{/if}
-<section class="settings-layout"><div class="settings-main"><div class="settings-section"><div class="settings-section-heading"><div><span class="eyebrow">Coordination</span><h2>Agents &amp; tokens</h2><p>Give software agents scoped access without sharing a human login.</p></div><button class="button primary" type="button" on:click={() => settings.showAgentForm = !settings.showAgentForm}>＋ Add agent</button></div>{#if settings.showAgentForm}<div class="settings-form"><label>Agent name<input bind:value={settings.agentNameDraft} placeholder="Release assistant" /></label><label>Description <span class="optional">Optional</span><textarea rows="2" bind:value={settings.agentDescriptionDraft} placeholder="What is this agent responsible for?"></textarea></label><div class="form-actions"><button class="text-button" type="button" on:click={() => settings.showAgentForm = false}>Cancel</button><button class="button primary" type="button" disabled={!settings.agentNameDraft.trim()} on:click={createAgent}>Create agent</button></div></div>{/if}{#if settings.agentsLoading}<div class="list-skeleton">{#each [1, 2] as item}<div></div>{/each}</div>{:else if !settings.agents.length}<div class="empty-state compact-empty"><div class="empty-icon">✦</div><h3>No agents yet</h3><p>Create a scoped identity for the tools that collaborate with you.</p><button class="button quiet-button" type="button" on:click={() => settings.showAgentForm = true}>Create your first agent</button></div>{:else}<div class="agent-list">{#each settings.agents as agent}<article class="agent-card"><div class="agent-card-header"><span class="agent-avatar">✦</span><div><h3>{agent.name}</h3><p>{agent.description || 'No description'}</p></div><button class="button quiet-button compact-button" type="button" data-token-trigger on:click={() => { settings.selectedAgentId = agent.id; settings.showTokenForm = settings.selectedAgentId === agent.id && !settings.showTokenForm; }}>＋ Token</button></div>{#if agent.tokens?.length}<div class="token-list">{#each agent.tokens as token}<div class="token-row"><span class="token-icon">⌘</span><span class="token-info"><strong>{token.name}</strong><small>{token.scopes.join(' · ')}</small></span><span class="token-date">{token.expires_at ? `Expires ${formatDate(token.expires_at)}` : 'No expiry'}</span><button class="icon-button tiny danger-button" type="button" aria-label={`Revoke ${token.name}`} on:click={() => deleteToken(token)}>×</button></div>{/each}</div>{:else}<div class="agent-no-tokens">No active tokens</div>{/if}{#if settings.showTokenForm && settings.selectedAgentId === agent.id}<div class="token-form"><div class="settings-form"><label>Token name<input bind:value={settings.tokenNameDraft} placeholder="CI deployment token" /></label><fieldset><legend>Scopes</legend><div class="scope-grid">{#each scopeOptions as scope}<label class="check-label"><input type="checkbox" checked={settings.tokenScopes.includes(scope)} on:change={() => toggleScope(scope)} /><span>{scope}</span></label>{/each}</div></fieldset><fieldset><legend>Limit to projects <span class="optional">Optional</span></legend><div class="scope-grid project-checks">{#each workspace.projects as project}<label class="check-label"><input type="checkbox" checked={settings.tokenProjectIds.includes(project.id)} on:change={() => toggleTokenProject(project.id)} /><span>{project.name}</span></label>{/each}</div></fieldset><div class="form-actions"><button class="text-button" type="button" on:click={() => settings.showTokenForm = false}>Cancel</button><button class="button primary" type="button" disabled={!settings.tokenNameDraft.trim() || !settings.tokenScopes.length || settings.tokenCreating} on:click={createToken}>{#if settings.tokenCreating}<span class="button-spinner"></span>{/if}Create token</button></div></div></div>{/if}</article>{/each}</div>{/if}</div><div class="settings-section appearance-section"><div class="settings-section-heading"><div><span class="eyebrow">Workspace</span><h2>Appearance</h2><p>Choose how Helm feels on this device.</p></div></div><div class="theme-options"><button class:chosen={workspace.theme === 'light'} type="button" on:click={() => { workspace.theme = 'light'; localStorage.setItem(helmStorageKeys.theme, workspace.theme); applyTheme(); }}><span class="theme-preview light-preview">☼</span><span><strong>Light</strong><small>Clear and airy</small></span>{#if workspace.theme === 'light'}<span class="theme-check">✓</span>{/if}</button><button class:chosen={workspace.theme === 'dark'} type="button" on:click={() => { workspace.theme = 'dark'; localStorage.setItem(helmStorageKeys.theme, workspace.theme); applyTheme(); }}><span class="theme-preview dark-preview">☾</span><span><strong>Dark</strong><small>Focused and low-glare</small></span>{#if workspace.theme === 'dark'}<span class="theme-check">✓</span>{/if}</button></div></div></div><aside class="settings-aside"><div class="settings-aside-card"><span class="aside-icon">◎</span><h3>Built for safe handoffs</h3><p>Every mutation records its actor. Scoped agent tokens and optimistic versions keep collaboration predictable.</p><span class="aside-rule"></span><span class="aside-caption">Helm v1 · API-connected</span></div></aside></section>
+<section class="settings-layout"><div class="settings-main">{#if session.workspaceAdmin}<AgentsSection />{/if}<div class="settings-section appearance-section"><div class="settings-section-heading"><div><span class="eyebrow">Workspace</span><h2>Appearance</h2><p>Choose how Helm feels on this device.</p></div></div><div class="theme-options"><button class:chosen={workspace.theme === 'light'} type="button" on:click={() => { workspace.theme = 'light'; localStorage.setItem(helmStorageKeys.theme, workspace.theme); applyTheme(); }}><span class="theme-preview light-preview">☼</span><span><strong>Light</strong><small>Clear and airy</small></span>{#if workspace.theme === 'light'}<span class="theme-check">✓</span>{/if}</button><button class:chosen={workspace.theme === 'dark'} type="button" on:click={() => { workspace.theme = 'dark'; localStorage.setItem(helmStorageKeys.theme, workspace.theme); applyTheme(); }}><span class="theme-preview dark-preview">☾</span><span><strong>Dark</strong><small>Focused and low-glare</small></span>{#if workspace.theme === 'dark'}<span class="theme-check">✓</span>{/if}</button></div></div></div><aside class="settings-aside"><div class="settings-aside-card"><span class="aside-icon">◎</span><h3>Built for safe handoffs</h3><p>Every mutation records its actor. Scoped agent tokens and optimistic versions keep collaboration predictable.</p><span class="aside-rule"></span><span class="aside-caption">Helm v1 · API-connected</span></div></aside></section>

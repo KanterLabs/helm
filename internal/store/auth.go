@@ -27,38 +27,6 @@ func HashSecret(secret string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Store) CreateSession(ctx context.Context, actorID, raw string, expires time.Time) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO sessions(id, actor_id, token_hash, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`, newID(), actorID, HashSecret(raw), expires.UTC().Format(time.RFC3339Nano), now(), now())
-	return err
-}
-
-func (s *Store) ActorForSession(ctx context.Context, raw string) (Actor, error) {
-	var actorID string
-	var lastSeen sql.NullString
-	err := s.DB.QueryRowContext(ctx, `SELECT actor_id, last_seen_at FROM sessions WHERE token_hash = ? AND expires_at > ?`, HashSecret(raw), now()).Scan(&actorID, &lastSeen)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Actor{}, ErrNotFound
-	}
-	if err != nil {
-		return Actor{}, err
-	}
-	lastSeenCheck := time.Now().UTC()
-	if authTimestampNeedsRefresh(lastSeen, lastSeenCheck) {
-		seenAt := lastSeenCheck.Format(time.RFC3339Nano)
-		if lastSeen.Valid {
-			_, _ = s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at = ? WHERE token_hash = ? AND last_seen_at = ?`, seenAt, HashSecret(raw), lastSeen.String)
-		} else {
-			_, _ = s.DB.ExecContext(ctx, `UPDATE sessions SET last_seen_at = ? WHERE token_hash = ? AND last_seen_at IS NULL`, seenAt, HashSecret(raw))
-		}
-	}
-	return s.GetActor(ctx, actorID)
-}
-
-func (s *Store) DeleteSession(ctx context.Context, raw string) error {
-	_, err := s.DB.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, HashSecret(raw))
-	return err
-}
-
 func (s *Store) CreateToken(ctx context.Context, actorID, name string, scopes, projects []string, expires *time.Time) (Token, string, error) {
 	return s.createToken(ctx, actorID, actorID, name, scopes, projects, expires)
 }
@@ -233,9 +201,10 @@ func (s *Store) LookupToken(ctx context.Context, raw string) (AuthToken, error) 
 	if err != nil {
 		return AuthToken{}, err
 	}
-	if actor.DisabledAt != nil {
+	if actor.DisabledAt != nil || (actor.Kind == "human" && actor.WorkspaceRole == "") {
 		return AuthToken{}, ErrForbidden
 	}
+	actorScoped := (actor.Kind == "human" && !actor.Admin) || (actor.Kind == "agent" && len(actor.ProjectIDs) > 0)
 	lastUsedCheck := time.Now().UTC()
 	if authTimestampNeedsRefresh(lastUsed, lastUsedCheck) {
 		usedAt := lastUsedCheck.Format(time.RFC3339Nano)
@@ -249,11 +218,11 @@ func (s *Store) LookupToken(ctx context.Context, raw string) (AuthToken, error) 
 			_, _ = s.DB.ExecContext(ctx, `UPDATE tokens SET last_used_at = ? WHERE id = ? AND last_used_at IS NULL`, usedAt, token.ID)
 		}
 	}
-	result := AuthToken{Token: token, Actor: actor, Scopes: make(map[string]bool), Projects: make(map[string]bool), ProjectsScoped: len(actor.ProjectIDs) > 0 || len(token.ProjectIDs) > 0}
+	result := AuthToken{Token: token, Actor: actor, Scopes: make(map[string]bool), Projects: make(map[string]bool), ProjectsScoped: actorScoped || len(token.ProjectIDs) > 0}
 	for _, scope := range token.Scopes {
 		result.Scopes[scope] = true
 	}
-	if len(actor.ProjectIDs) > 0 {
+	if actorScoped {
 		allowedByActor := make(map[string]bool, len(actor.ProjectIDs))
 		for _, project := range actor.ProjectIDs {
 			allowedByActor[project] = true

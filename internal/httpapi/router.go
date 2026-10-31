@@ -104,6 +104,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusForbidden, "csrf_origin", "request origin is not allowed", nil)
 		return
 	}
+	if !s.authorizeWorkspace(w, r, identity, parts) {
+		return
+	}
 	s.dispatchAuthed(w, r, identity, parts)
 }
 

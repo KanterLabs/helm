@@ -82,7 +82,7 @@ func TestPortableConflictRemapsAreStableAcrossRetries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if projectCount != 3 || taskCount != 2 || commentCount != 2 || eventCount != 2 || historyCount != 2 {
+	if projectCount != 3 || taskCount != 2 || commentCount != 2 || eventCount != 3 || historyCount != 2 {
 		t.Fatalf("retry duplicated records projects=%d tasks=%d comments=%d events=%d history=%d", projectCount, taskCount, commentCount, eventCount, historyCount)
 	}
 }

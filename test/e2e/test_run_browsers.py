@@ -29,16 +29,20 @@ if orphan:
                   f"pathlib.Path({str(work / 'child.ready')!r}).touch(); time.sleep(120)")
 child = subprocess.Popen([sys.executable, "-c", child_code])
 state["child"] = child.pid
-(artifacts / "started.json").write_text(json.dumps(state))
-if orphan:
-    while not (work / "child.ready").exists(): time.sleep(0.01)
-    sys.exit(7)
 def finish(signum, frame):
     child.terminate()
     child.wait(timeout=5)
     (artifacts / "cancelled").write_text(str(signum))
     sys.exit(128 + signum)
 signal.signal(signal.SIGTERM, finish)
+if orphan:
+    while not (work / "child.ready").exists(): time.sleep(0.01)
+# Existence means the receipt is complete AND cancellation handling is ready.
+pending = artifacts / "started.tmp"
+pending.write_text(json.dumps(state))
+pending.replace(artifacts / "started.json")
+if orphan:
+    sys.exit(7)
 time.sleep(float(os.environ.get("FAKE_DURATION", "0.5")))
 child.terminate()
 child.wait(timeout=5)
@@ -140,8 +144,15 @@ class SupervisorProof(unittest.TestCase):
             self.assertEqual(len(list(self.artifacts.glob("*/cancelled"))), 4)
             self.assertTrue((self.artifacts / "workers.json").is_file())
         finally:
-            process.kill() if process.poll() is None else None
-            process.communicate()
+            # Let the supervisor clean up its worker process groups even when
+            # startup assertions fail before the normal cancellation step.
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
             unrelated.terminate()
             unrelated.wait(timeout=5)
 
@@ -151,6 +162,26 @@ class SupervisorProof(unittest.TestCase):
                 result = self.run_command(args=args)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(list(self.artifacts.glob("*/started.json")))
+
+    def test_cancellation_during_startup_receipt_write(self):
+        # Widen the real create/write interval deterministically. Publication
+        # must remain complete to readers while the existing cancellation proof
+        # keeps checking descendant cleanup and unrelated-process isolation.
+        slow_publication = '''#!/usr/bin/env python3
+import pathlib, time
+_write_text = pathlib.Path.write_text
+def slow_write(path, data, *args, **kwargs):
+    if path.name.startswith("started."):
+        with path.open("w") as stream:
+            stream.flush()
+            time.sleep(0.25)
+            stream.write(data)
+        return len(data)
+    return _write_text(path, data, *args, **kwargs)
+pathlib.Path.write_text = slow_write
+'''
+        self.worker.write_text(slow_publication + FAKE_WORKER)
+        self.test_cancel_stops_owned_descendants_only_and_retains_receipt()
 
     def test_failed_worker_cannot_leave_stubborn_descendant_holding_output(self):
         result = self.run_command(1, env={"FAKE_ORPHAN": "true"})

@@ -85,6 +85,8 @@ components:
         - created_at
         - updated_at
       properties:
+        workspace_role:
+          $ref: "#/components/schemas/WorkspaceRole"
         id:
           $ref: "#/components/schemas/Identifier"
         kind:
@@ -115,7 +117,7 @@ components:
           uniqueItems: true
           items:
             $ref: "#/components/schemas/Identifier"
-          description: Project access ceiling for an agent actor; omitted when unrestricted.
+          description: Agent ceiling or reviewed human project grants. For ordinary human members, an absent/empty list grants no projects; owner/admin access is determined by workspace_role.
         tokens:
           type: array
           items:

@@ -32,6 +32,7 @@ requirements are included on every new card.
 | 8 | TC-329 | Validate the consolidated Helm core and data preservation on beta | TC-328, TC-317, TC-316, TC-319, TC-8 |
 | 8 | TC-330 | Release consolidated Helm from tested beta and verify adoption | TC-329 |
 | 2 | TC-8 — existing | Searchable human/agent assignee picker | Reuse existing acceptance; coordinate Phase 0 contracts |
+| 2 | TC-113 — existing | Human membership, roles and session lifecycle | Required before TC-8; owner explicitly included the full expansion on 30 October |
 | 7 | TC-311 — existing | Actual audit judgments, legitimate human apply, preserved data and exact beta promotion | Existing five checkpoints; currently 2/5 handoff |
 
 ## Delivery packets
@@ -199,6 +200,16 @@ for real user flows, preservation and installed-client acceptance.
 ## Existing backlog reconciliation
 
 TC-8 and TC-311 are reused rather than duplicated or reclaimed for planning.
+Execution inspection found that TC-8 also depends on existing TC-113 (human
+membership, roles and session lifecycle). Its old implementation, `98e4292`
+on `backlog/tc113-membership`, is not an ancestor of the deployed beta or this
+consolidation branch. Review and port that prerequisite against current storage
+and authorization contracts before accepting TC-8; do not bypass its dependency
+or treat the old handoff as deployed behavior. This adds no replacement identity
+platform to the product scope.
+The owner selected the full membership expansion on 30 October; TC-113 is now
+an explicit execution prerequisite, not a deferred or bypassed dependency. Its
+current integration contract is [TC113_MEMBERSHIP_PORT.md](TC113_MEMBERSHIP_PORT.md).
 At Phase 0/8, review old AI-ranking, email, offline and automation proposals
 against the agreed cuts. Record supersession explicitly; do not silently close
 cards with active claims, mark unfinished work complete, or erase already

@@ -142,18 +142,19 @@ class SuiteProof(unittest.TestCase):
 
     def test_full_ci_orders_main_then_bounds_overlap_and_isolates(self):
         self.env = {"HELM_E2E_CODEX_STALL_ACCOUNT": "true"}
-        status, phases = self.finish(self.start(extra=("--include-deadline",)))
+        # Four workers let all four ancillary fixtures overlap after main.
+        status, phases = self.finish(self.start(workers=4, extra=("--include-deadline",)))
         self.assertEqual(status, 0, (self.root / "proof.log").read_text())
         starts = self.starts()
-        self.assertEqual(set(starts), {"main", "onboarding", "github", "deadline"})
-        self.assertEqual(len({s["work"] for s in starts.values()}), 4)
-        self.assertEqual(len({s["port"] for s in starts.values()}), 4)
+        self.assertEqual(set(starts), {"main", "onboarding", "github", "deadline", "membership"})
+        self.assertEqual(len({s["work"] for s in starts.values()}), 5)
+        self.assertEqual(len({s["port"] for s in starts.values()}), 5)
         main_end = float((self.artifacts / "main/finished").read_text())
         self.assertTrue(all(s["start"] >= main_end for n, s in starts.items() if n != "main"))
         side_end = min(float((self.artifacts / n / "finished").read_text())
-                       for n in ("onboarding", "github", "deadline"))
+                       for n in ("onboarding", "github", "deadline", "membership"))
         self.assertLess(max(s["start"] for n, s in starts.items() if n != "main"), side_end)
-        self.assertEqual(starts["main"]["workers"], "3")
+        self.assertEqual(starts["main"]["workers"], "4")
         self.assertTrue(all(s["stall"] is None for n, s in starts.items() if n != "deadline"))
         self.assertEqual(starts["deadline"]["stall"], "true")
         for phase in phases.values():

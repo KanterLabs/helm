@@ -55,7 +55,7 @@ func (s *Server) roadmap(w http.ResponseWriter, r *http.Request, identity auth.I
 		s.writeError(w, http.StatusForbidden, "forbidden", "a project is required for a scoped token", nil)
 		return
 	}
-	roadmap, err := s.Store.Roadmap(r.Context(), projectID)
+	roadmap, err := s.Store.RoadmapScoped(r.Context(), projectID, scopedProjectIDs(identity))
 	if err != nil {
 		s.writeInternal(w, err)
 		return
@@ -95,12 +95,7 @@ func (s *Server) myWork(w http.ResponseWriter, r *http.Request, identity auth.Id
 		return
 	}
 	var projectIDs []string
-	if identity.IsToken && identity.Token.ProjectsScoped {
-		projectIDs = make([]string, 0, len(identity.Token.Projects))
-		for projectID := range identity.Token.Projects {
-			projectIDs = append(projectIDs, projectID)
-		}
-	}
+	projectIDs = scopedProjectIDs(identity)
 	if reference, err := parseOptionalIdentifier(r, "project"); err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
@@ -246,7 +241,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity auth.Id
 		return
 	}
 	eventFilter := store.EventFilter{After: after, ProjectID: projectID, Limit: limit}
-	if identity.IsToken && identity.Token.ProjectsScoped && projectID == "" {
+	if scopedProjectIDs(identity) != nil && projectID == "" {
 		eventFilter.ProjectIDs = scopedProjectIDs(identity)
 	}
 	events, more, err := s.Store.ListEvents(r.Context(), eventFilter)
