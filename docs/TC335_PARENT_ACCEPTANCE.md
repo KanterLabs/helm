@@ -75,9 +75,9 @@ an administrator deliberately bypassing the deployment procedure.
 
 ## Remaining activation gates
 
-1. Resolve the pending access decision: restricted read-only CI observer or
-   existing operator-only deployment. Current CI has HTTPS-only access; no SSH
-   identity or ACL expansion has been provisioned.
+1. Restricted read-only observer access was approved and verified on2026-10-31;
+   the access permission wait is resolved. See the installation update below.
+   This access proof does not establish the remaining activation conditions.
 2. Implement the actual observer and durable per-lane operation journal. Bind
    pre-stop container/data identity, account for removed containers, and prove
    selected-service queued, delayed, reserved and executing work is quiescent.
@@ -98,3 +98,28 @@ an administrator deliberately bypassing the deployment procedure.
 The [policy contract](TC335_POLICY_CONTRACT.md) and
 [worker handoff](TC335_HANDOFF.md) define the source interfaces. Synthetic
 receipts are not accepted runtime bundles and cannot open these gates.
+
+## Approved observer access, 2026-10-31
+
+The owner selected restricted CI observer access. The permission wait is closed.
+Infrastructure source under `homelab/coolify/helm-observer` implements the fixed
+account on the existing Coolify SSH daemon and private Service
+`svc:helm-deploy-observer:22`, through the existing edge loopback proxy. Only the
+CI tag receives the new grant. A real disposable CI-tagged peer passed pinned
+SSH metadata reads and denial of commands, oversized input, TCP forwarding and
+root login; its process, device and auth key were removed. No Helm container or
+database was changed. Protected beta/production environments now contain the
+scoped observer key, known-host pin and endpoint settings; values are not in Git.
+
+`deploy/ssh-observer.py` is the job-private client. Copy it to a private0700
+directory with private0600 `client.json` containing only `host`, `port:22` and
+`user:helm-observer`, plus `id_ed25519` and `known_hosts` from protected inputs.
+Pin the executable independently and pass its path to the existing witness.
+The client sends no remote command, clears forwarding/agent configuration,
+pins the host, bounds input/output/time and passes no ambient API credentials.
+
+The installed metadata collector intentionally returns **unknown**, not a
+stopped-and-fenced receipt. Read access is verified; continuing exclusion,
+durable interrupted-operation handling, protected workflow wiring and TC-336
+actual runtime/preservation acceptance remain open. Do not enable041 rollout
+by treating the read-only access proof as those missing guarantees.

@@ -56,3 +56,12 @@ remain existing safeguards; workflow integration is parent-owned.
   revisions; a second label for the same failing artifact is not recovery.
   Retained release evidence must enforce this distinction too, rather than
   accepting a receipt the deployment controller would reject.
+
+## Restricted SSH transport
+
+Before client implementation: refuse altered users/ports, public or malformed
+addresses, extra configuration keys, symlinked/writable credentials and oversized
+requests. Pin the SSH host key, clear forwarding and ambient agent/configuration,
+send no remote command and do not pass Coolify/other ambient tokens to SSH.
+Keep the response bounded; unknown host evidence must still fail the existing
+stop-witness contract. Provisioned read access alone must not enable rollout.
