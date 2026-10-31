@@ -21,6 +21,7 @@ import (
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
 	"github.com/KanterLabs/helm/internal/db"
+	"github.com/KanterLabs/helm/internal/deployadmission"
 	"github.com/KanterLabs/helm/internal/httpapi"
 	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
@@ -35,6 +36,18 @@ const (
 
 func main() {
 	log.SetFlags(0)
+	// The reserved private mount always requires admission, including when an
+	// older Compose profile invokes this binary through its default entrypoint.
+	// Check before configuration, CLI database handling, or embedded migrations.
+	// These two commands never open application data or acquire a writer lease.
+	readOnlyCommand := len(os.Args) > 1 && (os.Args[1] == "healthcheck" || os.Args[1] == "migration-info")
+	if !readOnlyCommand {
+		lease, err := deployadmission.Acquire()
+		if err != nil {
+			fatalLog("private runtime admission failed", "admission_denied")
+		}
+		defer lease.Close()
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "audit-access":

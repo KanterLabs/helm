@@ -70,6 +70,9 @@ FROM scratch
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build --chown=65532:65532 /out/helm /usr/local/bin/helm
+# Protected profiles force this reserved path. Historical images lack it;
+# the same admission check also runs through the ordinary public entrypoint.
+COPY --from=build --chown=65532:65532 /out/helm /usr/local/bin/helm-admission
 COPY --from=codex --chown=65532:65532 /out/codex /usr/local/bin/codex
 COPY --from=cloudflared --chown=65532:65532 /out/cloudflared /usr/local/bin/cloudflared
 COPY --from=build --chown=65532:65532 /out/data /data

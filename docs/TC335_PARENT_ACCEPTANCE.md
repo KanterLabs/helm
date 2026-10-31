@@ -78,12 +78,15 @@ an administrator deliberately bypassing the deployment procedure.
 1. Restricted read-only observer access was approved and verified on2026-10-31;
    the access permission wait is resolved. See the installation update below.
    This access proof does not establish the remaining activation conditions.
-2. Implement the actual observer and durable per-lane operation journal. Bind
-   pre-stop container/data identity, account for removed containers, and prove
-   selected-service queued, delayed, reserved and executing work is quiescent.
-   Unknown attribution must block that lane for operator reconciliation, not
-   pause all Coolify queues. The journal must retain uncertain operations across
-   interruption; a journal does not itself cancel remote jobs.
+2. Implement continuing exclusion and honest observation of it. Queue emptiness
+   and a durable operation journal cannot prevent a delayed remote start. The
+   reviewed [admission design](TC335_ADMISSION_DESIGN.md) now starts with an
+   integrated runtime guard and explicit operator bootstrap/drain, rather than
+   asynchronous first initialization. Its [runtime source stage](TC335_RUNTIME_ADMISSION.md)
+   passes actual-binary DEV journeys; authority installation, complete legacy
+   FD/mapping drain and platform execution invariants remain open. Bind exact
+   data/lock identity, account for removed containers, and retain uncertain
+   operations. Unknown attribution blocks the lane for operator reconciliation.
 3. Pin the enforcing controller independently from selected app source and wire
    both protected lanes. Verify the floor survives installed compose parsing,
    provisioning it only after checking actual lane state. Keep supported
@@ -123,3 +126,16 @@ stopped-and-fenced receipt. Read access is verified; continuing exclusion,
 durable interrupted-operation handling, protected workflow wiring and TC-336
 actual runtime/preservation acceptance remain open. Do not enable041 rollout
 by treating the read-only access proof as those missing guarantees.
+
+## Runtime admission stage, 2026-10-31
+
+The guard is embedded in Helm before any data-touching CLI or normal startup,
+so a new binary invoked by an old profile cannot skip it. Missing or invalid
+authority prevents database writes. A permanent read-only lock descriptor
+excludes duplicate guarded runtimes; healthcheck and public startup remain
+functional. Eleven real-binary DEV journeys pass after a meaningful failing
+baseline. See the source-stage document above for receipts and limits.
+
+Actual retained-image probes also confirmed that writable descriptors and
+shared memory mappings can survive chown and still modify bytes. This evidence
+strengthens the drain requirement; it does not close the activation gate.
