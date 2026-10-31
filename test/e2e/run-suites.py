@@ -13,6 +13,11 @@ from browser_selection import option_tokens
 
 HERE = Path(__file__).resolve().parent
 DEADLINE = "e2e/luna-account-deadline-stability.spec.ts"
+ONBOARDING = "e2e/onboarding.spec.ts"
+# Genuine human membership journeys need a fresh local-auth fixture. Full runs
+# require it; focused runs add it only for this exact selected spec operand.
+MEMBERSHIP = "e2e/membership-sessions.spec.ts"
+LOCAL_SPECS = {"onboarding": ONBOARDING, "membership": MEMBERSHIP}
 
 
 def arguments():
@@ -82,10 +87,18 @@ def run(args):
     signal.signal(signal.SIGTERM, interrupt)
     signal.signal(signal.SIGINT, interrupt)
     full = not args.playwright
-    for index, name in enumerate(("main", "onboarding", "github", "deadline")):
+    membership_focus = MEMBERSHIP in option_tokens(args.playwright)
+    single_membership_focus = membership_focus and all(
+        value.startswith("-") or value == MEMBERSHIP for value in option_tokens(args.playwright))
+    for index, name in enumerate(("main", "onboarding", "github", "deadline", "membership")):
         required = name in ("main", "onboarding") or (name == "github" and full) or (
-            name == "deadline" and args.include_deadline)
+            name == "deadline" and args.include_deadline) or (
+            name == "membership" and (full or membership_focus))
         port = args.base_port if name == "main" else args.base_port + (args.workers + index - 1) * 100
+        if name == "membership":
+            # Onboarding's fixture binds +0..+30 of its block; membership owns
+            # the unused upper half so existing range checks stay unchanged.
+            port = args.base_port + args.workers * 100 + 50
         phases.append({"name": name, "required": required,
                        "status": "pending" if required else "skipped",
                        "exit_status": None, "started_at_epoch": None,
@@ -111,6 +124,9 @@ def run(args):
         artifacts.mkdir()
         env = dict(os.environ)
         env.pop("HELM_E2E_CODEX_STALL_ACCOUNT", None)
+        env.pop("HELM_E2E_MEMBERSHIP_REQUIRED", None)
+        if name == "membership":
+            env["HELM_E2E_MEMBERSHIP_REQUIRED"] = "true"
         # Preserve the historical explicit focused deadline invocation. Ordinary
         # main selections and all ancillary fixtures never inherit this flag.
         deadline_focus = (DEADLINE in args.playwright and
@@ -125,10 +141,10 @@ def run(args):
                        HELM_E2E_ARTIFACT_DIR=str(artifacts))
             command = [str(args.github_script)]
         else:
-            selection = args.playwright if name == "main" else [
-                "e2e/onboarding.spec.ts" if name == "onboarding" else DEADLINE]
+            selection = args.playwright if name == "main" or (
+                name == "membership" and single_membership_focus) else [LOCAL_SPECS.get(name, DEADLINE)]
             command = [sys.executable, str(args.browser_script), "--mode",
-                       "local" if name == "onboarding" else "disabled", "--workers",
+                       "local" if name in LOCAL_SPECS else "disabled", "--workers",
                        str(phase["workers"]), "--base-port", str(phase["base_port"]),
                        "--work-dir", str(work), "--artifact-dir", str(artifacts),
                        "--binary", str(args.binary), "--", *selection]

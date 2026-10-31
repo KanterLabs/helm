@@ -13,7 +13,7 @@ Planning task: TC-314. Implementation queue and dependencies:
 | --- | --- | --- |
 | 0 | Known consumers and preservation contracts | TC-315 |
 | 1 | Honest capability states and lossless transfer | TC-316–317 |
-| 2 | Fast creation, named ownership, readable active work | TC-318–319; TC-8 |
+| 2 | Fast creation, membership, named ownership, readable active work | TC-318–319; TC-113 → TC-8 |
 | 3 | Work / Intake / Progress and compatible navigation | TC-320–324 |
 | 4 | Retired drafting/ranking, retained audit runtime | TC-325 |
 | 5 | Retired email/provisioning with safe connector drain | TC-326 |
@@ -126,6 +126,11 @@ Replace raw actor-ID inputs with the existing TC-8 searchable human/agent
 picker work. Disabled or inaccessible actors cannot be newly assigned;
 historical references still render. Assignment and claims retain different
 labels. Reuse existing identity data rather than expanding authorization scope.
+
+On 30 October, the owner explicitly chose full multi-user membership and roles.
+Accept TC-113 before TC-8: administrative member management, explicit project
+grants, password/session controls and central authorization. Port the old work
+additively against current APIs; see [the integration contract](TC113_MEMBERSHIP_PORT.md).
 
 Use one create action per context. Retain useful per-column quick-add, but
 remove competing New task/Create task buttons opening the same modal.

@@ -71,8 +71,8 @@ func (s *Store) CountReopenedIssues(ctx context.Context, projectIDs []string, si
 }
 
 // appendProjectCeiling adds the same allow-list semantics used by global
-// collection queries. Keep this helper local to count queries so aggregate
-// responses cannot accidentally bypass bearer project restrictions.
+// collection queries. Counts and Roadmap summaries must receive the live
+// human/token ceiling so their aggregates cannot bypass project restrictions.
 func appendProjectCeiling(query string, args []any, projectIDs []string) (string, []any) {
 	if projectIDs != nil && len(projectIDs) == 0 {
 		return query + ` AND 1=0`, args

@@ -9,16 +9,26 @@ import { taskModal } from './state/taskModal.svelte';
 import { assistTaskWithLuna } from './taskModal';
 
 export async function loadAgents() {
+  if (!session.workspaceAdmin) {
+    settings.agents = [];
+    settings.agentsError = '';
+    return;
+  }
   settings.agentsLoading = true;
   settings.agentsError = '';
+  const generation = session.sessionGeneration;
+  const actorId = session.user?.id;
+  const current = () => generation === session.sessionGeneration && actorId === session.user?.id && session.workspaceAdmin;
   try {
     const result = await api.listAllAgents();
+    if (!current()) return;
     settings.agents = result.data;
     if (!settings.selectedAgentId && settings.agents[0]) settings.selectedAgentId = settings.agents[0].id;
   } catch (error) {
+    if (!current()) return;
     settings.agentsError = friendlyError(error, 'Agent settings could not be loaded.');
   } finally {
-    settings.agentsLoading = false;
+    if (current()) settings.agentsLoading = false;
   }
 }
 

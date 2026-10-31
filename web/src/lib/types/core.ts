@@ -4,6 +4,9 @@ export type Priority = 'low' | 'normal' | 'high' | 'urgent';
 
 export type ActorKind = 'human' | 'agent';
 
+/** Reviewed human role; absent on a human means a verified identity awaiting admission. */
+export type WorkspaceRole = 'owner' | 'admin' | 'member';
+
 export type ChecklistCompletionPolicy = 'warn' | 'require';
 
 export type Scope = 'projects:read' | 'projects:write' | 'tasks:read' | 'tasks:write' | 'tasks:claim' | 'events:read' | 'notifications:read' | 'notifications:write';
@@ -16,7 +19,9 @@ export interface Actor {
   email?: string;
   description?: string;
   admin?: boolean;
+  workspace_role?: WorkspaceRole;
   disabled_at?: string;
+  /** Agent ceiling, or an ordinary human member's explicit grants (empty = none). */
   project_ids?: string[];
   tokens?: ApiToken[];
   created_at?: string;

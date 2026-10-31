@@ -14,7 +14,7 @@ import (
 
 func TestLunaRunDetailReturnsPrivateContentOnlyToOwner(t *testing.T) {
 	server, data := testServer(t, "disabled")
-	owner, err := data.CreateActor(context.Background(), store.Actor{Kind: "human", Name: "Owner"}, "")
+	owner, err := data.CreateActor(context.Background(), store.Actor{Kind: "human", Name: "Owner", Admin: true}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

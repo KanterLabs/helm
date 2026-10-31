@@ -36,7 +36,7 @@ func bulkTaskUpdatedEvents(t *testing.T, fixture dependencyFixture, taskID strin
 
 func TestBulkAssignmentEmitsCanonicalMetadataAndOneNotification(t *testing.T) {
 	f := newDependencyFixture(t, "BULKNOTIFY")
-	recipient, err := f.store.CreateActor(f.ctx, Actor{Kind: "human", Name: "Bulk recipient"}, "")
+	recipient, err := f.store.CreateActor(f.ctx, Actor{Kind: "human", Name: "Bulk recipient", ProjectIDs: []string{f.project.ID}}, "")
 	if err != nil {
 		t.Fatalf("create recipient: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestBulkAssignmentEmitsCanonicalMetadataAndOneNotification(t *testing.T) {
 
 func TestBulkAssignmentPartialAndAtomicNotifications(t *testing.T) {
 	f := newDependencyFixture(t, "BULKASSIGN")
-	recipient, err := f.store.CreateActor(f.ctx, Actor{Kind: "human", Name: "Partial recipient"}, "")
+	recipient, err := f.store.CreateActor(f.ctx, Actor{Kind: "human", Name: "Partial recipient", ProjectIDs: []string{f.project.ID}}, "")
 	if err != nil {
 		t.Fatalf("create recipient: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestBulkAssignmentPartialAndAtomicNotifications(t *testing.T) {
 
 func TestBulkAssignmentReplayAndUnchangedValueDoNotNotifyAgain(t *testing.T) {
 	f := newDependencyFixture(t, "BULKREPLAY")
-	recipient, err := f.store.CreateActor(f.ctx, Actor{Kind: "human", Name: "Replay recipient"}, "")
+	recipient, err := f.store.CreateActor(f.ctx, Actor{Kind: "human", Name: "Replay recipient", ProjectIDs: []string{f.project.ID}}, "")
 	if err != nil {
 		t.Fatalf("create recipient: %v", err)
 	}

@@ -3,9 +3,11 @@ package httpapi
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"github.com/KanterLabs/helm/internal/auth"
 	"github.com/KanterLabs/helm/internal/store"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -28,13 +30,34 @@ func bodyBytes(r *http.Request) []byte {
 // identity. Import behavior is selected by dry_run, conflict, and
 // target_project query values, so hashing only the JSON body could replay a
 // report for a different operation under the same Idempotency-Key.
-func idempotencyRequestHash(r *http.Request) string {
+func idempotencyRequestHash(r *http.Request, identity auth.Identity) string {
 	hash := sha256.New()
 	_, _ = hash.Write(bodyBytes(r))
 	if isPortableImportRequestPath(r.URL.Path) {
 		_, _ = hash.Write([]byte{0})
 		_, _ = hash.Write([]byte(r.URL.Query().Encode()))
 	}
+	// A saved response is private data too. Bind it to effective authority so
+	// revoked grants cannot recover it through global mutation replay paths.
+	// Keep the same store key: an authority change must conflict, never execute
+	// a second mutation in a fresh key namespace.
+	authority := struct {
+		Version  int
+		Admin    bool
+		Projects []string
+		Scopes   []string
+	}{Version: 1, Admin: identity.IsAdmin(), Projects: scopedProjectIDs(identity)}
+	if identity.IsToken {
+		for scope, allowed := range identity.Token.Scopes {
+			if allowed {
+				authority.Scopes = append(authority.Scopes, scope)
+			}
+		}
+		sort.Strings(authority.Scopes)
+	}
+	encoded, _ := json.Marshal(authority)
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write(encoded)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
@@ -92,7 +115,7 @@ func (s *Server) mutationWithAdmission(w http.ResponseWriter, r *http.Request, i
 		s.writeError(w, http.StatusBadRequest, "invalid_idempotency_key", "Idempotency-Key is too long", nil)
 		return
 	}
-	requestHash := idempotencyRequestHash(r)
+	requestHash := idempotencyRequestHash(r, identity)
 	storeKey := idempotencyStoreKey(identity, key)
 	s.idemMu.Lock()
 	defer s.idemMu.Unlock()
@@ -157,7 +180,7 @@ func (s *Server) idempotencyReplay(w http.ResponseWriter, r *http.Request, ident
 		s.writeError(w, http.StatusBadRequest, "invalid_idempotency_key", "Idempotency-Key is too long", nil)
 		return true
 	}
-	requestHash := idempotencyRequestHash(r)
+	requestHash := idempotencyRequestHash(r, identity)
 	storeKey := idempotencyStoreKey(identity, key)
 	s.idemMu.Lock()
 	record, found, err := s.Store.GetIdempotency(r.Context(), identity.Actor.ID, storeKey, r.Method, r.URL.Path, requestHash)

@@ -24,4 +24,16 @@ source "$DEPLOY_DIR/security-tests/signed-release-verification.sh"
 source "$DEPLOY_DIR/security-tests/restore-authorization-overlay.sh"
 source "$DEPLOY_DIR/security-tests/backup-publication-and-retention.sh"
 
+# Exercise the active Coolify controller as well as the retained LXC protocol.
+# Callers can retain sanitized per-journey receipts outside the temporary fixture.
+policy_evidence=${HELM_DEPLOYMENT_POLICY_EVIDENCE_DIR:-"$fixture/membership-policy"}
+mkdir -p -- "$policy_evidence"
+python3 "$ROOT_DIR/test/deployment-policy/journeys.py" "$policy_evidence/controller"
+python3 "$ROOT_DIR/test/deployment-policy/contract_journeys.py" "$policy_evidence/contract"
+python3 "$ROOT_DIR/test/deployment-policy/parent_journeys.py" "$policy_evidence/parent"
+python3 "$ROOT_DIR/test/deployment-policy/ssh_observer.py"
+python3 "$ROOT_DIR/test/deployment-policy/release_journeys.py" "$policy_evidence/release-reader"
+python3 "$ROOT_DIR/test/release-pipeline/authorization.py" "$policy_evidence/release-commands"
+python3 "$ROOT_DIR/test/release-pipeline/run.py" "$policy_evidence/existing-release"
+
 printf 'deployment_security_tests=ok\n'

@@ -81,7 +81,7 @@ func (s *Server) audits(w http.ResponseWriter, r *http.Request, identity auth.Id
 			return
 		}
 		projectID = project.ID
-	} else if identity.IsToken && identity.Token.ProjectsScoped {
+	} else if scopedProjectIDs(identity) != nil {
 		// A global aggregate is safe only when the store receives the token's
 		// complete allow-list. This also permits a useful union for scoped agents
 		// without exposing runs from another project.

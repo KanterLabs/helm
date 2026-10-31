@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
@@ -11,6 +12,11 @@ import (
 // pure Go, has a well-reviewed implementation, and remains compatible with a
 // static Linux build.
 const bcryptCost = 12
+
+var (
+	dummyHashOnce sync.Once
+	dummyHash     string
+)
 
 func HashPassword(password string) (string, error) {
 	if utf8.RuneCountInString(password) < 12 {
@@ -22,4 +28,16 @@ func HashPassword(password string) (string, error) {
 
 func CheckPassword(password, encoded string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(encoded), []byte(password)) == nil
+}
+
+// dummyPasswordHash keeps unknown-account failures on the same expensive
+// bcrypt path as a known account. It is generated once and never persisted.
+func dummyPasswordHash() string {
+	dummyHashOnce.Do(func() {
+		hash, err := bcrypt.GenerateFromPassword([]byte("helm-invalid-login-dummy"), bcryptCost)
+		if err == nil {
+			dummyHash = string(hash)
+		}
+	})
+	return dummyHash
 }

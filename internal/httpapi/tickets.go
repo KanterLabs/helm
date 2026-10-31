@@ -34,9 +34,28 @@ type ticketQueueRef struct {
 // the ticket queue.
 func (s *Server) tickets(w http.ResponseWriter, r *http.Request, identity auth.Identity) {
 	if r.Method == http.MethodPost {
-		project, err := s.Store.TicketQueue(r.Context())
+		if !requireScope(w, identity, "tasks:write") {
+			return
+		}
+		project, found, err := s.Store.LookupTicketQueue(r.Context())
 		if err != nil {
 			s.writeStoreError(w, err)
+			return
+		}
+		if !found {
+			// Queue initialization creates a project and retargets existing
+			// integrations. Only workspace administrators may cause it.
+			if !requireAdmin(w, identity) {
+				return
+			}
+			project, err = s.Store.TicketQueue(r.Context())
+			if err != nil {
+				s.writeStoreError(w, err)
+				return
+			}
+		}
+		if !identity.CanProject(project.ID) {
+			s.writeError(w, http.StatusForbidden, "forbidden", "project access is required", nil)
 			return
 		}
 		s.projectTickets(w, r, identity, project.ID)
@@ -49,7 +68,7 @@ func (s *Server) tickets(w http.ResponseWriter, r *http.Request, identity auth.I
 	if !requireScope(w, identity, "tasks:read") {
 		return
 	}
-	var projectIDs []string
+	projectIDs := scopedProjectIDs(identity)
 	if reference, err := parseOptionalIdentifier(r, "project"); err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
