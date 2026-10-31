@@ -32,6 +32,7 @@ python3 "$ROOT_DIR/test/deployment-policy/journeys.py" "$policy_evidence/control
 python3 "$ROOT_DIR/test/deployment-policy/contract_journeys.py" "$policy_evidence/contract"
 python3 "$ROOT_DIR/test/deployment-policy/parent_journeys.py" "$policy_evidence/parent"
 python3 "$ROOT_DIR/test/deployment-policy/ssh_observer.py"
+python3 "$ROOT_DIR/test/deployment-policy/drain_journeys.py"
 python3 "$ROOT_DIR/test/deployment-policy/release_journeys.py" "$policy_evidence/release-reader"
 python3 "$ROOT_DIR/test/release-pipeline/authorization.py" "$policy_evidence/release-commands"
 python3 "$ROOT_DIR/test/release-pipeline/run.py" "$policy_evidence/existing-release"

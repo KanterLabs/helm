@@ -139,3 +139,20 @@ baseline. See the source-stage document above for receipts and limits.
 Actual retained-image probes also confirmed that writable descriptors and
 shared memory mappings can survive chown and still modify bytes. This evidence
 strengthens the drain requirement; it does not close the activation gate.
+
+## Closed bootstrap and snapshot source stage
+
+The [closed bootstrap contract](TC335_CLOSED_BOOTSTRAP.md) documents operator
+preparation with an exact verified snapshot, permanent lock, durable format2
+journal and metadata inventory. It preserves opaque links and supports the
+roughly10,000 objects found by read-only live metadata discovery. A prepared
+marker remains unusable by Helm; bootstrap has no activation command.
+
+The read-only scan identifies retained writable descriptors and mappings with
+closed descriptors. Parent native-host integration obtains a complete clean
+snapshot only after test holders stop, while actual Helm rejects the prepared
+authority. Namespace/kernel metadata regressions, response bounds and older
+Python helper compatibility are covered by portable scanner checks, now called
+by the deployment-security harness. Source, privileged DEV tests and live
+installation remain distinct. The installed collector still returns unknown;
+activation/recovery integration and TC-336 acceptance remain open.

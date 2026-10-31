@@ -1,7 +1,7 @@
 # Proposed application-owned deployment admission
 
-Revised after independent review; not accepted for rollout. PR58 at
-189e5ae has green required checks. The installed metadata collector still
+Revised after independent review; not accepted for rollout. Runtime source at
+690620c has green required checks. The installed metadata collector still
 returns unknown. Live beta/schema40 and production/schema35 are unchanged.
 
 ## Evidence and scope
@@ -34,9 +34,16 @@ restore data, or grant CI a general host command to implement this proposal.
 ## Decisions after independent review
 
 The review at `/tmp/helm-admission-review/findings.md` rejects activation from
-the original proposal. Its composite delayed-start/open-descriptor risk is
-credible; writable descriptors and mappings need actual proof. A signed
-snapshot alone never creates continuing exclusion.
+the original proposal. Subsequent retained-image probes confirm that writable
+descriptors and shared mappings survive ownership changes. A signed snapshot
+alone never creates continuing exclusion.
+
+The [closed bootstrap source stage](TC335_CLOSED_BOOTSTRAP.md) now implements
+operator preparation and read-only snapshots. It is not installed or activated.
+Source/backup verification covers the actual lane's roughly10,000 objects and
+preserves opaque links without following them. The runtime guard, prepared
+authority and snapshot are separate primitives; the remaining activation and
+recovery protocol below is still a proposal.
 
 Implement the runtime boundary first, without any live setup or activation.
 Embed the check in Helm itself, before configuration or database-touching CLI
@@ -50,8 +57,9 @@ Child-writer/drain behavior remains an explicit external acceptance gate.
 Remove automatic first bootstrap from queued initialization. Establish the
 permanent root-owned authority/lock once through the existing operator path,
 with explicit durable identity and resumable closed state. That operator action
-still needs a bounded implementation, fresh backup and data-preservation proof;
-it has not happened. Later initialization must refuse absent/lost authority.
+has a bounded source implementation and synthetic preservation proof; live
+installation, fresh backup and exact artifact acceptance have not happened.
+Later initialization must refuse absent/lost authority.
 The approved CI SSH observer remains read-only. Do not infer permission for a
 new general host-write channel or introduce a signing service as installed fact.
 
