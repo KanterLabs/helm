@@ -33,7 +33,7 @@ they're granted that project. Design: [TICKET_QUEUE_PLAN.md](TICKET_QUEUE_PLAN.m
 
 ## 1. Create a webhook URL
 
-An administrator opens **Tickets → Connect apps** and enters:
+An administrator opens **Tickets → Connect apps → Webhooks → New webhook** and enters:
 
 | Setting | Meaning |
 | --- | --- |

@@ -7,8 +7,7 @@ opening ports: outside apps get a **public URL** for
 get **email inboxes** whose mail becomes tickets. Nothing else about Helm
 becomes public.
 
-Everything here lives in **Tickets → ⇄ Connect apps → Reach Helm from
-outside** and is for administrators. **Learn more** opens this guide inside
+Everything here lives in **Tickets → ⇄ Connect apps → Public access** and is for administrators. **Learn more** opens this guide inside
 Helm.
 
 Related: design and decisions in
@@ -190,8 +189,7 @@ your apps ──email──▶ helm-alerts+homelab-ops-x7k2qm@example.com
                      Helm ──▶ ticket in Tickets → Needs triage
 ```
 
-**Create an inbox:** **Email inboxes → Inbox name, Assign to me → Create
-inbox.** (Guided setup creates the first one for you.) The
+**Create an inbox:** **Connect apps → Email → New inbox**, then name it, choose assignment and create. (Guided setup creates the first one for you.) The
 address appears at once and stays visible, with **Copy** and **Email it**.
 Put it in your apps' notification settings in place of your own address.
 

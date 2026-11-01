@@ -1,0 +1,44 @@
+/* Guided public-access setup. Scoped to its component root. */
+.cf-setup { display: grid; gap: 12px; }
+.cf-setup .cf-start, .cf-setup .cf-choose, .cf-setup .cf-run { display: grid; gap: 10px; justify-items: start; }
+.cf-setup .cf-choose > *, .cf-setup .cf-run > *, .cf-setup .cf-start > p, .cf-setup .cf-token-steps { justify-self: stretch; }
+.cf-setup .cf-signin { padding: 0 22px; height: 42px; font-size: var(--text-base); }
+.cf-setup .cf-start p, .cf-setup .cf-choose p, .cf-setup .cf-run p { margin: 0; font-size: var(--text-sm); line-height: 1.5; }
+.cf-setup .cf-token-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; font-size: var(--text-sm); }
+.cf-setup .cf-token-steps .button { margin-right: 6px; }
+.cf-setup .cf-token-form { display: flex; gap: 8px; margin-top: 6px; }
+.cf-setup .cf-token-form input { flex: 1; min-width: 0; }
+.cf-setup .cf-connected { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; color: var(--semantic-green); font-weight: 600; }
+.cf-setup .cf-zones { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; }
+.cf-setup .cf-zones legend { margin-bottom: 4px; font-size: var(--text-xs); font-weight: 600; }
+.cf-setup .cf-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: var(--text-sm); }
+.cf-setup .cf-zone.selected { border-color: var(--purple); }
+.cf-setup .cf-zone.unusable { cursor: not-allowed; opacity: 0.6; }
+.cf-setup .zone-name { font-weight: 600; }
+.cf-setup .zone-badge { margin-left: auto; padding: 1px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; color: var(--muted); background: var(--surface-muted); }
+.cf-setup .zone-badge.email-ready { color: var(--semantic-green); background: var(--green-soft); }
+.cf-setup .cf-line { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.cf-setup .cf-existing { padding: 8px 10px; border-radius: 8px; background: var(--green-soft); }
+.cf-setup .cf-field { display: grid; gap: 4px; font-size: var(--text-xs); font-weight: 600; }
+.cf-setup .cf-email, .cf-setup .cf-inbox { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.cf-setup .cf-result p { margin: 0 0 4px; }
+.cf-setup .cf-email-options { font-size: var(--text-xs); }
+.cf-setup .cf-email-options summary { cursor: pointer; color: var(--ink-soft); }
+.cf-setup .cf-check { display: flex; align-items: flex-start; gap: 8px; font-size: var(--text-sm); }
+.cf-setup .cf-check input, .cf-setup .cf-zone input { width: auto; height: auto; padding: 0; flex: 0 0 auto; margin: 3px 0 0; }
+.cf-setup .cf-check.consent { padding: 8px 10px; border-radius: 8px; background: var(--amber-soft); }
+.cf-setup .cf-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cf-setup .cf-steps li { display: flex; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: var(--text-sm); }
+.cf-setup .cf-steps p { margin: 2px 0 0; color: var(--ink-soft); }
+.cf-setup .cf-run h4 { margin: 0; font-size: var(--text-sm); }
+.cf-setup .step-icon { width: 18px; flex: 0 0 18px; font-weight: 600; text-align: center; color: var(--muted); }
+.cf-setup .step-done .step-icon { color: var(--semantic-green); }
+.cf-setup .step-failed .step-icon, .cf-setup .step-failed strong { color: var(--semantic-red); }
+.cf-setup .step-running .step-icon { color: var(--purple); }
+.cf-setup .cf-result { padding: 10px 12px; border-radius: 8px; background: var(--green-soft); }
+.cf-setup .cf-help { justify-self: start; }
+.cf-setup .notice-success { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
+.cf-setup .notice-success > span:first-child { background: var(--semantic-green); }
+.cf-setup .optional { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.cf-setup .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (max-width: 760px) { .cf-setup .cf-email, .cf-setup .cf-inbox { grid-template-columns: minmax(0, 1fr); } }

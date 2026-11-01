@@ -58,6 +58,8 @@
   let waitOpen = false;
   let waitReason = '';
   let creating = false;
+  // Connect apps drafts or an unacknowledged one-time webhook URL.
+  let connectionsDirty = false;
   let createDraft = emptyTicketDraft();
   let columnsByProject: Record<string, Column[]> = {};
   let searchInput: HTMLInputElement | null = null;
@@ -66,7 +68,7 @@
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
-  $: dirty = Boolean(bugDraftDirty || noteDraft
+  $: dirty = Boolean(bugDraftDirty || noteDraft || connectionsDirty
     || (waitOpen && waitReason)
     || (creating && (createDraft.title || createDraft.description || createDraft.priority !== 'normal' || !createDraft.assignMe)));
 
@@ -325,7 +327,7 @@
 </script>
 
 <section class="tickets-workspace" class:has-selection={Boolean(selectedKey)} aria-labelledby="tickets-heading">
-  <TicketsHeading {user} bind:creating />
+  <TicketsHeading {user} bind:creating bind:dirty={connectionsDirty} />
 
   {#if creating}
     <TicketCreateForm {user} bind:draft={createDraft} onCreated={ticketCreated} onCancel={() => { creating = false; }} />

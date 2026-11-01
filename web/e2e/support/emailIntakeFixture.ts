@@ -92,6 +92,7 @@ async function openManual(details: Locator) {
 async function openConnectApps(page: Page, projectKey: string) {
   await page.goto(`/tickets?project=${projectKey}`);
   await page.getByRole('button', { name: /Connect apps/ }).click();
+  await page.locator('.ticket-integrations').getByRole('tab', { name: /^Public access/ }).click();
   await openManual(page.locator('[data-public-access-advanced]'));
   const card = page.locator('.email-intake');
   await expect(card.getByRole('heading', { name: 'Email', exact: true })).toBeVisible();

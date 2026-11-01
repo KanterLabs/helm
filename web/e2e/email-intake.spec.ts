@@ -96,6 +96,8 @@ test('Admins create email inboxes whose mail becomes tickets through the Cloudfl
 
     // An inbox created in Helm shows its address right away, permanently.
     const inboxes = page.locator('[data-email-inboxes]');
+    await page.getByRole('tab', { name: /^Email/ }).click();
+    await inboxes.getByRole('button', { name: 'New inbox' }).click();
     await inboxes.getByLabel('Inbox name').fill(`Backups ${runID}`);
     await expect(inboxes.getByLabel('Inbox project')).toHaveCount(0);
     await inboxes.getByRole('button', { name: 'Create inbox' }).click();
@@ -106,6 +108,7 @@ test('Admins create email inboxes whose mail becomes tickets through the Cloudfl
     await expect(inboxRow.locator('[data-inbox-mailto]')).toHaveAttribute('href', new RegExp(`^mailto:${address.replace('+', '\\+')}\\?subject=`));
     await expect(inboxRow.locator('[data-inbox-count]')).toHaveText('No email yet: send one to try it');
     await page.goto(`/tickets?connect=1&project=${project.key}`);
+    await page.getByRole('tab', { name: /^Email/ }).click();
     await expect(page.locator(`[data-inbox="Backups ${runID}"] [data-inbox-address]`)).toHaveText(address);
     await testInfo.attach('email-inbox.png', { contentType: 'image/png', body: await page.locator('[data-email-inboxes]').screenshot() });
 
@@ -158,6 +161,7 @@ test('Admins create email inboxes whose mail becomes tickets through the Cloudfl
 
     // The inbox counts what it received.
     await page.goto(`/tickets?connect=1&project=${project.key}`);
+    await page.getByRole('tab', { name: /^Email/ }).click();
     await expect(page.locator(`[data-inbox="Backups ${runID}"] [data-inbox-count]`)).toContainText('2 emails');
 
     // Replacing the address stops the old one; turning the inbox off stops

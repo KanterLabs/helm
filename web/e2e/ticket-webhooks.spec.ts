@@ -72,7 +72,11 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
   await page.goto(`/tickets?project=${project.key}`);
   await page.getByRole('button', { name: /Connect apps/ }).click();
   const panel = page.locator('.ticket-integrations');
+  // Webhooks is one tab of the manager; the guide and form open on request.
+  await panel.getByRole('tab', { name: /^Webhooks/ }).click();
+  await panel.getByRole('button', { name: 'How to send' }).click();
   await expect(panel.getByRole('heading', { name: 'How to send a ticket' })).toBeVisible();
+  await panel.getByRole('button', { name: 'New webhook' }).click();
   await panel.getByLabel('Webhook name', { exact: true }).fill(`Grafana alerts ${runID}`);
   // No project to choose: every ticket lands in the ticket queue.
   await expect(panel.getByLabel('Webhook project')).toHaveCount(0);
@@ -151,6 +155,7 @@ test('Admins create readable ticket webhooks that outside apps can post to', asy
 
   // Rotation kills the old URL; disabling kills the new one.
   await page.getByRole('button', { name: /Connect apps/ }).click();
+  await panel.getByRole('tab', { name: /^Webhooks/ }).click();
   const row = panel.locator(`[data-webhook-name="Grafana alerts ${runID}"]`);
   await expect(row.locator('[data-webhook-deliveries]')).toHaveText('5');
   page.once('dialog', (dialog) => void dialog.accept());

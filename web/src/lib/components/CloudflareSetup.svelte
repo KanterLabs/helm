@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import '../../styles/cloudflare-setup.css';
   import { api } from '../api';
   import { openHelp } from '../help';
   import { formatRelative } from '../state';
@@ -13,6 +14,8 @@
   export let onFinished: () => void = () => undefined;
   /** Pre-ticks email (e.g. "Add email addresses"). */
   export let preferEmail = true;
+  /** Unsaved user input, including a token hidden by its disclosure. */
+  export let dirty = false;
 
   const stepIcons: Record<string, string> = { pending: '○', running: '◌', done: '✓', skipped: '–', failed: '✕' };
 
@@ -28,11 +31,20 @@
   let inboxName = 'Alerts';
   let token = '';
   let tokenOpen = false;
+  let optionsEdited = false;
   let busy = '';
   let error = '';
   let notice = '';
   let run: CloudflareSetupRun | null = null;
   let poll: ReturnType<typeof setTimeout> | undefined;
+
+  $: dirty = Boolean(token || optionsEdited);
+
+  function edited(event: Event) {
+    // Defaults loaded from Cloudflare are clean. Only browser input events
+    // mark the setup options; token lifetime is tracked by its value.
+    if (event.target instanceof HTMLInputElement && event.target.type !== 'password') optionsEdited = true;
+  }
 
   $: usableZones = zones.filter((item) => item.usable);
   $: otherZones = zones.filter((item) => !item.usable);
@@ -112,6 +124,7 @@
       status = await api.disconnectCloudflare();
       zones = [];
       zoneId = '';
+      optionsEdited = false;
       notice = 'Disconnected. Helm no longer holds the Cloudflare credential.';
     } finally {
       busy = '';
@@ -129,6 +142,7 @@
         hostname: hostname.trim(),
         email: withEmail && emailPossible ? { local_part: localPart.trim() || 'helm-alerts', fallback_address: fallback.trim() || undefined, enable_subaddressing: consent, inbox_name: inboxName.trim() || 'Alerts', assign_to_me: true } : undefined
       });
+      optionsEdited = false;
       schedule();
     } catch (cause) {
       error = message(cause, 'Setup could not start.');
@@ -181,7 +195,7 @@
   onDestroy(() => clearTimeout(poll));
 </script>
 
-<div class="cf-setup" data-cloudflare-setup>
+<div class="cf-setup" data-cloudflare-setup on:input={edited} on:change={edited}>
   {#if !status}
     <p class="optional">Loading…</p>
   {:else if run}
@@ -299,49 +313,3 @@
   {#if notice}<div class="inline-alert notice-success" role="status"><span>✓</span>{notice}</div>{/if}
   <button class="text-button cf-help" type="button" on:click={() => openHelp('public-access', 'set-up-with-cloudflare')}>How this works</button>
 </div>
-
-<style>
-  .cf-setup { display: grid; gap: 12px; }
-  .cf-start, .cf-choose, .cf-run { display: grid; gap: 10px; justify-items: start; }
-  .cf-choose > *, .cf-run > *, .cf-start > p, .cf-token-steps { justify-self: stretch; }
-  .cf-signin { padding: 0 22px; height: 42px; font-size: var(--text-base); }
-  .cf-start p, .cf-choose p, .cf-run p { margin: 0; font-size: var(--text-sm); line-height: 1.5; }
-  .cf-token-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; font-size: var(--text-sm); }
-  .cf-token-steps .button { margin-right: 6px; }
-  .cf-token-form { display: flex; gap: 8px; margin-top: 6px; }
-  .cf-token-form input { flex: 1; min-width: 0; }
-  .cf-connected { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; color: var(--semantic-green); font-weight: 600; }
-  .cf-zones { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; }
-  .cf-zones legend { margin-bottom: 4px; font-size: var(--text-xs); font-weight: 600; }
-  .cf-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: var(--text-sm); }
-  .cf-zone.selected { border-color: var(--purple); }
-  .cf-zone.unusable { cursor: not-allowed; opacity: 0.6; }
-  .zone-name { font-weight: 600; }
-  .zone-badge { margin-left: auto; padding: 1px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; color: var(--muted); background: var(--surface-muted); }
-  .zone-badge.email-ready { color: var(--semantic-green); background: var(--green-soft); }
-  .cf-line { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
-  .cf-existing { padding: 8px 10px; border-radius: 8px; background: var(--green-soft); }
-  .cf-field { display: grid; gap: 4px; font-size: var(--text-xs); font-weight: 600; }
-  .cf-email, .cf-inbox { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
-  .cf-result p { margin: 0 0 4px; }
-  .cf-email-options { font-size: var(--text-xs); }
-  .cf-email-options summary { cursor: pointer; color: var(--ink-soft); }
-  .cf-check { display: flex; align-items: flex-start; gap: 8px; font-size: var(--text-sm); }
-  .cf-check input, .cf-zone input { width: auto; height: auto; padding: 0; flex: 0 0 auto; margin: 3px 0 0; }
-  .cf-check.consent { padding: 8px 10px; border-radius: 8px; background: var(--amber-soft); }
-  .cf-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-  .cf-steps li { display: flex; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: var(--text-sm); }
-  .cf-steps p { margin: 2px 0 0; color: var(--ink-soft); }
-  .cf-run h4 { margin: 0; font-size: var(--text-sm); }
-  .step-icon { width: 18px; flex: 0 0 18px; font-weight: 600; text-align: center; color: var(--muted); }
-  .step-done .step-icon { color: var(--semantic-green); }
-  .step-failed .step-icon, .step-failed strong { color: var(--semantic-red); }
-  .step-running .step-icon { color: var(--purple); }
-  .cf-result { padding: 10px 12px; border-radius: 8px; background: var(--green-soft); }
-  .cf-help { justify-self: start; }
-  .notice-success { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
-  .notice-success > span:first-child { background: var(--semantic-green); }
-  .optional { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
-  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  @media (max-width: 760px) { .cf-email, .cf-inbox { grid-template-columns: minmax(0, 1fr); } }
-</style>

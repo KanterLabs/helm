@@ -11,6 +11,10 @@
   // guided setup (Sign in with Cloudflare). Set up → a short summary.
   // Detailed status, history and manual setup sit in one collapsed section.
   export let onChanged: () => void = () => undefined;
+  /** Bound by the connection manager for discard and navigation guards. */
+  export let dirty = false;
+  let setupDirty = false;
+  $: dirty = Boolean(showSetup && setupDirty);
 
   const detailsKey = 'helm.publicAccess.detailsOpen';
 
@@ -109,15 +113,15 @@
         <div>
           <dt>Email inboxes</dt>
           {#if emailOn && email?.active}
-            <dd data-summary-email>{#if inboxes.length}<strong>{inboxes[0].address}</strong>{#if inboxes.length > 1}{' '}<span class="optional">+ {inboxes.length - 1} more</span>{/if}{:else}On · <span class="optional">create an inbox below</span>{/if}</dd>
+            <dd data-summary-email>{#if inboxes.length}<strong>{inboxes[0].address}</strong>{#if inboxes.length > 1}{' '}<span class="optional">+ {inboxes.length - 1} more</span>{/if}{:else}On · <span class="optional">create an inbox in the Email tab</span>{/if}</dd>
           {:else}
             <dd data-summary-email>Off <button class="text-button" type="button" on:click={() => { addingEmail = true; showSetup = true; }} data-add-email>Turn on email</button></dd>
           {/if}
         </div>
       </dl>
-      <p class="optional">{#if emailOn}Try it: email an inbox below and watch the ticket appear.{:else}Try it: use <strong>Send test</strong> on a webhook below.{/if} <button class="text-button" type="button" on:click={() => { showSetup = true; }} data-rerun-setup>Run setup again</button></p>
+      <p class="optional">{#if emailOn}Try it: email an inbox from the Email tab and watch the ticket appear.{:else}Try it: use <strong>Send test</strong> in the Webhooks tab.{/if} <button class="text-button" type="button" on:click={() => { showSetup = true; }} data-rerun-setup>Run setup again</button></p>
     {:else if showSetup}
-      <CloudflareSetup preferEmail={true} onChanged={setupChanged} onFinished={finished} />
+      <CloudflareSetup bind:dirty={setupDirty} preferEmail={true} onChanged={setupChanged} onFinished={finished} />
       {#if active}
         <button class="text-button cancel-setup" type="button" on:click={() => { showSetup = false; addingEmail = false; }}>Back to summary</button>
       {/if}

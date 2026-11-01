@@ -72,7 +72,10 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
 
   await page.goto(`/tickets?project=${project.key}`);
   await page.getByRole('button', { name: /Connect apps/ }).click();
-  // Detailed cards live under "Details, history and manual setup".
+  const tab = (name: RegExp) => page.locator('.ticket-integrations').getByRole('tab', { name });
+  // Not set up: the manager opens on Public access. Detailed cards live
+  // under "Details, history and manual setup".
+  await expect(tab(/^Public access/)).toHaveAttribute('aria-selected', 'true');
   await openManual(page.locator('[data-public-access-advanced]'));
   const card = page.locator('.public-endpoint');
   await expect(card.getByRole('heading', { name: 'Public URL' })).toBeVisible();
@@ -165,6 +168,8 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   await page.reload();
   await page.getByRole('button', { name: /Connect apps/ }).click();
   const panel = page.locator('.ticket-integrations');
+  await tab(/^Webhooks/).click();
+  await panel.getByRole('button', { name: 'How to send' }).click();
   await expect(panel.locator('[data-webhook-test-guide]')).toContainText(`https://${hostname}`);
   await panel.locator(`[data-webhook-name="Public ${runID}"]`).getByRole('button', { name: 'Send test' }).click();
   const testRow = panel.locator(`[data-webhook-test-result="Public ${runID}"]`);
@@ -191,6 +196,7 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   expect(readFileSync(process.env.HELM_E2E_SERVER_LOG as string, 'utf8')).not.toContain(cfToken);
 
   // Disabling with the token deletes DNS and tunnel and falls back to the origin.
+  await tab(/^Public access/).click();
   await card.getByRole('button', { name: 'Remove public URL…' }).click();
   await card.locator('input[type="password"]').fill(cfToken);
   await card.getByRole('button', { name: 'Remove public URL' }).click();
@@ -230,6 +236,7 @@ test('Admins publish only webhook routes through a Cloudflare tunnel without sto
   await testInfo.attach('admin-public-access.png', { contentType: 'image/png', body: await page.locator('[data-admin-public-access]').screenshot() });
   await page.locator('[data-admin-public-access]').getByRole('link', { name: 'Manage' }).click();
   await expect(page).toHaveURL(/\/tickets$/);
+  await expect(tab(/^Public access/)).toHaveAttribute('aria-selected', 'true');
   await expect(card.locator(`[data-history-row="${orphanHost}"]`)).toContainText('Needs cleanup');
   await orphanRow.getByRole('button', { name: 'Finish cleanup…' }).click();
   await orphanRow.getByLabel(`Cloudflare API token for ${orphanHost}`).fill(cfToken);
