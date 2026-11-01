@@ -1,0 +1,90 @@
+{
+  "components": {
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "Client-generated key for safely retrying a mutation. Reusing the same\nkey with the same authenticated principal, method, path, and payload\nreplays the original response before mutable resource lookup, including\nafter the resource has been deleted or changed. Bearer-token retries\nare isolated by token credential, even when tokens belong to the same\nagent actor. Location and ETag from the original response are replayed;\nusing the same key for another method, path, or payload under that\nprincipal returns 409 Conflict; different principals may reuse the\nvisible key independently. Authentication\nsetup, login, and logout do not accept this header, and secret token\nissuance rejects it so plaintext cannot be replay-cached.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "example": "3d4f3b4c-3a14-4a84-a1f7-6a2d7ec5de8d"
+      },
+      "RequiredIdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Required client-generated key for safely retrying this dependency\nmutation. The value must contain at least one non-whitespace character\nand be at most 255 characters. Reusing it with the same authenticated\nprincipal, method, path, and payload replays the original response;\nusing it for a different method, path, or payload under that same\nprincipal returns 409 with `idempotency_key_reused`. Different\nprincipals (and bearer credentials) have isolated key namespaces.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": ".*\\S.*"
+        },
+        "example": "dependency-add-20260903-01"
+      },
+      "ReleaseIdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Required client-generated key for safely retrying this release\nmutation. Reusing it with the same authenticated principal, method,\npath, and payload replays the original response; using it for a\ndifferent method, path, or payload under that principal returns 409\nwith `idempotency_key_reused`. Different principals (and bearer\ncredentials) have isolated key namespaces.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": ".*\\S.*"
+        },
+        "example": "release-update-20260903-01"
+      },
+      "BetaSwitchIdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Required client-generated key for safely retrying this beta switch.\nReusing it with the same authenticated principal, method, path, and\npayload replays the original `202` response; using it for a different\nmethod, path, or payload under that principal returns `409` with\n`idempotency_key_reused`. Different principals have isolated key\nnamespaces.\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": ".*\\S.*"
+        },
+        "example": "beta-switch-20260903-01"
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "description": "Exact last observed task, audit-finding, or comment ETag. The value must\nbe quoted as \"vN\" with N a positive decimal version. Missing If-Match\nreturns 428, malformed values return 400, and a stale resource version\nreturns 409 (task conflicts include the current task in\nerror.details.current when the caller can read task details).\n",
+        "schema": {
+          "type": "string",
+          "pattern": "^\"v[1-9][0-9]*\"$"
+        },
+        "example": "\"v7\""
+      },
+      "ProjectColumnIfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": false,
+        "description": "Optional last observed project or column ETag for an optimistic\nadministration edit. Values use the quoted \"vN\" format. Omit this\nheader only for legacy unguarded writes; stale guarded edits return\n409 with the current resource version in error details.\n",
+        "schema": {
+          "type": "string",
+          "pattern": "^\"v[1-9][0-9]*\"$"
+        },
+        "example": "\"v3\""
+      },
+      "ReleaseIfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "description": "Exact strong release ETag in the quoted `\"vN\"` form. Missing\nIf-Match returns 428, malformed values return 400, and a stale release\nversion returns 409. Release PATCH, DELETE, complete, and reopen all\nrequire this guard.\n",
+        "schema": {
+          "type": "string",
+          "pattern": "^\"v[1-9][0-9]*\"$"
+        },
+        "example": "\"v3\""
+      }
+    }
+  }
+}

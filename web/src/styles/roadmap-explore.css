@@ -1,0 +1,27 @@
+/* Roadmap explore mode: the roadmap alone, enlarged, under a slim control bar. */
+.app-shell.explore-mode { --explore-gutter: clamp(16px, 3vw, 48px); }
+.app-shell.explore-mode .sidebar, .app-shell.explore-mode .topbar, .app-shell.explore-mode .mobile-nav,
+.app-shell.explore-mode .mobile-nav-scrim, .app-shell.explore-mode .rail-tooltip { display: none; }
+.app-shell.explore-mode .main-shell { padding-bottom: 0; }
+.app-shell.explore-mode .content { max-width: none; padding: 0 var(--explore-gutter) 48px; }
+/* CSS zoom (not transform) so the enlarged roadmap reflows and scrolls normally. */
+.app-shell.explore-mode .roadmap-content, .app-shell.explore-mode .roadmap-skeleton, .app-shell.explore-mode .content-alert { max-width: 1600px; margin-inline: auto; zoom: var(--explore-zoom, 1); }
+.app-shell.explore-mode .content-alert { margin-bottom: 18px; }
+
+.explore-bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 calc(-1 * var(--explore-gutter)) 24px; padding: 10px var(--explore-gutter); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(14px); animation: explore-bar-in var(--dur-base) var(--ease-out) both; }
+@keyframes explore-bar-in { from { opacity: 0; transform: translateY(-6px); } }
+.explore-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.explore-title strong { overflow: hidden; font: 600 var(--text-md) var(--font-sans); letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+.explore-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; color: var(--purple); background: var(--purple-soft); font-size: var(--text-2xs); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.explore-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.explore-zoom { display: inline-flex; align-items: center; padding: 1px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.explore-zoom .icon-button { width: 32px; height: 32px; }
+.explore-zoom .icon-button:disabled { opacity: .35; cursor: default; }
+.explore-zoom span { min-width: 46px; color: var(--ink-soft); font-size: var(--text-xs); font-variant-numeric: tabular-nums; font-weight: 600; text-align: center; }
+.explore-actions kbd { margin-left: 2px; }
+
+@media (max-width: 600px) {
+  .app-shell.explore-mode .roadmap-content, .app-shell.explore-mode .roadmap-skeleton, .app-shell.explore-mode .content-alert { zoom: 1; }
+  .explore-bar { gap: 10px; padding-top: calc(8px + env(safe-area-inset-top)); }
+  .explore-zoom, .explore-fullscreen, .explore-actions kbd, .explore-badge { display: none; }
+}

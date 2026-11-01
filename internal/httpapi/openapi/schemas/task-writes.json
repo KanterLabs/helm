@@ -1,0 +1,316 @@
+{
+  "components": {
+    "schemas": {
+      "TaskReorderRequest": {
+        "description": "Precise guarded board placement; this shape is shared with the anchor-enabled task move endpoint.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TaskMoveRequest"
+          }
+        ]
+      },
+      "TaskCreateRequest": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "description": "Create an ordinary task with `kind: task`, or an internal bug with\n`kind: bug` and nested `bug` details. When kind is omitted it defaults\nto `task` for compatibility. Bug creation requires\n`bug.actual_behavior`; other bug fields may be added during triage and\nresolution. The nested object is omitted for ordinary tasks.\n",
+        "oneOf": [
+          {
+            "properties": {
+              "kind": {
+                "const": "task"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "not": {
+              "required": [
+                "bug"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "kind": {
+                "const": "bug"
+              }
+            },
+            "required": [
+              "kind",
+              "bug"
+            ]
+          },
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "kind"
+                  ]
+                },
+                {
+                  "required": [
+                    "bug"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TaskKind",
+            "default": "task"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 100000,
+            "default": ""
+          },
+          "column_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Destination column; defaults to the project's backlog column."
+          },
+          "column": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Alias for column_id accepted by clients."
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority",
+            "default": "normal"
+          },
+          "position": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "assignee_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "due_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "label_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "bug": {
+            "$ref": "#/components/schemas/BugCreateDetails",
+            "description": "Required when kind is `bug`; omitted for kind `task`."
+          },
+          "parent": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional live same-project parent task ID or project-local key."
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Compatibility alias for parent."
+          },
+          "parent_task_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Compatibility alias for parent."
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional project-local target release ID; explicit null leaves the new task unassigned."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskPatchRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "description": "Patch ordinary task fields and, for bug tasks, merge fields in the\nnested `bug` object. Omitted nested fields remain unchanged. The\n`kind` field is optional because PATCH is partial.\n",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TaskKind"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100000,
+            "description": "Markdown description; null clears it to an empty string."
+          },
+          "column_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "column": {
+            "type": "string",
+            "minLength": 1
+          },
+          "position": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "assignee_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Assignee actor ID; null clears the assignee."
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Alias for assignee_id; null clears the assignee."
+          },
+          "due_at": {
+            "$ref": "#/components/schemas/NullableTimestamp",
+            "description": "Null clears the due timestamp."
+          },
+          "label_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "labels": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "bug": {
+            "$ref": "#/components/schemas/BugPatchDetails",
+            "description": "Partial bug details; only valid for bug tasks."
+          },
+          "parent": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Link a live same-project parent task, or null to clear it."
+          },
+          "parent_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Compatibility alias for parent."
+          },
+          "parent_task_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Compatibility alias for parent."
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Identifier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target release ID; omission preserves the current assignment and explicit null clears it."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

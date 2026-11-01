@@ -1,0 +1,146 @@
+components:
+  schemas:
+    CloudflareConnectStatus:
+      type: object
+      required:
+        - oauth_available
+        - token_link
+        - token_permissions
+        - connected
+      properties:
+        oauth_available:
+          type: boolean
+        token_link:
+          type: string
+          description: Cloudflare's account-token page with every needed permission pre-selected.
+        token_permissions:
+          type: array
+          items:
+            type: object
+            required:
+              - key
+              - type
+              - label
+            properties:
+              key:
+                type: string
+              type:
+                type: string
+                enum:
+                  - read
+                  - edit
+              label:
+                type: string
+            additionalProperties: false
+        connected:
+          type: boolean
+        connected_via:
+          type: string
+          enum:
+            - cloudflare
+            - token
+        expires_at:
+          type: string
+        run:
+          $ref: "#/components/schemas/CloudflareSetupRun"
+        active_public_hostname:
+          type: string
+          description: The public URL guided setup will keep as is, if one is active.
+      additionalProperties: false
+    CloudflareZoneOption:
+      type: object
+      required:
+        - id
+        - name
+        - email_routing
+        - plus_addressing
+        - usable
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        account_name:
+          type: string
+        email_routing:
+          type: string
+          enum:
+            - ready
+            - off
+            - unknown
+        plus_addressing:
+          type: boolean
+        suggested_hostname:
+          type: string
+        usable:
+          type: boolean
+          description: False when the credential cannot manage DNS in this zone; `reason` explains.
+        reason:
+          type: string
+      additionalProperties: false
+    CloudflareSetupRun:
+      type: object
+      required:
+        - id
+        - status
+        - zone
+        - hostname
+        - steps
+        - started_at
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum:
+            - running
+            - done
+            - failed
+        zone:
+          type: string
+        hostname:
+          type: string
+        steps:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - label
+              - status
+            properties:
+              id:
+                type: string
+                enum:
+                  - public_url
+                  - connector
+                  - reachable
+                  - email
+                  - forget
+              label:
+                type: string
+              status:
+                type: string
+                enum:
+                  - pending
+                  - running
+                  - done
+                  - skipped
+                  - failed
+              detail:
+                type: string
+            additionalProperties: false
+        public_url:
+          type: string
+        email_base:
+          type: string
+        inbox_address:
+          type: string
+          description: Address of the first inbox setup created or found.
+        inbox_name:
+          type: string
+        started_at:
+          type: string
+        finished_at:
+          type: string
+      additionalProperties: false

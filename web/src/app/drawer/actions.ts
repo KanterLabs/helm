@@ -1,4 +1,5 @@
 // Drawer lifecycle actions, bug triage and comments.
+import { readyColumnForBug } from '../../lib/bugIntake';
 import { api } from '../../lib/api';
 import { dependencyActionExplanation, dependencyBlocked } from '../../lib/dependencies';
 import { ApiError } from '../../lib/types';
@@ -78,11 +79,11 @@ export async function triageBug() {
   drawer.taskActionLoading = drawer.drawerTask.id;
   drawer.drawerError = '';
   try {
-    const updated = await api.triageTask(drawer.drawerTask.id, drawer.drawerTask.version, {
-      severity: drawer.triageSeverityDraft,
-      priority: drawer.draftPriority,
-      assignee: drawer.draftAssignee.trim() || null
-    });
+    const task = drawer.drawerTask;
+    const triage = { severity: drawer.triageSeverityDraft, priority: drawer.draftPriority,
+      assignee: drawer.draftAssignee.trim() || null };
+    const column_id = await readyColumnForBug(task);
+    const updated = await api.triageTask(task.id, task.version, { ...triage, column_id });
     replaceTask(updated, true);
     syncDraft(updated);
     drawer.drawerSavedTaskDraftFingerprint = drawerTaskDraftFingerprint();

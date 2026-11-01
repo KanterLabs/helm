@@ -1,0 +1,77 @@
+{
+  "paths": {
+    "/api/v1/events": {
+      "get": {
+        "operationId": "listEvents",
+        "summary": "Poll the append-only event feed",
+        "description": "Supply `after` with the last integer cursor seen to receive subsequent\nproject, task, claim, comment, completion, dependency, and bug\nlifecycle events.\nAgent progress publishes `task.progressed` events containing the\nmachine-readable state and checkpoint counts. Bearer tokens with\n`events:read` but without `tasks:read` receive those coordination\nfields with progress narrative (`phase`, `summary`, `next_action`,\nand `checkpoint_refs`) redacted.\nBug lifecycle events (`bug.created`, `bug.updated`, `bug.triaged`,\n`bug.resolved`, `bug.duplicated`, and `bug.reopened`) carry lifecycle\nand version metadata and are emitted in the same transaction as the\naction. Resolution events include the selected resolution; a reopen\nreason is recorded in the atomic comment.created event associated with\nthe action.\nRelease lifecycle events (`release.created`, `release.updated`,\n`release.completed`, `release.reopened`, and `release.deleted`) carry\nonly safe release IDs, names, target dates, statuses, and versions.\n`task.release_changed` carries old/new release IDs and names, with\nnullable values for assignment and clearing. Release events are\nproject-scoped and follow the same `events:read` ceiling.\nA prerequisite's satisfied-state transition emits one bounded\n`task.dependency_state_changed` event for each direct live dependent.\nThe enclosing event's `task_id` is the dependent; its payload contains\ndependent/prerequisite IDs and keys plus the resulting `satisfied`\nboolean. This derived notification does not increment the dependent's\neditable task version. Clients should refetch the affected task or\ndependency graph.\n",
+        "tags": [
+          "Events"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AfterCursor"
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Restrict events to a project ID, key, or slug.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events after the requested cursor",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventCollection"
+                },
+                "examples": {
+                  "events": {
+                    "$ref": "#/components/examples/EventCollectionExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

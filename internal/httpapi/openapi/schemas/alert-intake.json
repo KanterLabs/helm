@@ -1,0 +1,121 @@
+{
+  "components": {
+    "schemas": {
+      "AlertIntakeResult": {
+        "type": "object",
+        "required": [
+          "event",
+          "disposition",
+          "alerts"
+        ],
+        "properties": {
+          "event": {
+            "type": "string"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "ignored",
+              "unsupported"
+            ]
+          },
+          "alerts": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "type": "object",
+              "required": [
+                "disposition",
+                "resource_name",
+                "occurrence_count"
+              ],
+              "properties": {
+                "disposition": {
+                  "type": "string",
+                  "enum": [
+                    "created",
+                    "repeated",
+                    "retained"
+                  ]
+                },
+                "resource_name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "task_id": {
+                  "$ref": "#/components/schemas/Identifier"
+                },
+                "task_key": {
+                  "type": "string"
+                },
+                "occurrence_count": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AlertSource": {
+        "type": "object",
+        "description": "Read-only evidence for a task created by alert intake.",
+        "required": [
+          "integration",
+          "alert_type",
+          "resource_name",
+          "resource_id",
+          "evidence",
+          "occurrence_count",
+          "first_received_at",
+          "last_received_at"
+        ],
+        "properties": {
+          "integration": {
+            "type": "string",
+            "example": "coolify"
+          },
+          "alert_type": {
+            "type": "string",
+            "example": "traefik_version_outdated"
+          },
+          "resource_name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "resource_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "evidence": {
+            "type": "object",
+            "description": "Parsed alert facts such as installed and offered versions.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "occurrence_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "first_received_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "last_received_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "previous_task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "previous_task_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

@@ -32,7 +32,7 @@ test.describe('Helm workspace', () => {
   });
 
 
-  test('loads in disabled-auth mode and manages a task from the board', async ({ page, request }) => {
+  test('loads in disabled-auth mode and manages a task from the board', async ({ page, request }, testInfo) => {
     const statusResponse = await request.get('/api/v1/auth/status');
     expect(statusResponse.ok()).toBeTruthy();
     const status = (await statusResponse.json()) as { mode?: string };
@@ -76,11 +76,11 @@ test.describe('Helm workspace', () => {
     const backlogColumn = board.locator('.board-column').filter({
       has: page.getByRole('heading', { name: 'Backlog', exact: true })
     });
-    const readyColumn = board.locator('.board-column').filter({
-      has: page.getByRole('heading', { name: 'Ready', exact: true })
+    const bugsColumn = board.locator('.board-column').filter({
+      has: page.getByRole('heading', { name: 'Bugs', exact: true })
     });
     await expect(backlogColumn).toBeVisible();
-    await expect(readyColumn).toBeVisible();
+    await expect(bugsColumn).toBeVisible();
 
     // Quick-add through the column's user-facing trigger and form.
     await backlogColumn.getByRole('button', { name: /Add task$/ }).click();
@@ -100,10 +100,10 @@ test.describe('Helm workspace', () => {
     });
     await expect(moveNext).toHaveAttribute('aria-disabled', 'false');
     await moveNext.click();
-    await expect(readyColumn.locator('.task-card').filter({ hasText: taskTitle })).toBeVisible();
+    await expect(bugsColumn.locator('.task-card').filter({ hasText: taskTitle })).toBeVisible();
     await expect(backlogColumn.locator('.task-card').filter({ hasText: taskTitle })).toHaveCount(0);
 
-    const movedCard = readyColumn.locator('.task-card').filter({ hasText: taskKey as string });
+    const movedCard = bugsColumn.locator('.task-card').filter({ hasText: taskKey as string });
     await expect(movedCard).toBeVisible();
 
     // Open the task with its accessible card button and edit the labeled
@@ -159,8 +159,12 @@ test.describe('Helm workspace', () => {
     await expect(page).toHaveURL(/\/p\/[^/]+\/roadmap\/?$/);
     await expect(page.getByRole('heading', { name: `${projectName} progress`, exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Project progress', exact: true })).toBeVisible();
-    await expect(page.getByText('0 total tasks', { exact: true })).toBeVisible();
-    await expect(page.getByText('0 completed', { exact: true })).toBeVisible();
+    await expect(page.locator('.roadmap-hero')).toContainText('No tasks yet');
+    const completed = page.locator('.metric-card').filter({ hasText: 'Tasks marked complete' });
+    await expect(completed.locator('strong')).toHaveText('0');
+    await testInfo.attach('empty-project-progress.png', {
+      body: await page.screenshot(), contentType: 'image/png'
+    });
 
     const commandTrigger = page.getByRole('button', { name: 'Search anything', exact: true });
     await commandTrigger.click();

@@ -1,4 +1,6 @@
-// The new-task modal, including Luna task assistance.
+// The ordinary new-task modal. Luna drafting is retired from the form
+// (TC-318); the assist functions below stay dormant for existing compile-time
+// consumers until TC-325 retires the shared drafting runtime.
 import { tick } from 'svelte';
 import { api } from '../lib/api';
 import { dateToIso } from '../lib/state';
@@ -10,7 +12,6 @@ import { ambiguousCreation, creationError, creationOperationKey, hasPendingCreat
 import { rememberDialogFocus, restoreDialogFocus } from './dialogs';
 import { friendlyError, toast } from './feedback';
 import { loadProjectReleases } from './releases/load';
-import { loadCodexAccount } from './settings';
 import { board } from './state/board.svelte';
 import { creation } from './state/creation.svelte';
 import { dialogs } from './state/dialogs.svelte';
@@ -31,8 +32,22 @@ export function openTaskModalFromCommand(returnFocus: DialogReturnFocus | null) 
   return opening;
 }
 
+// Fields a person typed. Project, column and an inherited/filter Focus are
+// chosen for them, so they alone never make the form a draft worth guarding.
+export function taskModalHasManualDraft(): boolean {
+  return Boolean(taskModal.taskModalTitle.trim() || taskModal.taskModalDescription.trim() || taskModal.taskModalDueDate
+    || taskModal.taskModalAssignee.trim() || taskModal.taskModalPriority !== 'normal');
+}
+
+// User dismissal (Escape, backdrop, Cancel, ×). Like the task drawer, a typed
+// draft is discarded only after explicit confirmation.
 export function closeTaskModal() {
   if (taskModal.taskModalCreating || creation.taskCreation) return;
+  if (taskModalHasManualDraft() && !window.confirm('Discard this unsaved task? Its title and details will be lost.')) return;
+  dismissTaskModal();
+}
+
+function dismissTaskModal() {
   creation.taskModalInstance += 1;
   taskModal.taskModalAssistController?.abort();
   taskModal.taskModalAssistController = null;
@@ -72,7 +87,6 @@ export async function openTaskModal(parentTaskId: string | null = null) {
   rememberDialogFocus('[data-task-modal-trigger]');
   taskModal.showTaskModal = true;
   nav.projectSwitcherOpen = false;
-  void loadCodexAccount();
   const columnLoad = loadTaskModalColumns(taskModal.taskModalProjectId);
   const releaseRequest = taskModal.taskModalColumnsRequest;
   const projectReleases = await loadProjectReleases(taskModal.taskModalProjectId).catch(() => []);
@@ -211,7 +225,7 @@ export async function createGlobalTask() {
   if (taskModal.taskModalCreating || !taskModal.showTaskModal) return;
   if (!creation.taskCreation) {
     if (taskModal.taskModalLoading || !taskModal.taskModalProjectId || !taskModal.taskModalTitle.trim() || !taskModal.taskModalColumns.some((column) => column.id === taskModal.taskModalColumnId)) {
-      taskModal.taskModalError = 'Choose a project, a valid column, and add a title.';
+      taskModal.taskModalError = taskModal.taskModalTitle.trim() ? 'Choose a project and one of its columns.' : 'Add a task title.';
       return;
     }
     cancelTaskAssist();
@@ -242,7 +256,7 @@ export async function createGlobalTask() {
     }
     creation.taskCreation = null;
     taskModal.taskModalCreating = false;
-    closeTaskModal();
+    dismissTaskModal();
     toast('success', `${created.key} created in ${workspace.projects.find((project) => project.id === operation.projectId)?.name || 'your project'}.`);
   } catch (error) {
     if (actor !== session.user?.id || instance !== creation.taskModalInstance) return;

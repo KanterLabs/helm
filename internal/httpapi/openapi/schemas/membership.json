@@ -1,0 +1,259 @@
+{
+  "components": {
+    "schemas": {
+      "WorkspaceRole": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "admin",
+          "member"
+        ],
+        "description": "Explicit human workspace role. Owner and admin are workspace-wide administrators; member access is limited to project_ids."
+      },
+      "Member": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "admin",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "const": "human"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 320
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "admin": {
+            "type": "boolean"
+          },
+          "workspace_role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "Explicit role; omitted while a Cloudflare identity awaits administrator review."
+          },
+          "disabled_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "project_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "last_seen_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Human identity including pending verified identities (workspace_role absent). Owner/admin manage the workspace; members have only explicit project grants. This administrator-only directory does not implement the TC-8 assignee directory."
+      },
+      "MemberCreateRequest": {
+        "type": "object",
+        "required": [
+          "email",
+          "name"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 320
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "default": "member"
+          },
+          "project_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "writeOnly": true,
+            "description": "Optional local password; omit for Cloudflare-only invitation."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MemberPatchRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole"
+          },
+          "project_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "disabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PasswordChangeRequest": {
+        "type": "object",
+        "required": [
+          "current_password",
+          "password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AdminPasswordResetRequest": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Session": {
+        "type": "object",
+        "required": [
+          "id",
+          "actor_id",
+          "created_at",
+          "last_seen_at",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "last_seen_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "revoked_at": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "ip_address": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "user_agent": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "additionalProperties": false
+      },
+      "MemberCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SessionCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Session"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "const": ""
+          }
+        },
+        "additionalProperties": false,
+        "description": "At most 200 newest session descriptors; secrets and hashes are never returned."
+      }
+    }
+  }
+}

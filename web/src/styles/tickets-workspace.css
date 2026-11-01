@@ -1,0 +1,27 @@
+/* Layout of the ticket queue and selected ticket pane. */
+
+  .tickets-workspace { display: grid; gap: 14px; }
+  .tickets-workspace .ticket-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 240px); gap: 8px; }
+  .tickets-workspace .ticket-filters input, .tickets-workspace .ticket-filters select { width: 100%; }
+  .tickets-workspace .tickets-layout { display: grid; grid-template-columns: minmax(280px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .tickets-workspace .ticket-moved { border-color: color-mix(in srgb, var(--semantic-green), var(--border) 72%); background: var(--green-soft); }
+  .tickets-workspace .ticket-moved > span:first-child { background: var(--semantic-green); }
+  .tickets-workspace .ticket-detail-pane { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised, var(--surface)); }
+  .tickets-workspace .ticket-detail-empty { color: var(--muted); font-size: var(--text-sm); text-align: center; }
+  .tickets-workspace .ticket-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .tickets-workspace .ticket-detail h3 { margin: 0 0 8px; font-size: var(--text-sm); }
+  .tickets-workspace .ticket-back { display: none; justify-self: start; }
+  .tickets-workspace .ticket-action-status { min-height: 16px; color: var(--muted); font-size: var(--text-xs); }
+  .tickets-workspace .ticket-action-status:empty { min-height: 0; margin: -6px 0; }
+  .tickets-workspace .ticket-detail .drawer-section { margin: 0; }
+  .tickets-workspace .ticket-action-status.conflict, .tickets-workspace .ticket-action-status.error { color: var(--semantic-red); font-weight: 600; }
+  .tickets-workspace .ticket-description { font-size: var(--text-sm); line-height: 1.55; overflow-wrap: anywhere; }
+  .tickets-workspace .optional { color: var(--muted); font-size: var(--text-xs); }
+  @media (max-width: 760px) {
+  .tickets-workspace .tickets-layout { grid-template-columns: minmax(0, 1fr); }
+  .tickets-workspace .ticket-detail-pane { display: none; padding: 12px; }
+  .tickets-workspace.has-selection .ticket-detail-pane { display: block; }
+  .tickets-workspace.has-selection .tickets-list-pane, .tickets-workspace.has-selection .ticket-queues, .tickets-workspace.has-selection .ticket-filters, .tickets-workspace.has-selection .tickets-heading p { display: none; }
+  .tickets-workspace .ticket-back { display: inline-block; }
+  .tickets-workspace .ticket-filters { grid-template-columns: minmax(0, 1fr); }
+  }

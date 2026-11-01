@@ -1,0 +1,57 @@
+{
+  "components": {
+    "examples": {
+      "AgentExample": {
+        "summary": "Agent actor",
+        "value": {
+          "id": "agent_ada",
+          "kind": "agent",
+          "name": "Build agent",
+          "admin": false,
+          "project_ids": [
+            "proj_ops"
+          ],
+          "created_at": "2026-08-27T09:00:00Z",
+          "updated_at": "2026-08-27T09:00:00Z"
+        }
+      },
+      "TokenCreatedExample": {
+        "summary": "Newly-created token",
+        "value": {
+          "id": "tok_01",
+          "agent_id": "agent_ada",
+          "actor_id": "agent_ada",
+          "name": "CI polling token",
+          "token": "rmap_live_example_plaintext_only_once",
+          "scopes": [
+            "projects:read",
+            "tasks:read",
+            "tasks:claim",
+            "events:read"
+          ],
+          "project_ids": [
+            "proj_ops"
+          ],
+          "expires_at": "2027-01-01T00:00:00Z",
+          "created_at": "2026-08-27T10:30:00Z"
+        }
+      },
+      "AgentCollectionExample": {
+        "summary": "Agent collection",
+        "value": {
+          "data": [
+            {
+              "id": "agent_ada",
+              "kind": "agent",
+              "name": "Build agent",
+              "admin": false,
+              "created_at": "2026-08-27T09:00:00Z",
+              "updated_at": "2026-08-27T09:00:00Z"
+            }
+          ],
+          "next_cursor": ""
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "paths": {
+    "/api/v1/tasks/{task}/hierarchy": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TaskPath"
+        }
+      ],
+      "get": {
+        "operationId": "getTaskHierarchy",
+        "summary": "Get a task hierarchy view",
+        "description": "Return the live parent, direct children, bounded ancestors and\nbounded descendants for a task, plus server-derived direct-child\nrollups. All relation reads are limited to 200 direct children and\n20 hierarchy levels and remain within the task's project.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          },
+          {
+            "bearerAuth": [
+              "tasks:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded hierarchy view",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskHierarchy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

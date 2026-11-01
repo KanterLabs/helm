@@ -20,6 +20,7 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
+  // run.sh shards files across isolated servers; tests sharing one server stay sequential.
   workers: 1,
   reporter: [
     [process.env.CI ? 'line' : 'list'],

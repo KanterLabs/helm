@@ -1,0 +1,205 @@
+{
+  "components": {
+    "schemas": {
+      "HealthStatus": {
+        "type": "object",
+        "required": [
+          "status",
+          "service"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded"
+            ]
+          },
+          "service": {
+            "type": "string",
+            "example": "helm"
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Whether every readiness check passed."
+          },
+          "checks": {
+            "type": "object",
+            "description": "Bounded readiness diagnostics. Present on readiness responses.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReadinessCheck"
+            }
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Git commit deployed by the release pipeline, when supplied by the runtime.",
+            "example": "0123456789abcdef0123456789abcdef01234567"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReadinessCheck": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Safe bounded diagnostic message; paths and database errors are omitted."
+          },
+          "latency_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lock_latency_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "SQLite writer-lock probe latency when the database check runs."
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expected_schema_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "migration_state": {
+            "type": "string",
+            "enum": [
+              "current",
+              "pending",
+              "unknown",
+              "unreadable"
+            ]
+          },
+          "pending_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pending_versions": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "unknown_versions": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "available_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required_free_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "writable": {
+            "type": "boolean"
+          },
+          "database_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "wal_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_page_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "page_usage_ratio": {
+            "type": "number",
+            "minimum": 0
+          },
+          "journal_mode": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiDiscovery": {
+        "type": "object",
+        "required": [
+          "name",
+          "version"
+        ],
+        "properties": {
+          "name": {
+            "const": "helm"
+          },
+          "version": {
+            "const": "v1"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Git commit deployed by the release pipeline, when supplied by the runtime."
+          }
+        },
+        "additionalProperties": false
+      },
+      "OkResponse": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "OpenApiDocument": {
+        "type": "object",
+        "description": "OpenAPI 3.1 document served at /openapi.json.",
+        "required": [
+          "openapi",
+          "info",
+          "paths"
+        ],
+        "properties": {
+          "openapi": {
+            "type": "string",
+            "const": "3.1.0"
+          },
+          "info": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "paths": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

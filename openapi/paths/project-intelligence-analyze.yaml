@@ -1,0 +1,38 @@
+paths:
+  /api/v1/project-intelligence/analyze:
+    post:
+      operationId: analyzeProjectIntelligence
+      summary: Manually analyze the current project snapshot with Luna
+      description: |
+        One explicit human click starts at most one low-effort Luna turn. The
+        route accepts no body and performs no automatic retry. Subscription,
+        timeout, connection, and invalid-output failures leave the deterministic
+        order available through the read endpoint.
+      tags:
+        - Project intelligence
+      responses:
+        "200":
+          description: Newly analyzed project-attention order
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectIntelligenceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

@@ -1,0 +1,28 @@
+components:
+  examples:
+    BugExample:
+      summary: Open internal bug
+      value:
+        id: task_99
+        number: 99
+        key: OPS-99
+        project_id: proj_ops
+        kind: bug
+        column_id: col_ready
+        title: Event cursor skips a record
+        description: The polling client occasionally misses the first event after reconnecting.
+        priority: high
+        position: 1
+        version: 3
+        created_at: 2026-08-27T09:45:00Z
+        updated_at: 2026-08-27T10:15:00Z
+        bug:
+          reporter_id: human_ada
+          severity: s2
+          actual_behavior: The first event after reconnecting is not returned.
+          expected_behavior: Every event after the supplied cursor is returned exactly once.
+          reproduction_steps: Reconnect while events are being appended, then poll with the last cursor.
+          environment: Helm 1.0 on Debian 12
+          affected_version: 1.0.0
+        labels: []
+        comment_count: 0

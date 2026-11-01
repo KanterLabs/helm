@@ -1,0 +1,97 @@
+{
+  "paths": {
+    "/api/v1/export": {
+      "get": {
+        "operationId": "exportPortableArchive",
+        "summary": "Export a versioned portable archive",
+        "description": "Exports live project records as a helm.portable v4 JSON archive, preserving checklists, hierarchy, completion policy, Focus, bugs, dependencies, comments, agent history and retained PR/audit history. Explicit versions 2 and 3 remain available with omission warnings. Credentials, repository selections, provider caches and executable jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "description": "Project ID, key, or stable slug to export.",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "description": "Defaults to complete version 4. Versions 2 and 3 omit checklists, hierarchy and completion policy and include warnings.",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                2,
+                3,
+                4
+              ],
+              "default": 4
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable archive JSON attachment",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "X-Helm-Portable-Format": {
+                "description": "Portable envelope format identifier.",
+                "schema": {
+                  "type": "string",
+                  "example": "helm.portable"
+                }
+              },
+              "X-Helm-Portable-Version": {
+                "description": "Selected portable envelope version.",
+                "schema": {
+                  "type": "integer",
+                  "enum": [
+                    2,
+                    3,
+                    4
+                  ],
+                  "example": 4
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortableArchive"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

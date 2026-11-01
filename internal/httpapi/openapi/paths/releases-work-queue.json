@@ -1,0 +1,76 @@
+{
+  "paths": {
+    "/api/v1/releases/{release}/work-queue": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "get": {
+        "operationId": "getReleaseWorkQueue",
+        "summary": "Read the dependency-aware release work queue",
+        "description": "Returns a bounded, read-only snapshot of direct release members and\ntheir transitive live prerequisites. Tasks with no prerequisites are\nclaimable when otherwise eligible. Queue dispositions classify\ncompleted, owned, claimable, dependency-blocked, manually blocked,\nforeign-claimed, and cross-release-conflict work. Results are ordered\nwith owned work first, then claimable work in topological prerequisite\norder, with priority, board position, task number, and ID tie-breakers.\nThe queue never claims or mutates tasks.\n\nThe cursor captures release version, project/task-collection revision,\nfilter, and read timestamp. Any task, dependency, claim, or release\nchange invalidates it with `409 release_queue_changed`; discard the\ncursor and restart from the first page.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot of the dependency-aware release queue.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseWorkQueue"
+                },
+                "examples": {
+                  "queue": {
+                    "$ref": "#/components/examples/ReleaseWorkQueueExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseQueueConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

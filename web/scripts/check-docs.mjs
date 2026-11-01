@@ -11,11 +11,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+import { loadOpenAPI } from './openapi-source.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const userGuides = ['docs/PUBLIC_ACCESS.md', 'docs/TICKET_WEBHOOKS.md'];
-const guidedPaths = /^\/api\/v1\/(hooks|ticket-webhooks|public-endpoints|email-intake|cloudflare|docs|intake)\b/;
+// The authenticated Intake collection is separate from public webhook ingress.
+const guidedPaths = /^\/api\/v1\/(hooks|ticket-webhooks|public-endpoints|email-intake|cloudflare|docs)\b|^\/api\/v1\/intake\/coolify(?:\/|$)/;
 const operationName = /^(get|post|create|list|rotate|disable|set|send|test|start|finish|connect|disconnect|receive)[A-Z]\w+$/;
 const problems = [];
 
@@ -63,7 +64,7 @@ function anchors(file) {
 const files = [...new Set([...trackedMarkdown(), ...userGuides, 'docs/CONFIGURATION.md'])];
 
 // 1. OpenAPI operation names.
-const spec = parse(read('openapi.yaml'));
+const { document: spec } = loadOpenAPI(join(root, 'openapi.yaml'));
 const operations = new Map();
 for (const [path, item] of Object.entries(spec.paths || {})) {
   for (const operation of Object.values(item)) {

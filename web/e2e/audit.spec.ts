@@ -1,4 +1,8 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { expectNoAuditMutations, expectPausedExplanation } from './support/auditContainment';
+
+// External-agent audit history stays readable while TC-316 parks review.
+// Failure inventory: docs/TC316_UI_CONTAINMENT_FAILURES.md (A1–A11).
 
 const project = {
   id: 'project-audit',
@@ -69,9 +73,9 @@ const runs = [
 ];
 
 type AuditMockState = {
-  patchRequests: Array<{ id: string; body: Record<string, unknown>; ifMatch: string | null }>;
-  moveRequests: Array<{ taskId: string; body: Record<string, unknown>; ifMatch: string | null }>;
+  writes: string[];
   requestedPaths: string[];
+  holdRun: (auditId: string) => Promise<() => Promise<void>>;
 };
 
 function json(route: Route, body: unknown, status = 200): Promise<void> {
@@ -82,9 +86,18 @@ function json(route: Route, body: unknown, status = 200): Promise<void> {
   });
 }
 
-async function installAuditMocks(page: Page, primaryStatus: 'queued' | 'complete' = 'complete'): Promise<AuditMockState> {
-  const state: AuditMockState = { patchRequests: [], moveRequests: [], requestedPaths: [] };
-  const mockRuns = runs.map((run) => run.id === 'audit-queued'
+async function installAuditMocks(page: Page, primaryStatus: 'queued' | 'complete' = 'complete', options: { empty?: boolean } = {}): Promise<AuditMockState> {
+  const held = new Map<string, Promise<void>>();
+  const state: AuditMockState = {
+    writes: [],
+    requestedPaths: [],
+    holdRun: async (auditId) => {
+      let release!: () => void;
+      held.set(auditId, new Promise<void>((resolve) => { release = resolve; }));
+      return async () => { release(); };
+    }
+  };
+  const mockRuns = options.empty ? [] : runs.map((run) => run.id === 'audit-queued'
     ? {
         ...run,
         status: primaryStatus,
@@ -96,8 +109,14 @@ async function installAuditMocks(page: Page, primaryStatus: 'queued' | 'complete
     const url = new URL(request.url());
     const path = url.pathname;
     state.requestedPaths.push(`${request.method()} ${path}${url.search}`);
+    // History is read-only: any write is recorded and refused.
+    if (request.method() !== 'GET') {
+      state.writes.push(`${request.method()} ${path}`);
+      await json(route, { error: { code: 'unexpected_write', message: `Unexpected ${request.method()} ${path}` } }, 409);
+      return;
+    }
 
-    if (path === '/api/v1/auth/status' && request.method() === 'GET') {
+    if (path === '/api/v1/auth/status') {
       await json(route, {
         mode: 'disabled', configured: true, setup_required: false, authenticated: true,
         actor: { id: 'human-audit', kind: 'human', name: 'Audit reviewer', admin: true },
@@ -105,81 +124,49 @@ async function installAuditMocks(page: Page, primaryStatus: 'queued' | 'complete
       });
       return;
     }
-    if (path === '/api/v1/projects' && request.method() === 'GET') {
+    if (path === '/api/v1/projects') {
       await json(route, { data: [project], next_cursor: null });
       return;
     }
-    if (path === `/api/v1/projects/${project.id}/columns` && request.method() === 'GET') {
+    if (path === `/api/v1/projects/${project.id}/columns`) {
       await json(route, { data: columns, next_cursor: null });
       return;
     }
-    if (path === `/api/v1/projects/${project.id}/tasks` && request.method() === 'GET') {
+    if (path === `/api/v1/projects/${project.id}/tasks`) {
       await json(route, { data: tasks, next_cursor: null });
       return;
     }
-    if (path === `/api/v1/projects/${project.id}/labels` && request.method() === 'GET') {
+    if (path === `/api/v1/projects/${project.id}/labels` || path === '/api/v1/events') {
       await json(route, { data: [], next_cursor: null });
       return;
     }
-    if (path === '/api/v1/events' && request.method() === 'GET') {
-      await json(route, { data: [], next_cursor: null });
-      return;
-    }
-    if (path === `/api/v1/projects/${project.id}/audits` && request.method() === 'GET') {
+    if (path === `/api/v1/projects/${project.id}/audits`) {
       await json(route, { data: mockRuns, next_cursor: null });
       return;
     }
-    if (path.startsWith('/api/v1/audits/') && path.endsWith('/findings') && request.method() === 'GET') {
+    if (path.startsWith('/api/v1/audits/') && path.endsWith('/findings')) {
+      const auditId = decodeURIComponent(path.split('/').slice(-2, -1)[0] || '');
       const cursor = url.searchParams.get('cursor');
-      if (cursor === 'findings-page-2') {
+      if (auditId !== 'audit-queued') {
+        await json(route, { data: [], next_cursor: null });
+      } else if (cursor === 'findings-page-2') {
         await json(route, { data: [findings[2]], next_cursor: null });
       } else {
         await json(route, { data: [findings[0], findings[1]], next_cursor: 'findings-page-2' });
       }
       return;
     }
-    if (path.startsWith('/api/v1/audits/') && request.method() === 'GET') {
+    if (path.startsWith('/api/v1/audits/')) {
       const auditId = decodeURIComponent(path.split('/').pop() || '');
       const run = mockRuns.find((item) => item.id === auditId);
       if (!run) {
         await json(route, { error: { code: 'not_found', message: 'Audit not found' } }, 404);
         return;
       }
+      await held.get(auditId);
       // The current client intentionally fetches run metadata and the
       // paginated /findings collection separately.
       await json(route, run);
-      return;
-    }
-    if (path.startsWith('/api/v1/audit-findings/') && request.method() === 'PATCH') {
-      const id = decodeURIComponent(path.split('/').pop() || '');
-      const body = (request.postDataJSON() || {}) as Record<string, unknown>;
-      const current = findings.find((finding) => finding.id === id);
-      if (!current) {
-        await json(route, { error: { code: 'not_found', message: 'Finding not found' } }, 404);
-        return;
-      }
-      state.patchRequests.push({ id, body, ifMatch: request.headers()['if-match'] || null });
-      const updated = {
-        ...current,
-        ...body,
-        proposed_semantic_destination: Object.prototype.hasOwnProperty.call(body, 'proposed_semantic_destination')
-          ? body.proposed_semantic_destination || null
-          : current.proposed_semantic_destination,
-        version: current.version + 1
-      };
-      await json(route, updated);
-      return;
-    }
-    if (path.startsWith('/api/v1/tasks/') && path.endsWith('/move') && request.method() === 'POST') {
-      const taskId = decodeURIComponent(path.split('/').slice(-2, -1)[0] || '');
-      const body = (request.postDataJSON() || {}) as Record<string, unknown>;
-      state.moveRequests.push({ taskId, body, ifMatch: request.headers()['if-match'] || null });
-      const task = tasks.find((item) => item.id === taskId);
-      await json(route, {
-        ...(task || tasks[0]),
-        column_id: body.destination_column_id,
-        version: (task?.version || 1) + 1
-      });
       return;
     }
 
@@ -190,6 +177,8 @@ async function installAuditMocks(page: Page, primaryStatus: 'queued' | 'complete
   });
   return state;
 }
+
+const finding = (page: Page, text: string) => page.locator('.audit-finding').filter({ hasText: text });
 
 async function openAuditList(page: Page): Promise<void> {
   await page.goto(`/p/${project.slug}/audits`);
@@ -203,107 +192,87 @@ async function openAuditDetail(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Board audit', exact: true })).toBeVisible();
 }
 
-test.describe('Board audits', () => {
-  test('renders queued state and deep-link detail with paginated findings', async ({ page }) => {
+test.describe('Recorded board audits', () => {
+  test('a queued run deep link renders paginated findings read-only', async ({ page }) => {
     const state = await installAuditMocks(page, 'queued');
     await page.goto(`/p/${project.slug}/audits/audit-queued`);
 
     await expect(page.getByRole('heading', { name: 'Board audit', exact: true })).toBeVisible();
     await expect(page.getByText('Queued', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('An agent is still processing this audit', { exact: false })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Finalize audit', exact: true })).toHaveCount(0);
-    await expect(page.getByText('3 findings to review', { exact: true })).toBeVisible();
+    await expectPausedExplanation(page);
+    await expect(page.getByText('This audit has not finished', { exact: false })).toBeVisible();
+    await expect(page.getByText(/Review and apply unlock/)).toHaveCount(0);
+    await expect(page.getByText('3 findings recorded', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Looks correct', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Needs attention', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Move proposed', exact: true })).toBeVisible();
     await expect(page.getByText('column-pattern:ready', { exact: true })).toBeVisible();
     await expect(page.getByText('Captured v2', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Current v2', { exact: true }).first()).toBeVisible();
-    const queuedFinding = page.locator('.audit-finding').filter({ hasText: 'Move this approved recommendation' });
-    await expect(queuedFinding.getByRole('button', { name: 'Preview approved finding', exact: true })).toBeDisabled();
-    expect(state.requestedPaths).toContain(`GET /api/v1/audits/audit-queued`);
+    await expect(finding(page, 'Move this approved recommendation').locator('.audit-review-state')).toHaveText('Approved');
+    await expectNoAuditMutations(page);
+    expect(state.requestedPaths).toContain('GET /api/v1/audits/audit-queued');
     expect(state.requestedPaths.some((path) => path.includes('/api/v1/audits/audit-queued/findings') && path.includes('cursor=findings-page-2'))).toBeTruthy();
+    expect(state.writes).toEqual([]);
   });
 
-  test('locks changed findings while accepting an authoritative review response', async ({ page }) => {
+  test('a complete run keeps changed-since-audit facts without review locks or actions', async ({ page }) => {
     const state = await installAuditMocks(page);
     await openAuditDetail(page);
+    await expectPausedExplanation(page);
 
-    const changed = page.locator('.audit-finding').filter({ hasText: 'Changed after the audit' });
+    const changed = finding(page, 'Changed after the audit');
     await expect(changed).toContainText('Changed since audit');
-    await expect(changed.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
-    await expect(changed).toContainText('Approval and apply are locked');
-
-    const pending = page.locator('.audit-finding').filter({ hasText: 'Needs a human review' });
-    await pending.getByRole('button', { name: 'Approve', exact: true }).click();
-    await expect(pending.locator('.audit-review-state')).toHaveText('Approved');
-    await expect(pending.getByRole('button', { name: 'Preview approved finding', exact: true })).toBeVisible();
-    expect(state.patchRequests).toHaveLength(1);
-    expect(state.patchRequests[0]).toMatchObject({
-      id: 'finding-pending',
-      ifMatch: '"v1"',
-      body: { review_state: 'approved' }
-    });
+    await expect(changed).toContainText('This task changed after the audit');
+    await expect(changed).not.toContainText('Approval and apply are locked');
+    await expect(page.getByText(/to review|Approve a destination|preview and explicitly apply/)).toHaveCount(0);
+    await expect(finding(page, 'Needs a human review').getByRole('link', { name: 'Open AUD-3' })).toHaveAttribute('href', `/p/${project.slug}/tasks/AUD-3`);
+    await expectNoAuditMutations(page);
+    expect(state.writes).toEqual([]);
   });
 
-  test('keeps preview and apply as separate explicit steps', async ({ page }) => {
+  test('the list explains the paused capability and an empty project offers no start', async ({ page }) => {
     const state = await installAuditMocks(page);
-    await openAuditDetail(page);
+    await openAuditList(page);
+    await expectPausedExplanation(page);
+    await expect(page.getByRole('button', { name: /audit-complete/ })).toBeVisible();
+    await expectNoAuditMutations(page);
 
-    const approved = page.locator('.audit-finding').filter({ hasText: 'Move this approved recommendation' });
-    const previewButton = approved.getByRole('button', { name: 'Preview approved finding', exact: true });
-    await previewButton.click();
-    await expect(page.getByRole('dialog', { name: 'Preview approved finding' })).toBeVisible();
-    expect(state.moveRequests).toHaveLength(0);
-
-    await page.getByRole('button', { name: 'Continue to apply', exact: true }).click();
-    const confirmation = page.getByRole('alertdialog', { name: 'Apply this move?' });
-    await expect(confirmation).toBeVisible();
-    expect(state.moveRequests).toHaveLength(0);
-
-    await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: 'Preview approved finding' })).toBeVisible();
-    expect(state.moveRequests).toHaveLength(0);
-    await page.getByRole('button', { name: 'Continue to apply', exact: true }).click();
-    await page.getByRole('alertdialog', { name: 'Apply this move?' }).getByRole('button', { name: 'Apply move', exact: true }).click();
-
-    await expect(page.getByRole('alertdialog', { name: 'Apply this move?' })).toBeHidden();
-    expect(state.moveRequests).toHaveLength(1);
-    expect(state.moveRequests[0]).toMatchObject({
-      taskId: 'task-approved',
-      ifMatch: '"v2"',
-      body: {
-        destination_column_id: 'column-ready',
-        expected_source_column_id: 'column-backlog',
-        source: 'board_audit'
-      }
-    });
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    const empty = await installAuditMocks(page, 'complete', { empty: true });
+    await openAuditList(page);
+    await expect(page.getByRole('heading', { name: 'No recorded board audits', exact: true })).toBeVisible();
+    await expectPausedExplanation(page);
+    await expectNoAuditMutations(page);
+    expect([...state.writes, ...empty.writes]).toEqual([]);
   });
 
-  test('stacks at 390px, exposes accessible states, and traps/returns modal focus', async ({ page }) => {
+  test('a late response for a previous deep link never replaces the opened run', async ({ page }) => {
+    const state = await installAuditMocks(page);
+    const release = await state.holdRun('audit-queued');
+    await page.goto(`/p/${project.slug}/audits/audit-queued`);
+    await expect.poll(() => state.requestedPaths.includes('GET /api/v1/audits/audit-queued')).toBe(true);
+    await page.getByRole('button', { name: /audit-complete/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/p/${project.slug}/audits/audit-complete$`));
+    await expect(page.getByText('0 findings recorded', { exact: true })).toBeVisible();
+    await release();
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page).toHaveURL(new RegExp(`/p/${project.slug}/audits/audit-complete$`));
+    await expect(page.getByText('0 findings recorded', { exact: true })).toBeVisible();
+    await expect(page.locator('.audit-finding')).toHaveCount(0);
+    expect(state.writes).toEqual([]);
+  });
+
+  test('stacks at 390px with readable history and no actions', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await installAuditMocks(page);
+    const state = await installAuditMocks(page);
     await openAuditDetail(page);
 
     await expect(page.locator('.audit-finding')).toHaveCount(3);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     await expect(page.getByText('This task changed after the audit', { exact: false })).toBeVisible();
-
-    const approved = page.locator('.audit-finding').filter({ hasText: 'Move this approved recommendation' });
-    const previewButton = approved.getByRole('button', { name: 'Preview approved finding', exact: true });
-    await previewButton.click();
-    const preview = page.getByRole('dialog', { name: 'Preview approved finding' });
-    await expect(preview).toBeVisible();
-    const continueButton = preview.getByRole('button', { name: 'Continue to apply', exact: true });
-    const closeButton = preview.getByRole('button', { name: 'Close preview', exact: true });
-    await expect(continueButton).toBeFocused();
-    await closeButton.focus();
-    await page.keyboard.press('Shift+Tab');
-    await expect(continueButton).toBeFocused();
-    await page.keyboard.press('Tab');
-    await expect(closeButton).toBeFocused();
-    await page.keyboard.press('Escape');
-    await expect(preview).toBeHidden();
-    await expect(previewButton).toBeFocused();
+    await expectNoAuditMutations(page);
+    expect(state.writes).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath('recorded-audit-390.png'), fullPage: true });
   });
 });

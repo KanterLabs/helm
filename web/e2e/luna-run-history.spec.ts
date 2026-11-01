@@ -33,16 +33,14 @@ test('persists a real Luna turn and exposes private diagnostics in Settings', as
   expect(created.ok()).toBeTruthy();
   const project = await created.json() as Project;
 
-  await page.goto(`/p/${project.slug}`);
-  await page.getByRole('button', { name: 'New task', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Create a task' });
-  await dialog.getByLabel('Rough idea').fill(roughIdea);
-  await dialog.getByRole('button', { name: /Assist with Luna/ }).click();
-  await expect(dialog.getByRole('heading', { name: 'Review before applying' })).toBeVisible();
-  await expect(dialog.locator('[data-luna-field="title"]')).toContainText('Verify persisted Luna history');
-  await dialog.getByRole('button', { name: 'Apply all' }).click();
-  await expect(dialog.getByLabel('Task title')).toHaveValue('Verify persisted Luna history');
-  await page.keyboard.press('Escape');
+  // TC-318 removed the drafting panel from ordinary task creation. Until
+  // TC-325 retires the endpoint, the private history is fed by the same API.
+  const drafted = await request.post(`/api/v1/projects/${project.key}/task-draft`, {
+    data: { query: roughIdea },
+    headers: { Origin: origin, 'Content-Type': 'application/json', 'Idempotency-Key': `luna-history-draft-${runId}` }
+  });
+  expect(drafted.ok()).toBeTruthy();
+  expect((await drafted.json() as { title: string }).title).toBe('Verify persisted Luna history');
 
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'Your Codex subscription' })).toBeVisible();

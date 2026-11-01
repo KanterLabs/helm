@@ -1,0 +1,147 @@
+components:
+  schemas:
+    TaskContextRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: Rough task intent used only to rank project-local context.
+      additionalProperties: false
+    TaskContextProject:
+      type: object
+      required:
+        - id
+        - key
+        - name
+        - description
+        - open_task_count
+        - completed_task_count
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        key:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        open_task_count:
+          type: integer
+          minimum: 0
+        completed_task_count:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+    TaskContextReference:
+      type: object
+      required:
+        - id
+        - key
+        - title
+        - description
+        - priority
+        - semantic_state
+        - labels
+        - prerequisite_count
+        - dependent_count
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        key:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          maxLength: 1200
+        priority:
+          $ref: "#/components/schemas/Priority"
+        semantic_state:
+          $ref: "#/components/schemas/SemanticState"
+        labels:
+          type: array
+          items:
+            type: string
+        prerequisite_count:
+          type: integer
+          minimum: 0
+        dependent_count:
+          type: integer
+          minimum: 0
+        completed_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    TaskDraftContext:
+      type: object
+      required:
+        - project
+        - completed_tasks
+        - open_tasks
+        - candidate_count
+        - truncated
+      properties:
+        project:
+          $ref: "#/components/schemas/TaskContextProject"
+        completed_tasks:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/TaskContextReference"
+        open_tasks:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/TaskContextReference"
+        candidate_count:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+      additionalProperties: false
+    TaskDraftSuggestion:
+      type: object
+      required:
+        - title
+        - description
+        - acceptance_criteria
+        - priority
+        - rationale
+        - supporting_task_keys
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description:
+          type: string
+          maxLength: 12000
+        acceptance_criteria:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            type: string
+            minLength: 1
+            maxLength: 500
+        priority:
+          $ref: "#/components/schemas/Priority"
+        rationale:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        supporting_task_keys:
+          type: array
+          maxItems: 12
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+      additionalProperties: false

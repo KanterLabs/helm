@@ -1,0 +1,62 @@
+components:
+  schemas:
+    CodexAccountStatus:
+      type: object
+      required:
+        - connected
+        - requires_openai_auth
+      properties:
+        connected:
+          type: boolean
+        account_type:
+          type: string
+          description: Display-safe provider type; Helm assistance requires chatgpt.
+        email:
+          type: string
+          format: email
+        plan_type:
+          type: string
+        requires_openai_auth:
+          type: boolean
+      additionalProperties: false
+    CodexDeviceLogin:
+      type: object
+      required:
+        - login_id
+        - verification_url
+        - user_code
+      properties:
+        login_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        verification_url:
+          type: string
+          format: uri
+          pattern: ^https://
+        user_code:
+          type: string
+          minLength: 1
+          maxLength: 100
+      additionalProperties: false
+    CodexCancelLoginRequest:
+      type: object
+      required:
+        - login_id
+      properties:
+        login_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+      additionalProperties: false
+    CodexCancelLoginResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - canceled
+            - notFound
+      additionalProperties: false

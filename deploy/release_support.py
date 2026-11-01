@@ -11,6 +11,9 @@ import tempfile
 import urllib.error
 import urllib.request
 
+from release_authorization import validate as validate_authorization
+from rollback_policy import PolicyError, strict_json
+
 REPOSITORY = 'KanterLabs/helm'
 GITEA_API = 'https://gitea.home.shanekanterman.dev/api/v1/repos/' + REPOSITORY
 SITES = {'beta': 'https://beta-helm.home.shanekanterman.dev',
@@ -171,13 +174,24 @@ class Runtime:
             path = Path(directory) / 'deployment.json'
             if not path.is_file() or path.stat().st_size > FILE_LIMIT:
                 raise ReleaseError('Deployment evidence is missing or oversized')
-            evidence = json.loads(path.read_text())
+            try:
+                evidence = strict_json(path.read_text())
+            except PolicyError:
+                raise ReleaseError('Deployment evidence has invalid bounded JSON') from None
         if (any(evidence.get(key) != sha for key in ['revision', 'health_revision', 'ready_revision'])
                 or evidence.get('ready') is not True
                 or evidence.get('status') not in ['deployed', 'already-current']
                 or not IMAGE.fullmatch(evidence.get('image', ''))):
             raise ReleaseError('Deployment evidence does not match the verified release')
-        return {'run_id': run['id'], 'url': run['html_url'], 'image': evidence['image']}
+        try:
+            authorization = validate_authorization(evidence.get('authorization'), lane, sha,
+                                                  evidence['image'], evidence.get('service_uuid'))
+            if evidence.get('service_uuid') != authorization['target']['service_uuid']:
+                raise PolicyError('deployment service is absent or mismatched')
+        except PolicyError:
+            raise ReleaseError('Deployment authorization provenance is absent or mismatched') from None
+        return {'run_id': run['id'], 'url': run['html_url'], 'image': evidence['image'],
+                'authorization': authorization}
 
     def prs(self, branch):
         return self.gh('pr', 'list', '--head', branch, '--base', 'main', '--state', 'all',

@@ -1,0 +1,62 @@
+paths:
+  /api/v1/projects/{project}/tickets:
+    parameters:
+      - $ref: "#/components/parameters/ProjectPath"
+    post:
+      operationId: createTicket
+      summary: Create a ticket
+      description: |
+        Creates an ordinary task in the project's Backlog column together with
+        its Tickets membership (`origin=manual`) in one transaction. Accepts
+        the task create fields except `kind` (other than `task`),
+        `column_id`, `parent_task_id`, and `release_id`, which return `400`.
+        Requires `tasks:write`.
+      tags:
+        - Tickets
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreateRequest"
+            example:
+              title: Rotate the staging TLS certificate
+              description: Renewal failed twice this week.
+              priority: high
+              assignee_id: human_shane
+      responses:
+        "201":
+          description: Ticket created as a Backlog task with `ticket` membership.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            Location:
+              $ref: "#/components/headers/Location"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

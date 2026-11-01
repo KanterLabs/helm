@@ -19,11 +19,12 @@
 </script>
 
 <div class="ticket-actions" role="group" aria-label="Ticket actions">
-  {#if ticketStatus(detail) === 'needs_triage'}<button class="button primary" type="button" disabled={actionPending} on:click={() => onMove('ready', 'Accept')}>Accept to Ready</button>{/if}
-  {#if ticketStatus(detail) === 'needs_triage' || ticketStatus(detail) === 'ready'}<button class="button quiet-button" type="button" disabled={actionPending} on:click={() => onMove('in_progress', 'Start')}>Start</button>{/if}
+  {#if detail.kind !== 'bug' && ticketStatus(detail) === 'needs_triage'}<button class="button primary" type="button" disabled={actionPending} on:click={() => onMove('ready', 'Accept')}>Accept to Ready</button>{/if}
+  {#if (detail.kind !== 'bug' && ticketStatus(detail) === 'needs_triage') || ticketStatus(detail) === 'ready'}<button class="button quiet-button" type="button" disabled={actionPending} on:click={() => onMove('in_progress', 'Start')}>Start</button>{/if}
   {#if ticketStatus(detail) === 'waiting'}<button class="button primary" type="button" disabled={actionPending} on:click={() => onMove('ready', 'Resume')}>Resume</button>{/if}
   {#if ticketStatus(detail) !== 'completed' && ticketStatus(detail) !== 'waiting'}<button class="button quiet-button" type="button" disabled={actionPending} aria-expanded={waitOpen} on:click={() => { waitOpen = !waitOpen; }}>Waiting…</button>{/if}
-  {#if ticketStatus(detail) !== 'completed'}<button class="button complete-button" type="button" disabled={actionPending} on:click={() => onAct('Complete', (task) => api.completeTask(task.id, task.version))}>✓ Complete</button>
+  {#if detail.kind === 'bug'}<button class="button quiet-button" type="button" disabled={actionPending} on:click={() => onOpenTask(detail)}>{detail.bug?.resolution ? 'Review resolution / reopen' : 'Resolve bug…'}</button>
+  {:else if ticketStatus(detail) !== 'completed'}<button class="button complete-button" type="button" disabled={actionPending} on:click={() => onAct('Complete', (task) => api.completeTask(task.id, task.version))}>✓ Complete</button>
   {:else}<button class="button quiet-button" type="button" disabled={actionPending} on:click={() => onMove('needs_triage', 'Reopen')}>Reopen</button>{/if}
   <button class="text-button ticket-open-board" type="button" on:click={() => onOpenTask(detail)}>Open full task ↗</button>
 </div>

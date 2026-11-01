@@ -1,0 +1,155 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/audits": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listProjectAudits",
+        "summary": "List board-audit runs for a project",
+        "description": "Returns cursor-paginated audit-run metadata for the selected project.\nThis read-only operation requires `tasks:read`; it never changes a\ntask or applies a finding. Run detail contains only bounded summary\nmetadata; fetch findings through the separate findings collection.\n",
+        "tags": [
+          "Audits"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated board-audit runs",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditRunCollection"
+                },
+                "examples": {
+                  "audits": {
+                    "$ref": "#/components/examples/AuditRunCollectionExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProjectAudit",
+        "summary": "Start a board-audit run",
+        "description": "Creates a queued or running audit snapshot for the selected project.\nAudit writes require `tasks:write`. Creating a run only records audit\nmetadata; it does not move, claim, update, or otherwise mutate tasks.\nSend `Idempotency-Key` when retrying the request.\n",
+        "tags": [
+          "Audits"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditRunCreateRequest"
+              },
+              "example": {
+                "scope": "board",
+                "status": "queued"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Audit run created; no task changes are made.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditRun"
+                },
+                "examples": {
+                  "audit": {
+                    "$ref": "#/components/examples/AuditRunExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

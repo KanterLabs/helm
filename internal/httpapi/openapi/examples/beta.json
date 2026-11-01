@@ -1,0 +1,38 @@
+{
+  "components": {
+    "examples": {
+      "BetaBuildsExample": {
+        "summary": "Retained beta builds",
+        "value": {
+          "enabled": true,
+          "current_sha": "0123456789abcdef0123456789abcdef01234567",
+          "builds": [
+            {
+              "sha": "0123456789abcdef0123456789abcdef01234567",
+              "ref": "refs/heads/beta",
+              "subject": "Fix beta switcher metadata",
+              "current": true
+            },
+            {
+              "sha": "89abcdef0123456789abcdef0123456789abcdef",
+              "ref": "refs/heads/beta",
+              "subject": "Add visible beta build switcher",
+              "current": false
+            }
+          ]
+        }
+      },
+      "BetaSwitchResponseExample": {
+        "summary": "Queued beta switch job",
+        "value": {
+          "enabled": true,
+          "job": {
+            "id": "0123456789abcdef0123456789abcdef",
+            "target_sha": "89abcdef0123456789abcdef0123456789abcdef",
+            "state": "queued"
+          }
+        }
+      }
+    }
+  }
+}

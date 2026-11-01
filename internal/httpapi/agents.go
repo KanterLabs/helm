@@ -49,7 +49,7 @@ func requireAdmin(w http.ResponseWriter, identity auth.Identity) bool {
 	// Administrative operations are deliberately human-only. Agent bearer
 	// tokens remain least-privilege credentials even if a malformed or legacy
 	// actor record ever carries an administrator bit.
-	if !identity.IsToken && identity.Actor.Admin {
+	if identity.IsAdmin() {
 		return true
 	}
 	sDummyWriteError(w, http.StatusForbidden, "forbidden", "administrator access is required", nil)
@@ -183,6 +183,14 @@ func (s *Server) createAgentToken(w http.ResponseWriter, r *http.Request, identi
 		s.writeError(w, http.StatusBadRequest, "invalid_request", "tokens can only be issued to agent actors", nil)
 		return
 	}
+	if agent.IsIntakeSource() {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "alert sources record attribution and cannot receive new agent tokens", nil)
+		return
+	}
+	if agent.DisabledAt != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "disabled agents cannot receive new tokens", nil)
+		return
+	}
 	var payload struct {
 		Name       *string  `json:"name"`
 		Scopes     []string `json:"scopes"`
@@ -220,6 +228,25 @@ func (s *Server) createAgentToken(w http.ResponseWriter, r *http.Request, identi
 		if err := validateIdentifierArray(raw, "project_ids", false); err != nil {
 			s.writeStoreError(w, err)
 			return
+		}
+	}
+	if len(agent.ProjectIDs) > 0 && len(payload.ProjectIDs) > 0 {
+		allowed := make(map[string]bool, len(agent.ProjectIDs))
+		for _, id := range agent.ProjectIDs {
+			allowed[id] = true
+		}
+		// Resolve references exactly as storage does so IDs, keys and slugs
+		// cannot bypass the actor ceiling or cause an unusable credential.
+		for _, reference := range payload.ProjectIDs {
+			project, err := s.Store.GetProject(r.Context(), reference)
+			if err != nil {
+				s.writeStoreError(w, err)
+				return
+			}
+			if !allowed[project.ID] {
+				s.writeError(w, http.StatusBadRequest, "invalid_request", "selected projects must be within this agent's project access", nil)
+				return
+			}
 		}
 	}
 	var expires *time.Time

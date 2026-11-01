@@ -1,0 +1,158 @@
+{
+  "paths": {
+    "/api/v1/hooks/tickets/{secret}": {
+      "post": {
+        "operationId": "postTicketWebhook",
+        "summary": "Open a ticket from an outside app",
+        "description": "The URL an outside app posts to. An administrator creates it in\nTickets → Connect apps; the secret in the path is the only credential,\nso any tool that can send an HTTP POST with JSON can open tickets.\nUnknown, disabled or rotated URLs return the generic `404`.\n\nFor `generic` webhooks the body is the small JSON object below.\nUnknown fields are rejected so typos surface immediately. Without\n`dedupe_key` every post opens a new ticket. With `dedupe_key`, posts\nwhile that ticket is open only increase its repeat count\n(`repeated`), and the first post after the ticket is completed opens a\nnew ticket linked to the previous one. Tickets land in the webhook's\nproject Backlog, assigned as configured, and appear in Tickets → Needs\ntriage. Webhooks created with format `coolify` accept Coolify\nnotification payloads instead and respond like\n`/api/v1/intake/coolify/{secret}`.\n\n```sh\ncurl -X POST \"$HELM_WEBHOOK_URL\" -H 'Content-Type: application/json' \\\n  -d '{\"title\":\"Disk almost full on db-1\",\"priority\":\"high\",\"dedupe_key\":\"db-1:disk\",\"fields\":{\"host\":\"db-1\",\"usage\":\"93%\"}}'\n```\n",
+        "tags": [
+          "Tickets"
+        ],
+        "security": [
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "secret",
+            "in": "path",
+            "required": true,
+            "description": "Webhook secret from the create or rotate response.",
+            "schema": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericTicketRequest"
+              },
+              "example": {
+                "title": "Disk almost full on db-1",
+                "description": "`/var/lib/postgresql` is at 93%. Clean old WAL or grow the volume.",
+                "priority": "high",
+                "dedupe_key": "db-1:disk",
+                "source": "grafana",
+                "url": "https://grafana.example.com/d/disk",
+                "fields": {
+                  "host": "db-1",
+                  "usage": "93%"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The post matched an existing ticket by `dedupe_key` (`repeated`), or a Coolify-format payload was recorded.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TicketHookResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AlertIntakeResult"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new ticket was opened.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketHookResult"
+                },
+                "example": {
+                  "disposition": "created",
+                  "occurrence_count": 1,
+                  "ticket": {
+                    "id": "4699bc1b6e1eaaa761e05e69a018189a",
+                    "key": "OPS-61",
+                    "url": "https://helm.example.com/p/ops/tasks/OPS-61"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not valid. `error.details.field` names the field to fix and `error.details.allowed_fields` lists accepted fields; nothing was created.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "invalid_ticket",
+                    "message": "title is required",
+                    "details": {
+                      "field": "title",
+                      "allowed_fields": [
+                        "title",
+                        "description",
+                        "priority",
+                        "dedupe_key",
+                        "source",
+                        "url",
+                        "fields"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

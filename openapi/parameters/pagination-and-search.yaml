@@ -1,0 +1,127 @@
+components:
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Opaque cursor returned as next_cursor. Omit for the first page. Task
+        board routes return a URL-safe keyset marker that includes the stable
+        ordering tuple, project collection revision, fixed read timestamp, and
+        task-collection revision; retained collection routes continue to accept a
+        URL-safe base64 offset and raw non-negative decimal offset. An empty
+        next_cursor terminates pagination, but a supplied empty `cursor` is
+        invalid. Malformed, negative, or repeated values return 400. A changed
+        task collection invalidates a board cursor with 409
+        `task_collection_changed`; discard it and restart from the first page.
+        It is not an event feed cursor.
+      schema:
+        type: string
+        minLength: 1
+      example: tc1.eyJ2IjoxLCJzb3J0IjoiYm9hcmQiLCJkZXNjIjpmYWxzZSwicHJvamVjdF9pZCI6InAiLCJyZXZpc2lvbiI6MCwicmVhZF9hdCI6IjIwMjYtMDEtMDFUMDA6MDA6MDBaIiwidGFza19jb2xsZWN0aW9uX3JldmlzaW9uIjowLCJjb2x1bW5faWQiOiJjIiwicG9zaXRpb24iOjAsIm51bWJlciI6MSwiaWQiOiJ0In0
+    TaskSort:
+      name: sort
+      in: query
+      required: false
+      description: Stable server-side task ordering. Board order is the default.
+      schema:
+        type: string
+        enum:
+          - board
+          - position
+          - number
+          - created_at
+          - updated_at
+          - priority
+          - title
+      example: position
+    TaskOrder:
+      name: order
+      in: query
+      required: false
+      description: Direction for the selected task sort; defaults to ascending.
+      schema:
+        type: string
+        enum:
+          - asc
+          - desc
+      example: asc
+    BeforeTimelineCursor:
+      name: before
+      in: query
+      required: false
+      description: Opaque item cursor returned by a prior timeline page. Omit for the newest page;
+        malformed, empty, or repeated values are invalid.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 2048
+      example: eyJ2IjoxLCJhdCI6IjIwMjYtMDgtMjdUMTA6MzA6MDBaIiwiZWMiOjQ0LCJrIjoiYWdlbnRfcHJvZ3Jlc3MiLCJpZCI6InByb2dyZXNzXzAxIn0
+    TimelineKind:
+      name: kind
+      in: query
+      required: false
+      description: Restrict activity to one discriminated item kind.
+      schema:
+        type: string
+        enum:
+          - agent_progress
+          - comment
+          - task_change
+      example: agent_progress
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Number of records to return; defaults to 50, rejects non-positive values with 400, and
+        values above 200 are capped at 200.
+      schema:
+        type: integer
+        minimum: 1
+        default: 50
+      example: 25
+    AfterCursor:
+      name: after
+      in: query
+      required: false
+      description: Return events with a monotonic cursor greater than this value; supplied empty,
+        negative, malformed, or repeated values are invalid.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+      example: 42
+    TaskState:
+      name: state
+      in: query
+      required: false
+      description: Filter by the task column's semantic state.
+      schema:
+        $ref: "#/components/schemas/SemanticState"
+      example: ready
+    SearchQuery:
+      name: q
+      in: query
+      required: false
+      description: Case-insensitive task title and description search; values longer than 200 characters
+        are invalid.
+      schema:
+        type: string
+        maxLength: 200
+      example: event polling
+    MyWorkView:
+      name: view
+      in: query
+      required: false
+      description: |
+        Set to `live` for the coordination pulse view of unfinished tasks with
+        agent-work snapshots. Set to `assigned` or omit it to retain the
+        legacy actor-assignment and active-claim view. Empty, unsupported, or
+        repeated values return 400.
+      schema:
+        type: string
+        enum:
+          - assigned
+          - live
+        default: assigned
+      example: live

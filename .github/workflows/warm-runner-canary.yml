@@ -1,0 +1,81 @@
+name: Helm warm runner canary
+on:
+  push:
+    branches: [ci/helm-warm-runner]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Smoke, counterbalanced worker benchmark, or five warm confirmations
+        type: choice
+        options: [smoke, benchmark, confirm]
+        default: smoke
+      workers:
+        description: Worker count for smoke or winner confirmation
+        type: choice
+        options: ['4', '6', '8']
+        default: '4'
+permissions:
+  contents: read
+concurrency:
+  group: helm-warm-runner-canary
+  cancel-in-progress: false
+jobs:
+  browser:
+    if: github.ref == 'refs/heads/ci/helm-warm-runner'
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      # A push first proves the full flow. Benchmarks are explicit, same-SHA,
+      # sequential samples; the one-slot pool also serializes unrelated refs.
+      matrix: ${{ fromJSON(inputs.mode == 'benchmark' && '{"include":[{"sample":"cold","workers":4},{"sample":"warm-1","workers":4},{"sample":"warm-2","workers":6},{"sample":"warm-3","workers":8},{"sample":"warm-4","workers":8},{"sample":"warm-5","workers":6},{"sample":"warm-6","workers":4},{"sample":"warm-7","workers":6},{"sample":"warm-8","workers":4},{"sample":"warm-9","workers":8}]}' || inputs.mode == 'confirm' && '{"sample":["confirm-1","confirm-2","confirm-3","confirm-4","confirm-5"]}' || '{"sample":["smoke"]}') }}
+    runs-on:
+      group: helm-runners
+      labels: homelab-heavy
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Reset only the cold sample's disposable compiler cache
+        if: matrix.sample == 'cold'
+        run: |
+          source /opt/helm-hooks/cache-env.sh "$GITHUB_WORKSPACE"
+          [[ "$GOCACHE" =~ ^/cache/canary/[0-9a-f]{20}/gobuild-race$ ]]
+          rm -rf -- "$GOCACHE"
+      - uses: ./.github/actions/prepared-runner
+      - uses: ./.github/actions/browser-validation
+        with:
+          evidence-name: helm-local-${{ matrix.sample }}-${{ matrix.workers || inputs.workers || '4' }}-${{ github.run_id }}
+          workers: ${{ matrix.workers || inputs.workers || '4' }}
+  hosted-browser:
+    # Matched-commit benchmark exception: this job measures the retained hosted
+    # environment. It has no deployment or registry publication credentials.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.23.2
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('web/package-lock.json') }}
+      - name: Install hosted browser dependencies
+        run: |
+          started=$SECONDS
+          cd web
+          npm ci
+          npx playwright install --with-deps chromium
+          printf 'HELM_PREPARE_SECONDS=%s\n' "$((SECONDS-started))" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/browser-validation
+        with:
+          evidence-name: helm-hosted-${{ github.run_id }}

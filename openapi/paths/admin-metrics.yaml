@@ -1,0 +1,48 @@
+paths:
+  /api/v1/admin/metrics:
+    get:
+      operationId: getAdminMetrics
+      summary: Get installation-wide administrator metrics (beta)
+      description: |
+        Human administrators only; bearer tokens are always rejected. Returns
+        point-in-time totals, activity counted from the event log, per-agent
+        activity, and HTTP request counts for the trailing `days` UTC calendar
+        days (including today). Request counts are persisted hourly, survive
+        restarts, are kept for 90 days, and may lag by up to a minute;
+        `requests.hourly` always covers the last 24 hours.
+      tags:
+        - Agents
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: Trailing window in UTC calendar days, including today.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 7
+      responses:
+        "200":
+          description: Administrator metrics snapshot
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMetrics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

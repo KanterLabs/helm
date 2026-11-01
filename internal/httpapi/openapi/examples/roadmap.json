@@ -1,0 +1,91 @@
+{
+  "components": {
+    "examples": {
+      "RoadmapExample": {
+        "summary": "Project roadmap",
+        "value": {
+          "project": {
+            "id": "proj_ops",
+            "key": "OPS",
+            "slug": "operations",
+            "name": "Operations",
+            "description": "Work for the operations team.",
+            "color": "#2563EB",
+            "favorite": true,
+            "created_at": "2026-08-27T08:00:00Z",
+            "updated_at": "2026-08-27T10:00:00Z"
+          },
+          "task_total": 42,
+          "completed": 18,
+          "completion_percent": 42.86,
+          "state_counts": {
+            "backlog": 10,
+            "ready": 8,
+            "active": 4,
+            "blocked": 2,
+            "completed": 18
+          },
+          "overdue": 2,
+          "due_soon": 3,
+          "upcoming": [
+            {
+              "id": "task_42",
+              "number": 42,
+              "key": "OPS-42",
+              "project_id": "proj_ops",
+              "column_id": "col_ready",
+              "kind": "task",
+              "title": "Add event polling",
+              "description": "Implement incremental event polling for agents.",
+              "priority": "high",
+              "position": 0,
+              "assignee": "agent_ada",
+              "due_at": "2026-09-01T12:00:00Z",
+              "version": 7,
+              "created_at": "2026-08-27T09:30:00Z",
+              "updated_at": "2026-08-27T10:00:00Z",
+              "labels": [],
+              "comment_count": 1
+            }
+          ],
+          "upcoming_tasks": [
+            {
+              "id": "task_42",
+              "number": 42,
+              "key": "OPS-42",
+              "project_id": "proj_ops",
+              "column_id": "col_ready",
+              "kind": "task",
+              "title": "Add event polling",
+              "description": "Implement incremental event polling for agents.",
+              "priority": "high",
+              "position": 0,
+              "assignee": "agent_ada",
+              "due_at": "2026-09-01T12:00:00Z",
+              "version": 7,
+              "created_at": "2026-08-27T09:30:00Z",
+              "updated_at": "2026-08-27T10:00:00Z",
+              "labels": [],
+              "comment_count": 1
+            }
+          ],
+          "recent_activity": [
+            {
+              "cursor": 43,
+              "id": "event_43",
+              "type": "task.claimed",
+              "actor_id": "agent_ada",
+              "project_id": "proj_ops",
+              "task_id": "task_42",
+              "created_at": "2026-08-27T10:30:00Z",
+              "payload": {
+                "version": 8,
+                "claim_expires_at": "2026-08-27T11:00:00Z"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

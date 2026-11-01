@@ -1,0 +1,86 @@
+{
+  "components": {
+    "schemas": {
+      "Label": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "color",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LabelCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "color": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Color"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "#94a3b8",
+            "description": "Optional label color; omitted or null uses #94a3b8."
+          }
+        },
+        "additionalProperties": false
+      },
+      "LabelCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Empty string when there is no next page."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

@@ -1,0 +1,212 @@
+components:
+  schemas:
+    GenericTicketRequest:
+      type: object
+      description: Body for `generic` ticket webhooks. Only `title` is required.
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          maxLength: 300
+          description: Ticket title shown in the queue.
+        description:
+          type: string
+          maxLength: 20000
+          description: Markdown details shown under "What needs attention".
+        priority:
+          type: string
+          enum:
+            - low
+            - normal
+            - high
+            - urgent
+          default: normal
+        dedupe_key:
+          type: string
+          maxLength: 200
+          description: Stable identity of the problem (for example `db-1:disk`). Repeats while the ticket is
+            open only count; after completion the next post opens a new linked ticket.
+        source:
+          type: string
+          maxLength: 60
+          pattern: ^[A-Za-z0-9][A-Za-z0-9 ._-]*$
+          description: Name of the sending app, shown as the alert type.
+        url:
+          type: string
+          format: uri
+          maxLength: 1000
+          description: Link back to the sending app, shown as evidence.
+        fields:
+          type: object
+          maxProperties: 20
+          description: Up to 20 short facts shown as evidence. Values may be text (max 300 characters),
+            numbers or booleans.
+          additionalProperties:
+            oneOf:
+              - type: string
+                maxLength: 300
+              - type: number
+              - type: boolean
+      additionalProperties: false
+    TicketHookResult:
+      type: object
+      required:
+        - disposition
+        - occurrence_count
+        - ticket
+      properties:
+        disposition:
+          type: string
+          enum:
+            - created
+            - repeated
+            - retained
+            - duplicate
+          description: "`duplicate` only for email: the message was already processed and nothing changed."
+        occurrence_count:
+          type: integer
+          minimum: 1
+          description: Posts received for this ticket so far.
+        ticket:
+          type: object
+          required:
+            - id
+            - key
+            - url
+          properties:
+            id:
+              $ref: "#/components/schemas/Identifier"
+            key:
+              type: string
+            url:
+              type: string
+              description: Link to the ticket in Helm.
+          additionalProperties: false
+      additionalProperties: false
+    TicketWebhook:
+      type: object
+      required:
+        - id
+        - name
+        - format
+        - project_id
+        - project_key
+        - project_slug
+        - secret_hint
+        - created_at
+        - delivery_count
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        name:
+          type: string
+          maxLength: 100
+        format:
+          type: string
+          enum:
+            - generic
+            - coolify
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        project_key:
+          type: string
+        project_slug:
+          type: string
+        assignee_id:
+          $ref: "#/components/schemas/Identifier"
+        secret_hint:
+          type: string
+          description: Last four characters of the secret.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        rotated_at:
+          $ref: "#/components/schemas/Timestamp"
+        disabled_at:
+          $ref: "#/components/schemas/Timestamp"
+        last_delivery_at:
+          $ref: "#/components/schemas/Timestamp"
+        delivery_count:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+    TicketWebhookCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        project:
+          type: string
+          deprecated: true
+          description: Ignored; webhook tickets land in the ticket queue.
+        format:
+          type: string
+          enum:
+            - generic
+            - coolify
+          default: generic
+        assignee:
+          type: string
+          description: Enabled human actor ID or email, `me` for the caller, or empty for unassigned tickets.
+      additionalProperties: false
+    TicketWebhookSecret:
+      type: object
+      required:
+        - webhook
+        - secret
+        - url
+      properties:
+        webhook:
+          $ref: "#/components/schemas/TicketWebhook"
+        secret:
+          type: string
+          description: Shown only in this response.
+        url:
+          type: string
+          description: Full URL to configure in the outside app. Shown only in this response.
+      additionalProperties: false
+    TicketTestResult:
+      type: object
+      required:
+        - ok
+        - hostname
+        - checked_at
+        - latency_ms
+        - via_cloudflare
+        - message
+      properties:
+        ok:
+          type: boolean
+        hostname:
+          type: string
+        checked_at:
+          $ref: "#/components/schemas/Timestamp"
+        latency_ms:
+          type: integer
+          minimum: 0
+        status_code:
+          type: integer
+        via_cloudflare:
+          type: boolean
+          description: The response carried Cloudflare's `CF-Ray` or `Server` header.
+        cf_ray:
+          type: string
+        disposition:
+          type: string
+          enum:
+            - created
+            - repeated
+            - retained
+        ticket_key:
+          type: string
+        ticket_url:
+          type: string
+        occurrence_count:
+          type: integer
+        message:
+          type: string
+      additionalProperties: false

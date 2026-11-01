@@ -1,0 +1,43 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/boards": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listProjectBoards",
+        "summary": "List project boards",
+        "description": "v1 exposes one virtual board per project. Multiple boards remain an\nexplicit deferred migration decision; existing project URLs and\npermissions remain canonical until that migration is approved.\n",
+        "tags": [
+          "Projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission-filtered board descriptors and feature decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardCollection"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

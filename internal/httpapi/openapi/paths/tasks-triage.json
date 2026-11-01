@@ -1,0 +1,96 @@
+{
+  "paths": {
+    "/api/v1/tasks/{task}/triage": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TaskPath"
+        }
+      ],
+      "post": {
+        "operationId": "triageTask",
+        "summary": "Triage a bug",
+        "description": "Set the bug severity and optionally update its priority, assignee, or\ncolumn in one optimistic-concurrency mutation. This action applies to\nbug tasks; ordinary tasks return `400`. Severity is independent of\ntask priority and is required even when the bug already has one.\nBearer callers need the `tasks:write` scope.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriageRequest"
+              },
+              "example": {
+                "severity": "s2",
+                "priority": "high",
+                "assignee_id": "agent_ada",
+                "column_id": "col_ready"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bug triaged; humans and bearer tokens with tasks:read receive the full task, while write-only bearer tokens receive only id/version metadata.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/TaskMutationConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

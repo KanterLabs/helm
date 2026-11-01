@@ -1,0 +1,170 @@
+{
+  "paths": {
+    "/api/v1/email-intake": {
+      "get": {
+        "operationId": "getEmailIntake",
+        "summary": "Show email intake",
+        "description": "Human administrators only. The active setup, earlier setups, the 20 most recent received or refused emails, and the Cloudflare token permissions setup needs.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Email intake state",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailIntakeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createEmailIntake",
+        "summary": "Turn on email intake",
+        "description": "Human administrators only. Requires an active public endpoint. Uses\nthe Cloudflare API token once to deploy an Email Worker (its Helm URL\nis a `secret_text` binding) and one Email Routing rule for\n`<local_part>@<domain>`; plus addressing then gives every email inbox\nits own `<local_part>+<tag>@<domain>`. If plus addressing is off for the\nzone, the first request returns `409 subaddressing_consent_required`\nand changes nothing; repeat with `enable_subaddressing: true`. Any\nfailure deletes what was created. The token is never stored.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailIntakeCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Email is on",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailIntakeView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/email-intake/{intake}": {
+      "parameters": [
+        {
+          "name": "intake",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "disableEmailIntake",
+        "summary": "Turn off email intake",
+        "description": "Human administrators only. Helm stops accepting mail immediately.\nWith an `api_token` body it also deletes the Worker and routing\nrule; without one the setup is marked `cleanup_pending`. Repeating\nwith a token finishes cleanup. Plus addressing is left on.\n",
+        "tags": [
+          "Tickets"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "api_token": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Turned off",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "intake"
+                  ],
+                  "properties": {
+                    "intake": {
+                      "$ref": "#/components/schemas/EmailIntake"
+                    },
+                    "warning": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  }
+}

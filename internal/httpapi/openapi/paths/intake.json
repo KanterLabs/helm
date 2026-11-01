@@ -1,0 +1,139 @@
+{
+  "paths": {
+    "/api/v1/intake": {
+      "get": {
+        "operationId": "listIntake",
+        "summary": "List incoming tickets and bugs once per task",
+        "description": "Additive union of existing ticket membership and bug kind; does not\ncreate tasks or the hidden Tickets project. Requires tasks:read.\nScoped tokens use the live actor/token project intersection, including\nqueue access only when explicitly granted. Unselected projects remain\ninaccessible. Archived projects and deleted tasks are excluded.\nNeeds triage selects ticket members in backlog columns, or unresolved\nbugs without severity outside completed columns. All includes filed\nand completed records. A task with both memberships appears once.\nBoth counts apply the same project, kind, severity and search filters,\nindependent of the selected scope and page. Severity selects bugs only.\nSearch includes title, description, typed bug details and exact current\nor preserved task keys. Existing guarded lifecycle actions are unchanged.\nRows are ordered by immutable creation time then ID. Bounded opaque\nkeyset cursors retain filters, reader authority, a fixed read timestamp\nand authorized project event/task-collection revisions. Changed filters\nor reader authority return 400. A mutation since the prior page or\nduring rows/counts/enrichment returns 409 task_collection_changed with\ndetails.restart=true; discard the cursor and restart from page one.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "needs_triage",
+                "all"
+              ],
+              "default": "needs_triage"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "task",
+                "bug"
+              ]
+            }
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Narrow to a readable project ID, key or slug.",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "description": "Select bugs by severity; none and untriaged mean null severity.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "s1",
+                "s2",
+                "s3",
+                "s4",
+                "untriaged",
+                "none"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/SearchQuery"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque Intake keyset cursor; omit for the first page. Offset cursors are not accepted.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enriched canonical task page with filtered counts for both scopes.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeCollection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "The Intake collection changed; restart pagination from page one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "task_collection_changed",
+                    "message": "intake collection changed; restart pagination from the first page",
+                    "details": {
+                      "restart": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

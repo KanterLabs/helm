@@ -1,0 +1,299 @@
+{
+  "components": {
+    "schemas": {
+      "GithubCheck": {
+        "type": "object",
+        "required": [
+          "name",
+          "state",
+          "conclusion",
+          "url",
+          "sha"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "Actual check URL, or empty when unavailable."
+          },
+          "sha": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubSnapshot": {
+        "type": "object",
+        "required": [
+          "repository_id",
+          "title",
+          "state",
+          "draft",
+          "head_sha",
+          "base_sha",
+          "checks_state",
+          "checks",
+          "review_state",
+          "fetched_at",
+          "stale",
+          "partial"
+        ],
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "merged"
+            ]
+          },
+          "draft": {
+            "type": "boolean"
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "base_sha": {
+            "type": "string"
+          },
+          "merge_sha": {
+            "type": "string"
+          },
+          "checks_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "pending",
+              "passing",
+              "failing",
+              "unavailable"
+            ]
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubCheck"
+            }
+          },
+          "review_state": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "changes_requested",
+              "commented",
+              "none",
+              "unknown"
+            ]
+          },
+          "fetched_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "partial": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubArtifact": {
+        "type": "object",
+        "description": "Explicit task PR link. Snapshot is disposable and is omitted when source access cannot be established.",
+        "required": [
+          "id",
+          "task_id",
+          "kind",
+          "provider",
+          "url",
+          "repository",
+          "number",
+          "created_at",
+          "verification"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "type": "string",
+            "const": "pull_request"
+          },
+          "provider": {
+            "type": "string",
+            "const": "github"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "verification": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "verified",
+              "unavailable"
+            ]
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/GithubSnapshot"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubArtifactCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor",
+          "task_version"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubArtifact"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "const": ""
+          },
+          "task_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubArtifactLinkRequest": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Allowed https://github.com/owner/repository/pull/number URL; normalized before linking."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubArtifactLinkResponse": {
+        "type": "object",
+        "required": [
+          "artifact",
+          "task_version"
+        ],
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/GithubArtifact"
+          },
+          "task_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubArtifactDetachResponse": {
+        "type": "object",
+        "required": [
+          "task_version"
+        ],
+        "properties": {
+          "task_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubArtifactSummary": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "count",
+          "label",
+          "state"
+        ],
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "pending",
+              "passing",
+              "failing",
+              "merged",
+              "closed",
+              "unavailable",
+              "unknown"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubArtifactSummaryCollection": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubArtifactSummary"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+paths:
+  /api/v1/codex/login/cancel:
+    post:
+      operationId: cancelCodexDeviceLogin
+      summary: Cancel the current human user's pending Codex login
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CodexCancelLoginRequest"
+      responses:
+        "200":
+          description: Cancellation result
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexCancelLoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

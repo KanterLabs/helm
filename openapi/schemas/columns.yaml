@@ -1,0 +1,109 @@
+components:
+  schemas:
+    Column:
+      type: object
+      required:
+        - id
+        - project_id
+        - name
+        - semantic_state
+        - position
+        - ordering_version
+        - created_at
+        - updated_at
+        - version
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        semantic_state:
+          $ref: "#/components/schemas/SemanticState"
+        position:
+          type: integer
+          minimum: 0
+        archived_at:
+          $ref: "#/components/schemas/Timestamp"
+        ordering_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Incremented whenever task ordering in this column changes.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        version:
+          type: integer
+          minimum: 1
+          description: Optimistic version for guarded administration edits.
+      additionalProperties: false
+    ColumnCreateRequest:
+      type: object
+      required:
+        - name
+        - semantic_state
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        semantic_state:
+          $ref: "#/components/schemas/SemanticState"
+        position:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+    ColumnPatchRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        semantic_state:
+          $ref: "#/components/schemas/SemanticState"
+        position:
+          type: integer
+          minimum: 0
+        archived:
+          type: boolean
+          description: Archive or restore the column. Archiving rehomes its tasks to a same-state live column.
+      additionalProperties: false
+    ColumnMutationSummary:
+      type: object
+      description: Reduced column mutation response for bearer tokens without projects:read.
+      required:
+        - id
+        - project_id
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false
+    ColumnMutationResponse:
+      description: Full column for humans and projects:read tokens, or id/project_id metadata for
+        projects:write-only bearer tokens.
+      oneOf:
+        - $ref: "#/components/schemas/Column"
+        - $ref: "#/components/schemas/ColumnMutationSummary"
+    ColumnCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Column"
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+      additionalProperties: false

@@ -1,0 +1,119 @@
+{
+  "paths": {
+    "/api/v1/tasks/{task}/reorder": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TaskPath"
+        }
+      ],
+      "post": {
+        "operationId": "reorderTask",
+        "summary": "Place a task at a precise board position",
+        "description": "Places an unfinished task before/after visible cards in the same or\nanother column. Supply `placement: first` or `last`, or provide\n`before_task_id` and/or `after_task_id`; when both anchors are sent,\nthe task is placed between them. The server resolves anchors against\nthe complete column, so hidden cards remain in their relative order.\nTask reorders require `tasks:write`, the exact current task ETag in\n`If-Match`, and an `Idempotency-Key`. Optional source/destination\n`ordering_version` values reject stale filtered-board snapshots with\n`409` rather than silently overwriting another user's reorder. A\nsuccessful reorder emits `task.moved` with placement and revision\nmetadata; dense positions are rebalanced transactionally.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          },
+          {
+            "bearerAuth": [
+              "tasks:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskReorderRequest"
+              },
+              "example": {
+                "destination_column_id": "col_ready",
+                "expected_source_column_id": "col_backlog",
+                "before_task_id": "task-42",
+                "after_task_id": "task-41",
+                "placement": "between",
+                "expected_source_ordering_version": 3,
+                "expected_destination_ordering_version": 8,
+                "source": "board",
+                "reason": "Keyboard reorder."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Precisely placed task with a strong ETag.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskMutationResponse"
+                },
+                "examples": {
+                  "task": {
+                    "$ref": "#/components/examples/TaskExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/TaskMutationConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

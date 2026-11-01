@@ -1,7 +1,8 @@
 import { tick } from 'svelte';
 
 /** Shortest shared column height, so cramped viewports keep a usable card body. */
-export const minBoardColumnHeight = 280;
+// Keep a full readable card visible beneath the column header and intake hint.
+export const minBoardColumnHeight = 340;
 
 /**
  * Columns share the tallest natural stack, capped to the viewport space below the
@@ -19,7 +20,19 @@ function naturalColumnHeight(column: HTMLElement, body: HTMLElement) {
   const gap = parseFloat(style.rowGap) || 0;
   const content = children.reduce((sum, child) => sum + child.offsetHeight, 0) + gap * Math.max(0, children.length - 1);
   const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-  return column.offsetHeight - body.offsetHeight + padding + content;
+  // Card bodies hug their content, so unused column space is not chrome.
+  // Measure fixed siblings explicitly or a previously tall column can never
+  // shrink again after details collapse or the result set gets smaller.
+  const columnStyle = getComputedStyle(column);
+  const chrome = Array.from(column.children).reduce((sum, child) => {
+    if (child === body) return sum;
+    const childStyle = getComputedStyle(child);
+    return sum + (child as HTMLElement).offsetHeight
+      + (parseFloat(childStyle.marginTop) || 0) + (parseFloat(childStyle.marginBottom) || 0);
+  }, 0);
+  const frame = parseFloat(columnStyle.paddingTop) + parseFloat(columnStyle.paddingBottom)
+    + parseFloat(columnStyle.borderTopWidth) + parseFloat(columnStyle.borderBottomWidth);
+  return chrome + frame + padding + content;
 }
 
 /** Space reserved beneath the columns: board padding, its scrollbar, and ancestor bottom padding. */
@@ -41,9 +54,11 @@ export function boardCardHeight(node: HTMLElement) {
     frame = 0;
     const natural: number[] = [];
     let top = Infinity;
+    let gutter = 0;
     for (const column of node.querySelectorAll<HTMLElement>(':scope > .board-column')) {
       const body = column.querySelector<HTMLElement>('.column-cards');
       if (!body) continue;
+      gutter = Math.max(gutter, body.offsetWidth - body.clientWidth);
       natural.push(naturalColumnHeight(column, body));
       top = Math.min(top, column.getBoundingClientRect().top + window.scrollY);
     }
@@ -52,6 +67,11 @@ export function boardCardHeight(node: HTMLElement) {
     const value = `${boardColumnHeight(natural, available)}px`;
     if (node.style.getPropertyValue('--board-column-height') !== value) {
       node.style.setProperty('--board-column-height', value);
+    }
+    // Overlay scrollbars reserve nothing; classic ones reserve a stable gutter
+    // that the card padding gives back so cards stay centred in the column.
+    if (node.style.getPropertyValue('--column-gutter') !== `${gutter}px`) {
+      node.style.setProperty('--column-gutter', `${gutter}px`);
     }
   };
   const schedule = () => {

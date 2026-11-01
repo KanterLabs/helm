@@ -1,0 +1,40 @@
+paths:
+  /api/v1/cloudflare/oauth/callback:
+    get:
+      operationId: finishCloudflareOAuth
+      summary: Browser return from Cloudflare sign-in
+      description: |
+        Reached through the sign-in relay. Redeems the code for the
+        administrator who started sign-in (unknown, reused, expired or
+        foreign `state` is refused), then redirects to
+        `/tickets?connect=1&cloudflare=connected` or with `cloudflare_error`.
+      tags:
+        - Tickets
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error_description
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Back to Connect apps with the outcome in the query string.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"

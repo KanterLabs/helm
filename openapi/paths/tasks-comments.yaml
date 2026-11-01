@@ -1,0 +1,250 @@
+paths:
+  /api/v1/tasks/{task}/comments:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    get:
+      operationId: listTaskComments
+      summary: List comments on a task
+      tags:
+        - Tasks
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Chronological cursor-paginated comments
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentCollection"
+              example:
+                data:
+                  - id: comment_01
+                    task_id: task_42
+                    actor_id: human_ada
+                    body: Progress is now visible in the event feed.
+                    version: 1
+                    created_at: 2026-08-27T10:00:00Z
+                    updated_at: 2026-08-27T10:00:00Z
+                next_cursor: ""
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      operationId: createTaskComment
+      summary: Add a comment to a task
+      description: |
+        Supply body or its text alias. When body is empty or omitted, text is
+        used; when both are non-empty, body wins. At least one non-empty value
+        is required. The response contains the canonical body field.
+      tags:
+        - Tasks
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentCreateRequest"
+            example:
+              body: Progress is now visible in the event feed.
+      responses:
+        "201":
+          description: Comment created
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/tasks/{task}/comments/{comment}:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+      - $ref: "#/components/parameters/CommentPath"
+    get:
+      operationId: getTaskComment
+      summary: Read one task comment
+      description: |
+        Return the current active Markdown comment so polling clients can
+        reconcile an edited row that is older than the visible timeline page.
+        Tombstoned comments return 404. The response includes the current
+        comment ETag for optimistic edit or delete operations.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:read
+      responses:
+        "200":
+          description: Current comment
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    patch:
+      operationId: updateTaskComment
+      summary: Edit a task comment
+      description: |
+        Replace the current Markdown body of a comment. Only its author or a
+        human administrator may edit it. The required If-Match value is the
+        comment ETag returned by the prior read or mutation; a stale version
+        returns 409 and never overwrites the newer body. Each successful edit
+        appends an immutable `comment.updated` activity event.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentUpdateRequest"
+            example:
+              body: The rollout is now complete.
+      responses:
+        "200":
+          description: Updated comment
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      operationId: deleteTaskComment
+      summary: Delete a task comment
+      description: |
+        Tombstone a comment while retaining its original body for the
+        configured retention period. Only its author or a human administrator
+        may delete it. The required If-Match value is the comment ETag returned
+        by the prior read or mutation; each successful deletion appends an
+        immutable `comment.deleted` activity event.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Comment deleted
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

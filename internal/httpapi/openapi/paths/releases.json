@@ -1,0 +1,203 @@
+{
+  "paths": {
+    "/api/v1/releases/{release}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "get": {
+        "operationId": "getRelease",
+        "summary": "Get a release",
+        "description": "Reads one release by opaque ID. A caller must have `tasks:read` and\naccess to the release's project. The response includes direct task\nprogress, transitive prerequisite progress, and cross-release\nconflicts in `summary`.\n",
+        "tags": [
+          "Releases"
+        ],
+        "responses": {
+          "200": {
+            "description": "Release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Release"
+                },
+                "examples": {
+                  "release": {
+                    "$ref": "#/components/examples/ReleaseExample"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateRelease",
+        "summary": "Update a planned release",
+        "description": "Updates release metadata. Released releases are frozen; reopen the\nrelease before changing its metadata. Omitted patch fields remain\nunchanged, while explicit null clears `description` or `target_date`.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleasePatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteRelease",
+        "summary": "Delete an empty planned release",
+        "description": "A release can be deleted only while planned and with no live task members. Deletion is explicit and never clears task assignments implicitly.",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Release deleted.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

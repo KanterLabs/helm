@@ -1,0 +1,53 @@
+{
+  "paths": {
+    "/api/v1/ticket-webhooks/{webhook}/rotate": {
+      "parameters": [
+        {
+          "name": "webhook",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "rotateTicketWebhook",
+        "summary": "Rotate a ticket webhook secret",
+        "description": "Human administrators only. Returns the new URL once; the previous URL stops working immediately.",
+        "tags": [
+          "Tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "New secret and URL",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketWebhookSecret"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  }
+}

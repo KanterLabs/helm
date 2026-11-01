@@ -1,0 +1,34 @@
+{
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque",
+        "description": "Scoped agent token sent as `Authorization: Bearer <token>`. ",
+        "x-scopes": [
+          "projects:read",
+          "projects:write",
+          "tasks:read",
+          "tasks:write",
+          "tasks:claim",
+          "events:read",
+          "notifications:read",
+          "notifications:write"
+        ]
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "roadmap_session",
+        "description": "HttpOnly local human session cookie."
+      },
+      "cloudflareAccess": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Cf-Access-Jwt-Assertion",
+        "description": "Compact RS256 JWT assertion injected by a protected Cloudflare Access\nTunnel. The server validates its signature, issuer, expiration, and\nconfigured UI/API application audience before using its signed email\nclaim. Generic reverse-proxy identity headers are never accepted.\n"
+      }
+    }
+  }
+}

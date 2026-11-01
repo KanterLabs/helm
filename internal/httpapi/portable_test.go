@@ -29,7 +29,7 @@ func TestPortableRoutesExportImportBoardsAndTrello(t *testing.T) {
 	if exported.Code != http.StatusOK {
 		t.Fatalf("project export status = %d, body=%s", exported.Code, exported.Body.String())
 	}
-	if exported.Header().Get("X-Helm-Portable-Format") != store.PortableFormat || exported.Header().Get("X-Helm-Portable-Version") != strconv.Itoa(store.PortableVersion) {
+	if exported.Header().Get("X-Helm-Portable-Format") != store.PortableFormat || exported.Header().Get("X-Helm-Portable-Version") != strconv.Itoa(store.PortableVersionCurrent) {
 		t.Fatalf("portable headers = format=%q version=%q", exported.Header().Get("X-Helm-Portable-Format"), exported.Header().Get("X-Helm-Portable-Version"))
 	}
 	if exported.Header().Get("Content-Disposition") == "" || exported.Header().Get("Cache-Control") != "no-store" {

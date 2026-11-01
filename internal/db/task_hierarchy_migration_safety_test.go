@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"reflect"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -32,12 +31,14 @@ func TestTaskHierarchyMigrationPreservesPopulatedDataAndRetainedWrites(t *testin
 		t.Fatalf("migrate populated pre-017 database: %v", err)
 	}
 	after := readStableFixture(t, ctx, database, 17)
-	if !reflect.DeepEqual(before.stable, after.stable) {
-		t.Fatalf("stable fixture changed during hierarchy migration:\nbefore=%#v\nafter=%#v", before.stable, after.stable)
-	}
+	assertStableFixtureMigration(t, before, after)
 	for _, table := range []string{"actors", "projects", "columns", "tasks", "comments", "events", "idempotency_keys"} {
-		if got := after.counts[table]; got != before.counts[table] {
-			t.Fatalf("%s count changed during hierarchy migration: before=%d after=%d", table, before.counts[table], got)
+		expected := before.counts[table]
+		if table == "columns" {
+			expected++ // Migration 036 adds the project's Bugs column.
+		}
+		if got := after.counts[table]; got != expected {
+			t.Fatalf("%s count changed during hierarchy migration: before=%d after=%d", table, expected, got)
 		}
 	}
 

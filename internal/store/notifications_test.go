@@ -27,6 +27,9 @@ func TestNotificationsWatchesMentionsPreferencesAndLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := data.UpdateMember(ctx, assignee.ID, MemberUpdate{ProjectIDs: &[]string{project.ID}}, owner.ID); err != nil {
+		t.Fatal(err)
+	}
 	task, err := data.CreateTask(ctx, project.ID, TaskInput{Title: ptr("Watch me"), Assignee: &assignee.ID, AssigneeSet: true}, owner.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -175,6 +178,9 @@ func TestDependencyUnblockEventNotifiesProjectWatchers(t *testing.T) {
 	}
 	dependent, err := data.CreateTask(ctx, project.ID, TaskInput{Title: ptr("Dependent")}, owner.ID)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.UpdateMember(ctx, watcher.ID, MemberUpdate{ProjectIDs: &[]string{project.ID}}, owner.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := data.CreateProjectWatch(ctx, watcher.ID, project.ID); err != nil {

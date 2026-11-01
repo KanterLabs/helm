@@ -1,9 +1,7 @@
 [Unit]
-Description=Bearer-only compatibility relay for retired Helm origin
+Description=Bearer-only compatibility relay for Helm on Coolify
 After=network-online.target
 Wants=network-online.target
-Conflicts=helm.service
-
 [Service]
 User=nobody
 Group=nogroup
@@ -15,8 +13,6 @@ ProtectSystem=strict
 ProtectHome=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 CapabilityBoundingSet=
-ReadOnlyPaths=/
 UMask=0077
-
 [Install]
 WantedBy=multi-user.target

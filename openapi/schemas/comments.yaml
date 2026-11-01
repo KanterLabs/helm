@@ -1,0 +1,112 @@
+components:
+  schemas:
+    Comment:
+      type: object
+      required:
+        - id
+        - task_id
+        - actor_id
+        - body
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        task_id:
+          $ref: "#/components/schemas/Identifier"
+        actor_id:
+          $ref: "#/components/schemas/Identifier"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: Markdown comment body.
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Optimistic-concurrency version; use it as If-Match on mutations.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+      additionalProperties: false
+    CommentUpdateRequest:
+      type: object
+      description: |
+        Either body or text must contain a non-empty value. If both are
+        supplied and non-empty, body wins; an empty body falls back to text.
+      properties:
+        body:
+          type:
+            - string
+            - "null"
+          maxLength: 20000
+          description: Replacement Markdown comment body.
+        text:
+          type:
+            - string
+            - "null"
+          maxLength: 20000
+          description: Compatibility alias used when body is empty or omitted.
+      anyOf:
+        - required:
+            - body
+          properties:
+            body:
+              type: string
+              minLength: 1
+        - required:
+            - text
+          properties:
+            text:
+              type: string
+              minLength: 1
+      additionalProperties: false
+    CommentCreateRequest:
+      type: object
+      description: |
+        Either body or text must contain a non-empty value. If both are
+        supplied and non-empty, body wins; an empty body falls back to text.
+      properties:
+        body:
+          type:
+            - string
+            - "null"
+          maxLength: 20000
+          description: Markdown comment body.
+        text:
+          type:
+            - string
+            - "null"
+          maxLength: 20000
+          description: Compatibility alias used when body is empty or omitted.
+      anyOf:
+        - required:
+            - body
+          properties:
+            body:
+              type: string
+              minLength: 1
+        - required:
+            - text
+          properties:
+            text:
+              type: string
+              minLength: 1
+      additionalProperties: false
+    CommentCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comment"
+        next_cursor:
+          type: string
+          description: Empty string when there is no next page.
+      additionalProperties: false

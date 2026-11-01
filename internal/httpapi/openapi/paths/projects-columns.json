@@ -1,0 +1,181 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/columns": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listColumns",
+        "summary": "List a project's ordered columns",
+        "tags": [
+          "Columns"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "description": "Include archived columns after active columns; defaults to false for board reads.",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated columns in board order",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColumnCollection"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": "col_backlog",
+                      "project_id": "proj_ops",
+                      "name": "Backlog",
+                      "semantic_state": "backlog",
+                      "position": 0,
+                      "created_at": "2026-08-27T08:00:00Z",
+                      "updated_at": "2026-08-27T08:00:00Z"
+                    },
+                    {
+                      "id": "col_ready",
+                      "project_id": "proj_ops",
+                      "name": "Ready",
+                      "semantic_state": "ready",
+                      "position": 1,
+                      "created_at": "2026-08-27T08:00:00Z",
+                      "updated_at": "2026-08-27T08:00:00Z"
+                    }
+                  ],
+                  "next_cursor": ""
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createColumn",
+        "summary": "Create a board column",
+        "description": "Project creation creates the default columns; this route adds an additional ordered column.",
+        "tags": [
+          "Columns"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ColumnCreateRequest"
+              },
+              "example": {
+                "name": "Review",
+                "semantic_state": "active",
+                "position": 2
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Column created. Humans and bearer tokens with projects:read\nreceive the full column; a projects:write-only bearer receives\nonly its id and project_id.\n",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColumnMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

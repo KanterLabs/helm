@@ -1,0 +1,174 @@
+{
+  "paths": {
+    "/api/v1/search": {
+      "get": {
+        "operationId": "searchTasks",
+        "summary": "Search tasks across visible projects",
+        "description": "Returns tasks matching the supplied full-text or field filters. The\nproject ceiling is applied before pagination, so a scoped bearer token\nnever spends a page slot on an inaccessible match. `q` searches task\nkeys, titles, descriptions, project names, labels, board state,\npriority, assignee/claim owner names, and bug details. When `q` is\nsupplied, matching projects and saved views are included in the\noptional `projects` and `views` response fields for command navigation.\n`view` loads a saved view first; explicit query parameters override its\nmatching filters without changing the saved view. `release_id` accepts\nan opaque release ID or `unassigned`; global search never resolves a\nbare release name because names can repeat across projects.\n",
+        "tags": [
+          "Search"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SearchQuery"
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "description": "Match a task key such as OPS-42.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "description": "Case-insensitive substring match on task title.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "description",
+            "in": "query",
+            "description": "Case-insensitive substring match on task description.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "$ref": "#/components/parameters/LabelFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AssigneeFilter"
+          },
+          {
+            "name": "claim_owner",
+            "in": "query",
+            "description": "Match a claim owner ID or case-insensitive actor-name substring; use `none` for unclaimed tasks.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "$ref": "#/components/parameters/TaskState"
+          },
+          {
+            "$ref": "#/components/parameters/PriorityFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIDFilter"
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Restrict results to a project ID, key, or stable slug.",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "due_from",
+            "in": "query",
+            "description": "Include tasks due at or after this RFC3339 timestamp.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "due_to",
+            "in": "query",
+            "description": "Include tasks due at or before this RFC3339 timestamp.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Comma-separated stable sort terms such as `updated_at:desc,title:asc`.",
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z_]+(?::(?:asc|desc))(?:,[a-z_]+(?::(?:asc|desc))){0,7}$"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "Saved view ID to use as the initial filter set.",
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "name": "clear",
+            "in": "query",
+            "description": "Clear these saved criteria before applying explicit overrides, without changing the saved view or its project scope.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(q|priority|state|release_id)(,(q|priority|state|release_id))*$"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated global search results.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

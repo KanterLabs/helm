@@ -1,0 +1,107 @@
+{
+  "paths": {
+    "/api/v1/my-work": {
+      "get": {
+        "operationId": "listMyWork",
+        "summary": "List work assigned to the current actor",
+        "description": "By default, returns tasks assigned to the authenticated actor across\nall projects, or across the requested project. Results include\nassigned tasks and tasks with an active claim owned by the actor. Set\n`view=live` for the coordination pulse view: it returns unfinished\ntasks that have a structured agent-work snapshot, ordered with\naction-needed pulses first. `view=assigned` is an explicit spelling of\nthe legacy actor-assignment and active-claim view. `agent_state`,\n`action_needed`, `dependency`, and `release_id` can be combined with\neither view. `release_id` accepts an opaque release ID or `unassigned`\nand is applied before pagination.\n`dependency=blocked` selects work with an unmet live prerequisite;\n`dependency=ready` requires at least one live prerequisite and none\nunmet, so tasks with no prerequisites do not match. An unknown requested\nproject returns 404; a project-scoped token must name a project.\n",
+        "tags": [
+          "My work"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/MyWorkView"
+          },
+          {
+            "$ref": "#/components/parameters/TaskState"
+          },
+          {
+            "$ref": "#/components/parameters/PriorityFilter"
+          },
+          {
+            "$ref": "#/components/parameters/LabelFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AgentStateFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ActionNeededFilter"
+          },
+          {
+            "$ref": "#/components/parameters/DependencyFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SearchQuery"
+          },
+          {
+            "$ref": "#/components/parameters/UpdatedAfter"
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Restrict work to a project ID, key, or slug.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIDFilter"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated assigned tasks",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCollection"
+                },
+                "examples": {
+                  "tasks": {
+                    "$ref": "#/components/examples/TaskCollectionExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

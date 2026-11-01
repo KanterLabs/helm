@@ -1,0 +1,172 @@
+{
+  "components": {
+    "schemas": {
+      "RoadmapStateCounts": {
+        "type": "object",
+        "required": [
+          "backlog",
+          "ready",
+          "active",
+          "blocked",
+          "completed"
+        ],
+        "properties": {
+          "backlog": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ready": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "active": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "Roadmap": {
+        "type": "object",
+        "required": [
+          "task_total",
+          "completed",
+          "completion_percent",
+          "state_counts",
+          "overdue",
+          "due_soon",
+          "upcoming",
+          "upcoming_tasks",
+          "recent_activity"
+        ],
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/Project",
+            "description": "Project for a project-scoped roadmap; omitted for the global summary."
+          },
+          "projects": {
+            "type": "array",
+            "description": "Per-project summaries included in a global roadmap.",
+            "items": {
+              "$ref": "#/components/schemas/RoadmapProject"
+            }
+          },
+          "task_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completion_percent": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "total_tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completion_percentage": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "state_counts": {
+            "$ref": "#/components/schemas/RoadmapStateCounts",
+            "description": "State counts for the requested scope."
+          },
+          "overdue": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "due_soon": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overdue_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "due_soon_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "upcoming": {
+            "type": "array",
+            "description": "Empty for bearer tokens without tasks:read.",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "upcoming_tasks": {
+            "type": "array",
+            "description": "Alias of upcoming; empty for bearer tokens without tasks:read.",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "recent_activity": {
+            "type": "array",
+            "description": "Empty for bearer tokens without events:read.",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoadmapProject": {
+        "type": "object",
+        "required": [
+          "project",
+          "total_tasks",
+          "completed_tasks",
+          "completion_percentage"
+        ],
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/Project"
+          },
+          "total_tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed_tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completion_percentage": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "state_counts": {
+            "$ref": "#/components/schemas/RoadmapStateCounts",
+            "description": "Optional per-project state counts; current global roadmap entries omit this field."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoadmapResponse": {
+        "$ref": "#/components/schemas/Roadmap"
+      }
+    }
+  }
+}

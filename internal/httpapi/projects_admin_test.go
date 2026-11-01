@@ -58,8 +58,8 @@ func TestProjectColumnAdministrationHTTPFlow(t *testing.T) {
 	if err := json.Unmarshal(columnsResponse.Body.Bytes(), &columns); err != nil {
 		t.Fatalf("decode columns: %v", err)
 	}
-	if len(columns.Data) != 5 {
-		t.Fatalf("default columns = %d, want 5", len(columns.Data))
+	if len(columns.Data) != 6 {
+		t.Fatalf("default columns = %d, want 6", len(columns.Data))
 	}
 
 	createdColumnResponse := request(t, server, http.MethodPost, "/api/v1/projects/"+project.Slug+"/columns", map[string]any{
@@ -118,8 +118,8 @@ func TestProjectColumnAdministrationHTTPFlow(t *testing.T) {
 	if err := json.Unmarshal(liveColumns.Body.Bytes(), &live); err != nil {
 		t.Fatalf("decode live columns: %v", err)
 	}
-	if len(live.Data) != 5 {
-		t.Fatalf("live columns after archive = %d, want 5", len(live.Data))
+	if len(live.Data) != 6 {
+		t.Fatalf("live columns after archive = %d, want 6", len(live.Data))
 	}
 	allColumns := request(t, server, http.MethodGet, "/api/v1/projects/"+project.Slug+"/columns?archived=true", nil, nil)
 	if allColumns.Code != http.StatusOK {
@@ -131,7 +131,7 @@ func TestProjectColumnAdministrationHTTPFlow(t *testing.T) {
 	if err := json.Unmarshal(allColumns.Body.Bytes(), &all); err != nil {
 		t.Fatalf("decode all columns: %v", err)
 	}
-	if len(all.Data) != 6 || all.Data[len(all.Data)-1].ID != column.ID || all.Data[len(all.Data)-1].ArchivedAt == nil {
+	if len(all.Data) != 7 || all.Data[len(all.Data)-1].ID != column.ID || all.Data[len(all.Data)-1].ArchivedAt == nil {
 		t.Fatalf("all columns after archive = %+v", all.Data)
 	}
 

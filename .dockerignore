@@ -1,5 +1,6 @@
 .git
 .github
+.artifacts
 dist
 web/dist
 web/node_modules

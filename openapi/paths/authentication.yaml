@@ -1,0 +1,284 @@
+paths:
+  /api/v1/auth/status:
+    get:
+      operationId: getAuthStatus
+      summary: Get authentication status
+      description: |
+        Public deployment status. `disabled` is intended only for development.
+        `tailnet` is a private-edge mode; setup is deployment-owned and does
+        not use a local password form.
+      tags:
+        - Authentication
+      security:
+        - {}
+      responses:
+        "200":
+          description: Authentication mode and setup status
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatus"
+              examples:
+                localSetupRequired:
+                  value:
+                    mode: local
+                    configured: false
+                    setup_required: true
+                    authenticated: false
+                    actor: null
+                    user: null
+                localAuthenticated:
+                  value:
+                    mode: local
+                    configured: true
+                    setup_required: false
+                    authenticated: true
+                    actor:
+                      id: human_ada
+                      kind: human
+                      name: Ada Lovelace
+                      email: ada@example.com
+                      admin: true
+                      created_at: 2026-08-27T08:00:00Z
+                      updated_at: 2026-08-27T10:00:00Z
+                    user:
+                      id: human_ada
+                      kind: human
+                      name: Ada Lovelace
+                      email: ada@example.com
+                      admin: true
+                      created_at: 2026-08-27T08:00:00Z
+                      updated_at: 2026-08-27T10:00:00Z
+                tailnetAwaitingAccess:
+                  value:
+                    mode: tailnet
+                    configured: false
+                    setup_required: false
+                    authenticated: false
+                    actor: null
+                    user: null
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/auth/setup:
+    post:
+      operationId: setupAuth
+      summary: Create the first local administrator
+      description: |
+        Initializes local authentication exactly once and returns the newly-created
+        administrator actor. This route is available only in `local` mode;
+        Cloudflare and Tailnet deployments provision identity at the protected
+        edge and do not use password setup. `name` is optional and defaults to
+        the local part of the email. Sign in with the login route to establish a
+        session. The configured public Origin is required for this mutation.
+        Missing, null, mistyped, malformed, or schema-invalid fields return
+        `400` (`invalid_request` or `invalid_json`).
+      tags:
+        - Authentication
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthSetupRequest"
+            example:
+              name: Ada Lovelace
+              email: ada@example.com
+              password: correct horse battery staple
+      responses:
+        "201":
+          description: Administrator created
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Actor"
+              examples:
+                actor:
+                  $ref: "#/components/examples/ActorExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Setup has already been completed
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: setup_already_complete
+                  message: Authentication setup has already been completed
+                  details: {}
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Sign in with a local account
+      description: |
+        Signs in with a local account; Cloudflare and Tailnet deployments do
+        not use password login. Requires the configured public Origin; this
+        route does not accept Idempotency-Key. Missing, null, mistyped,
+        malformed, or schema-invalid fields return `400` (`invalid_request` or
+        `invalid_json`). A syntactically valid request with credentials that do
+        not authenticate returns `401` (`invalid_credentials`).
+      tags:
+        - Authentication
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            example:
+              email: ada@example.com
+              password: correct horse battery staple
+      responses:
+        "200":
+          description: Signed in
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            Set-Cookie:
+              $ref: "#/components/headers/SetCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Actor"
+              examples:
+                actor:
+                  $ref: "#/components/examples/ActorExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Credentials were not accepted
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: invalid_credentials
+                  message: Email or password is incorrect
+                  details: {}
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Sign out the current session
+      description: |
+        Clears the local session cookie. The route is intentionally callable
+        without a valid session, but browser callers must send the configured
+        public Origin. In Tailnet mode it does not create a password session or
+        bypass the private edge. This route does not accept Idempotency-Key.
+      tags:
+        - Authentication
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+        - cloudflareAccess: []
+        - {}
+      responses:
+        "200":
+          description: Signed out
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            Set-Cookie:
+              $ref: "#/components/headers/SetCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+              example:
+                ok: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentActor
+      summary: Get the authenticated actor
+      tags:
+        - Authentication
+      responses:
+        "200":
+          description: Current human or agent actor
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Actor"
+              examples:
+                actor:
+                  $ref: "#/components/examples/ActorExample"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

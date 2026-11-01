@@ -1,0 +1,48 @@
+paths:
+  /api/v1/admin/beta/switches/{job_id}:
+    parameters:
+      - $ref: "#/components/parameters/BetaSwitchJobPath"
+    get:
+      operationId: getBetaSwitchStatus
+      summary: Get a beta switch job
+      description: |
+        Returns the durable status of a queued beta build switch. This is a
+        human-administrator-only control on the private beta Tailnet
+        deployment; bearer agent tokens are never accepted. `job_id` is an
+        exact 32-character lowercase hexadecimal identifier.
+      tags:
+        - Administration
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+      responses:
+        "200":
+          description: Beta switch job status
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BetaSwitchResponse"
+              examples:
+                job:
+                  $ref: "#/components/examples/BetaSwitchResponseExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

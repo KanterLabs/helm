@@ -2,6 +2,7 @@
 
 <script lang="ts">
   // Project board and timeline view.
+  import { defaultBoardOverflowState, type BoardOverflowDirection, type BoardOverflowState } from '../../../lib/boardOverflowNavigation';
   import BoardTimeline from '../../../lib/components/BoardTimeline.svelte';
   import { loadBoard } from '../../board/load';
   import { loadBoardTimeline, loadOlderBoardTimeline, setBoardTimelineFilter } from '../../boardTimeline';
@@ -17,6 +18,15 @@
   import { openTaskModal } from '../../taskModal';
   import BoardColumns from './BoardColumns.svelte';
   import BoardToolbar from './BoardToolbar.svelte';
+
+  // The columns measure their own overflow; the toolbar row shows the arrows.
+  let overflow = $state.raw<BoardOverflowState>(defaultBoardOverflowState);
+  let moveOverflow: ((direction: BoardOverflowDirection) => void) | null = null;
+  const trackOverflow = (state: BoardOverflowState, move: ((direction: BoardOverflowDirection) => void) | null) => {
+    overflow = state;
+    moveOverflow = move;
+  };
+  const moveColumns = (direction: BoardOverflowDirection) => moveOverflow?.(direction);
 </script>
 
 {#if workspace.projectsLoading && !workspace.projects.length}
@@ -37,7 +47,7 @@
 
 
   {#if workspace.view === 'board'}
-  <BoardToolbar />
+  <BoardToolbar {overflow} onMoveColumns={moveColumns} />
 
   {#if board.boardFilterChips.length}<div class="board-filter-chips" aria-label="Active board filters">{#each board.boardFilterChips as chip (chip.id)}<button type="button" on:click={chip.clear} aria-label={`Remove ${chip.label} filter`}>{chip.label} <span aria-hidden="true">×</span></button>{/each}</div>{/if}
   {#if board.boardError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{board.boardError}</span><button class="text-button" type="button" on:click={() => loadBoard()}>Retry</button></div>{/if}
@@ -45,7 +55,7 @@
   {#if Object.values(board.boardPages).some((page) => Boolean(page.error))}<div class="inline-alert warning content-alert" role="status"><span aria-hidden="true">…</span><span>Some board columns could not be loaded.</span><button class="text-button" type="button" on:click={() => loadBoard()}>Retry columns</button></div>{/if}
   {#if board.boardReconciliationNotice}<div class="inline-alert info content-alert" role="status"><span aria-hidden="true">↻</span><span>{board.boardReconciliationNotice}</span><button class="text-button" type="button" on:click={() => loadBoard()}>Refresh</button></div>{/if}
   {#if board.boardLoading && board.tasks.length}<div class="board-loading-note" role="status" aria-live="polite">Loading the latest board pages…</div>{/if}
-  <BoardColumns />
+  <BoardColumns onOverflow={trackOverflow} />
   {:else}
     <BoardTimeline
       items={timeline.boardTimelineItems}

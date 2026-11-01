@@ -12,20 +12,20 @@ export async function verifyBoardAndDrawerWork(page: Page, fx: AgentWorkFixture)
   await expect(workingCard).toBeVisible();
   const compactPulse = workingCard.locator('.agent-pulse');
   const expandToggle = workingCard.getByRole('button', { name: `Show details for ${fx.tasks.working.key}` });
-  await expect(workingCard).toHaveCSS('height', '128px');
+  await expect(workingCard).toHaveCSS('height', '160px');
   await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
   await expect(compactPulse, 'board cards keep live-work details hidden until expanded').toBeHidden();
   await expect(compactPulse.locator('.agent-pulse-copy')).toHaveCount(0);
 
   await expandToggle.click();
-  await expect(workingCard).toHaveCSS('height', '220px');
+  await expect(workingCard).toHaveCSS('height', '260px');
   await expect(workingCard.getByRole('button', { name: `Hide details for ${fx.tasks.working.key}` })).toHaveAttribute('aria-expanded', 'true');
   await expect(compactPulse).toBeVisible();
   await expect(compactPulse.locator('.agent-pulse-badge-label')).toHaveText('Working');
   await expect(compactPulse.locator('.agent-pulse-copy')).toHaveCount(0);
 
   await workingCard.getByRole('button', { name: `Hide details for ${fx.tasks.working.key}` }).click();
-  await expect(workingCard).toHaveCSS('height', '128px');
+  await expect(workingCard).toHaveCSS('height', '160px');
   await expect(compactPulse).toBeHidden();
 
   const missingCard = board.locator('.task-card').filter({ hasText: fx.tasks.missing.title });

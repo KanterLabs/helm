@@ -1,0 +1,80 @@
+{
+  "paths": {
+    "/api/v1/releases/{release}/complete": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "post": {
+        "operationId": "completeRelease",
+        "summary": "Mark a release as released",
+        "description": "Explicitly completes a planned release after rechecking direct task\nmembership and the transitive prerequisite closure in the write\ntransaction. It fails when the release is empty, required work is\nincomplete, or an incomplete prerequisite belongs to another planned\nrelease. Completing the last task only makes a release ready; it does\nnot perform this action automatically.\n",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Released release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

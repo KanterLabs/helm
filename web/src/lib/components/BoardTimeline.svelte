@@ -304,7 +304,7 @@
           </div>
           <ol class="board-timeline-list" aria-label={`${group.label} updates`}>
             {#each group.items as item (item.id)}
-              {@const task = taskFor(item)}
+              {@const task = tasksById.get(item.task_id)}
               {@const actor = actorKind(item)}
               <li class="board-timeline-item" data-kind={item.kind}>
                 <button

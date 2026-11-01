@@ -18,11 +18,10 @@ concurrency:
   # canceled while it is carrying an environment deployment.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/beta' }}
 
-# Compatibility exception: retain the hosted-runner cutover from 92615c2.
-# Live ci-runner-partition-arc-cap admission policy forces all seven retired
-# pools, including homelab-heavy, to 0/0; ARC controllers are deliberately zero.
-# Restoring runners requires the separate single-job20261011B1H1 platform
-# migration. Hosted deployment jobs join the existing private tailnet below.
+# VM128 admits only reviewed beta/main and explicit canary workflow refs.
+# Public PRs and protected deploy jobs retain their hosted compatibility path:
+# ordinary test pods cannot access deployment services. Enable trusted browser
+# routing only after the single-VM canary and admission gates are accepted.
 jobs:
   checks:
     runs-on: ubuntu-24.04
@@ -75,64 +74,40 @@ jobs:
           retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
 
   browser:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && (github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/main') && vars.HELM_WARM_RUNNER_ENABLED == 'true' && '{"group":"helm-runners","labels":"homelab-heavy"}' || '"ubuntu-24.04"') }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/prepared-runner
+        if: runner.environment == 'self-hosted'
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: runner.environment != 'self-hosted'
         with:
           go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: runner.environment != 'self-hosted'
         with:
           node-version: 22.23.2
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Cache matching Playwright Chromium downloads
+        if: runner.environment != 'self-hosted'
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('web/package-lock.json') }}
-      - name: Install browser dependencies
+      - name: Install hosted browser dependencies
+        if: runner.environment != 'self-hosted'
         run: |
           cd web
           npm ci
           npx playwright install --with-deps chromium
-      - name: Run the race-instrumented real browser workflow
-        env:
-          HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-e2e-evidence
-          HELM_E2E_GOFLAGS: -race
-          HELM_E2E_REVISION: ${{ github.sha }}
-        run: ./test/e2e/run.sh
-      - name: Verify stalled Codex account deadlines
-        id: account_deadlines
-        env:
-          HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-e2e-deadlines
-          HELM_E2E_GOFLAGS: -race
-          HELM_E2E_REVISION: ${{ github.sha }}
-          HELM_E2E_SKIP_WEB_BUILD: 'true'
-          HELM_E2E_CODEX_STALL_ACCOUNT: 'true'
-        run: ./test/e2e/run.sh e2e/luna-account-deadline-stability.spec.ts
-      - name: Upload browser evidence
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: ./.github/actions/browser-validation
         with:
-          name: helm-e2e-${{ github.sha }}
-          include-hidden-files: true
-          path: ${{ runner.temp }}/helm-e2e-evidence
-          if-no-files-found: error
-          retention-days: ${{ job.status == 'failure' && 7 || 3 }}
-      - name: Upload account deadline evidence
-        if: ${{ always() && steps.account_deadlines.outcome != 'skipped' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: helm-e2e-deadlines-${{ github.sha }}
-          include-hidden-files: true
-          path: ${{ runner.temp }}/helm-e2e-deadlines
-          if-no-files-found: error
-          retention-days: ${{ job.status == 'failure' && 7 || 3 }}
+          evidence-name: helm-e2e-${{ github.sha }}
 
   # Keep the protected-main race context tied to the real race-instrumented
   # browser and stalled-account workflows above.

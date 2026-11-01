@@ -1,0 +1,106 @@
+paths:
+  /api/v1/cloudflare/setup:
+    post:
+      operationId: startCloudflareSetup
+      summary: Run guided setup
+      description: >
+        Human administrators only. Starts the checklist in the background:
+
+        create (or reuse) the public URL, wait for the connector, verify the
+
+        URL from the internet, optionally turn on email and create the first
+
+        email inbox, then forget the credential. A public URL created by the run is removed again if
+        the
+
+        connector or reachability step fails. Poll `getCloudflareSetup`.
+      tags:
+        - Tickets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - zone
+              properties:
+                zone:
+                  type: string
+                  description: Zone ID from listCloudflareZones.
+                hostname:
+                  type: string
+                  description: Defaults to the zone's suggested hostname.
+                email:
+                  type: object
+                  required:
+                    - local_part
+                  properties:
+                    local_part:
+                      type: string
+                    fallback_address:
+                      type: string
+                    enable_subaddressing:
+                      type: boolean
+                    project:
+                      type: string
+                      deprecated: true
+                      description: Ignored; the first inbox's tickets land in the ticket queue.
+                    inbox_name:
+                      type: string
+                      description: Name of the first inbox; default `Alerts`.
+                    assign_to_me:
+                      type: boolean
+                      description: Assign the first inbox's tickets to the caller.
+                  additionalProperties: false
+              additionalProperties: false
+      responses:
+        "202":
+          description: Setup started
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudflareSetupRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/cloudflare/setup/{run}:
+    parameters:
+      - name: run
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/Identifier"
+    get:
+      operationId: getCloudflareSetup
+      summary: Guided setup progress
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Run
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudflareSetupRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"

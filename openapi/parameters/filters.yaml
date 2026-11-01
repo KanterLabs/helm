@@ -1,0 +1,202 @@
+components:
+  parameters:
+    ColumnFilter:
+      name: column
+      in: query
+      required: false
+      description: Filter by column ID or case-insensitive column name.
+      schema:
+        $ref: "#/components/schemas/Identifier"
+      example: col_ready
+    TaskKindFilter:
+      name: kind
+      in: query
+      required: false
+      description: Filter by task kind.
+      schema:
+        $ref: "#/components/schemas/TaskKind"
+      example: bug
+    PriorityFilter:
+      name: priority
+      in: query
+      required: false
+      description: Filter by task priority.
+      schema:
+        $ref: "#/components/schemas/Priority"
+      example: high
+    ReleaseFilter:
+      name: release
+      in: query
+      required: false
+      description: |
+        Project-scoped target-release filter. Accepts an opaque release ID or
+        a case-insensitive release name in the selected project. Use the
+        literal `unassigned` to select tasks with no release; `none` remains a
+        compatibility alias. The filter is applied before pagination.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+      example: "1.4"
+    ReleaseIDFilter:
+      name: release_id
+      in: query
+      required: false
+      description: |
+        Stable global target-release filter. Accepts an opaque release ID or
+        the literal `unassigned` for tasks with no release. Global routes do
+        not interpret a bare release name because names may repeat across
+        projects. The filter is applied before pagination.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+      example: release_14
+    ReleaseStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Restrict releases to planned or released lifecycle status.
+      schema:
+        type: string
+        enum:
+          - planned
+          - released
+      example: planned
+    ReleaseTargetFrom:
+      name: target_from
+      in: query
+      required: false
+      description: Inclusive ISO YYYY-MM-DD lower bound for a release target date.
+      schema:
+        type: string
+        format: date
+      example: 2026-11-01
+    ReleaseTargetTo:
+      name: target_to
+      in: query
+      required: false
+      description: Inclusive ISO YYYY-MM-DD upper bound for a release target date.
+      schema:
+        type: string
+        format: date
+      example: 2026-12-31
+    SeverityFilter:
+      name: severity
+      in: query
+      required: false
+      description: Filter by bug severity. Tasks without bug details do not match.
+      schema:
+        $ref: "#/components/schemas/BugSeverity"
+      example: s1
+    LabelFilter:
+      name: label
+      in: query
+      required: false
+      description: Filter by label ID or case-insensitive label name.
+      schema:
+        $ref: "#/components/schemas/Identifier"
+      example: label_api
+    AssigneeFilter:
+      name: assignee
+      in: query
+      required: false
+      description: Filter by assignee actor ID. Use `none` for unassigned tasks.
+      schema:
+        type: string
+        minLength: 1
+      example: agent_ada
+    ReporterFilter:
+      name: reporter
+      in: query
+      required: false
+      description: Filter bug tasks by reporter actor ID.
+      schema:
+        $ref: "#/components/schemas/Identifier"
+      example: human_ada
+    ResolutionFilter:
+      name: resolution
+      in: query
+      required: false
+      description: Filter bug tasks by resolution; unresolved bugs have no resolution.
+      schema:
+        $ref: "#/components/schemas/BugResolution"
+      example: fixed
+    IssueSeverityFilter:
+      name: severity
+      in: query
+      required: false
+      description: Filter bug severity; use `untriaged` for bugs without a severity.
+      schema:
+        oneOf:
+          - $ref: "#/components/schemas/BugSeverity"
+          - type: string
+            const: untriaged
+      example: s1
+    IssueResolutionFilter:
+      name: resolution
+      in: query
+      required: false
+      description: Filter bug resolution; use `unresolved` for bugs without a resolution.
+      schema:
+        oneOf:
+          - $ref: "#/components/schemas/BugResolution"
+          - type: string
+            const: unresolved
+      example: unresolved
+    UpdatedAfter:
+      name: updated_after
+      in: query
+      required: false
+      description: Return tasks updated after this UTC RFC 3339 timestamp.
+      schema:
+        $ref: "#/components/schemas/Timestamp"
+      example: 2026-08-27T00:00:00Z
+    AgentStateFilter:
+      name: agent_state
+      in: query
+      required: false
+      description: |
+        Filter by the latest agent-work state. `working`, `waiting`,
+        `verifying`, and `handoff` are published states; `stale` and `missing`
+        are read-time liveness states. Completed tasks retain their snapshot
+        as history but never match this filter. Values are lowercase and
+        repeated or invalid values return 400.
+      schema:
+        type: string
+        enum:
+          - working
+          - waiting
+          - verifying
+          - handoff
+          - stale
+          - missing
+      example: waiting
+    ActionNeededFilter:
+      name: action_needed
+      in: query
+      required: false
+      description: |
+        Strict lowercase boolean. `true` selects unfinished waiting, handoff,
+        or stale agent-work snapshots; completed tasks never match. `false`
+        leaves the result unfiltered. Empty, malformed, or repeated values
+        return 400.
+      schema:
+        type: boolean
+      example: true
+    DependencyFilter:
+      name: dependency
+      in: query
+      required: false
+      description: |
+        Filter by direct dependency readiness. `blocked` selects tasks with at
+        least one live, same-project prerequisite that is not complete;
+        `ready` selects tasks with at least one live prerequisite and no unmet
+        prerequisites. Tasks with no prerequisites never match `ready`.
+        Empty, repeated, or unsupported values return 400.
+      schema:
+        type: string
+        enum:
+          - blocked
+          - ready
+      example: blocked

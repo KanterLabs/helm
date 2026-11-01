@@ -1,0 +1,84 @@
+{
+  "paths": {
+    "/api/v1/audits/{audit}/apply": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AuditPath"
+        }
+      ],
+      "post": {
+        "operationId": "applyGithubAuditFindings",
+        "summary": "Preview or apply reviewed safe moves",
+        "description": "Requires a signed-in human with project access. Explicit preview=true performs no task mutation. Each request rechecks review approval, task version/source column, claims, safe destination and complete fresh repository evidence. Changed or incomplete evidence produces skipped results. Apply uses a deterministic finding receipt; HTTP idempotency responses are deliberately not cached, so every attempt revalidates freshness. Lifecycle destinations still require normal task actions.",
+        "tags": [
+          "GitHub",
+          "Audits"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub beta API guide",
+          "url": "docs/GITHUB_BETA_API.md"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubAuditApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubAuditApplyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

@@ -99,7 +99,7 @@ func TestBugStoreLifecycleAndFilters(t *testing.T) {
 	if reopened.Version != 5 || reopened.Bug == nil || reopened.Bug.Resolution != nil || reopened.Bug.ResolvedBy != nil || reopened.Bug.ResolvedAt != nil || reopened.Bug.DuplicateOf != nil || reopened.CompletedAt != nil || reopened.CommentCount != 2 {
 		t.Fatalf("reopened bug = %+v", reopened)
 	}
-	backlog, err := data.StateColumn(ctx, project.ID, "backlog")
+	backlog, err := data.GetColumn(ctx, bug.ColumnID)
 	if err != nil {
 		t.Fatalf("backlog column: %v", err)
 	}

@@ -1,0 +1,32 @@
+name: Helm browser validation
+description: Build once and run every race-instrumented browser suite with bounded concurrency.
+inputs:
+  evidence-name:
+    description: Unique artifact name for this job.
+    required: true
+  workers:
+    description: Maximum concurrent isolated browser fixtures.
+    default: '4'
+runs:
+  using: composite
+  steps:
+    - name: Run complete race-instrumented browser validation
+      shell: bash
+      env:
+        HELM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/helm-e2e-evidence
+        HELM_E2E_GOFLAGS: -race
+        HELM_E2E_REVISION: ${{ github.sha }}
+        HELM_E2E_WORKERS: ${{ inputs.workers }}
+        HELM_E2E_INCLUDE_DEADLINES: 'true'
+      run: python3 test/e2e/runner-metrics.py --output "$RUNNER_TEMP/helm-runner-metrics" -- ./test/e2e/run.sh
+    - name: Upload browser and resource evidence
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.evidence-name }}
+        include-hidden-files: true
+        path: |
+          ${{ runner.temp }}/helm-e2e-evidence
+          ${{ runner.temp }}/helm-runner-metrics
+        if-no-files-found: error
+        retention-days: ${{ job.status == 'failure' && 7 || 3 }}

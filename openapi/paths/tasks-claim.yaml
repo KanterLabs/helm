@@ -1,0 +1,97 @@
+paths:
+  /api/v1/tasks/{task}/claim:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    post:
+      operationId: claimTask
+      summary: Claim a task
+      description: Atomically claim an unclaimed or expired task for the current actor.
+      tags:
+        - Tasks
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimRequest"
+            example:
+              lease_seconds: 1800
+      responses:
+        "200":
+          description: Task claimed by the current actor; humans and bearer tokens with tasks:read receive the
+            full task, while claim-only bearer tokens receive only id/version metadata.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+              examples:
+                task:
+                  $ref: "#/components/examples/TaskClaimedExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            The task is actively claimed by another actor or the supplied
+            version is stale. Humans and tokens with tasks:read may receive the
+            current task in error.details.current; write-only and claim-only
+            bearer tokens receive only id/version retry metadata.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: task_already_claimed
+                  message: Task is actively claimed by another actor
+                  details:
+                    current:
+                      id: task_42
+                      number: 42
+                      key: OPS-42
+                      project_id: proj_ops
+                      column_id: col_active
+                      kind: task
+                      title: Add event polling
+                      description: Implement incremental event polling for agents.
+                      priority: high
+                      position: 0
+                      assignee: agent_ada
+                      claimed_by: agent_other
+                      claim_expires_at: 2026-08-27T11:00:00Z
+                      due_at: 2026-09-01T12:00:00Z
+                      version: 7
+                      created_at: 2026-08-27T09:30:00Z
+                      updated_at: 2026-08-27T10:30:00Z
+                      labels: []
+                      comment_count: 1
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

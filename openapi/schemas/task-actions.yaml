@@ -1,0 +1,113 @@
+components:
+  schemas:
+    ClaimRequest:
+      type: object
+      description: Lease duration is optional; omitted duration defaults to 1800 seconds. Explicit values
+        are inclusive from 30 through 604800 seconds.
+      properties:
+        lease_seconds:
+          type: integer
+          minimum: 30
+          maximum: 604800
+          default: 1800
+          description: Lease duration from the time the action is accepted.
+        duration_seconds:
+          type: integer
+          minimum: 30
+          maximum: 604800
+          description: Compatibility alias for lease_seconds.
+      additionalProperties: false
+    CompleteRequest:
+      type: object
+      properties:
+        comment:
+          type: string
+          maxLength: 10000
+          description: Optional Markdown completion note.
+      additionalProperties: false
+    BlockRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 10000
+          description: Optional Markdown explanation for blocking the task.
+      additionalProperties: false
+    TriageRequest:
+      type: object
+      required:
+        - severity
+      description: Set bug severity and optionally update task routing fields.
+      properties:
+        severity:
+          $ref: "#/components/schemas/BugSeverity"
+        priority:
+          $ref: "#/components/schemas/Priority"
+        assignee_id:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          description: Assignee actor ID; null clears the assignee.
+        assignee:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          description: Alias for assignee_id; null clears the assignee.
+        column_id:
+          type: string
+          minLength: 1
+          description: Destination column.
+        column:
+          type: string
+          minLength: 1
+          description: Alias for column_id.
+      additionalProperties: false
+    ResolveRequest:
+      type: object
+      required:
+        - resolution
+      description: |
+        Record a bug resolution. `duplicate_of` is required only when
+        `resolution` is `duplicate`.
+      properties:
+        resolution:
+          $ref: "#/components/schemas/BugResolution"
+        duplicate_of:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+          description: Canonical task ID; required and non-null for duplicate resolution.
+        note:
+          type: string
+          maxLength: 10000
+          description: Optional Markdown resolution note recorded as a task comment atomically with the
+            resolution.
+      oneOf:
+        - properties:
+            resolution:
+              const: duplicate
+            duplicate_of:
+              $ref: "#/components/schemas/Identifier"
+          required:
+            - duplicate_of
+        - properties:
+            resolution:
+              enum:
+                - fixed
+                - not_planned
+                - cannot_reproduce
+                - works_as_designed
+      additionalProperties: false
+    ReopenRequest:
+      type: object
+      required:
+        - reason
+      description: Markdown reason for reopening a resolved bug.
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 10000
+      additionalProperties: false

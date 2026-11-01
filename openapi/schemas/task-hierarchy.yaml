@@ -1,0 +1,179 @@
+components:
+  schemas:
+    TaskHierarchyReference:
+      type: object
+      required:
+        - id
+        - number
+        - key
+        - project_id
+        - title
+        - kind
+        - column_id
+        - semantic_state
+        - version
+      description: Compact bounded parent/child reference. It never embeds a full task or nested relation
+        collection.
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        number:
+          type: integer
+          minimum: 1
+        key:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_-]{0,15}-[1-9][0-9]*$
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        kind:
+          $ref: "#/components/schemas/TaskKind"
+        column_id:
+          $ref: "#/components/schemas/Identifier"
+        semantic_state:
+          $ref: "#/components/schemas/SemanticState"
+        state:
+          $ref: "#/components/schemas/SemanticState"
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        parent_id:
+          oneOf:
+            - $ref: "#/components/schemas/Identifier"
+            - type: "null"
+        completed_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+        agent_work:
+          $ref: "#/components/schemas/AgentWork"
+      additionalProperties: false
+    HierarchySummary:
+      type: object
+      required:
+        - child_count
+        - completed_child_count
+        - completion_percent
+        - state_counts
+        - blocked_child_count
+        - live_agent_work_count
+        - action_needed_count
+        - stale_agent_work_count
+      description: Server-derived direct-child rollups computed from live task, semantic-state,
+        dependency, and agent-work rows.
+      properties:
+        child_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        completed_child_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        completion_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        state_counts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        blocked_child_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        live_agent_work_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        action_needed_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+        stale_agent_work_count:
+          type: integer
+          minimum: 0
+          maximum: 200
+      additionalProperties: false
+    TaskHierarchy:
+      type: object
+      required:
+        - children
+        - ancestors
+        - descendants
+        - summary
+      description: Bounded hierarchy view. Children are direct; ancestors and descendants are capped at 20
+        levels/200 references.
+      properties:
+        parent:
+          oneOf:
+            - $ref: "#/components/schemas/TaskHierarchyReference"
+            - type: "null"
+        children:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/TaskHierarchyReference"
+        ancestors:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/TaskHierarchyReference"
+        descendants:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/TaskHierarchyReference"
+        summary:
+          $ref: "#/components/schemas/HierarchySummary"
+      additionalProperties: false
+    TaskHierarchyReferenceCollection:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/TaskHierarchyReference"
+        next_cursor:
+          type:
+            - string
+            - "null"
+      additionalProperties: false
+    TaskHierarchyParentRequest:
+      type: object
+      minProperties: 1
+      anyOf:
+        - required:
+            - parent
+        - required:
+            - parent_id
+        - required:
+            - parent_task_id
+      description: Parent task reference. `parent_id` and `parent_task_id` are accepted aliases.
+      properties:
+        parent:
+          $ref: "#/components/schemas/Identifier"
+        parent_id:
+          $ref: "#/components/schemas/Identifier"
+        parent_task_id:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false
+    TaskHierarchyChildRequest:
+      type: object
+      minProperties: 1
+      description: Child task reference. `child_id` and `child_task_id` are accepted aliases.
+      properties:
+        child:
+          $ref: "#/components/schemas/Identifier"
+        child_id:
+          $ref: "#/components/schemas/Identifier"
+        child_task_id:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false

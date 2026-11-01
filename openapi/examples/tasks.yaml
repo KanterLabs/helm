@@ -1,0 +1,142 @@
+components:
+  examples:
+    TaskExample:
+      summary: Ready task
+      value:
+        id: task_42
+        number: 42
+        key: OPS-42
+        project_id: proj_ops
+        column_id: col_ready
+        kind: task
+        title: Add event polling
+        description: Implement incremental event polling for agents.
+        priority: high
+        position: 0
+        assignee: agent_ada
+        due_at: 2026-09-01T12:00:00Z
+        version: 7
+        created_at: 2026-08-27T09:30:00Z
+        updated_at: 2026-08-27T10:00:00Z
+        labels:
+          - id: label_api
+            project_id: proj_ops
+            name: api
+            color: "#2563EB"
+            created_at: 2026-08-27T09:00:00Z
+            updated_at: 2026-08-27T09:00:00Z
+        comment_count: 1
+        dependency_summary:
+          prerequisite_count: 1
+          unmet_prerequisite_count: 0
+          dependent_count: 2
+          blocked: false
+        release_id: release_14
+        release:
+          id: release_14
+          name: "1.4"
+          status: planned
+          target_date: 2026-11-15
+    TaskProgressedExample:
+      summary: Task with the latest agent progress snapshot
+      value:
+        id: task_42
+        number: 42
+        key: OPS-42
+        project_id: proj_ops
+        column_id: col_active
+        kind: task
+        title: Add event polling
+        description: Implement incremental event polling for agents.
+        priority: high
+        position: 0
+        claimed_by: agent_ada
+        claim_expires_at: 2026-08-27T11:00:00Z
+        version: 8
+        created_at: 2026-08-27T09:30:00Z
+        updated_at: 2026-08-27T10:30:00Z
+        labels: []
+        comment_count: 2
+        agent_work:
+          operation_id: codex/ops-release
+          actor_id: agent_ada
+          state: working
+          phase: Implementing event polling
+          summary: Added the progress persistence and HTTP contract.
+          next_action: Run the focused API tests.
+          checkpoint_refs:
+            - api-contract
+            - http-tests
+          checkpoint_completed: 1
+          checkpoint_total: 2
+          started_at: 2026-08-27T10:00:00Z
+          updated_at: 2026-08-27T10:30:00Z
+          stale: false
+          action_needed: false
+    TaskHeartbeatExample:
+      summary: Task with a quietly refreshed agent-work heartbeat
+      value:
+        id: task_42
+        number: 42
+        key: OPS-42
+        project_id: proj_ops
+        column_id: col_active
+        kind: task
+        title: Add event polling
+        description: Implement incremental event polling for agents.
+        priority: high
+        position: 0
+        claimed_by: agent_ada
+        claim_expires_at: 2026-08-27T11:00:00Z
+        version: 8
+        created_at: 2026-08-27T09:30:00Z
+        updated_at: 2026-08-27T10:30:00Z
+        labels: []
+        comment_count: 2
+        agent_work:
+          operation_id: codex/ops-release
+          actor_id: agent_ada
+          state: working
+          phase: Implementing event polling
+          summary: Added the progress persistence and HTTP contract.
+          next_action: Run the focused API tests.
+          checkpoint_refs:
+            - api-contract
+            - http-tests
+          checkpoint_completed: 1
+          checkpoint_total: 2
+          started_at: 2026-08-27T10:00:00Z
+          updated_at: 2026-08-27T10:38:00Z
+          stale: false
+          action_needed: false
+    TaskCollectionExample:
+      summary: Task collection
+      value:
+        data:
+          - id: task_42
+            number: 42
+            key: OPS-42
+            project_id: proj_ops
+            column_id: col_ready
+            kind: task
+            title: Add event polling
+            description: Implement incremental event polling for agents.
+            priority: high
+            position: 0
+            assignee: agent_ada
+            due_at: 2026-09-01T12:00:00Z
+            version: 7
+            created_at: 2026-08-27T09:30:00Z
+            updated_at: 2026-08-27T10:00:00Z
+            labels: []
+            comment_count: 1
+        next_cursor: ""
+    TaskAlreadyClaimedExample:
+      summary: Active claim held by another actor
+      value:
+        error:
+          code: task_already_claimed
+          message: Task is actively claimed by another actor
+          details:
+            claimed_by: agent_other
+            claim_expires_at: 2026-08-27T11:00:00Z

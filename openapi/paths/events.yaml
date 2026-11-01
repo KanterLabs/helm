@@ -1,0 +1,73 @@
+paths:
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      summary: Poll the append-only event feed
+      description: |
+        Supply `after` with the last integer cursor seen to receive subsequent
+        project, task, claim, comment, completion, dependency, and bug
+        lifecycle events.
+        Agent progress publishes `task.progressed` events containing the
+        machine-readable state and checkpoint counts. Bearer tokens with
+        `events:read` but without `tasks:read` receive those coordination
+        fields with progress narrative (`phase`, `summary`, `next_action`,
+        and `checkpoint_refs`) redacted.
+        Bug lifecycle events (`bug.created`, `bug.updated`, `bug.triaged`,
+        `bug.resolved`, `bug.duplicated`, and `bug.reopened`) carry lifecycle
+        and version metadata and are emitted in the same transaction as the
+        action. Resolution events include the selected resolution; a reopen
+        reason is recorded in the atomic comment.created event associated with
+        the action.
+        Release lifecycle events (`release.created`, `release.updated`,
+        `release.completed`, `release.reopened`, and `release.deleted`) carry
+        only safe release IDs, names, target dates, statuses, and versions.
+        `task.release_changed` carries old/new release IDs and names, with
+        nullable values for assignment and clearing. Release events are
+        project-scoped and follow the same `events:read` ceiling.
+        A prerequisite's satisfied-state transition emits one bounded
+        `task.dependency_state_changed` event for each direct live dependent.
+        The enclosing event's `task_id` is the dependent; its payload contains
+        dependent/prerequisite IDs and keys plus the resulting `satisfied`
+        boolean. This derived notification does not increment the dependent's
+        editable task version. Clients should refetch the affected task or
+        dependency graph.
+      tags:
+        - Events
+      parameters:
+        - $ref: "#/components/parameters/AfterCursor"
+        - name: project
+          in: query
+          description: Restrict events to a project ID, key, or slug.
+          required: false
+          schema:
+            $ref: "#/components/schemas/Identifier"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Events after the requested cursor
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventCollection"
+              examples:
+                events:
+                  $ref: "#/components/examples/EventCollectionExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

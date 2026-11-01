@@ -8,6 +8,8 @@ import sys
 import threading
 import urllib.parse
 
+from policy_fixture import authorization
+
 
 class World:
     def __init__(self, root, source):
@@ -179,8 +181,10 @@ runpy.run_path({str(source / 'deploy/release.py')!r},run_name='__main__')
         if args[:2] == ['run', 'download']:
             lane = 'beta' if args[2] == '1' else 'production'
             sha = self.ref('mirror', 'beta' if lane == 'beta' else 'main')
+            image = 'ghcr.io/kanterlabs/helm@sha256:' + 'a' * 64
             return {'artifact': {'revision': sha, 'health_revision': sha, 'ready_revision': sha,
-                'ready': True, 'status': 'deployed', 'image': 'ghcr.io/kanterlabs/helm@sha256:' + 'a' * 64}}
+                'ready': True, 'status': 'deployed', 'image': image, 'service_uuid': 'fixture-' + lane,
+                'authorization': authorization(lane, sha, image)}}
         if args[:2] == ['pr', 'list']:
             head = args[args.index('--head') + 1]
             return {'output': json.dumps([p for p in self.prs if p['headRefName'] == head])}

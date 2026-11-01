@@ -1,0 +1,38 @@
+name: Prepared Helm runner
+description: Verify baked tools and initialize checksum-keyed local dependency caches.
+runs:
+  using: composite
+  steps:
+    - name: Verify tools and prepare local caches
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        started=$SECONDS
+        test "$(go env GOVERSION)" = "$(awk '/^toolchain / {print $2}' go.mod)"
+        test "$(node --version)" = v22.23.2
+        node --input-type=module -e '
+          import fs from "node:fs";
+          const expected=JSON.parse(fs.readFileSync("web/package.json"));
+          const baked=JSON.parse(fs.readFileSync("/opt/helm-manifest/web/package.json"));
+          if(expected.devDependencies["@playwright/test"]!==baked.devDependencies["@playwright/test"])
+            throw new Error("Prepared browser image must be refreshed for this Playwright version");
+        '
+        source /opt/helm-hooks/cache-env.sh "$GITHUB_WORKSPACE"
+        mkdir -p "$cache_root"/{npm,gomod,gobuild-normal,gobuild-race}
+        if [[ ! -f "$cache_root/.seeded" ]]; then
+          cp -a /opt/helm-seed/npm/. "$cache_root/npm/"
+          cp -a /opt/helm-seed/gomod/. "$cache_root/gomod/"
+          touch "$cache_root/.seeded"
+        fi
+        printf 'GOMODCACHE=%s\nGOCACHE=%s\nnpm_config_cache=%s\n' \
+          "$GOMODCACHE" "$GOCACHE" "$npm_config_cache" >> "$GITHUB_ENV"
+        cd web
+        npm ci --cache "$npm_config_cache" --prefer-offline --no-audit
+        node --input-type=module -e '
+          import {chromium} from "@playwright/test";
+          const browser=await chromium.launch();
+          console.log("Prepared Chromium launch passed");
+          await browser.close();
+        '
+        printf 'Prepared environment seconds: %s\n' "$((SECONDS-started))"
+        printf 'HELM_PREPARE_SECONDS=%s\n' "$((SECONDS-started))" >> "$GITHUB_ENV"

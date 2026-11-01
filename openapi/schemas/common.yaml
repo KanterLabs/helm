@@ -1,0 +1,75 @@
+components:
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 200
+      description: Opaque identifier. Clients must not infer its format.
+    Timestamp:
+      type: string
+      format: date-time
+      description: UTC RFC 3339 timestamp.
+      example: 2026-08-27T10:00:00Z
+    NullableTimestamp:
+      type:
+        - string
+        - "null"
+      format: date-time
+      description: UTC RFC 3339 timestamp, or null when not applicable.
+      example: null
+    SemanticState:
+      type: string
+      enum:
+        - backlog
+        - ready
+        - active
+        - blocked
+        - completed
+    Priority:
+      type: string
+      enum:
+        - low
+        - normal
+        - high
+        - urgent
+    Color:
+      type: string
+      pattern: ^#[0-9A-Fa-f]{6}$
+      description: Six-digit hexadecimal project or label color.
+      example: "#2563EB"
+    Scope:
+      type: string
+      enum:
+        - projects:read
+        - projects:write
+        - tasks:read
+        - tasks:write
+        - tasks:claim
+        - events:read
+        - notifications:read
+        - notifications:write
+    IssueMetrics:
+      type: object
+      required:
+        - reopened
+        - window_days
+        - since
+        - as_of
+      properties:
+        reopened:
+          type: integer
+          minimum: 0
+          description: Distinct live bug tasks reopened during the inclusive trailing seven-day UTC interval.
+        window_days:
+          type: integer
+          const: 7
+          description: Fixed trailing window used for the reopened metric.
+        since:
+          type: string
+          format: date-time
+          description: Inclusive UTC lower bound of the metric interval.
+        as_of:
+          type: string
+          format: date-time
+          description: Inclusive UTC upper bound and server evaluation time.
+      additionalProperties: false

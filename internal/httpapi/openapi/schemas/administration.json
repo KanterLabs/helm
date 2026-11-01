@@ -1,0 +1,398 @@
+{
+  "components": {
+    "schemas": {
+      "AdminMetrics": {
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window_days",
+          "release_sha",
+          "requests",
+          "totals",
+          "activity",
+          "daily",
+          "agents"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          },
+          "release_sha": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "object",
+            "description": "Persisted request counts since `since` (start of the window).",
+            "required": [
+              "since",
+              "total",
+              "agent",
+              "human",
+              "anonymous",
+              "errors",
+              "avg_ms",
+              "hourly",
+              "daily",
+              "top_actors"
+            ],
+            "properties": {
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agent": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "human": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "anonymous": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "errors": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "avg_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hourly": {
+                "type": "array",
+                "maxItems": 24,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "hour",
+                    "total",
+                    "agent",
+                    "human",
+                    "anonymous",
+                    "errors"
+                  ],
+                  "properties": {
+                    "hour": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "agent": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "human": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "anonymous": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "daily": {
+                "type": "array",
+                "maxItems": 90,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "date",
+                    "total",
+                    "agent",
+                    "human",
+                    "anonymous",
+                    "errors"
+                  ],
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "agent": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "human": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "anonymous": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "top_actors": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "actor_id",
+                    "name",
+                    "kind",
+                    "requests",
+                    "errors",
+                    "avg_ms",
+                    "last_seen_at"
+                  ],
+                  "properties": {
+                    "actor_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "requests": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "avg_ms": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "last_seen_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "totals": {
+            "type": "object",
+            "required": [
+              "projects",
+              "tasks_open",
+              "tasks_done",
+              "bugs_open",
+              "claims_active",
+              "humans",
+              "agents",
+              "active_tokens"
+            ],
+            "properties": {
+              "projects": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tasks_open": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tasks_done": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bugs_open": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claims_active": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "humans": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agents": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "active_tokens": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "activity": {
+            "type": "object",
+            "required": [
+              "tasks_created",
+              "tasks_completed",
+              "bugs_reported",
+              "bugs_resolved",
+              "comments",
+              "claims",
+              "progress_updates",
+              "agent_events",
+              "human_events"
+            ],
+            "properties": {
+              "tasks_created": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tasks_completed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bugs_reported": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bugs_resolved": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "comments": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claims": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "progress_updates": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agent_events": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "human_events": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "daily": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "type": "object",
+              "required": [
+                "date",
+                "tasks_created",
+                "tasks_completed",
+                "comments",
+                "agent_events",
+                "human_events"
+              ],
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "tasks_created": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "tasks_completed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "comments": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "agent_events": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "human_events": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "agents": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "required": [
+                "actor_id",
+                "name",
+                "disabled",
+                "events",
+                "claims",
+                "completions",
+                "last_event_at",
+                "token_last_used_at"
+              ],
+              "properties": {
+                "actor_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "disabled": {
+                  "type": "boolean"
+                },
+                "events": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "claims": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "completions": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "last_event_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "token_last_used_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

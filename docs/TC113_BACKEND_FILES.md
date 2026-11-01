@@ -1,0 +1,87 @@
+# TC-113 backend owned files
+
+Counts below were measured at worker handoff. Parent integration changes are
+recorded in [TC113_PARENT_ACCEPTANCE.md](TC113_PARENT_ACCEPTANCE.md) and measured
+separately before commit. Limit: 20,000 bytes/file.
+Other workers own consolidation documents and all frontend/browser changes.
+
+| File | Bytes |
+| --- | ---: |
+| `docs/TC113_BACKEND_FAILURES.md` | 2,796 |
+| `docs/TC113_BACKEND_FILES.md` | 3,829 |
+| `docs/TC113_BACKEND_HANDOFF.md` | 10,203 |
+| `internal/auth/auth.go` | 9,856 |
+| `internal/auth/identity.go` | 1,476 |
+| `internal/auth/login.go` | 5,008 |
+| `internal/auth/login_test.go` | 3,113 |
+| `internal/auth/password.go` | 1,124 |
+| `internal/db/membership_migration_test.go` | 12,670 |
+| `internal/db/migrations/041_membership_sessions.sql` | 3,914 |
+| `internal/httpapi/agents.go` | 8,781 |
+| `internal/httpapi/audits.go` | 7,984 |
+| `internal/httpapi/authorization.go` | 4,590 |
+| `internal/httpapi/beta_switch_test.go` | 8,828 |
+| `internal/httpapi/comments.go` | 5,208 |
+| `internal/httpapi/issues.go` | 10,400 |
+| `internal/httpapi/luna_run_detail_test.go` | 4,354 |
+| `internal/httpapi/luna_runs.go` | 5,589 |
+| `internal/httpapi/member_sessions.go` | 5,241 |
+| `internal/httpapi/members.go` | 6,338 |
+| `internal/httpapi/members_test.go` | 6,349 |
+| `internal/httpapi/membership_authorization_test.go` | 7,336 |
+| `internal/httpapi/membership_flow_test.go` | 6,763 |
+| `internal/httpapi/portable.go` | 12,045 |
+| `internal/httpapi/project_columns.go` | 5,101 |
+| `internal/httpapi/project_labels.go` | 4,894 |
+| `internal/httpapi/projects.go` | 6,937 |
+| `internal/httpapi/roadmap.go` | 10,715 |
+| `internal/httpapi/router.go` | 3,985 |
+| `internal/httpapi/router_authed.go` | 9,556 |
+| `internal/httpapi/saved_view_filters.go` | 6,239 |
+| `internal/httpapi/saved_views.go` | 14,148 |
+| `internal/httpapi/search.go` | 9,884 |
+| `internal/httpapi/server_auth.go` | 4,900 |
+| `internal/httpapi/task_actions.go` | 4,816 |
+| `internal/httpapi/task_input.go` | 10,040 |
+| `internal/httpapi/tasks.go` | 12,077 |
+| `internal/httpapi/tickets.go` | 6,332 |
+| `internal/store/actors.go` | 13,571 |
+| `internal/store/actors_test.go` | 4,004 |
+| `internal/store/auth.go` | 10,112 |
+| `internal/store/bulk_notifications_integration_test.go` | 12,877 |
+| `internal/store/counts.go` | 3,473 |
+| `internal/store/events.go` | 3,064 |
+| `internal/store/identity_types.go` | 1,971 |
+| `internal/store/member_credentials.go` | 3,634 |
+| `internal/store/membership.go` | 13,690 |
+| `internal/store/membership_concurrency_test.go` | 5,475 |
+| `internal/store/membership_test.go` | 11,858 |
+| `internal/store/my_work.go` | 8,480 |
+| `internal/store/notification_delivery.go` | 11,435 |
+| `internal/store/notification_preferences.go` | 2,822 |
+| `internal/store/notification_types.go` | 2,375 |
+| `internal/store/notifications.go` | 7,748 |
+| `internal/store/notifications_test.go` | 6,973 |
+| `internal/store/portable_export.go` | 10,980 |
+| `internal/store/portable_import_remapping_test.go` | 12,027 |
+| `internal/store/project_types.go` | 2,019 |
+| `internal/store/release_types.go` | 2,370 |
+| `internal/store/roadmap.go` | 4,863 |
+| `internal/store/roadmap_types.go` | 1,083 |
+| `internal/store/search_types.go` | 2,693 |
+| `internal/store/sessions.go` | 8,343 |
+| `internal/store/sql_helpers.go` | 5,337 |
+| `internal/store/task_activity_types.go` | 3,813 |
+| `internal/store/task_filter_types.go` | 2,183 |
+| `internal/store/task_relationship_types.go` | 5,487 |
+| `internal/store/task_types.go` | 2,658 |
+| `internal/store/timeline_types.go` | 3,970 |
+| `internal/store/types.go` | 2,792 |
+| `internal/store/watches.go` | 6,275 |
+| `openapi.yaml` | 10,834 |
+| `openapi/paths/member-sessions.yaml` | 7,146 |
+| `openapi/paths/membership.yaml` | 6,101 |
+| `openapi/schemas/auth.yaml` | 3,299 |
+| `openapi/schemas/membership.yaml` | 5,098 |
+
+Owned maintained files: 76. Embedded JSON regeneration belongs to parent integration.

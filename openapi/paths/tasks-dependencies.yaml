@@ -1,0 +1,200 @@
+paths:
+  /api/v1/tasks/{task}/dependencies:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+    get:
+      "503":
+        $ref: "#/components/responses/ServiceUnavailable"
+      operationId: getTaskDependencies
+      summary: Get a task's direct dependencies
+      description: |
+        Return the live, same-project direct prerequisites and dependents for
+        a task. The `{task}` path value accepts an opaque task ID or a
+        case-insensitive project-local key such as `OPS-42`. Each direction is
+        capped at 200 relations and ordered deterministically. The response's
+        strong ETag is the current ETag of the referenced task and can be sent
+        as `If-Match` when changing its graph.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:read
+      responses:
+        "200":
+          description: Direct live dependency graph for the task
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDependencies"
+              examples:
+                dependencies:
+                  $ref: "#/components/examples/TaskDependenciesExample"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: addTaskDependency
+      summary: Add a direct prerequisite
+      description: |
+        Add the referenced task as one direct prerequisite of `{task}`. The
+        prerequisite accepts an opaque task ID or a case-insensitive
+        project-local key. The caller must have `tasks:write`, send the exact
+        current task ETag in `If-Match`, and send a non-empty,
+        non-whitespace `Idempotency-Key`. The task must be in the caller's
+        project access ceiling; references outside that ceiling are masked as
+        not found. A live claim may be changed only by its owner;
+        a human administrator may explicitly override another actor's claim.
+        Dependencies are limited to 200 direct prerequisites and 200 direct
+        dependents, must remain within the same project, and may not create a
+        cycle. A successful mutation advances only the dependent task version,
+        emits `task.dependency_added`, returns the updated task (or the
+        id/version redacted form for a write-only bearer), and sets its strong
+        ETag. Repeating the same idempotency key with the same request replays
+        the original response.
+        Lifecycle ordering is enforced transactionally for claim, start or
+        finish transitions, ordinary task reopen or completed-to-blocked
+        transitions, bug triage/resolution/reopen, semantic column changes
+        (including bulk updates), and dependency insertion into already active,
+        completed, or actively claimed work. Reopening a completed prerequisite
+        with an unfinished active or claimed dependent, or deleting a
+        prerequisite with live dependents, is rejected; rejected requests do
+        not change task, claim, graph, comment, or event state.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskDependencyRequest"
+            example:
+              prerequisite: OPS-41
+      responses:
+        "200":
+          description: Updated dependent task and its new strong ETag
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/DependencyConflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/tasks/{task}/dependencies/{prerequisite}:
+    parameters:
+      - $ref: "#/components/parameters/TaskPath"
+      - $ref: "#/components/parameters/DependencyPath"
+    delete:
+      operationId: removeTaskDependency
+      summary: Remove a direct prerequisite
+      description: |
+        Remove one direct prerequisite edge from `{task}`. The prerequisite
+        path value accepts an opaque task ID or a case-insensitive
+        project-local key. The caller must have `tasks:write`, send the exact
+        current task ETag in `If-Match`, and send a non-empty,
+        non-whitespace `Idempotency-Key`. The task must be in the caller's
+        project access ceiling; references outside that ceiling are masked as
+        not found. A live claim may be changed only by its owner;
+        a human administrator may explicitly override another actor's claim.
+        A successful mutation advances only the dependent task version, emits
+        `task.dependency_removed`, returns the updated task (or the id/version
+        redacted form for a write-only bearer), and sets its strong ETag.
+        Repeating the same idempotency key with the same request replays the
+        original response.
+        Lifecycle ordering guards are applied transactionally across claim,
+        start or finish transitions, ordinary task reopen or
+        completed-to-blocked transitions, bug triage/resolution/reopen,
+        semantic column changes, reopening completed prerequisites, and
+        prerequisite deletion. A prerequisite with live dependents cannot be
+        deleted until its edges are removed.
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
+      responses:
+        "200":
+          description: Updated dependent task and its new strong ETag
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/DependencyConflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

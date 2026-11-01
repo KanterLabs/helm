@@ -1,0 +1,64 @@
+paths:
+  /api/v1/admin/beta/switch:
+    post:
+      operationId: requestBetaSwitch
+      summary: Queue a beta build switch
+      description: |
+        Queues an asynchronous switch to a retained, signed beta build. This
+        is a human-administrator-only control on the private beta Tailnet
+        deployment; bearer agent tokens are never accepted. The request is
+        accepted only for an exact lowercase 40-character hexadecimal Git
+        SHA. The response is a durable switch job; poll its status with the
+        job ID returned in the response.
+      tags:
+        - Administration
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+      parameters:
+        - $ref: "#/components/parameters/BetaSwitchIdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BetaSwitchRequest"
+            example:
+              sha: 0123456789abcdef0123456789abcdef01234567
+      responses:
+        "202":
+          description: Beta switch job accepted for asynchronous processing
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BetaSwitchResponse"
+              examples:
+                queued:
+                  $ref: "#/components/examples/BetaSwitchResponseExample"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

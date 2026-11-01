@@ -1,0 +1,233 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/github-audit-authorizations": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listProjectGithubAuditAuthorizations",
+        "summary": "List agent audit authorizations",
+        "description": "Requires project access and tasks:read for bearer tokens. Human administrators can list all project grants. An agent sees only grants matching its exact actor and token, including expired or revoked records.",
+        "tags": [
+          "GitHub",
+          "Audits"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub beta API guide",
+          "url": "docs/GITHUB_BETA_API.md"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubAuditAuthorizationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProjectGithubAuditAuthorization",
+        "summary": "Authorize agent audit execution",
+        "description": "Human administrators with project access only. The account owner is inferred from the granting human; it cannot be supplied in the body. Requires an enabled agent and token with tasks:read and project access, and a nonempty selected repository set. Captures the selection version. This grant permits bounded inference spending, not review or Apply.",
+        "tags": [
+          "GitHub",
+          "Audits"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub beta API guide",
+          "url": "docs/GITHUB_BETA_API.md"
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubAuditAuthorization"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubAuditAuthorizationRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/github-audit-authorizations/{authorization}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        },
+        {
+          "name": "authorization",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "revokeProjectGithubAuditAuthorization",
+        "summary": "Revoke agent audit execution",
+        "description": "Only the granting enabled human administrator with project access may revoke. Repeated revocation preserves the original revoked_at. Durably fences active jobs before interrupting inference; retained evidence is preserved. Revalidates authorization on every request rather than replaying a cached mutation response.",
+        "tags": [
+          "GitHub",
+          "Audits"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub beta API guide",
+          "url": "docs/GITHUB_BETA_API.md"
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubAuditAuthorization"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

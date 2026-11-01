@@ -1,6 +1,6 @@
 /* Roadmap overview and follow-along panels. */
 /* Roadmap */
-.roadmap-content { display: grid; gap: 18px; }
+.roadmap-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 .roadmap-hero { min-height: 180px; display: flex; align-items: center; justify-content: space-between; gap: 30px; padding: 29px 32px; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: radial-gradient(circle at 82% 30%, color-mix(in srgb, var(--purple-soft) 80%, transparent), transparent 36%), var(--surface); }
 .hero-copy h2 { margin: 0; font: 600 var(--text-xl) var(--font-sans); letter-spacing: -.02em; }
 .hero-copy p { max-width: 320px; margin: 7px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }

@@ -2,6 +2,25 @@
 set -Eeuo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# Whole-suite runs use four isolated fixtures. Focused invocations preserve
+# their scope and default to one, unless the caller explicitly requests more.
+default_workers=4
+[[ "$#" == 0 ]] || default_workers=1
+workers=${HELM_E2E_WORKERS:-$default_workers}
+base_port=${HELM_E2E_BASE_PORT:-18080}
+include_deadlines=${HELM_E2E_INCLUDE_DEADLINES:-false}
+[[ "$include_deadlines" == true || "$include_deadlines" == false ]] || {
+  printf 'HELM_E2E_INCLUDE_DEADLINES must be true or false\n' >&2; exit 64;
+}
+[[ "$include_deadlines" != true || "$#" == 0 ]] || {
+  printf 'Deadline coordination requires a full suite invocation\n' >&2; exit 64;
+}
+[[ "$workers" =~ ^[1-8]$ ]] || { printf 'HELM_E2E_WORKERS must be 1..8\n' >&2; exit 64; }
+[[ "$base_port" =~ ^[0-9]{1,5}$ ]] || { printf 'Invalid HELM_E2E_BASE_PORT\n' >&2; exit 64; }
+base_port=$((10#$base_port))
+((base_port >= 1024 && base_port + (workers + 2) * 100 + 30 <= 65535)) || {
+  printf 'Browser fixture port blocks are outside the allowed range\n' >&2; exit 64;
+}
 requested_artifact_dir=${HELM_E2E_ARTIFACT_DIR:-}
 if [[ -n "$requested_artifact_dir" ]]; then
   [[ "$requested_artifact_dir" = /* ]] || requested_artifact_dir="$root/$requested_artifact_dir"
@@ -17,9 +36,7 @@ else
 fi
 
 work_dir=$(mktemp -d)
-server_pid=
-server_log=
-server_db=
+supervisor_pid=
 embedded_dist="$root/internal/webassets/dist"
 embedded_backup="$work_dir/original-webassets-dist"
 embedded_dist_existed=false
@@ -28,34 +45,25 @@ if [[ -d "$embedded_dist" ]]; then
   embedded_dist_existed=true
 fi
 
-fake_cf_pid=
-relay_pid=
-
-stop_server() {
-  if [[ -n "$server_pid" ]]; then
-    kill -TERM "$server_pid" >/dev/null 2>&1 || true
-    wait "$server_pid" >/dev/null 2>&1 || true
-    server_pid=
-  fi
-}
-
 collect_evidence() {
   local exit_status=$?
   trap - EXIT
-  stop_server
-  [[ -n "$fake_cf_pid" ]] && kill "$fake_cf_pid" >/dev/null 2>&1 || true
-  [[ -n "$relay_pid" ]] && kill "$relay_pid" >/dev/null 2>&1 || true
-  for file in "$work_dir"/*.log "$work_dir"/*.db; do
-    [[ -f "$file" ]] && cp -a "$file" "$artifact_dir/"
-  done
+  if [[ -n "$supervisor_pid" ]]; then
+    kill -TERM "$supervisor_pid" >/dev/null 2>&1 || true
+    wait "$supervisor_pid" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${HELM_E2E_METADATA_FILE:-}" && -f "$HELM_E2E_METADATA_FILE" ]]; then
     cp -a "$HELM_E2E_METADATA_FILE" "$artifact_dir/source.metadata"
   fi
+  # All reporter, console and database-copy writers have finished. Do not
+  # retain credential-bearing failure output for the CI uploader.
+  python3 "$root/test/e2e/evidence_credentials.py" "$artifact_dir" "$work_dir" || exit_status=1
   {
     printf 'revision=%s\n' "${HELM_E2E_REVISION:-$(git -C "$root" rev-parse HEAD)}"
     printf 'command=test/e2e/run.sh\n'
     printf 'exit_status=%s\n' "$exit_status"
-    printf 'auth_modes=disabled,local\n'
+    printf 'suite_results=suites/suites.json\n'
+    printf 'browser_workers=%s\n' "$workers"
   } > "$artifact_dir/evidence.metadata"
   (
     cd "$artifact_dir"
@@ -71,6 +79,11 @@ collect_evidence() {
   exit "$exit_status"
 }
 trap collect_evidence EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+python3 -m unittest discover -s "$root/test/e2e" -p 'test_*.py' \
+  2>&1 | tee "$artifact_dir/supervisor-checks.log"
 
 if [[ "${HELM_E2E_SKIP_WEB_BUILD:-false}" != true ]]; then
   (cd "$root/web" && npm run build)
@@ -79,123 +92,43 @@ rm -rf -- "$embedded_dist"
 install -d "$embedded_dist"
 cp -a "$root/web/dist/." "$embedded_dist/"
 
-binary=${HELM_E2E_BINARY:-}
-if [[ -z "$binary" ]]; then
-  binary="$work_dir/helm"
-  read -r -a go_flags <<< "${HELM_E2E_GOFLAGS:-}"
-  if command -v go >/dev/null 2>&1; then
-    (cd "$root" && go build "${go_flags[@]}" -trimpath -o "$binary" ./cmd/helm)
-  elif command -v docker >/dev/null 2>&1; then
-    docker run --rm \
-      --volume "$root:/src:ro" \
-      --volume "$work_dir:/out" \
-      --workdir /src \
-      golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 \
-      go build "${go_flags[@]}" -buildvcs=false -trimpath -o /out/helm ./cmd/helm
-  else
-    printf 'Helm E2E requires Go or Docker to build the application\n' >&2
-    exit 69
-  fi
+bundle=${HELM_E2E_PREPARED_DIR:-"$work_dir/prepared"}
+[[ "$bundle" = /* ]] || bundle="$root/$bundle"
+if [[ -n "${HELM_E2E_BINARY:-}" && -z "${HELM_E2E_PREPARED_DIR:-}" ]]; then
+  printf 'HELM_E2E_BINARY requires its verified HELM_E2E_PREPARED_DIR bundle; use prepare.py prepare.\n' >&2
+  exit 64
 fi
-[[ "$binary" = /* ]] || binary="$root/$binary"
-[[ -x "$binary" ]] || { printf 'Helm E2E binary is not executable: %s\n' "$binary" >&2; exit 64; }
-[[ -x "$root/test/e2e/fake-codex" ]] || { printf 'Codex E2E fixture is not executable\n' >&2; exit 64; }
-
-# A disposable per-run Coolify intake secret. The file stays in $work_dir,
-# which is never copied into the evidence bundle.
-coolify_secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
-coolify_secret_file="$work_dir/coolify-webhook-secret"
-(umask 077 && printf '%s\n' "$coolify_secret" > "$coolify_secret_file")
-
-# Fake Cloudflare API and cloudflared for the public-endpoint workflow. Their
-# logs live in $work_dir under names collect_evidence never copies.
-fake_cf_token="cf-e2e-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-fake_cf_zoneless="cf-e2e-zoneless-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-fake_cf_norules="cf-e2e-norules-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-FAKE_OAUTH_CLIENT_ID=e2e-client FAKE_OAUTH_REDIRECT=http://127.0.0.1:18110/cloudflare/callback \
-  python3 "$root/test/e2e/fake-cloudflare" 18090 "$fake_cf_token" "$fake_cf_zoneless" "$fake_cf_norules" &
-fake_cf_pid=$!
-# The real sign-in relay Worker, served locally for the guided-setup flow.
-node "$root/test/e2e/relay-server.mjs" 18110 &
-relay_pid=$!
-cloudflared_wrapper="$work_dir/cloudflared"
-printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "$root/test/e2e/fake-cloudflared" "$work_dir/fake-cloudflared.jsonl" > "$cloudflared_wrapper"
-chmod +x "$cloudflared_wrapper"
-
-start_server() {
-  local port=$1
-  local auth_mode=$2
-  local name=$3
-  server_log="$work_dir/$name-server.log"
-  server_db="$work_dir/$name-roadmap.db"
-  HELM_PUBLIC_HOOKS_ADDR="127.0.0.1:$((port + 20))" \
-    HELM_CLOUDFLARE_API_BASE=http://127.0.0.1:18090/client/v4 \
-    HELM_CLOUDFLARED_BINARY="$cloudflared_wrapper" \
-    HELM_PUBLIC_PROBE_ORIGIN="http://127.0.0.1:$((port + 20))" \
-    HELM_CLOUDFLARE_OAUTH_CLIENT_ID=e2e-client \
-    HELM_CLOUDFLARE_OAUTH_RELAY_URL=http://127.0.0.1:18110/cloudflare/callback \
-    HELM_CLOUDFLARE_DASHBOARD_URL=http://127.0.0.1:18090 \
-    HELM_COOLIFY_WEBHOOK_SECRET_FILE="$coolify_secret_file" \
-    HELM_COOLIFY_PROJECT=COOLIFYE2E \
-    HELM_COOLIFY_ASSIGNEE=actor-disabled-mode \
-    HELM_ADDR="127.0.0.1:$port" \
-    HELM_DB="$server_db" \
-    HELM_AUTH_MODE="$auth_mode" \
-    HELM_PUBLIC_ORIGIN="http://127.0.0.1:$port" \
-    HELM_SECURE_COOKIES=false \
-    HELM_DEMO_SEED=false \
-    HELM_LUNA_ENABLED=true \
-    HELM_CODEX_BINARY="$root/test/e2e/fake-codex" \
-    HELM_CODEX_HOME_ROOT="$work_dir/$name-codex-users" \
-    "$binary" >"$server_log" 2>&1 &
-  server_pid=$!
-  for attempt in $(seq 1 30); do
-    if curl --fail --silent "http://127.0.0.1:$port/readyz" >/dev/null; then
-      return 0
-    fi
-    if [[ "$attempt" -eq 30 ]]; then
-      cat "$server_log" >&2
-      return 1
-    fi
-    sleep 1
-  done
-}
-
-start_server 18080 disabled disabled
-(
-  cd "$root/web"
-  HELM_E2E_BASE_URL=http://127.0.0.1:18080 \
-    HELM_E2E_DB="$server_db" \
-    HELM_E2E_SERVER_LOG="$server_log" \
-    HELM_E2E_HOOKS_URL=http://127.0.0.1:18100 \
-    HELM_E2E_FAKE_CF_URL=http://127.0.0.1:18090 \
-    HELM_E2E_FAKE_CF_TOKEN="$fake_cf_token" \
-    HELM_E2E_FAKE_CF_ZONELESS_TOKEN="$fake_cf_zoneless" \
-    HELM_E2E_FAKE_CF_NORULES_TOKEN="$fake_cf_norules" \
-    HELM_E2E_CLOUDFLARED_LOG="$work_dir/fake-cloudflared.jsonl" \
-    HELM_E2E_ARTIFACT_DIR="$artifact_dir/disabled" \
-    HELM_E2E_COOLIFY_SECRET="$coolify_secret" \
-    HELM_E2E_COOLIFY_PROJECT=COOLIFYE2E \
-    npm run e2e -- "$@"
-)
-stop_server
-
-start_server 18081 local local
-(
-  cd "$root/web"
-  HELM_E2E_BASE_URL=http://127.0.0.1:18081 \
-    HELM_E2E_ARTIFACT_DIR="$artifact_dir/local" \
-    npx playwright test e2e/onboarding.spec.ts
-)
-stop_server
-
-if grep -rlF -e "$coolify_secret" -e "$fake_cf_token" "$artifact_dir" "$work_dir"/*.log; then
-  printf 'Coolify intake secret leaked into logs or evidence\n' >&2
-  exit 1
+if ! command -v go >/dev/null 2>&1 && [[ -z "${HELM_E2E_GO_COMMAND:-}" ]]; then
+  command -v docker >/dev/null 2>&1 || { printf 'Helm E2E requires Go or Docker\n' >&2; exit 69; }
+  export HELM_E2E_DOCKER_WORK_DIR="$work_dir"
+  export HELM_E2E_DOCKER_BUNDLE_PARENT="$(dirname "$bundle")"
+  HELM_E2E_GO_COMMAND=$(python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$root/test/e2e/go-command.sh")
+  export HELM_E2E_GO_COMMAND
 fi
-
-# CI images provide grep; do not silently skip this gate when rg is absent.
-if grep -nF 'WARNING: DATA RACE' "$work_dir"/*.log; then
-  printf 'Go race detector reported a data race\n' >&2
-  exit 1
+prepare_args=(--root "$root" --output "$bundle" "--go-flags=${HELM_E2E_GOFLAGS:-}")
+[[ "$#" != 0 ]] || prepare_args+=(--github)
+prepare_action=prepare
+[[ ! -e "$bundle" ]] || prepare_action=verify
+python3 "$root/test/e2e/prepare.py" "$prepare_action" "${prepare_args[@]}" > "$work_dir/prepared-paths.json" &
+supervisor_pid=$!
+prepare_status=0
+wait "$supervisor_pid" || prepare_status=$?
+supervisor_pid=
+((prepare_status == 0)) || exit "$prepare_status"
+binary=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["helm"])' "$work_dir/prepared-paths.json")
+if [[ -n "${HELM_E2E_BINARY:-}" ]]; then
+  supplied=$HELM_E2E_BINARY
+  [[ "$supplied" = /* ]] || supplied="$root/$supplied"
+  [[ "$(realpath "$supplied")" == "$binary" ]] || { printf 'Supplied binary is outside the verified bundle\n' >&2; exit 64; }
 fi
+cp "$bundle/metadata.json" "$artifact_dir/build-provenance.json"
+suite_args=(--workers "$workers" --base-port "$base_port" --work-dir "$work_dir/suites"
+  --artifact-dir "$artifact_dir/suites" --binary "$binary")
+[[ "$#" != 0 ]] || suite_args+=(--github-binary "$bundle/helm-githubbeta")
+[[ "$include_deadlines" != true ]] || suite_args+=(--include-deadline)
+python3 "$root/test/e2e/run-suites.py" "${suite_args[@]}" -- "$@" &
+supervisor_pid=$!
+result=0
+wait "$supervisor_pid" || result=$?
+supervisor_pid=
+exit "$result"

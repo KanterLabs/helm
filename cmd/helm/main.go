@@ -21,6 +21,7 @@ import (
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
 	"github.com/KanterLabs/helm/internal/db"
+	"github.com/KanterLabs/helm/internal/deployadmission"
 	"github.com/KanterLabs/helm/internal/httpapi"
 	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
@@ -35,8 +36,26 @@ const (
 
 func main() {
 	log.SetFlags(0)
+	// The reserved private mount always requires admission, including when an
+	// older Compose profile invokes this binary through its default entrypoint.
+	// Check before configuration, CLI database handling, or embedded migrations.
+	// These two commands never open application data or acquire a writer lease.
+	readOnlyCommand := len(os.Args) > 1 && (os.Args[1] == "healthcheck" || os.Args[1] == "migration-info")
+	if !readOnlyCommand {
+		lease, err := deployadmission.Acquire()
+		if err != nil {
+			fatalLog("private runtime admission failed", "admission_denied")
+		}
+		defer lease.Close()
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "audit-access":
+			if err := runAuditAccess(context.Background(), os.Args[2:], os.Stdout); err != nil {
+				errorLog("audit access failed", err)
+				os.Exit(1)
+			}
+			return
 		case "healthcheck":
 			if len(os.Args) != 2 {
 				fatalLog("healthcheck does not accept arguments", "invalid_arguments")
@@ -122,6 +141,7 @@ func main() {
 		betaSwitchClient = client
 	}
 	api := httpapi.NewWithBetaSwitch(data, manager, cfg, betaSwitchClient, codexManager)
+	api.StartGithubServices(ctx)
 	var hooksServer *http.Server
 	if cfg.PublicEndpoints.HooksAddr != "" {
 		api.PublicEndpoints = publicendpoint.NewManager(publicendpoint.Config{
@@ -203,6 +223,9 @@ func main() {
 		if err := privateServer.Shutdown(shutdownCtx); err != nil {
 			errorLog("tailnet private listener shutdown failed", err)
 		}
+	}
+	if err := api.StopGithubServices(shutdownCtx); err != nil {
+		errorLog("GitHub background services shutdown failed", err)
 	}
 	if err := codexManager.Close(shutdownCtx); err != nil {
 		errorLog("Codex shutdown failed", err)

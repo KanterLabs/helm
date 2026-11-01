@@ -41,11 +41,22 @@ The existing CI validates, smoke-tests, scans and publishes an immutable image
 in `ghcr.io/kanterlabs/helm`. Each branch's protected environment supplies its
 exact Coolify service identifiers and a separate API token. The deployer
 checks the branch tip, service, project, environment, host, prior digest and
-revision, updates only `HELM_IMAGE` and `HELM_RELEASE_SHA`, redeploys, then
+revision. The membership-aware controller requires protected runtime acceptance
+for the exact candidate and recovery digest/source pairs, proves old-writer
+exclusion, advances the independent `HELM_AUTHORIZATION_FLOOR`, updates
+`HELM_IMAGE` and `HELM_RELEASE_SHA`, starts the accepted image, then
 requires healthy status and the exact revision from the private HTTPS
 `/healthz` and `/readyz`. Deployment artifacts contain only sanitized evidence.
-A failed image deployment restores the preceding image and revision and
-verifies them; it never restores an older database.
+A failed deployment uses only the explicitly accepted membership-aware recovery
+pair and verifies it against current data. It remains a failed deployment;
+there is no automatic preceding-image or database restore.
+
+**Migration041 activation remains blocked.** Parent must integrate both
+protected workflows, provision the controller-owned floor and actual read-only
+stop observer with continuing exclusion, and supply TC-336 receipts. See the
+[TC-335 policy contract](../../docs/TC335_POLICY_CONTRACT.md) and
+[integration handoff](../../docs/TC335_HANDOFF.md). Cached Coolify status and
+SQL/readiness compatibility cannot certify authorization-safe recovery.
 
 CI retains the repository's hosted-runner cutover: live platform admission
 requires the retired `homelab-heavy` pool to stay zero, and the current
@@ -78,25 +89,42 @@ after a release and inspect the `verified.json` artifacts. These backups have
 no automatic deletion policy; monitor disk usage and archive them separately.
 Retain copies off the application host for host-loss recovery.
 
-CT106 and CT103 keep their final stopped source datasets, release binaries,
-and verified pre-migration backups. They are rollback material, not current
-replicas. **Do not restart their Helm writers against those old datasets.**
+GitHub audit beta has a separate first-activation and legacy-image access
+boundary. Follow [its operations guide](../../docs/GITHUB_BETA_OPERATIONS.md)
+before enabling source capture or rolling back an instance with audit history.
+
+CT106 and CT103 were deleted on 2026-10-19 under INFRA-240. Verified full
+archives retain their final source datasets, release binaries and configuration
+on pve-homelab in `/var/lib/vz/retirements/coolify-legacy-20261019/`.
+They are historical recovery material, not current replicas.
+**Do not restart old Helm writers against those archived datasets.**
 Normal rollback changes the Coolify image only and keeps current data.
-Retained binaries passed readiness against populated migrated database copies.
+Historical readiness results do not make schema35/40 binaries eligible after041:
+they can ignore human grants and re-elevate configured email. Retain every
+historical image/backup while excluding incompatible binaries from supported
+recovery. The lane floor must never be lowered with the image/revision.
 
 If moving back to an LXC is necessary, stop the Coolify writer, take and verify
 a fresh backup of its current database, transfer the entire current data and
 account state into a separately staged LXC directory, verify row counts and
-stable IDs, then activate the retained binary and edge route. Keep the Coolify
+stable IDs, then activate only an explicitly accepted authorization-compatible
+binary and edge route. A pre-membership binary is ineligible once the floor
+has advanced. Keep the Coolify
 data intact. A destructive restore requires separate explicit authorization
 and an exact backup target.
 
-CT103 retains only `cloudflared` and `helm-legacy-relay.service` for the old
-bearer API URL. The relay accepts only bearer `/api/v1/` requests on loopback,
+VM124 now runs `helm-legacy-cloudflared.service` and
+`helm-legacy-relay.service` for the old bearer API URL. The relay accepts only
+bearer `/api/v1/` requests on loopback,
 removes cookies, verifies edge TLS and forwards through a source-restricted
-private edge listener to the authoritative Coolify production service. It
-has no database mount or writer. Install `cloudflared-legacy.service` as `cloudflared.service` so it
-requires the relay instead of the retired Helm writer. Dependencies cannot be
-removed using an empty assignment in a systemd drop-in. Existing Cloudflare service-access credentials still apply. The private `.home` dashboard remains the
+private edge listener at `10.0.30.2:19612` to the authoritative Coolify
+production service. It has no database mount or writer. Install
+`cloudflared-legacy.service` as `helm-legacy-cloudflared.service`; it requires
+the relay and scoped Cloudflare routes. The tunnel token is root-only at
+`/etc/helm-legacy/cloudflared.token` and reaches the dynamic service user through
+systemd `LoadCredential`. The edge admits only source `10.0.30.21`; host egress
+permits the edge listener and the existing Cloudflare edge IP set on TCP7844.
+The retired CT103/106 LAN permissions are removed. Existing Cloudflare
+service-access credentials still apply. The private `.home` dashboard remains the
 canonical user route. Origin certificates expire 2027-09-09; renew them in
 the Coolify `config` directories before expiry while retaining their CA/SNI.

@@ -33,6 +33,7 @@ export async function loadRoadmap(projectId = roadmapData.roadmapProjectId): Pro
       due_soon_count: result.due_soon_count ?? result.due_soon,
       upcoming_tasks: result.upcoming_tasks ?? result.upcoming
     };
+    roadmapData.roadmapScope = requestedProjectId ?? '';
     if (!projectId && result.projects?.length) {
       workspace.projects = workspace.projects.map((project) => {
         const summary = result.projects?.find((row) => row.project.id === project.id);

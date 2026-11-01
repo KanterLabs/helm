@@ -11,8 +11,8 @@ func TestProjectColumnAdministrationPreservesMappingsAndRehomesTasks(t *testing.
 	if err != nil {
 		t.Fatalf("list default columns: %v", err)
 	}
-	if len(columns) != 5 {
-		t.Fatalf("default columns = %d, want 5", len(columns))
+	if len(columns) != 6 {
+		t.Fatalf("default columns = %d, want 6", len(columns))
 	}
 
 	name, state, position := "Intake", "backlog", 1
@@ -24,7 +24,7 @@ func TestProjectColumnAdministrationPreservesMappingsAndRehomesTasks(t *testing.
 	if err != nil {
 		t.Fatalf("list reordered columns: %v", err)
 	}
-	if len(columns) != 6 || columns[1].ID != created.ID || columns[1].Position != 1 {
+	if len(columns) != 7 || columns[1].ID != created.ID || columns[1].Position != 1 {
 		t.Fatalf("created column order = %+v, want Intake at position 1", columns)
 	}
 	for index, column := range columns {
@@ -71,14 +71,14 @@ func TestProjectColumnAdministrationPreservesMappingsAndRehomesTasks(t *testing.
 	if err != nil {
 		t.Fatalf("list live columns: %v", err)
 	}
-	if len(live) != 5 {
-		t.Fatalf("live columns = %d, want 5", len(live))
+	if len(live) != 6 {
+		t.Fatalf("live columns = %d, want 6", len(live))
 	}
 	all, err := f.store.ListColumnsIncludingArchived(f.ctx, f.project.ID)
 	if err != nil {
 		t.Fatalf("list all columns: %v", err)
 	}
-	if len(all) != 6 || all[len(all)-1].ID != created.ID {
+	if len(all) != 7 || all[len(all)-1].ID != created.ID {
 		t.Fatalf("all columns = %+v, want archived column after live columns", all)
 	}
 
@@ -102,25 +102,25 @@ func TestProjectColumnAdministrationPreservesMappingsAndRehomesTasks(t *testing.
 
 func TestVersionedColumnAdministrationRetainsSoleSemanticMapping(t *testing.T) {
 	f := newDependencyFixture(t, "ADMINMAP")
-	backlog, err := f.store.StateColumn(f.ctx, f.project.ID, "backlog")
+	ready, err := f.store.StateColumn(f.ctx, f.project.ID, "ready")
 	if err != nil {
-		t.Fatalf("read backlog: %v", err)
+		t.Fatalf("read ready: %v", err)
 	}
-	state := "ready"
-	_, err = f.store.UpdateColumnWithVersion(f.ctx, backlog.ID, ColumnInput{SemanticState: &state}, f.actor.ID, true, versionPtrForAdmin(backlog.Version))
+	state := "active"
+	_, err = f.store.UpdateColumnWithVersion(f.ctx, ready.ID, ColumnInput{SemanticState: &state}, f.actor.ID, true, versionPtrForAdmin(ready.Version))
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("sole mapping change error = %v, want ErrConflict", err)
 	}
-	_, err = f.store.UpdateColumnWithVersion(f.ctx, backlog.ID, ColumnInput{Archived: boolPtrForAdmin(true)}, f.actor.ID, true, versionPtrForAdmin(backlog.Version))
+	_, err = f.store.UpdateColumnWithVersion(f.ctx, ready.ID, ColumnInput{Archived: boolPtrForAdmin(true)}, f.actor.ID, true, versionPtrForAdmin(ready.Version))
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("sole mapping archive error = %v, want ErrConflict", err)
 	}
-	unchanged, err := f.store.GetColumn(f.ctx, backlog.ID)
+	unchanged, err := f.store.GetColumn(f.ctx, ready.ID)
 	if err != nil {
 		t.Fatalf("reload sole mapping: %v", err)
 	}
-	if unchanged.ArchivedAt != nil || unchanged.Version != backlog.Version {
-		t.Fatalf("rejected sole mapping archive changed column = %+v, want version %d and live", unchanged, backlog.Version)
+	if unchanged.ArchivedAt != nil || unchanged.Version != ready.Version {
+		t.Fatalf("rejected sole mapping archive changed column = %+v, want version %d and live", unchanged, ready.Version)
 	}
 }
 

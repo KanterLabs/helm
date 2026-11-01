@@ -1,0 +1,220 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/tasks": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listProjectTasks",
+        "summary": "List tasks in a project",
+        "description": "Results use a stable server-side ordering. `sort` accepts `board`,\n`position`, `number`, `created_at`, `updated_at`, `priority`, or\n`title`; `order` selects ascending or descending direction. The\ndefault is board order (column position, task position, number, ID).\nThe returned `next_cursor` is a keyset marker scoped to that ordering;\nunchanged collections traverse without gaps or duplicates.\nEach task cursor also records the project collection revision, a fixed\nread timestamp, and a task-collection revision. If the project\ncollection changes between pages, or while a page and its enrichment\nare being read, the server returns `409 task_collection_changed` with\n`details.restart=true`; discard the cursor and restart from the first\npage. Continuations use the cursor's original read timestamp for\n`stale` and `action_needed` filters.\n`state`,\n`column`, `kind`, `priority`, `severity`, `label`, `assignee`,\n`reporter`, `resolution`, `agent_state`, `action_needed`, `dependency`,\n`release`, `q`, and `updated_after` can be combined. The project-local\n`release` filter accepts a release ID, case-insensitive release name,\nor `unassigned`. `agent_state` filters the latest\nstructured agent-work snapshot; `stale` and `missing` identify\nread-time liveness conditions. `action_needed=true` selects waiting,\nhandoff, or stale snapshots among unfinished tasks; completed tasks\nretain their snapshot as history but never match an agent-work filter.\n`action_needed=false` is accepted as an explicit no-op filter for\nclients that build filters dynamically.\n`state` filters by a column's semantic state. `dependency=blocked`\nselects tasks with an unmet live prerequisite; `dependency=ready`\nselects tasks with at least one live prerequisite and none unmet (so a\ntask with no prerequisites does not match). Supplied scalar filters are\nsingle-valued; empty identifier/enum/timestamp values and values outside\ntheir declared enum, format, or length are rejected with `400`.\n",
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TaskState"
+          },
+          {
+            "$ref": "#/components/parameters/ColumnFilter"
+          },
+          {
+            "$ref": "#/components/parameters/TaskKindFilter"
+          },
+          {
+            "$ref": "#/components/parameters/PriorityFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SeverityFilter"
+          },
+          {
+            "$ref": "#/components/parameters/LabelFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AssigneeFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReporterFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ResolutionFilter"
+          },
+          {
+            "$ref": "#/components/parameters/AgentStateFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ActionNeededFilter"
+          },
+          {
+            "$ref": "#/components/parameters/DependencyFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SearchQuery"
+          },
+          {
+            "$ref": "#/components/parameters/UpdatedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/TaskSort"
+          },
+          {
+            "$ref": "#/components/parameters/TaskOrder"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cursor-paginated tasks",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCollection"
+                },
+                "examples": {
+                  "tasks": {
+                    "$ref": "#/components/examples/TaskCollectionExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/TaskCollectionConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createTask",
+        "summary": "Create a task",
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              },
+              "example": {
+                "title": "Add event polling",
+                "kind": "task",
+                "description": "Implement incremental event polling for agents.",
+                "priority": "high",
+                "column_id": "col_ready",
+                "assignee_id": "agent_ada",
+                "release_id": "release_14",
+                "due_at": "2026-09-01T12:00:00Z",
+                "label_ids": [
+                  "label_api"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Task created; humans and bearer tokens with tasks:read receive the full task, while write-only bearer tokens receive only id/version metadata.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskMutationResponse"
+                },
+                "examples": {
+                  "task": {
+                    "$ref": "#/components/examples/TaskExample"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

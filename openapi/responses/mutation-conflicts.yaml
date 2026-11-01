@@ -1,0 +1,188 @@
+components:
+  responses:
+    Conflict:
+      description: Request conflicts with current state or idempotency history
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            conflict:
+              $ref: "#/components/examples/ConflictExample"
+    ReleaseConflict:
+      description: |
+        Release lifecycle or membership conflict. The stable `error.code` is
+        one of `release_name_exists`, `release_cross_project`,
+        `release_already_completed`, `release_not_completed`,
+        `release_has_tasks`, `release_incomplete`,
+        `release_dependency_conflict`, `release_frozen`, `stale_release`, or
+        `idempotency_key_reused`. Details are redacted for write-only bearer
+        tokens in the same way as other mutation conflicts.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReleaseConflictErrorResponse"
+          examples:
+            releaseIncomplete:
+              value:
+                error:
+                  code: release_incomplete
+                  message: release has incomplete required work
+                  details:
+                    release_id: release_14
+                    summary:
+                      required_task_count: 15
+                      required_completed_count: 9
+    ReleaseQueueConflict:
+      description: |
+        A release work-queue cursor is no longer valid because a task,
+        dependency, claim, or release changed. Discard the cursor and restart
+        from the first page.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReleaseQueueConflictErrorResponse"
+          example:
+            error:
+              code: release_queue_changed
+              message: release work queue changed; restart pagination from the first page
+              details:
+                expected_release_version: 3
+                current_release_version: 4
+                expected_project_revision: 812
+                current_project_revision: 813
+                restart: true
+    StaleTask:
+      description: |
+        Task version is stale. Humans and tokens with tasks:read receive the
+        full current task in details.current; write-only and claim-only bearer
+        tokens receive only its id and version so read-protected fields are not
+        disclosed.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/StaleTaskErrorResponse"
+          examples:
+            staleTask:
+              $ref: "#/components/examples/StaleTaskExample"
+    TaskMutationConflict:
+      description: |
+        Task mutation conflicts are either a stale task version, an active
+        claim held by another actor, or an idempotency key reused for a
+        different request. Human administrators may explicitly override an
+        active claim for task PATCH and DELETE; bearer tokens and ordinary
+        human actors cannot.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TaskMutationConflictErrorResponse"
+          examples:
+            staleTask:
+              $ref: "#/components/examples/StaleTaskExample"
+            taskAlreadyClaimed:
+              $ref: "#/components/examples/TaskAlreadyClaimedExample"
+            idempotencyKeyReused:
+              $ref: "#/components/examples/ConflictExample"
+    TaskCollectionConflict:
+      description: |
+        A task collection keyset cursor is no longer valid because the
+        project changed after the cursor was issued. Discard the cursor and
+        restart the collection from its first page; the details object
+        includes `restart: true` and the observed collection revisions.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TaskCollectionConflictErrorResponse"
+          example:
+            error:
+              code: task_collection_changed
+              message: task collection changed; restart pagination from the first page
+              details:
+                expected_revision: 42
+                current_revision: 43
+                expected_task_collection_revision: 7
+                current_task_collection_revision: 8
+                restart: true
+    DependencyConflict:
+      description: |
+        Dependency mutations use stable conflict codes. `dependency_cycle`,
+        `dependency_already_exists`, `dependency_in_use`, `stale_task`,
+        `task_already_claimed`, and `idempotency_key_reused` are returned with
+        HTTP 409 when the graph or mutation precondition conflicts with current
+        state. Lifecycle guards also return `unmet_dependencies` when claim,
+        start, finish, resolution, or semantic-column transitions would cross a
+        boundary with an unsatisfied prerequisite. Conflict details are bounded
+        by the 200-edge graph limit and scope-aware: a bearer token without
+        `tasks:read` receives no relation IDs, keys, titles, timestamps,
+        satisfaction flags, or cycle paths; only safe metadata such as a count,
+        direction, or limit may remain.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            cycle:
+              value:
+                error:
+                  code: dependency_cycle
+                  message: dependency would create a cycle
+                  details:
+                    path:
+                      - OPS-41
+                      - OPS-42
+                      - OPS-41
+            stale:
+              $ref: "#/components/examples/StaleTaskExample"
+            idempotency:
+              $ref: "#/components/examples/ConflictExample"
+    PreconditionRequired:
+      description: If-Match was missing from a task mutation (HTTP 428).
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: if_match_required
+              message: If-Match is required
+              details: {}

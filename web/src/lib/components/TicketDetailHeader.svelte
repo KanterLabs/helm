@@ -40,6 +40,7 @@
   .ticket-detail-header h2 { margin: 6px 0 0; font: 600 var(--text-lg) var(--font-sans); letter-spacing: -.02em; }
   .ticket-detail-header h2:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
   .ticket-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; font-size: var(--text-xs); }
-  .ticket-controls label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .ticket-controls label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; max-width: 100%; }
+  .ticket-controls select { min-width: 0; max-width: 100%; }
   .compact { min-height: 30px; }
 </style>

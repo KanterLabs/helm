@@ -6,11 +6,10 @@
   import { cancelAdminConfirmation, runAdminConfirmation } from '../../admin';
   import { focusTrap, settleConfirm } from '../../dialogs';
   import { runToastAction } from '../../feedback';
-  import { closeTokenReveal, copyRevealedToken } from '../../settings';
+  import TokenDialogs from '../../../lib/components/tokens/TokenDialogs.svelte';
   import { admin } from '../../state/admin.svelte';
   import { dialogs } from '../../state/dialogs.svelte';
   import { live } from '../../state/live.svelte';
-  import { settings } from '../../state/settings.svelte';
 </script>
 
 {#if dialogs.confirmRequest}
@@ -33,10 +32,7 @@
   </div>
 {/if}
 
-{#if settings.revealedToken}
-  <div class="modal-backdrop" role="presentation"></div>
-  <div class="modal token-reveal-modal" role="alertdialog" aria-modal="true" aria-labelledby="token-reveal-title" use:focusTrap><div class="token-reveal-icon">✓</div><span class="eyebrow">One-time secret</span><h2 id="token-reveal-title">Copy your token now</h2><p>For your security, the token will not be shown again after closing this dialog.</p><div class="token-value"><code>{settings.revealedToken.plaintext || settings.revealedToken.token || ''}</code><button class="icon-button" type="button" aria-label="Copy token" on:click={() => void copyRevealedToken()}>⧉</button></div><button class="button primary button-large" type="button" data-dialog-initial-focus on:click={closeTokenReveal}>I’ve copied it</button></div>
-{/if}
+<TokenDialogs />
 
 <div class="sr-only" aria-live="polite" aria-atomic="true">{live.liveAnnouncement}</div>
 <div class="toast-stack" aria-label="Notifications">{#each live.toasts as item (item.id)}<div class={`toast ${item.kind}`} role={item.role} aria-live={item.live} aria-atomic="true"><span aria-hidden="true">{item.kind === 'success' ? '✓' : item.kind === 'error' ? '!' : 'i'}</span><span class="toast-message">{item.message}</span>{#if item.action}<button class="toast-action" type="button" disabled={item.action.pending} on:click={() => void runToastAction(item)}>{item.action.pending ? 'Working…' : item.action.label}</button>{/if}<button class="icon-button tiny" type="button" aria-label="Dismiss notification" on:click={() => live.toasts = live.toasts.filter((toastItem) => toastItem.id !== item.id)}>×</button></div>{/each}</div>

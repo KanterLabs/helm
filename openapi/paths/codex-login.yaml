@@ -1,0 +1,27 @@
+paths:
+  /api/v1/codex/login:
+    post:
+      operationId: startCodexDeviceLogin
+      summary: Start a Codex ChatGPT device-code login
+      description: Starts an actor-isolated, Codex-managed device-code flow. Access and refresh
+        credentials are never returned.
+      tags:
+        - Authentication
+      responses:
+        "200":
+          description: One-time device-code instructions
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+            X-Roadmap-Revision:
+              $ref: "#/components/headers/XRoadmapRevision"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexDeviceLogin"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"

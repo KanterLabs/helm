@@ -1,0 +1,93 @@
+{
+  "paths": {
+    "/api/v1/releases/{release}/reopen": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ReleasePath"
+        }
+      ],
+      "post": {
+        "operationId": "reopenRelease",
+        "summary": "Reopen a released release",
+        "description": "Reopens a released release with a required human-readable reason. The reason is recorded in the release event; membership and task lifecycle guards become writable again.",
+        "tags": [
+          "Releases"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReleaseIfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/ReleaseIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseReopenRequest"
+              },
+              "example": {
+                "reason": "Scope changed after release review."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reopened planned release.",
+            "headers": {
+              "X-Request-ID": {
+                "$ref": "#/components/headers/XRequestID"
+              },
+              "X-Roadmap-Revision": {
+                "$ref": "#/components/headers/XRoadmapRevision"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReleaseNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReleaseConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "428": {
+            "$ref": "#/components/responses/PreconditionRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}
