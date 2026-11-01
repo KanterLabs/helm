@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "core_smoke": [
+    "e2e/helm-shell.spec.ts"
+  ],
+  "ui_map": {
+    "web/src/lib/components/NotificationItem.svelte": [
+      "e2e/notifications.spec.ts"
+    ]
+  },
+  "docs_exact": [
+    "README.md"
+  ],
+  "docs_excluded": [
+    "docs/PUBLIC_ACCESS.md",
+    "docs/TICKET_WEBHOOKS.md",
+    "docs/CONFIGURATION.md",
+    "docs/API_CONTRACT.md"
+  ],
+  "full_phases": [
+    "main",
+    "onboarding",
+    "github",
+    "deadline"
+  ],
+  "conditional_phases": {
+    "membership": "e2e/membership-sessions.spec.ts"
+  }
+}

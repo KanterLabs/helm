@@ -1,3 +1,4 @@
+workflow_router="$WORKFLOW_ROUTER"
 # Coolify lane mutation uses a fixed non-canceling lock, immutable image,
 # protected environment, and all existing validation dependencies. Legacy
 # credentials and LXC mutation must not return to the deployment workflow.
@@ -15,13 +16,13 @@ contains 'url: https://beta-helm.home.shanekanterman.dev' "$WORKFLOW"
 contains 'url: https://helm.home.shanekanterman.dev' "$WORKFLOW"
 count_contains 1 "vars.HELM_BETA_DEPLOY_PAUSED != 'true'" "$WORKFLOW"
 count_contains 1 "vars.HELM_PRODUCTION_DEPLOY_PAUSED != 'true'" "$WORKFLOW"
-count_contains 2 'needs: [checks, browser, race, container]' "$WORKFLOW"
+count_contains 2 'needs: [plan, checks, browser, race, container, pr-gate, publish, validation_receipt]' "$WORKFLOW"
 count_contains 2 'run: python3 deploy/coolify-deploy.py' "$WORKFLOW"
 count_contains 2 'COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}' "$WORKFLOW"
 for target in COOLIFY_API_URL COOLIFY_PROJECT_UUID COOLIFY_ENVIRONMENT_UUID COOLIFY_SERVICE_UUID COOLIFY_SERVICE_NAME COOLIFY_SERVER_UUID HELM_SITE_URL; do
 	count_contains 2 "$target: \${{ vars.$target }}" "$WORKFLOW"
 done
-count_contains 2 'HELM_IMAGE: ${{ needs.container.outputs.image }}' "$WORKFLOW"
+count_contains 2 'HELM_IMAGE: ${{ needs.publish.outputs.image }}' "$WORKFLOW"
 count_contains 2 'HELM_RELEASE_SHA: ${{ github.sha }}' "$WORKFLOW"
 contains 'image=ghcr.io/kanterlabs/helm' "$WORKFLOW"
 contains '[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]' "$WORKFLOW"
@@ -29,7 +30,7 @@ contains 'docker push "$image:${GITHUB_SHA}"' "$WORKFLOW"
 contains 'current=false' "$WORKFLOW"
 contains 'ls-remote --exit-code --refs origin "$EXPECTED_REF"' "$WORKFLOW"
 # Check the exact runner selector and trust gate instead of legacy runner comments.
-python3 "$DEPLOY_DIR/test-ci-runner-policy.py" "$WORKFLOW"
+python3 "$DEPLOY_DIR/test-ci-runner-policy.py" "$workflow_router"
 python3 "$DEPLOY_DIR/security-tests/test_ci_runner_policy.py" --artifact "$fixture/runner-policy-proofs.json"
 count_contains 2 'uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd' "$WORKFLOW"
 count_contains 2 'oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}' "$WORKFLOW"
@@ -37,6 +38,8 @@ count_contains 2 'oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}' "$WORKFLOW"
 count_contains 2 'tags: tag:gha-helm-deploy' "$WORKFLOW"
 not_contains 'args: --accept-routes' "$WORKFLOW"
 contains 'ref: ${{ github.sha }}' "$WORKFLOW"
+count_contains 2 "needs.validation_receipt.result == 'success'" "$WORKFLOW"
+contains "github.event_name == 'push'" "$WORKFLOW"
 contains 'actions/upload-artifact@' "$WORKFLOW"
 contains '# v7.0.1' "$WORKFLOW"
 contains 'actions/checkout@' "$WORKFLOW"
