@@ -14,6 +14,7 @@ import { portable } from './portable.svelte';
 import { releasePlan } from './releasePlan.svelte';
 import { search } from './search.svelte';
 import { settings } from './settings.svelte';
+import { tokens } from '../tokens.svelte';
 import { taskModal } from './taskModal.svelte';
 import { workspace } from './workspace.svelte';
 
@@ -47,14 +48,14 @@ class SessionState {
   updateBlocked = $derived(Boolean(pendingMutationCountStore.current || creation.projectCreating || taskModal.taskModalCreating || bugModal.bugModalCreating || creation.quickAddCreating
     || creation.projectCreation || creation.taskCreation || creation.bugCreation || creation.quickCreation || drawer.drawerSaving || drawer.commentSending
     || drawer.editedCommentPending || drawer.checklistPending || drawer.taskActionLoading || releasePlan.releaseModalSaving || admin.adminSaving || admin.adminColumnSaving
-    || admin.adminColumnCreating || settings.tokenCreating || settings.agentSaving || portable.portableBusy || bulk.bulkSubmitting || search.savedViewSaving));
+    || admin.adminColumnCreating || tokens.creating || tokens.agent || tokens.reveal || settings.agentSaving || portable.portableBusy || bulk.bulkSubmitting || search.savedViewSaving));
   protectedDrafts = $derived(drawer.drawerDraftDirty || drawer.editedCommentDirty || drawer.checklistDirty || workspace.ticketsDirty || Boolean(
     taskModal.showTaskModal && (taskModal.taskModalTitle || taskModal.taskModalDescription || taskModal.taskModalIdea || taskModal.taskModalDueDate || taskModal.taskModalAssignee || taskModal.taskModalPriority !== 'normal' || taskModal.taskModalReleaseId)
     || bugModal.showBugModal && (bugModal.bugModalTitle || bugModal.bugModalDescription || bugModal.bugModalActual || bugModal.bugModalExpected || bugModal.bugModalReproduction || bugModal.bugModalEnvironment || bugModal.bugModalVersion || bugModal.bugModalLabels || bugModal.bugModalSeverity || bugModal.bugModalPriority !== 'normal' || bugModal.bugModalReleaseId)
     || creation.showProjectModal && (creation.projectNameDraft || creation.projectKeyDraft || creation.projectDescriptionDraft || creation.projectColorDraft !== '#6d5efc')
     || Object.values(board.quickAddTitle).some((value) => value.trim())
     || releasePlan.showReleaseModal && (releasePlan.releaseModalName || releasePlan.releaseModalDescription || releasePlan.releaseModalTargetDate)
-    || workspace.view === 'settings' && (settings.agentNameDraft || settings.agentDescriptionDraft || settings.tokenNameDraft || admin.adminColumnName
+    || workspace.view === 'settings' && (settings.agentNameDraft || settings.agentDescriptionDraft || tokens.name || admin.adminColumnName
       || admin.adminProject && (admin.adminProjectName !== admin.adminProject.name || admin.adminProjectDescription !== (admin.adminProject.description || '') || admin.adminProjectColor !== (admin.adminProject.color || '#64748b') || admin.adminChecklistPolicy !== (admin.adminProject.checklist_completion_policy || 'warn')))
   ));
 }

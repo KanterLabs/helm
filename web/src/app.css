@@ -10,6 +10,7 @@
 @import './styles/work-issues.css';
 @import './styles/roadmap.css';
 @import './styles/settings.css';
+@import './styles/tokens.css';
 @import './styles/audits-utility.css';
 @import './styles/responsive.css';
 @import './styles/releases.css';

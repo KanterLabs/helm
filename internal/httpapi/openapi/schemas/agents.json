@@ -27,6 +27,12 @@
             "type": "boolean",
             "const": false
           },
+          "intake_source": {
+            "type": "boolean",
+            "const": true,
+            "readOnly": true,
+            "description": "Present only for server-owned intake attribution identities. These identities retain legacy token metadata but cannot receive new tokens."
+          },
           "disabled_at": {
             "$ref": "#/components/schemas/Timestamp"
           },
@@ -160,7 +166,7 @@
             "items": {
               "$ref": "#/components/schemas/Identifier"
             },
-            "description": "Optional project restriction for this token."
+            "description": "Optional project restriction for this token. Explicit selections must be within the agent project ceiling; an empty or omitted list inherits that ceiling. New tokens cannot be issued to disabled agents or intake sources."
           },
           "expires_at": {
             "$ref": "#/components/schemas/NullableTimestamp"

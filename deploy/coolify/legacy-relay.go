@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	upstream, _ := url.Parse("https://10.0.0.101:19612")
+	upstream, _ := url.Parse("https://10.0.30.2:19612")
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	proxy.Transport = &http.Transport{
 		Proxy:                 nil,

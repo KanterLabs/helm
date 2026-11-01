@@ -93,9 +93,11 @@ GitHub audit beta has a separate first-activation and legacy-image access
 boundary. Follow [its operations guide](../../docs/GITHUB_BETA_OPERATIONS.md)
 before enabling source capture or rolling back an instance with audit history.
 
-CT106 and CT103 keep their final stopped source datasets, release binaries,
-and verified pre-migration backups. They are rollback material, not current
-replicas. **Do not restart their Helm writers against those old datasets.**
+CT106 and CT103 were deleted on 2026-10-19 under INFRA-240. Verified full
+archives retain their final source datasets, release binaries and configuration
+on pve-homelab in `/var/lib/vz/retirements/coolify-legacy-20261019/`.
+They are historical recovery material, not current replicas.
+**Do not restart old Helm writers against those archived datasets.**
 Normal rollback changes the Coolify image only and keeps current data.
 Historical readiness results do not make schema35/40 binaries eligible after041:
 they can ignore human grants and re-elevate configured email. Retain every
@@ -111,12 +113,18 @@ has advanced. Keep the Coolify
 data intact. A destructive restore requires separate explicit authorization
 and an exact backup target.
 
-CT103 retains only `cloudflared` and `helm-legacy-relay.service` for the old
-bearer API URL. The relay accepts only bearer `/api/v1/` requests on loopback,
+VM124 now runs `helm-legacy-cloudflared.service` and
+`helm-legacy-relay.service` for the old bearer API URL. The relay accepts only
+bearer `/api/v1/` requests on loopback,
 removes cookies, verifies edge TLS and forwards through a source-restricted
-private edge listener to the authoritative Coolify production service. It
-has no database mount or writer. Install `cloudflared-legacy.service` as `cloudflared.service` so it
-requires the relay instead of the retired Helm writer. Dependencies cannot be
-removed using an empty assignment in a systemd drop-in. Existing Cloudflare service-access credentials still apply. The private `.home` dashboard remains the
+private edge listener at `10.0.30.2:19612` to the authoritative Coolify
+production service. It has no database mount or writer. Install
+`cloudflared-legacy.service` as `helm-legacy-cloudflared.service`; it requires
+the relay and scoped Cloudflare routes. The tunnel token is root-only at
+`/etc/helm-legacy/cloudflared.token` and reaches the dynamic service user through
+systemd `LoadCredential`. The edge admits only source `10.0.30.21`; host egress
+permits the edge listener and the existing Cloudflare edge IP set on TCP7844.
+The retired CT103/106 LAN permissions are removed. Existing Cloudflare
+service-access credentials still apply. The private `.home` dashboard remains the
 canonical user route. Origin certificates expire 2027-09-09; renew them in
 the Coolify `config` directories before expiry while retaining their CA/SNI.

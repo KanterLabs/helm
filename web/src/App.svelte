@@ -35,6 +35,7 @@
   import { workspace } from './app/state/workspace.svelte';
   import { replaceTask } from './app/taskSync';
   import { applyTheme, browserPlatform, systemTheme } from './app/theme';
+  import { tokens } from './app/tokens.svelte';
   import BoardView from './app/views/board/BoardView.svelte';
   import TaskDrawer from './app/views/drawer/TaskDrawer.svelte';
   import BugModal from './app/views/overlays/BugModal.svelte';
@@ -66,6 +67,8 @@
   import { readSidebarCollapsed } from './lib/navigation';
   import { helmStorageKeys, legacyRoadmapStorageKeys, loadRecentProjects, readMigratedStorage } from './lib/state';
   import { platformShortcut } from './lib/ui';
+
+  tokens.connect();
 
   $effect.pre(() => {
     const ids = bulk.selectedTaskIds;

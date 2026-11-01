@@ -4,6 +4,7 @@ import { resetMembershipState } from '../lib/components/membership/membersState.
 import { clearBetaState } from './beta';
 import { invalidateBulkRequest } from './bulk';
 import { resetCreationSession } from './creation';
+import { tokens } from './tokens.svelte';
 import { closeDrawer } from './drawer/drafts';
 import { clearAnnouncement } from './feedback';
 import { clearSavedBoards } from './offline';
@@ -27,6 +28,7 @@ import { workspace } from './state/workspace.svelte';
 import { taskMutations } from './taskSync';
 
 export async function resetSessionWorkspace(): Promise<void> {
+  tokens.clear();
   resetCreationSession();
   // Invalidate reads before awaiting the network logout. Otherwise a poll
   // or list request can still resolve while the logout request is pending,
@@ -131,7 +133,6 @@ export async function resetSessionWorkspace(): Promise<void> {
   board.taskMutationRevision = 0;
   Object.values(taskMutations).forEach((records) => records.clear());
   live.workTransitionSnapshot = new Map();
-  settings.revealedToken = null;
   settings.agentsError = '';
   settings.agentsLoading = false;
   settings.selectedAgentId = '';

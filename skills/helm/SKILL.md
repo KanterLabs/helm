@@ -7,6 +7,15 @@ description: Track substantive agent work, goals, progress, blockers, and comple
 
 Use Helm as the durable project record for substantive work. The chat plan is temporary; the Helm task is the shared source of truth humans and later agent sessions can inspect. Existing project and task IDs, including the `TC` project key, remain valid during the migration.
 
+## Product knowledge: v0.2.0
+
+Helm v0.2.0 shipped on 2026-10-11 with Tickets, HTTP webhook and email
+intake, and guided Cloudflare public access. Read
+[references/v0.2.0.md](references/v0.2.0.md) when handling tickets,
+integrations, public access, or upgrades from v0.1.1. New intake lands in
+the built-in Tickets queue; agent credentials need an explicit project grant
+to see it. Ordinary project work still follows the task lifecycle below.
+
 ## Start
 
 1. Run `python3 scripts/helm.py projects` and match the current repository or workstream to an existing project. Do not silently create a project or put work in an unrelated project.
@@ -163,157 +172,18 @@ ceilings; an empty inbox does not prove that no other project has activity.
 
 ## Read-only Board Audit
 
-Run a Board Audit only when the user or an explicitly delegated task requests
-an inspection. It is on-demand and never runs from lifecycle hooks:
-
-```sh
-python3 scripts/helm.py audit --project TC
-```
-
-The command follows every task page for the `backlog` and `active` semantic
-states by default. Repeat `--state` (or `--semantic-state`) to inspect a
-different set of semantic states; `--limit` controls the API page size and
-`--evidence-limit` bounds recent comment evidence per task. Every request made
-by `audit` is `GET`, including optional comments used for bounded evidence.
-
-Each returned task context includes its key, immutable ID, version, current
-column semantic state/name, title, bounded description plus parsed goal and
-acceptance criteria, priority, claim lease, agent-work snapshot, liveness,
-recent safe evidence, and a rubric verdict: `correct`, `needs_attention`, or
-`move_proposed`. A suggested destination, numeric confidence, concise reason,
-warnings, and evidence references accompany the verdict. Stale or missing
-agent pulses are warnings only; they never prove that work is abandoned or
-complete. The v1 audit considers semantic placement only and never changes a
-task or reorders its numeric position.
-
-Agents must analyze the returned `rubric` and task contexts without mutating
-the board. During an audit do not claim, renew, release, move, complete,
-block, comment, publish progress, emit activity, or call any write endpoint.
-The agent owns the semantic judgment in each finding. If a durable record is
-requested, save the audit JSON and submit it separately; submission persists
-the agent's findings but does not move tasks:
-
-```sh
-python3 scripts/helm.py submit \
-  --project TC \
-  --input audit.json \
-  --scope board \
-  --operation-id "audit-session-1"
-```
-
-Submission creates a run, appends each finding with a deterministic
-idempotency key, and finalizes the run. Submitted findings always begin
-pending; approval is never imported from the input file. When the web UI has
-already queued the run, process that exact run instead of creating a duplicate:
-
-```sh
-python3 scripts/helm.py submit \
-  --project TC \
-  --audit AUDIT_ID \
-  --input audit.json \
-  --operation-id "audit-session-1"
-```
-
-The CLI resolves `--project`, so bearer tokens need `projects:read` plus
-`tasks:read`; submission and reconcile apply additionally need `tasks:write`.
-To inspect
-approved findings, reconciliation is preview-first and read-only by default:
-
-```sh
-python3 scripts/helm.py reconcile --audit AUDIT_ID
-```
-
-The preview re-fetches paginated findings, current columns, and current tasks;
-it skips queued, running, or failed runs, changed snapshots, unapproved
-findings, active claims, unavailable
-destinations, and lifecycle destinations (`active`, `blocked`, or `completed`)
-while reporting the required follow-up action. It never mutates a task unless
-`--apply` is explicitly supplied. Applying an eligible backlog/ready move
-uses the captured version and source column with `source: board_audit` and a
-stable idempotency key, so rerunning a command is safe. Reconciliation never
-reorders numeric positions; lifecycle actions remain explicit claim/resume,
-block, or complete operations.
-
-For an explicitly requested batch board change, read the bundled API reference
-before using the bounded bulk task endpoint. Capture every task's current
-version, preserve per-task claim and dependency rules, and supply one
-idempotency key for the batch. Prefer `partial` when independent valid items
-should proceed and `atomic` only when the user requires all-or-nothing
-behavior. A `200` response is not blanket success: inspect every item for
-`applied`, `skipped`, or `conflict`, then re-read conflicted tasks. Never turn a
-bulk request into an unreviewed lifecycle transition.
+When the user or an explicitly delegated task requests a Board Audit, read
+[references/board-audit.md](references/board-audit.md) before inspecting the
+board, submitting findings, reconciling approved findings, or performing a
+requested batch board change. Audits are read-only and never run from hooks.
 
 ## Release-bound execution
 
-When the user explicitly says “Work on all tasks needed for release X”, use the
-release work queue as a bounded execution plan. This is an orchestration loop,
-not a background worker:
-
-1. Resolve exactly one visible project and exactly one `planned` release in
-   that project. Names are case-insensitive only within the selected project;
-   do not guess when the project or release is missing or ambiguous. Use
-   `releases list` to discover a release and `releases get` to publish its
-   current name, target date, version, and summary.
-
-The corresponding read commands are:
-
-```sh
-python3 scripts/helm.py releases list --project TC [--status planned]
-python3 scripts/helm.py releases get --project TC --release 1.4
-python3 scripts/helm.py release-work --project TC --release 1.4
-```
-
-`release-work` accepts `--limit`, `--cursor`, and `--all`; it returns the
-release queue snapshot plus deterministic `state`, `guidance`, and `workflow`
-fields. These commands perform GET requests only. The existing task lifecycle
-commands (`resume`, `progress`, `complete`, `block`, and `release`/`unclaim`)
-remain the only way to mutate work during this loop.
-
-Every valid queue snapshot exits `0` regardless of whether its state is
-`ready`, `handoff`, or `waiting`; malformed input, ambiguous scope, API or
-transport failure, malformed responses, or exhausted cursor restarts exit
-non-zero and do not mutate work.
-
-If the user cancels, interrupts, or restarts the workflow, stop at the current
-read/mutation boundary and preserve only the partial progress already recorded
-through the task lifecycle. A partial queue read is never an actionable plan:
-discard it and re-read from the first page before continuing. Reuse an
-operation ID only when retrying that same logical lifecycle mutation; a
-different mutation gets a new ID, so retries remain idempotent without
-replaying another action.
-
-2. Read `release-work` and report the direct count, required dependency
-   closure, completed count, and every non-zero blocker count as the execution
-   scope before taking a lease. A dependency-free task is claimable; do not
-   use the narrower `dependency=ready` filter as a substitute for this queue.
-3. Resume an owned active task first. If the existing two-step `resume` claims
-   the task but cannot move it to the Active column, treat the still-owned
-   claim as resumable work and recover it; never claim another task in that
-   situation. Use the task's goal, acceptance criteria, dependencies,
-   checklist, and latest activity as its concrete work contract.
-4. When no owned task needs resuming, claim exactly one `claimable` task with
-   the existing `resume --task` flow. Never bulk-claim or hold multiple new
-   leases. Work and finish that task through the existing versioned progress,
-   complete, block, and claim-release actions.
-5. After every completion, block, released claim, stale ETag, queue
-   invalidation, or scope-changing event, discard the old queue cursor and
-   refresh `release-work` from its first page. Include newly added direct
-   tasks in the next scope and call out any material scope change.
-6. Treat `completed` as done; do not touch `manually_blocked` tasks, override
-   `claimed_elsewhere` leases, bypass `dependency_blocked` prerequisites, or
-   work an incomplete prerequisite assigned to another planned release
-   (`cross_release_conflict`). Checklist warnings require review and do not
-   silently turn a task into completed work. Stop and report the blocker and
-   its next action when it needs new authority.
-
-The queue may return HTTP 409 `release_queue_changed` while a cursor is being
-followed. Restart from the first page and recompute the scope; if contention
-continues, leave a handoff rather than acting on stale rows. Keep the outcome
-deterministic: report `ready` when every required task is complete, `handoff`
-when owned or claimable work remains, and `waiting` when no safe task can
-proceed. A ready queue only means “ready to release”; never auto-complete the
-product release. Completing or reopening that release is a separate explicit
-human-authorized lifecycle action.
+When the user explicitly asks to work on all tasks needed for a release, read
+[references/release-execution.md](references/release-execution.md) before
+resolving the release or taking a lease. Use its bounded queue and existing
+task lifecycle; product release completion remains a separate explicitly
+authorized action.
 
 ## Protect persistent data
 

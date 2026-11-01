@@ -13,7 +13,7 @@ import { exitExplore, stepExploreZoom } from './explore';
 import { closeMobileNav, closeNavMenus, toggleSidebarCollapsed } from './nav/sidebar';
 import { closeCommandPalette, openCommandPalette } from './palette';
 import { closeReleaseModal, closeReleaseReopen } from './releases/edit';
-import { closeTokenReveal } from './settings';
+import { tokens } from './tokens.svelte';
 import { admin } from './state/admin.svelte';
 import { beta } from './state/beta.svelte';
 import { board } from './state/board.svelte';
@@ -27,7 +27,6 @@ import { issues } from './state/issues.svelte';
 import { nav } from './state/nav.svelte';
 import { palette } from './state/palette.svelte';
 import { releasePlan } from './state/releasePlan.svelte';
-import { settings } from './state/settings.svelte';
 import { taskModal } from './state/taskModal.svelte';
 import { workspace } from './state/workspace.svelte';
 import { closeTaskModal } from './taskModal';
@@ -40,6 +39,14 @@ export function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
       event.preventDefault();
       settleConfirm(false);
+    }
+    return;
+  }
+  if (tokens.reveal || tokens.agent || tokens.creating) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (tokens.reveal) void tokens.closeReveal();
+      else tokens.closeCreate();
     }
     return;
   }
@@ -63,7 +70,7 @@ export function handleKeydown(event: KeyboardEvent) {
     && !bugModal.showBugModal
     && !releasePlan.showReleaseModal
     && !releasePlan.releaseReopenTarget
-    && !settings.revealedToken
+    && !tokens.reveal
     && !drawer.drawerTask
   ) {
     const searchInput = workspace.view === 'issues' ? issues.issueSearchInput : workspace.view === 'board' ? board.boardSearchInput : workspace.view === 'tickets' ? workspace.ticketsWorkspace?.searchElement() || null : null;
@@ -102,7 +109,7 @@ export function handleKeydown(event: KeyboardEvent) {
     else if (releasePlan.showReleaseModal) closeReleaseModal();
     else if (releasePlan.releaseReopenTarget) closeReleaseReopen();
     else if (bulk.showBulkModal) closeBulkModal();
-    else if (settings.revealedToken) closeTokenReveal();
+    else if (tokens.reveal) void tokens.closeReveal();
     else if (drawer.drawerTask) closeDrawer();
     else if (explore.active && workspace.view === 'roadmap') void exitExplore();
   } else if (

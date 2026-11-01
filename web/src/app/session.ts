@@ -21,6 +21,7 @@ import { board } from './state/board.svelte';
 import { bulk } from './state/bulk.svelte';
 import { session } from './state/session.svelte';
 import { workspace } from './state/workspace.svelte';
+import { tokens } from './tokens.svelte';
 
 export const accessBootstrapKey = 'helm.cloudflare-access-bootstrap';
 
@@ -122,6 +123,7 @@ export async function bootstrap() {
 }
 
 export async function finishAuthentication() {
+  tokens.clear();
   const actorChanged = session.authenticatedActorId !== (session.user?.id || '');
   if (session.authenticatedActorId && actorChanged) resetCreationSession();
   // Private member/session administration never survives an actor change.

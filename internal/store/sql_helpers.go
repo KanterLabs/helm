@@ -65,6 +65,7 @@ func actorFromRow(scanner interface{ Scan(...any) error }) (Actor, error) {
 		return Actor{}, err
 	}
 	a.Email, a.DisabledAt, a.Admin = nullableString(email), nullableString(disabled), boolValue(admin)
+	a.IntakeSource = a.IsIntakeSource()
 	return a, nil
 }
 

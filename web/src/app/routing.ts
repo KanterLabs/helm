@@ -1,6 +1,6 @@
 // URL routing, project selection and view switching.
 import { api } from '../lib/api';
-import { helmStorageKeys, legacyRoadmapStorageKeys, parseTaskRoute, readMigratedStorage, rememberProject, taskDeepLink } from '../lib/state';
+import { helmStorageKeys, legacyRoadmapStorageKeys, readMigratedStorage, rememberProject, taskDeepLink } from '../lib/state';
 import type { Project } from '../lib/types';
 import { loadProjectAdmin } from './admin';
 import { loadBoard } from './board/load';
@@ -33,52 +33,10 @@ import { timeline } from './state/timeline.svelte';
 import { workspace } from './state/workspace.svelte';
 import { projectForTask } from './taskQueries';
 import type { View } from './types';
-
-export function getProjectSlugFromLocation(): string {
-  const match = window.location.pathname.match(/^\/p\/([^/]+)/);
-  return match ? decodeURIComponent(match[1]) : '';
-}
-
-export function getTaskRouteFromLocation() {
-  return parseTaskRoute(window.location.pathname, window.location.search, window.location.hash);
-}
-
-export function isTaskLocation(): boolean {
-  return Boolean(getTaskRouteFromLocation());
-}
-
-export function isProjectRoadmapLocation(): boolean {
-  return /^\/p\/[^/]+\/roadmap\/?$/.test(window.location.pathname);
-}
-
-export function isProjectFocusLocation(): boolean {
-  return /^\/p\/[^/]+\/focus\/?$/.test(window.location.pathname);
-}
-
-export function isProjectReleasesLocation(): boolean {
-  return isProjectFocusLocation() || /^\/p\/[^/]+\/releases\/?$/.test(window.location.pathname);
-}
-
-export function canonicalizeProjectFocusLocation(): void {
-  if (typeof window === 'undefined' || !/^\/p\/[^/]+\/releases\/?$/.test(window.location.pathname)) return;
-  const pathname = window.location.pathname.replace(/\/releases\/?$/, '/focus');
-  const target = `${pathname}${window.location.search}${window.location.hash}`;
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (current !== target) window.history.replaceState({}, '', target);
-}
-
-export function isProjectTimelineLocation(): boolean {
-  return /^\/p\/[^/]+\/timeline\/?$/.test(window.location.pathname);
-}
-
-export function isProjectAuditLocation(): boolean {
-  return /^\/p\/[^/]+\/audits(?:\/[^/]+)?\/?$/.test(window.location.pathname);
-}
-
-export function getAuditIdFromLocation(): string {
-  const match = window.location.pathname.match(/^\/p\/[^/]+\/audits\/([^/]+)\/?$/);
-  return match ? decodeURIComponent(match[1]) : '';
-}
+import { parseTaskRoute } from '../lib/state';
+import { tokens } from './tokens.svelte';
+import { getProjectSlugFromLocation, getTaskRouteFromLocation, isProjectTimelineLocation, isProjectAuditLocation, getAuditIdFromLocation, isProjectRoadmapLocation, isProjectReleasesLocation, canonicalizeProjectFocusLocation } from './routingLocations';
+export { getProjectSlugFromLocation, getTaskRouteFromLocation, isTaskLocation, isProjectRoadmapLocation, isProjectFocusLocation, isProjectReleasesLocation, canonicalizeProjectFocusLocation, isProjectTimelineLocation, isProjectAuditLocation, getAuditIdFromLocation } from './routingLocations';
 
 export async function openTaskFromRoute(
   route: NonNullable<ReturnType<typeof parseTaskRoute>>,
@@ -119,6 +77,7 @@ export function navigate(path: string, replace = false) {
 }
 
 export async function selectProject(project: Project, push = true, routeReleaseFilter?: string) {
+  if (tokens.reveal || tokens.agent || tokens.creating) return;
   if (hasPendingCreation()) return;
   workspace.projectSwitchVersion += 1;
   timeline.boardTimelineRequest += 1;
@@ -160,6 +119,12 @@ export async function selectProject(project: Project, push = true, routeReleaseF
 }
 
 export async function setView(next: View, push = true): Promise<boolean> {
+  if (tokens.reveal || tokens.creating) {
+    if (tokens.reveal) void tokens.closeReveal();
+    if (!push) navigate('/settings', true);
+    return false;
+  }
+  if (tokens.agent) tokens.closeCreate();
   if (hasPendingCreation()) return false;
   if (drawer.drawerTask && !closeDrawer(false, !push)) return false;
   // A view selection supersedes startup's pending route restoration, just
@@ -256,6 +221,7 @@ export function handleRootRoute() {
 }
 
 export function handlePopState() {
+  if (tokens.reveal || tokens.agent || tokens.creating) { navigate('/settings', true); return; }
   if (hasPendingCreation()) {
     // The browser already changed the location. Keep the originating view,
     // full URL and drawer return state while this operation is unresolved.

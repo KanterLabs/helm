@@ -1,0 +1,88 @@
+.credential-inventory { max-width: 100%; min-width: 0; }
+.credential-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.credential-toolbar label { min-width: 140px; flex: 1; }
+.credential-toolbar .credential-search { flex: 2; min-width: 180px; }
+.credential-toolbar input, .credential-toolbar select { width: 100%; height: 42px; background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong); border-radius: 9px; padding: 8px 12px; }
+.credential-summary { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin: 14px 0; color: var(--muted); font-size: 13px; }
+.credential-summary details { max-width: 320px; }
+.credential-summary summary, .credential-access summary, .credential-sources > summary { cursor: pointer; }
+.credential-groups { display: grid; gap: 14px; }
+.credential-group { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); overflow: hidden; min-width: 0; }
+.credential-agent { display: flex; gap: 12px; align-items: center; padding: 16px; background: var(--surface-raised); }
+.credential-agent > div { flex: 1; min-width: 0; }
+.credential-agent h3 { font-size: 14px; margin: 0 0 4px; overflow-wrap: anywhere; }
+.credential-agent p { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.credential-row { display: grid; grid-template-columns: minmax(150px,1.15fr) minmax(180px,1.5fr) minmax(125px,1fr) auto; align-items: start; gap: 18px; padding: 16px; border-top: 1px solid var(--border); font-size: 13px; }
+.credential-row > div { min-width: 0; overflow-wrap: anywhere; }
+.credential-identity > strong { display: block; font-size: 13px; color: var(--ink); margin-bottom: 6px; }
+.credential-identity > small { color: var(--muted); display: block; font-size: 11px; }
+.credential-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.credential-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; border: 1px solid var(--border-strong); border-radius: 5px; padding: 2px 6px; color: var(--ink-soft); }
+.credential-status::before { content: '●'; font-size: 7px; color: var(--green); }
+.credential-status.warning::before { color: var(--purple); }
+.credential-status.expired::before { color: var(--red); }
+.credential-access summary { color: var(--ink); font-weight: 600; margin-bottom: 6px; }
+.credential-access ul { margin: 8px 0; padding-left: 16px; font-size: 11px; }
+.credential-projects { color: var(--muted); line-height: 1.5; }
+.credential-timing { color: var(--ink-soft); display: grid; gap: 9px; font-size: 12px; }
+.credential-timing small { display: block; color: var(--muted); margin-bottom: 2px; }
+.credential-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.credential-actions button { min-height: 32px; padding: 4px; font-size: 12px; }
+.credential-revoke { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; }
+.credential-warning { color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.credential-warning::before { content: '⚠ '; }
+.credential-empty { padding: 10px 16px; margin: 0; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.credential-sources { border-top: 1px solid var(--border); margin-top: 25px; padding-top: 18px; font-size: 13px; }
+.credential-sources > p { color: var(--muted); line-height: 1.6; }
+.credential-sources > .credential-group { margin-top: 14px; }
+.credential-backdrop { z-index: 84; }
+.credential-dialog { z-index: 85; width: min(680px,calc(100vw - 32px)); padding: 0; max-height: calc(100dvh - 48px); overflow: auto; background: var(--surface); color: var(--ink); }
+.credential-dialog-header { padding: 24px 26px 16px; border-bottom: 1px solid var(--border); }
+.credential-dialog-header h2 { margin: 6px 0 8px; font-size: 23px; overflow-wrap: anywhere; }
+.credential-dialog-header p { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0; }
+.credential-form-body { padding: 22px 26px; display: grid; gap: 18px; min-width: 0; }
+.credential-label { display: grid; gap: 7px; font-size: 13px; font-weight: 600; }
+.credential-label input { width: 100%; min-width: 0; height: 42px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--ink); background: var(--surface); }
+.credential-label input[readonly] { font: 12px ui-monospace, monospace; }
+.credential-dialog fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.credential-dialog legend { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+.credential-presets { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.credential-presets label { border: 1px solid var(--border-strong); padding: 11px; border-radius: 9px; display: flex; gap: 9px; align-items: start; font-size: 12px; cursor: pointer; }
+.credential-presets label.chosen, .credential-expiry-options label.chosen { border-color: var(--purple); background: var(--purple-soft); }
+.credential-presets strong { display: block; color: var(--ink); }
+.credential-presets small, .credential-scope-grid small { display: block; color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 5px; }
+.credential-scope-grid, .credential-project-picker { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 14px; }
+.credential-project-picker { max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.credential-dialog .check-label { align-items: start; font-size: 12px; overflow-wrap: anywhere; }
+.credential-choice { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; }
+.credential-choice label { display: flex; gap: 7px; align-items: center; }
+.credential-hint { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 10px 0 0; }
+.credential-expiry-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.credential-expiry-options label { display: flex; gap: 5px; border: 1px solid var(--border-strong); padding: 8px; border-radius: 7px; font-size: 12px; cursor: pointer; }
+.credential-review { padding: 14px; border-radius: 9px; background: var(--surface-muted); border: 1px solid var(--border); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.credential-review strong, .credential-review h3 { margin: 0; font-size: 13px; }
+.credential-review p { margin: 7px 0 0; line-height: 1.6; color: var(--ink-soft); }
+.credential-dialog-footer { padding: 16px 26px; margin: 0; position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--border); flex-wrap: wrap; }
+.credential-copy-line { display: flex; gap: 12px; align-items: center; font-size: 12px; }
+.credential-setup { border-top: 1px solid var(--border); padding-top: 16px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.credential-setup h3 { font-size: 13px; color: var(--ink); margin: 0 0 10px; }
+.credential-setup p { line-height: 1.6; }
+.credential-setup details { margin: 12px 0; }
+.credential-setup summary { cursor: pointer; color: var(--ink-soft); }
+.credential-setup pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+@media(max-width: 900px) { .credential-row { grid-template-columns: minmax(140px,1fr) minmax(140px,1fr); } .credential-summary { flex-wrap: wrap; } }
+@media(max-width: 640px) {
+  .credential-row { grid-template-columns: 1fr; gap: 13px; }
+  .credential-agent { flex-wrap: wrap; padding: 12px; }
+  .credential-agent > div { min-width: 140px; }
+  .credential-actions button { min-height: 44px; min-width: 64px; }
+  .credential-timing { display: flex; flex-wrap: wrap; gap: 16px; }
+  .credential-dialog { inset: 0; width: 100%; height: 100dvh; max-height: 100dvh; transform: none; border-radius: 0; }
+  .credential-dialog-header, .credential-form-body { padding: 18px 16px; }
+  .credential-dialog-footer { padding: 14px 16px; }
+  .credential-presets, .credential-scope-grid, .credential-project-picker { grid-template-columns: 1fr; }
+  .credential-toolbar label, .credential-toolbar .credential-search { min-width: 100%; }
+  .credential-dialog-footer button { min-height: 44px; }
+}
+
+.credential-settings-layout { grid-template-columns: minmax(0,1fr); }

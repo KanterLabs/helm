@@ -21,6 +21,8 @@ export interface Actor {
   admin?: boolean;
   workspace_role?: WorkspaceRole;
   disabled_at?: string;
+  /** Server-derived passive intake identity; cannot receive new agent tokens. */
+  intake_source?: boolean;
   /** Agent ceiling, or an ordinary human member's explicit grants (empty = none). */
   project_ids?: string[];
   tokens?: ApiToken[];
@@ -84,6 +86,8 @@ export interface Agent {
   created_at: string;
   updated_at: string;
   disabled_at?: string;
+  /** Server-derived passive intake identity; cannot receive new agent tokens. */
+  intake_source?: boolean;
   tokens?: ApiToken[];
 }
 

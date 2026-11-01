@@ -1,6 +1,7 @@
 package store
 
 type Actor struct {
+	IntakeSource  bool     `json:"intake_source,omitempty"`
 	WorkspaceRole string   `json:"workspace_role,omitempty"`
 	ID            string   `json:"id"`
 	Kind          string   `json:"kind"`

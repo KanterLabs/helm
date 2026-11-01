@@ -1,8 +1,11 @@
 # Membership activation and recovery gate
 
-TC-113's backend and UI can be reviewed before activation. Do not deploy
-migration 041 until TC-335 and TC-336 are complete. These are unclaimed Backlog
-implementation cards, not completed evidence.
+Beta migration041 is live through the validated native operator path; the
+[rollout receipt](HELM_BETA_MEMBERSHIP_ROLLOUT.md) records actual artifact
+acceptance, isolation, backups and preserved data. Production and automatic
+activation remain gated on their remaining TC-335/TC-336 work. The requirements
+below remain applicable to those paths and future artifact pairs; a schema-only
+compatibility result never authorizes historical recovery.
 
 The current `deploy/coolify-deploy.py` restores the preceding image after any
 deployment error. Once 041 commits, a schema35/40 binary can ignore reviewed
