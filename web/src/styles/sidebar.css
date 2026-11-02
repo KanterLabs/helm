@@ -95,7 +95,9 @@
 .nav-skeleton { height: 32px; margin: 4px 9px; border-radius: 8px; background: linear-gradient(90deg, var(--surface-muted), var(--surface-hover), var(--surface-muted)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 .nav-skeleton.short { width: 70%; }
 @keyframes shimmer { to { background-position: -200% 0; } }
-.sidebar-bottom { position: relative; display: grid; gap: 2px; padding-top: 8px; border-top: 1px solid var(--border); }
+/* Long account identities must truncate inside the footer, not widen its track.
+   Keep overflow visible so the rail account and beta menus can open outward. */
+.sidebar-bottom { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding-top: 8px; border-top: 1px solid var(--border); }
 .account { position: relative; }
 .user-chip { width: 100%; display: flex; align-items: center; gap: 9px; margin-top: 2px; padding: 6px; border: 0; border-radius: 9px; color: var(--ink); background: transparent; text-align: left; }
 .user-chip:hover, .user-chip[aria-expanded='true'] { background: var(--surface-hover); }
