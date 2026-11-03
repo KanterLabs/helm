@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from rollback_policy import PolicyError
-from . import bootstrap, host_context, operator_plan as inputs, operator_state as state
+from . import bootstrap, host_context, host_rebind, operator_plan as inputs, operator_state as state
 from .authority import (load_state, lock_existing, pinned_authority, write_new)
 from .filesystem import (BootstrapError, FLAGS, Inventory, ORIGINAL_ID, PRIVATE_ID,
                          canonical, digest, identity, open_directory, read_private_json)
@@ -84,6 +84,8 @@ def _transition(plan_path, base):
         except FileNotFoundError:
             if names:
                 raise BootstrapError('lost original operator authority; no repair permitted')
+            if plan['action'] == host_rebind.ACTION:
+                raise BootstrapError('host rebind requires existing original operator authority')
             # CLOSED bootstrap remains a separate implementation and interface.
             journal, prepared_records = load_state(directory, lock, original, context)
             if journal['phase'] != 'prepared':
@@ -93,16 +95,22 @@ def _transition(plan_path, base):
         if origin is not None:
             if (origin['bootstrap_plan_sha256'] != digest(original)
                     or origin['bootstrap_metadata_sha256'] != metadata_hash
-                    or origin['host_context_sha256'] != context
                     or origin['target'] != plan['target']):
                 raise BootstrapError('immutable original authority or target differs')
+            effective_context = host_rebind.effective_context(origin, records)
+            if context != effective_context and plan['action'] != host_rebind.ACTION:
+                raise BootstrapError('native host context differs; reviewed host rebind required')
             expected_markers = ([records[-1]['before'], records[-1]['marker']] if records
                                 else [origin['initial_marker']])
             if marker not in expected_markers:
                 raise BootstrapError('runtime marker not bound to durable operator history')
         # A completed latest replay never writes or renews any admission.
         if records and digest(plan) == records[-1]['plan_sha256'] and marker == records[-1]['marker']:
+            if context != effective_context:
+                raise BootstrapError('completed replay requires current effective native host context')
             return receipt(plan, origin, marker, True)
+        if plan['action'] == host_rebind.ACTION:
+            host_rebind.check(plan, origin, records, context, marker)
         if origin is not None:
             current_pair = state.accepted_pair(origin, records, marker)
             if plan['action'] == 'upgrade':
@@ -113,7 +121,7 @@ def _transition(plan_path, base):
             raise BootstrapError('upgrade requires existing original operator authority')
         if marker_hash != plan['expected_marker_sha256'] or marker['generation'] != plan['expected_generation']:
             raise BootstrapError('stale runtime marker hash or generation CAS')
-        if records and marker == records[-1]['before'] and plan['action'] != 'close':
+        if records and marker == records[-1]['before'] and plan['action'] not in ('close', host_rebind.ACTION):
             raise BootstrapError('pending transition requires fresh explicit close; activation replay denied')
         if plan['action'] in ('activate', 'upgrade') and marker['phase'] != 'prepared':
             raise BootstrapError('activation or upgrade requires CLOSED prepared marker')
@@ -166,6 +174,8 @@ def _transition(plan_path, base):
             if plan['action'] == 'upgrade':
                 intent.update(format=2, artifacts=plan['artifacts'],
                               acceptance_sha256=acceptance.checksum)
+            elif plan['action'] == host_rebind.ACTION:
+                intent.update(format=3, previous_host_context_sha256=effective_context)
             name = 'operator-intent-' + str(len(records) + 1).zfill(6) + '.json'
             write_new(directory, name, canonical(intent))
             source.rehash()
