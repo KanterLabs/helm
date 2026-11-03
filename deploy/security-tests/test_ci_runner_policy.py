@@ -45,7 +45,8 @@ def main():
     }
     for name, replacement in mutations.items():
         cases.append((name, replace_once(source, selector, replacement), False))
-    for job in ("checks", "race", "container", "beta_deploy", "deploy"):
+    for job in ("plan", "checks", "race", "container", "pr-gate", "publish",
+                "validation_receipt", "beta_deploy", "deploy"):
         begin = source.index(f"  {job}:\n")
         # Search within the selected job for its first exact scalar selector.
         index = source.index("    runs-on: ubuntu-24.04", begin)

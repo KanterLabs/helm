@@ -1,0 +1,39 @@
+name: Helm scoped checks
+description: Run explicit docs, fast, focused or full checks from the captured plan.
+inputs:
+  scope:
+    required: true
+    description: Validated effective scope.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 22.23.2
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - name: Run declared checks
+      shell: bash
+      env:
+        CI_CHECK_SCOPE: ${{ inputs.scope }}
+      run: bash test/ci/run-checks.sh "$CI_CHECK_SCOPE"
+    - name: Upload immutable binary artifact
+      if: inputs.scope == 'full'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: helm-binary-${{ github.sha }}
+        path: dist/helm
+        if-no-files-found: error
+        retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
+    - name: Upload matching frontend artifact
+      if: inputs.scope == 'full'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: helm-frontend-${{ github.sha }}
+        path: web/dist
+        if-no-files-found: error
+        retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}

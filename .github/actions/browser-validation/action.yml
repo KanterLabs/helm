@@ -7,6 +7,10 @@ inputs:
   workers:
     description: Maximum concurrent isolated browser fixtures.
     default: '4'
+  plan:
+    description: Optional captured CI plan; absent retains the complete canary suite.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -18,7 +22,13 @@ runs:
         HELM_E2E_REVISION: ${{ github.sha }}
         HELM_E2E_WORKERS: ${{ inputs.workers }}
         HELM_E2E_INCLUDE_DEADLINES: 'true'
-      run: python3 test/e2e/runner-metrics.py --output "$RUNNER_TEMP/helm-runner-metrics" -- ./test/e2e/run.sh
+        CI_BROWSER_PLAN: ${{ inputs.plan }}
+      run: |
+        if [[ -n "$CI_BROWSER_PLAN" ]]; then
+          python3 test/e2e/runner-metrics.py --output "$RUNNER_TEMP/helm-runner-metrics" -- python3 test/ci/run-browser.py --plan "$CI_BROWSER_PLAN"
+        else
+          python3 test/e2e/runner-metrics.py --output "$RUNNER_TEMP/helm-runner-metrics" -- ./test/e2e/run.sh
+        fi
     - name: Upload browser and resource evidence
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

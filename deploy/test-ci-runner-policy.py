@@ -10,7 +10,8 @@ from pathlib import Path
 import re
 import sys
 
-JOBS = {"checks", "browser", "race", "container", "beta_deploy", "deploy"}
+JOBS = {"plan", "checks", "browser", "race", "container", "pr-gate",
+        "publish", "validation_receipt", "beta_deploy", "deploy"}
 # Preserve the explicit opt-in, source-ref restriction, PR exclusion and exact
 # Helm-only group together. Merely counting hosted jobs cannot prove this.
 BROWSER_SELECTOR = '''${{ fromJSON(github.event_name != 'pull_request' && (github.ref == 'refs/heads/beta' || github.ref == 'refs/heads/main') && vars.HELM_WARM_RUNNER_ENABLED == 'true' && '{"group":"helm-runners","labels":"homelab-heavy"}' || '"ubuntu-24.04"') }}'''
