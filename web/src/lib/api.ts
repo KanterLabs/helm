@@ -5,6 +5,7 @@ import { createReleasesApi } from './api/releases';
 import { createTasksApi } from './api/tasks';
 import { ticketsApi } from './api/tickets';
 import { intakeApi } from './api/intake';
+import { attachmentsApi } from './api/attachments';
 import { activityApi } from './api/activity';
 import { createViewsApi } from './api/views';
 import { auditsApi } from './api/audits';
@@ -28,6 +29,7 @@ export const api = {
   ...ticketsApi,
   ...intakeApi,
   ...activityApi,
+  ...attachmentsApi,
   ...createViewsApi((): ReturnType<typeof createViewsApi> => api),
   ...auditsApi,
   ...githubApi,

@@ -1,5 +1,8 @@
 // Drawer lifecycle actions, bug triage and comments.
 import { readyColumnForBug } from '../../lib/bugIntake';
+import { clearScreenshotDrafts, prepareScreenshots } from '../../lib/components/attachments/drafts';
+import { key } from '../../lib/api/client';
+import { session } from '../state/session.svelte';
 import { api } from '../../lib/api';
 import { dependencyActionExplanation, dependencyBlocked } from '../../lib/dependencies';
 import { ApiError } from '../../lib/types';
@@ -159,24 +162,37 @@ export async function reopenBug() {
 }
 
 export async function postComment() {
-  if (!drawer.drawerTask || !drawer.commentBody.trim()) return;
+  if (!drawer.drawerTask || drawer.commentSending || (!drawer.commentBody.trim() && !drawer.screenshotDrafts.length)) return;
   drawer.commentSending = true;
+  drawer.drawerError = '';
   const taskId = drawer.drawerTask.id;
+  const generation = session.sessionGeneration;
+  const body = drawer.commentBody.trim();
   try {
-    await api.postComment(taskId, drawer.commentBody.trim());
+    const ids = await prepareScreenshots();
+    if (drawer.drawerTask?.id !== taskId || generation !== session.sessionGeneration) return;
+    // Retain a key for identical retries after response loss, while a changed
+    // draft is a new operation rather than an idempotency conflict.
+    const fingerprint = JSON.stringify([taskId, body, ids]);
+    if (fingerprint !== drawer.screenshotCommentFingerprint) {
+      drawer.screenshotCommentKey = key();
+      drawer.screenshotCommentFingerprint = fingerprint;
+    }
+    await api.postComment(taskId, body, ids, drawer.screenshotCommentKey);
+    if (drawer.drawerTask?.id !== taskId || generation !== session.sessionGeneration) return;
     drawer.commentBody = '';
-    // The POST response is a comment resource without a timeline cursor.
-    // Refresh one newest page so the canonical timeline item is merged once
-    // and generated progress rows cannot be duplicated in the drawer.
+    clearScreenshotDrafts();
     drawer.drawerTimelineRequest += 1;
     drawer.drawerTimelineLoading = false;
     drawer.drawerTimelineLoadingOlder = false;
     await loadDrawerTimeline(taskId);
     toast('success', 'Comment added.');
   } catch (error) {
-    drawer.drawerError = friendlyError(error, 'Your comment could not be added.');
+    if (drawer.drawerTask?.id === taskId && generation === session.sessionGeneration) {
+      drawer.drawerError = friendlyError(error, 'Your comment could not be added.');
+    }
   } finally {
-    drawer.commentSending = false;
+    if (drawer.drawerTask?.id === taskId && generation === session.sessionGeneration) drawer.commentSending = false;
   }
 }
 

@@ -48,13 +48,13 @@ func (s *Server) comments(w http.ResponseWriter, r *http.Request, identity auth.
 		}
 		s.writeCollection(w, comments, next)
 	case http.MethodPost:
-		body, err := decodeCommentBody(r)
+		body, attachmentIDs, err := decodeCommentCreate(r)
 		if err != nil {
 			writeTaskInputError(w, err)
 			return
 		}
 		s.mutation(w, r, identity, func() (int, []byte, string, error) {
-			comment, err := s.Store.CreateComment(r.Context(), taskID, identity.Actor.ID, body)
+			comment, err := s.Store.CreateCommentWithAttachments(r.Context(), taskID, identity.Actor.ID, body, attachmentIDs, !identity.IsToken && identity.Actor.Admin)
 			if err != nil {
 				return 0, nil, "", err
 			}
@@ -149,16 +149,34 @@ func (s *Server) commentMutation(w http.ResponseWriter, r *http.Request, identit
 }
 
 func decodeCommentBody(r *http.Request) (string, error) {
+	body, _, err := decodeCommentInput(r, false)
+	return body, err
+}
+
+func decodeCommentCreate(r *http.Request) (string, []string, error) {
+	return decodeCommentInput(r, true)
+}
+
+func decodeCommentInput(r *http.Request, allowAttachments bool) (string, []string, error) {
 	var payload struct {
-		Body *string `json:"body"`
-		Text *string `json:"text"`
+		Body          *string  `json:"body"`
+		Text          *string  `json:"text"`
+		AttachmentIDs []string `json:"attachment_ids"`
 	}
 	fields, err := decodeJSONObject(r, &payload)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	if !jsonFieldPresent(fields, "body") && !jsonFieldPresent(fields, "text") {
-		return "", taskInputError("comment body is required")
+	if jsonFieldPresent(fields, "attachment_ids") {
+		if !allowAttachments {
+			return "", nil, taskInputError("attachments can only be supplied when creating a comment")
+		}
+		if err := rejectJSONNull(fields, "attachment_ids"); err != nil {
+			return "", nil, err
+		}
+		if err := validateIdentifierArray(fields["attachment_ids"], "attachment_ids", false); err != nil {
+			return "", nil, err
+		}
 	}
 	body := ""
 	if payload.Body != nil {
@@ -167,11 +185,14 @@ func decodeCommentBody(r *http.Request) (string, error) {
 	if body == "" && payload.Text != nil {
 		body = strings.TrimSpace(*payload.Text)
 	}
-	if body == "" {
-		return "", taskInputError("comment body is required")
+	if body == "" && len(payload.AttachmentIDs) == 0 {
+		return "", nil, taskInputError("comment body is required")
 	}
 	if len(body) > 20000 {
-		return "", taskInputError("comment is too long")
+		return "", nil, taskInputError("comment is too long")
 	}
-	return body, nil
+	if len(payload.AttachmentIDs) > 4 {
+		return "", nil, taskInputError("attachment_ids must contain at most 4 items")
+	}
+	return body, payload.AttachmentIDs, nil
 }

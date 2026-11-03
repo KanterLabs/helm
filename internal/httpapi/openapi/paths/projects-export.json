@@ -9,17 +9,23 @@
       "get": {
         "operationId": "exportProjectPortableArchive",
         "summary": "Export one project's portable archive",
-        "description": "Exports live project records as a helm.portable v4 JSON archive, preserving checklists, hierarchy, completion policy, Focus, bugs, dependencies, comments, agent history and retained PR/audit history. Explicit versions 2 and 3 remain available with omission warnings. Credentials, repository selections, provider caches and executable jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported.",
+        "description": "Exports live project records as a helm.portable v4 JSON archive, preserving checklists, hierarchy, completion policy, Focus, bugs, dependencies, comments, agent history and retained PR/audit history. Explicit versions 2 and 3 remain available with omission warnings. Credentials, repository selections, provider caches and executable jobs are excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated before private retained evidence is exported. Select format=bundle for a helm.portable.bundle v5 ZIP containing the v4 JSON archive and published image originals. JSON exports omit image bytes and report an omission warning. Staged, deleted and deleted-comment images are excluded. Bundle export accepts version 4 only.",
         "tags": [
           "Projects"
         ],
         "responses": {
           "200": {
-            "description": "Portable archive JSON attachment",
+            "description": "Portable JSON archive or image-bearing ZIP bundle",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PortableArchive"
+                }
+              },
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             },
@@ -31,7 +37,8 @@
                   "enum": [
                     2,
                     3,
-                    4
+                    4,
+                    5
                   ],
                   "example": 4
                 }
@@ -71,6 +78,18 @@
                 4
               ],
               "default": 4
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "bundle"
+              ],
+              "default": "json"
             }
           }
         ]

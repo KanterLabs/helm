@@ -9,7 +9,7 @@
       "post": {
         "operationId": "publishTaskProgress",
         "summary": "Publish an agent progress snapshot",
-        "description": "Replace the task's live structured agent-work snapshot. The caller\nmust have `tasks:claim`, send the exact current task ETag in\n`If-Match`, and hold the task's active claim. This is a complete\nsnapshot: omitted optional fields clear their previous values. The\nmutation appends the progress event and its human-readable comment in\nthe same transaction. Reusing an Idempotency-Key with the same\nauthenticated principal, path, and request body replays the original\nresponse without publishing a second snapshot, comment, or event.\n`working`, `waiting`, `verifying`, and `handoff` are publishable states;\n`stale` and `missing` are read-time filter states only.\n",
+        "description": "Replace the task's live structured agent-work snapshot. The caller\nmust have `tasks:claim`, send the exact current task ETag in\n`If-Match`, and hold the task's active claim. This is a complete\nsnapshot: omitted optional fields clear their previous values. The\nmutation appends the progress event and its human-readable comment in\nthe same transaction. Reusing an Idempotency-Key with the same\nauthenticated principal, path, and request body replays the original\nresponse without publishing a second snapshot, comment, or event.\nOptional attachment_ids publish up to four staged task images in the\nsame transaction. Images belong to canonical progress history, not\nthe replaceable live snapshot.\n`working`, `waiting`, `verifying`, and `handoff` are publishable states;\n`stale` and `missing` are read-time filter states only.\n",
         "tags": [
           "Tasks"
         ],

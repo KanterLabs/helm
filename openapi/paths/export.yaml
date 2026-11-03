@@ -4,11 +4,13 @@ paths:
       operationId: exportPortableArchive
       summary: Export a versioned portable archive
       description: Exports live project records as a helm.portable v4 JSON archive, preserving checklists,
-        hierarchy, completion policy, Focus, bugs, dependencies, comments, agent history and
-        retained PR/audit history. Explicit versions 2 and 3 remain available with omission
-        warnings. Credentials, repository selections, provider caches and executable jobs are
-        excluded. Requires projects:read, tasks:read and events:read. Source access is revalidated
-        before private retained evidence is exported.
+        hierarchy, completion policy, Focus, bugs, dependencies, comments, agent history and retained
+        PR/audit history. Explicit versions 2 and 3 remain available with omission warnings. Credentials,
+        repository selections, provider caches and executable jobs are excluded. Requires projects:read,
+        tasks:read and events:read. Source access is revalidated before private retained evidence is exported.
+        Select format=bundle for a helm.portable.bundle v5 ZIP containing the v4 JSON archive and published
+        image originals. JSON exports omit image bytes and report an omission warning. Staged, deleted
+        and deleted-comment images are excluded. Bundle export accepts version 4 only.
       tags:
         - Projects
       parameters:
@@ -17,7 +19,7 @@ paths:
           required: false
           description: Project ID, key, or stable slug to export.
           schema:
-            $ref: "#/components/schemas/Identifier"
+            $ref: '#/components/schemas/Identifier'
         - name: version
           in: query
           required: false
@@ -30,14 +32,22 @@ paths:
               - 3
               - 4
             default: 4
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum:
+              - json
+              - bundle
+            default: json
       responses:
-        "200":
-          description: Portable archive JSON attachment
+        '200':
+          description: Portable JSON archive or image-bearing ZIP bundle
           headers:
             X-Request-ID:
-              $ref: "#/components/headers/XRequestID"
+              $ref: '#/components/headers/XRequestID'
             X-Roadmap-Revision:
-              $ref: "#/components/headers/XRoadmapRevision"
+              $ref: '#/components/headers/XRoadmapRevision'
             X-Helm-Portable-Format:
               description: Portable envelope format identifier.
               schema:
@@ -51,20 +61,25 @@ paths:
                   - 2
                   - 3
                   - 4
+                  - 5
                 example: 4
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PortableArchive"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
+                $ref: '#/components/schemas/PortableArchive'
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'

@@ -1,7 +1,9 @@
+import type { Attachment } from './attachments';
 import type { Actor, ActorKind, Project, SemanticState } from './core';
 import type { AgentWorkState, Task } from './tasks';
 
 export interface Comment {
+  attachments?: Attachment[];
   id: string;
   task_id: string;
   actor_id: string;
@@ -98,6 +100,7 @@ export interface TimelineActor {
 }
 
 export interface TaskTimelineProgress {
+  attachments?: Attachment[];
   operation_id: string;
   actor_id: string;
   state: AgentWorkState;

@@ -27,6 +27,7 @@
         "additionalProperties": false
       },
       "TaskTimelineProgress": {
+        "description": "Immutable progress history with attachments published by this update.",
         "type": "object",
         "required": [
           "operation_id",
@@ -41,6 +42,9 @@
           "started_at"
         ],
         "properties": {
+          "attachments": {
+            "$ref": "#/components/schemas/TaskAttachmentList"
+          },
           "operation_id": {
             "type": "string",
             "minLength": 1,

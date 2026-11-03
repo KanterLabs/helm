@@ -74,6 +74,15 @@ workstream still needs one active, claimed task.
 
 If the correct project is missing or credentials do not permit the work, report that clearly and continue the underlying task when safe. Do not widen token scopes or create credentials without Shane's authorization.
 
+## Share visual evidence
+
+For UI changes and visual verification, read
+[references/task-images.md](references/task-images.md). Humans can attach images
+in the task comment composer; agents can use `comment --image`, structured
+`progress --image`, or the `attachments` commands. Inspect and redact the actual
+capture before upload. The uploader owns secret removal; Helm does not claim to
+scan image pixels for secrets. Use synthetic screenshots for repeatable tests.
+
 ## Keep progress current
 
 Post only meaningful milestones, decisions, validation results, and scope changes:

@@ -84,7 +84,7 @@ func portableValidateAgentWork(report *PortableImportReport, entity, id string, 
 	return input, false
 }
 
-func validatePortableArchive(archive *PortableArchive, report *PortableImportReport) {
+func validatePortableArchive(archive *PortableArchive, report *PortableImportReport, bundleComments ...map[string]bool) {
 	archive.normalize()
 	report.Format, report.Version = archive.Format, archive.Version
 	if archive.Format != PortableFormat {
@@ -131,7 +131,7 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	}
 	projectSet, columnSet, taskSet, releaseSet := map[string]PortableProject{}, map[string]PortableColumn{}, map[string]PortableTask{}, map[string]PortableRelease{}
 	validatePortableProjectsAndTasks(archive, report, projectSet, columnSet, taskSet, releaseSet)
-	validatePortableRelationsAndActivity(archive, report, projectSet, taskSet)
+	validatePortableRelationsAndActivity(archive, report, projectSet, taskSet, bundleComments...)
 	validatePortableMetadata(archive, report, taskSet)
 	validatePortableGithub(archive, report, projectSet, taskSet)
 }

@@ -1,5 +1,6 @@
 // Reactive state: Task drawer: task, drafts, activity timeline and pending actions.
 import type { BugResolution, BugSeverity, Priority, Task, TaskRouteIntent, TaskTimelineFilter, TaskTimelineItem } from '../../lib/types';
+import type { ScreenshotDraft } from '../../lib/types/attachments';
 import type { DrawerView } from '../types';
 
 class DrawerState {
@@ -21,6 +22,9 @@ class DrawerState {
   drawerLoading = $state.raw(false);
   drawerSaving = $state.raw(false);
   drawerError = $state.raw('');
+  screenshotDrafts = $state.raw<ScreenshotDraft[]>([]);
+  screenshotCommentKey = $state.raw('');
+  screenshotCommentFingerprint = $state.raw('');
   commentBody = $state.raw('');
   commentSending = $state.raw(false);
   drawerTimelineItems = $state.raw<TaskTimelineItem[]>([]);
@@ -87,7 +91,7 @@ class DrawerState {
   drawerTaskDraftDirty = $derived(Boolean(drawer.drawerTask && drawer.drawerTaskDraftFingerprintValue !== drawer.drawerSavedTaskDraftFingerprint));
   drawerDraftDirty = $derived(Boolean(
     drawer.drawerTask
-    && (drawer.drawerTaskDraftDirty || drawer.drawerActionDraftFingerprintValue !== drawer.drawerSavedActionDraftFingerprint)
+    && (drawer.screenshotDrafts.length > 0 || drawer.drawerTaskDraftDirty || drawer.drawerActionDraftFingerprintValue !== drawer.drawerSavedActionDraftFingerprint)
   ));
 }
 

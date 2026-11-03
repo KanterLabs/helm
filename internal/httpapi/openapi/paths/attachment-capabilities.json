@@ -1,0 +1,54 @@
+{
+  "paths": {
+    "/api/v1/attachments/capabilities": {
+      "get": {
+        "operationId": "getTaskAttachmentCapabilities",
+        "summary": "Read image upload capabilities",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          },
+          {
+            "bearerAuth": [
+              "tasks:read"
+            ]
+          }
+        ],
+        "externalDocs": {
+          "description": "Task image workflow and limits",
+          "url": "docs/TASK_IMAGES.md"
+        },
+        "responses": {
+          "200": {
+            "description": "Deployment image limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskAttachmentCapabilities"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

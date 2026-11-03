@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func validatePortableRelationsAndActivity(archive *PortableArchive, report *PortableImportReport, projectSet map[string]PortableProject, taskSet map[string]PortableTask) {
+func validatePortableRelationsAndActivity(archive *PortableArchive, report *PortableImportReport, projectSet map[string]PortableProject, taskSet map[string]PortableTask, bundleComments ...map[string]bool) {
 	labelSet := map[string]PortableLabel{}
 	labelNameSet := map[string]string{}
 	for _, label := range archive.Labels {
@@ -150,7 +150,8 @@ func validatePortableRelationsAndActivity(archive *PortableArchive, report *Port
 		if _, ok := taskSet[comment.TaskID]; !ok {
 			addPortableIssue(report, "comment", comment.ID, "task_id", "task does not exist in archive")
 		}
-		if strings.TrimSpace(comment.Body) == "" || len(comment.Body) > 20000 {
+		hasBundleImage := len(bundleComments) > 0 && bundleComments[0][comment.ID]
+		if (strings.TrimSpace(comment.Body) == "" && !hasBundleImage) || len(comment.Body) > 20000 {
 			addPortableIssue(report, "comment", comment.ID, "body", "comment body is invalid")
 		}
 		if !portableTimestamp(comment.CreatedAt, false) || !portableTimestamp(comment.UpdatedAt, false) {

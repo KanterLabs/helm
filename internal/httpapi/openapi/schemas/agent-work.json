@@ -94,6 +94,9 @@
         ],
         "description": "Complete replacement snapshot for POST /api/v1/tasks/{task}/progress.\nOptional properties omitted from the request clear their previous\nvalues. Null is not accepted for any property. Checkpoint counts must\nbe supplied together and satisfy 0 <= checkpoint_completed <=\ncheckpoint_total <= 100; non-empty checkpoint_refs must have the same\nlength as checkpoint_total.\n",
         "properties": {
+          "attachment_ids": {
+            "$ref": "#/components/schemas/TaskAttachmentIDs"
+          },
           "operation_id": {
             "type": "string",
             "minLength": 1,

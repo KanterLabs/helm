@@ -19,9 +19,10 @@ components:
           $ref: "#/components/schemas/Identifier"
         body:
           type: string
-          minLength: 1
           maxLength: 20000
-          description: Markdown comment body.
+          description: Markdown comment body; may be empty for an image-only comment.
+        attachments:
+          $ref: "#/components/schemas/TaskAttachmentList"
         version:
           type: integer
           format: int64
@@ -67,7 +68,7 @@ components:
     CommentCreateRequest:
       type: object
       description: |
-        Either body or text must contain a non-empty value. If both are
+        Supply non-empty body/text or at least one attachment ID. If both are
         supplied and non-empty, body wins; an empty body falls back to text.
       properties:
         body:
@@ -82,6 +83,8 @@ components:
             - "null"
           maxLength: 20000
           description: Compatibility alias used when body is empty or omitted.
+        attachment_ids:
+          $ref: "#/components/schemas/TaskAttachmentIDs"
       anyOf:
         - required:
             - body
@@ -95,6 +98,11 @@ components:
             text:
               type: string
               minLength: 1
+        - required:
+            - attachment_ids
+          properties:
+            attachment_ids:
+              minItems: 1
       additionalProperties: false
     CommentCollection:
       type: object

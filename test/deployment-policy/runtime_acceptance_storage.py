@@ -72,17 +72,17 @@ def snapshot(path, prefix):
     return result
 
 
-def preserved(path, previous):
+def preserved(path, previous, expected_schema=41):
     with connect(path) as db:
         assert db.execute('PRAGMA integrity_check').fetchall() == [('ok',)], 'SQLite integrity failed'
         assert db.execute('PRAGMA foreign_key_check').fetchall() == [], 'foreign key violation'
-        assert db.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0] == 41
+        assert db.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0] == expected_schema
         for table, (columns, rows) in previous.items():
             quoted = ','.join('"'+c+'"' for c in columns)
             current = set(db.execute(f'SELECT {quoted} FROM "{table}"'))
             assert all(row in current for row in rows), f'existing values changed: {table}'
     return {'integrity': 'ok', 'foreign_key_violations': 0,
-            'preserved_tables': len(previous), 'schema_version': 41}
+            'preserved_tables': len(previous), 'schema_version': expected_schema}
 
 
 def identities(path):

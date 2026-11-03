@@ -6,6 +6,9 @@ import (
 )
 
 func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity auth.Identity, parts []string) {
+	if s.dispatchAttachments(w, r, identity, parts) {
+		return
+	}
 	if s.dispatchMembership(w, r, identity, parts) {
 		return
 	}

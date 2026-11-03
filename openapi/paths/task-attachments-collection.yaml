@@ -1,0 +1,139 @@
+paths:
+  /api/v1/tasks/{task}/attachments:
+    parameters:
+      - $ref: '#/components/parameters/TaskPath'
+    get:
+      operationId: listTaskAttachments
+      summary: List published task images and optionally staged uploads
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:read
+      description: "Project visibility applies. staged=true also includes the caller\u2019s staged images;\
+        \ human administrators can inspect all staged images."
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: staged
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Attachment metadata
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskAttachmentCollection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: uploadTaskAttachment
+      summary: Stage a task image
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      description: Stream one static PNG, JPEG or WebP file with optional metadata. Separate capability
+        limits apply instead of the generic 2 MiB JSON body limit. A stable Idempotency-Key is mandatory;
+        identical retries return the same ID, and changed input returns 409. Project quota includes retained
+        bytes.
+      externalDocs:
+        description: Task image workflow and limits
+        url: docs/TASK_IMAGES.md
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+                  maxLength: 2000
+                  description: Maximum 2000 UTF-8 bytes.
+                commit_sha:
+                  type: string
+                  maxLength: 128
+                build:
+                  type: string
+                  maxLength: 200
+                viewport_width:
+                  type: integer
+                  minimum: 0
+                  maximum: 100000
+                viewport_height:
+                  type: integer
+                  minimum: 0
+                  maximum: 100000
+              additionalProperties: false
+      responses:
+        '201':
+          description: Attachment metadata
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskAttachment'
+        '200':
+          description: Attachment metadata
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskAttachment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'

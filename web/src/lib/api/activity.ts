@@ -26,11 +26,11 @@ export const activityApi = {
   getComment: (task: string, comment: string) =>
     request<Comment>(`/tasks/${encodeURIComponent(task)}/comments/${encodeURIComponent(comment)}`),
 
-  postComment: (task: string, body: string) =>
+  postComment: (task: string, body: string, attachment_ids: string[] = [], idempotencyKey = key()) =>
     request<Comment>(`/tasks/${encodeURIComponent(task)}/comments`, {
       method: 'POST',
-      body: { body },
-      idempotencyKey: key()
+      body: { body, attachment_ids },
+      idempotencyKey
     }),
 
   patchComment: (task: string, comment: string, body: string, version: number) =>

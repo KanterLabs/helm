@@ -156,6 +156,15 @@ func (s *Server) importPortable(w http.ResponseWriter, r *http.Request, identity
 		}
 		targetProjectID = targetProject.ID
 	}
+	format, err := parseOptionalEnum(r, "format", map[string]struct{}{"json": {}, "bundle": {}})
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
+	if format == "bundle" || r.URL.Path == "/api/v1/import/bundle" {
+		s.importPortableBundle(w, r, identity, targetProjectID)
+		return
+	}
 	archive, envelope, err := decodePortableImportBody(r)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid_json", "portable import body is invalid: "+err.Error(), nil)

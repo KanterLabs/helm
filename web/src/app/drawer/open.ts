@@ -1,4 +1,5 @@
 // Opening tasks in the drawer from any view and restoring their route origin.
+import { clearScreenshotDrafts } from '../../lib/components/attachments/drafts';
 import { api } from '../../lib/api';
 import { rememberProject, taskDeepLink } from '../../lib/state';
 import { buildTaskShareUrl } from '../../lib/taskShare';
@@ -51,6 +52,8 @@ export async function openTask(
   if (options.returnFocus) dialogs.dialogReturnFocus = options.returnFocus;
   drawer.taskRouteIntent = intent;
   drawer.drawerView = intent === 'activity' ? 'activity' : 'details';
+  clearScreenshotDrafts();
+  drawer.commentSending = false;
   drawer.drawerTask = task;
   drawer.drawerError = '';
   drawer.commentBody = '';

@@ -86,6 +86,8 @@ components:
         checkpoint_total <= 100; non-empty checkpoint_refs must have the same
         length as checkpoint_total.
       properties:
+        attachment_ids:
+          $ref: "#/components/schemas/TaskAttachmentIDs"
         operation_id:
           type: string
           minLength: 1
