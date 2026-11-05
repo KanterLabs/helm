@@ -45,6 +45,7 @@ x-common-response-headers:
     $ref: "#/components/headers/XRoadmapRevision"
 x-resource-limits:
   request_body_bytes: 2097152
+  attachment_upload: Streaming multipart upload with separate image limits; see attachment capabilities.
   bearer_requests_per_second: 20
   bearer_burst: 40
   bearer_mutations_per_second: 1
@@ -194,6 +195,11 @@ x-helm-fragments:
   - openapi/paths/roadmap.yaml
   - openapi/paths/search.yaml
   - openapi/paths/sidebar-counts.yaml
+  - openapi/paths/task-attachments-collection.yaml
+  - openapi/paths/task-attachment-metadata.yaml
+  - openapi/paths/task-attachment-content.yaml
+  - openapi/paths/attachment-capabilities.yaml
+  - openapi/paths/attachment-bundles.yaml
   - openapi/paths/tasks-agent-notes.yaml
   - openapi/paths/tasks-ancestors.yaml
   - openapi/paths/tasks-block.yaml
@@ -270,6 +276,7 @@ x-helm-fragments:
   - openapi/schemas/releases.yaml
   - openapi/schemas/roadmap.yaml
   - openapi/schemas/search.yaml
+  - openapi/schemas/task-attachments.yaml
   - openapi/schemas/task-actions.yaml
   - openapi/schemas/task-checklist.yaml
   - openapi/schemas/task-context.yaml

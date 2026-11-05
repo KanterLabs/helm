@@ -22,6 +22,11 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 	if !requireScope(w, identity, "projects:read") || !requireScope(w, identity, "tasks:read") || !requireScope(w, identity, "events:read") {
 		return
 	}
+	format, err := parseOptionalEnum(r, "format", map[string]struct{}{"json": {}, "bundle": {}})
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
 	version := store.PortableVersionCurrent
 	if values, present := r.URL.Query()["version"]; present {
 		if len(values) != 1 || (values[0] != "2" && values[0] != "3" && values[0] != "4") {
@@ -37,6 +42,10 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 		if values[0] == "3" {
 			version = store.PortableVersionGithub
 		}
+	}
+	if format == "bundle" && version != store.PortableVersionCurrent {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "bundle export requires the current portable JSON version", nil)
+		return
 	}
 	var projectIDs []string
 	if projectRoute {
@@ -71,6 +80,31 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 			projectIDs = scopedProjectIDs(identity)
 		}
 	}
+	if format == "bundle" {
+		sourceDenied := false
+		body, err := s.Store.ExportPortableBundleChecked(r.Context(), projectIDs, s.attachmentRoot(), func(archive store.PortableArchive) error {
+			if !s.portableGithubSourceRead(w, r, archive) {
+				sourceDenied = true
+				return fmt.Errorf("portable source access denied")
+			}
+			return nil
+		})
+		if sourceDenied {
+			return
+		}
+		if err != nil {
+			s.writeStoreError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="helm-portable-v5.zip"`)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Helm-Portable-Format", store.PortableBundleFormat)
+		w.Header().Set("X-Helm-Portable-Version", "5")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+		return
+	}
 	archive, err := s.Store.ExportPortableVersion(r.Context(), projectIDs, version)
 	if err != nil {
 		s.writeStoreError(w, err)
@@ -79,6 +113,13 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 	if !s.portableGithubSourceRead(w, r, archive) {
 		return
 	}
+	if err := s.portableTextScreenshotComments(r, &archive); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	archive.Warnings = append(archive.Warnings, "JSON exports omit screenshot images and publication links; choose the version 5 bundle to preserve them")
+	w.Header().Set("Warning", `299 Helm "JSON exports omit screenshot images; choose the version 5 bundle"`)
+	w.Header().Set("X-Helm-Export-Warning", "Screenshot images and publication links are omitted; choose format=bundle")
 	body, err := json.Marshal(archive)
 	if err != nil {
 		s.writeInternal(w, err)

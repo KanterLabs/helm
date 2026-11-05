@@ -22,6 +22,7 @@ type AgentWork struct {
 // AgentWorkInput is a complete replacement snapshot. Omitted optional text,
 // refs, and checkpoint counts clear the corresponding prior values.
 type AgentWorkInput struct {
+	AttachmentIDs       []string `json:"attachment_ids,omitempty"`
 	OperationID         string   `json:"operation_id"`
 	State               string   `json:"state"`
 	Phase               string   `json:"phase"`

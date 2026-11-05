@@ -32,7 +32,10 @@ import { workspace } from './state/workspace.svelte';
 import { closeTaskModal } from './taskModal';
 
 export function handleKeydown(event: KeyboardEvent) {
-  if (readStore(offlineReadOnly)) return;
+  if (readStore(offlineReadOnly) || event.defaultPrevented) return;
+  // Native modal dialogs own keyboard input even if a download temporarily
+  // moves focus to the document body. Escape must not close the task beneath.
+  if (document.querySelector('dialog[open]')) return;
   // A confirmation is the top-most modal. Do not let global shortcuts or a
   // second Escape handler act on the dialog's underlying drawer/view.
   if (dialogs.confirmRequest) {

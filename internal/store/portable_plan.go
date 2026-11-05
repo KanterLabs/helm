@@ -19,7 +19,7 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 	if options.Conflict != portableConflictRemap && options.Conflict != portableConflictFail {
 		addPortableIssue(&report, "import", "", "conflict", "conflict must be remap or fail")
 	}
-	validatePortableArchive(&archive, &report)
+	validatePortableArchive(&archive, &report, options.bundleComments)
 	if len(archive.Projects) > 1 && strings.TrimSpace(options.TargetProjectID) != "" {
 		addPortableIssue(&report, "import", options.TargetProjectID, "target_project", "target_project can only be used with a one-project archive")
 	}

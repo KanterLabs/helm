@@ -1,13 +1,14 @@
 <script lang="ts">
   import { renderMarkdown } from '../markdown';
+  import TaskCommentDraftRecovery from './TaskCommentDraftRecovery.svelte';
+  import TaskActivityHeading from './TaskActivityHeading.svelte';
+  import ScreenshotGroup from './attachments/ScreenshotGroup.svelte';
   import TaskTimelineEntrySummary from './TaskTimelineEntrySummary.svelte';
   import type { Comment, TaskTimelineFilter, TaskTimelineItem } from '../types';
   import {
     actorInitial,
     actorKind,
     actorName,
-    filterLabel,
-    filterOptions,
     formatDateTime,
     formatRelative,
     kindLabel,
@@ -234,24 +235,7 @@
 </script>
 
 <section class="task-timeline" aria-labelledby="task-activity-heading">
-  <div class="task-timeline-heading">
-    <div>
-      <span class="eyebrow">Durable history</span>
-      <h2 id="task-activity-heading">Activity</h2>
-      <p>Agent updates, comments, and task changes in newest-first order.</p>
-    </div>
-    <div class="task-timeline-filters" role="group" aria-label="Filter task activity">
-      {#each filterOptions as option}
-        <button
-          class:active={filter === option.value}
-          class="task-timeline-filter"
-          type="button"
-          aria-pressed={filter === option.value}
-          on:click={() => onFilterChange(option.value)}
-        >{option.label}</button>
-      {/each}
-    </div>
-  </div>
+  <TaskActivityHeading {filter} {onFilterChange} />
 
   {#if error}
     <div class="inline-alert error" role="alert"><span>!</span>{error}<button class="text-button" type="button" on:click={onRetry}>Retry</button></div>
@@ -261,30 +245,18 @@
     <div class="task-timeline-loading" role="status" aria-live="polite"><span class="spinner"></span><span>Loading activity…</span></div>
   {:else}
     {#if activeDraftHidden && activeDraftComment}
-      <div class="task-timeline-draft-recovery" role="status" aria-live="polite">
-        <div class="task-timeline-draft-recovery-heading">
-          <div>
-            <strong>Unsaved comment draft</strong>
-            {#if activeCommentItem}
-              <p>This comment is hidden by the “{filterLabel(filter)}” filter. Your draft is still safe in this task.</p>
-            {:else}
-              <p>The comment is not in the current activity results. Your draft will stay here until you save or discard it.</p>
-            {/if}
-          </div>
-          {#if activeCommentItem}<button class="text-button" type="button" on:click={showActiveDraft}>Show comment</button>{/if}
-        </div>
-        <div class="task-timeline-comment-edit">
-          <textarea rows="4" value={editingBody} aria-label="Edit comment draft" disabled={activeCommentIsSaving(pendingCommentMutations)} on:input={updateEditingBody}></textarea>
-          <div class="task-timeline-comment-actions">
-            <button class="button primary" type="button" disabled={!editingBody.trim() || activeCommentIsSaving(pendingCommentMutations)} on:click={() => void saveComment(activeDraftComment as Comment)}>
-              {#if activeCommentIsSaving(pendingCommentMutations)}<span class="button-spinner"></span>{/if}Save
-            </button>
-            <button class="text-button" type="button" disabled={activeCommentIsSaving(pendingCommentMutations)} on:click={cancelEditing}>Discard draft</button>
-          </div>
-        </div>
-        {#if activeCommentError(commentMutationErrors)}<div class="task-timeline-comment-error" role="alert">{activeCommentError(commentMutationErrors)}</div>{/if}
-        {#if editingGuardMessage}<div class="task-timeline-comment-error" role="alert">{editingGuardMessage}</div>{/if}
-      </div>
+      <TaskCommentDraftRecovery
+        body={editingBody}
+        saving={activeCommentIsSaving(pendingCommentMutations)}
+        hiddenByFilter={Boolean(activeCommentItem)}
+        {filter}
+        error={activeCommentError(commentMutationErrors)}
+        guardMessage={editingGuardMessage}
+        onInput={updateEditingBody}
+        onSave={() => void saveComment(activeDraftComment as Comment)}
+        onDiscard={cancelEditing}
+        onShow={showActiveDraft}
+      />
     {/if}
     {#if editingCommentId && !activeDraftHidden}
       <div class="task-timeline-draft-lock" role="status">Finish or discard this draft before editing another comment.</div>
@@ -328,6 +300,7 @@
               {:else}
                 <TaskTimelineEntrySummary {item} />
               {/if}
+              <ScreenshotGroup images={item.comment?.attachments || item.progress?.attachments || []} {currentActorId} canManage={canManageComments} />
               <time datetime={item.created_at} title={formatDateTime(item.created_at)}>{formatRelative(item.created_at)}</time>
             </div>
           </article>
@@ -344,48 +317,3 @@
     </button>
   {/if}
 </section>
-
-<style>
-  .task-timeline-draft-recovery {
-    display: grid;
-    gap: 9px;
-    padding: 11px;
-    border: 1px solid color-mix(in srgb, var(--amber), var(--border) 45%);
-    border-radius: 9px;
-    background: color-mix(in srgb, var(--amber-soft), var(--surface) 55%);
-  }
-
-  .task-timeline-draft-recovery-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  .task-timeline-draft-recovery-heading strong {
-    color: var(--ink-soft);
-    font-size: var(--text-xs);
-  }
-
-  .task-timeline-draft-recovery-heading p {
-    margin: 3px 0 0;
-    color: var(--muted);
-    font-size: var(--text-2xs);
-    line-height: 1.4;
-  }
-
-  .task-timeline-comment-notice {
-    padding: 7px 9px;
-    border-radius: 6px;
-    color: var(--amber, #986e19);
-    background: var(--amber-soft);
-    font-size: var(--text-2xs);
-    line-height: 1.4;
-  }
-
-  .task-timeline-draft-lock {
-    color: var(--muted);
-    font-size: var(--text-2xs);
-    line-height: 1.4;
-  }
-</style>

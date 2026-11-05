@@ -5,10 +5,11 @@ import (
 )
 
 type Comment struct {
-	ID      string `json:"id"`
-	TaskID  string `json:"task_id"`
-	ActorID string `json:"actor_id"`
-	Body    string `json:"body"`
+	ID          string       `json:"id"`
+	TaskID      string       `json:"task_id"`
+	ActorID     string       `json:"actor_id"`
+	Body        string       `json:"body"`
+	Attachments []Attachment `json:"attachments,omitempty"`
 	// Version is incremented on every edit or tombstone mutation.  It gives
 	// comment writes the same optimistic-concurrency protection as task writes.
 	Version   int64  `json:"version"`
@@ -48,16 +49,17 @@ type TimelineActor struct {
 // latest pulse remains available as Task.AgentWork; this shape is the durable
 // historical counterpart used by the task timeline.
 type TaskTimelineProgress struct {
-	OperationID         string   `json:"operation_id"`
-	ActorID             string   `json:"actor_id"`
-	State               string   `json:"state"`
-	Phase               string   `json:"phase"`
-	Summary             string   `json:"summary"`
-	NextAction          string   `json:"next_action"`
-	CheckpointRefs      []string `json:"checkpoint_refs"`
-	CheckpointCompleted *int     `json:"checkpoint_completed"`
-	CheckpointTotal     *int     `json:"checkpoint_total"`
-	StartedAt           string   `json:"started_at"`
+	Attachments         []Attachment `json:"attachments,omitempty"`
+	OperationID         string       `json:"operation_id"`
+	ActorID             string       `json:"actor_id"`
+	State               string       `json:"state"`
+	Phase               string       `json:"phase"`
+	Summary             string       `json:"summary"`
+	NextAction          string       `json:"next_action"`
+	CheckpointRefs      []string     `json:"checkpoint_refs"`
+	CheckpointCompleted *int         `json:"checkpoint_completed"`
+	CheckpointTotal     *int         `json:"checkpoint_total"`
+	StartedAt           string       `json:"started_at"`
 }
 
 // TaskTimelineChange retains the original event type and safe payload.  The

@@ -1,0 +1,152 @@
+paths:
+  /api/v1/tasks/{task}/attachments/{attachment}:
+    parameters:
+      - $ref: '#/components/parameters/TaskPath'
+      - name: attachment
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Identifier'
+    get:
+      operationId: getTaskAttachment
+      summary: Read task image metadata
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:read
+      responses:
+        '200':
+          description: Attachment metadata
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskAttachment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: updateTaskAttachment
+      summary: Edit task image metadata
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      description: Only the creator or a human administrator may edit. Original bytes are immutable. Omitted
+        properties remain unchanged. Use the metadata ETag as If-Match; stale versions return 409.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskAttachmentMetadataUpdate'
+      responses:
+        '200':
+          description: Attachment metadata
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskAttachment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      operationId: deleteTaskAttachment
+      summary: Tombstone a task image
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:write
+      description: Only the creator or a human administrator may delete. Content becomes unavailable immediately;
+        physical removal follows retention. Use the metadata ETag as If-Match.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Image deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    head:
+      operationId: headTaskAttachment
+      summary: 'Read headers: Read task image metadata'
+      tags:
+        - Tasks
+      security:
+        - cookieAuth: []
+        - cloudflareAccess: []
+        - bearerAuth:
+            - tasks:read
+      responses:
+        '200':
+          description: Attachment metadata
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskAttachment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'

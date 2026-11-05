@@ -1,0 +1,220 @@
+{
+  "components": {
+    "schemas": {
+      "TaskAttachment": {
+        "type": "object",
+        "required": [
+          "id",
+          "task_id",
+          "project_id",
+          "actor_id",
+          "filename",
+          "content_type",
+          "size_bytes",
+          "sha256",
+          "width",
+          "height",
+          "status",
+          "caption",
+          "commit_sha",
+          "build",
+          "viewport_width",
+          "viewport_height",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "staged",
+              "published",
+              "deleted"
+            ]
+          },
+          "caption": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Maximum 2000 UTF-8 bytes."
+          },
+          "commit_sha": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "build": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "viewport_width": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "viewport_height": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "deleted_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskAttachmentMetadataUpdate": {
+        "type": "object",
+        "properties": {
+          "caption": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Maximum 2000 UTF-8 bytes."
+          },
+          "commit_sha": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "build": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "viewport_width": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "viewport_height": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskAttachmentIDs": {
+        "type": "array",
+        "maxItems": 4,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "description": "Staged images belonging to this task and actor; published atomically with the update."
+      },
+      "TaskAttachmentList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/TaskAttachment"
+        }
+      },
+      "TaskAttachmentCollection": {
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TaskAttachmentList"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskAttachmentCapabilities": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "types",
+          "max_file_bytes",
+          "max_pixels",
+          "max_dimension",
+          "max_images_per_update",
+          "project_quota_bytes"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_file_bytes": {
+            "type": "integer",
+            "example": 10485760
+          },
+          "max_pixels": {
+            "type": "integer",
+            "example": 40000000
+          },
+          "max_dimension": {
+            "type": "integer",
+            "example": 8192
+          },
+          "max_images_per_update": {
+            "type": "integer",
+            "example": 4
+          },
+          "project_quota_bytes": {
+            "type": "integer",
+            "example": 1073741824
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

@@ -127,7 +127,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.Cfg.ReleaseSHA != "" {
 		w.Header().Set("X-Roadmap-Revision", s.Cfg.ReleaseSHA)
 	}
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'")
 	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 	w.Header().Set("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
@@ -288,6 +288,9 @@ func isPublicAuthRequest(r *http.Request) bool {
 }
 
 func isBufferableRequest(r *http.Request) bool {
+	if isAttachmentUpload(r) || isPortableBundleUpload(r) {
+		return false
+	}
 	if !isBodyBearingMethod(r.Method) {
 		return false
 	}

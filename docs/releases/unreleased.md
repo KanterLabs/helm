@@ -5,6 +5,13 @@ User-visible changes after v0.2.2 belong here, newest first. Latest release:
 
 ## Features
 
+- **Screenshot evidence on tasks:** paste, drop or select PNG, JPEG and static
+  WebP images in task activity. Captions, original downloads, comparison view
+  and durable progress history help humans and agents review UI and game work.
+  Agent tooling supports upload retries and image updates with project-scoped
+  access. Version 5 portable bundles and verified backups preserve image files.
+  See [Task images](../TASK_IMAGES.md) for limits and workflows.
+
 - **Roadmap explore mode:** select **Explore** on a roadmap to hide the sidebar,
   top bar and page heading and enlarge the roadmap. Zoom from 100% to 175% with
   the controls or `+`/`-`, optionally go full screen, and leave with **Exit

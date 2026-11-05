@@ -3,6 +3,8 @@
 <script lang="ts">
   // Project metadata and column administration.
   import { confirmAdminColumnArchive, confirmAdminColumnCreate, confirmAdminColumnMove, confirmAdminColumnSave, confirmAdminProjectArchive, confirmAdminProjectSave, loadAdminColumns, loadProjectAdmin, setAdminProjectDraft } from '../../admin';
+  import PortableBundlePanel from '../../../lib/components/attachments/PortableBundlePanel.svelte';
+  import { session } from '../../state/session.svelte';
   import { stateLabels } from '../../constants';
   import { admin } from '../../state/admin.svelte';
 </script>
@@ -23,6 +25,7 @@
       <label>Checklist completion policy<select bind:value={admin.adminChecklistPolicy}><option value="warn">Warn · allow completion with open items</option><option value="require">Require · block completion until all items are checked</option></select><span class="field-hint">Applies to task moves, bug resolution, and columns remapped to Done.</span></label>
       <div class="form-actions"><button class="button quiet-button" type="button" on:click={() => confirmAdminProjectArchive(admin.adminProject!)}>{admin.adminProject.archived_at ? 'Restore project' : 'Archive project'}</button><button class="button primary" type="submit" disabled={admin.adminSaving || !admin.adminProjectName.trim()}>{#if admin.adminSaving}<span class="button-spinner"></span>{/if}Save project</button></div>
     </form>
+    {#key `${admin.adminProject.id}:${session.user?.id}:${session.sessionGeneration}`}<PortableBundlePanel project={admin.adminProject} />{/key}
     <div class="admin-columns-heading"><div><h3>Columns</h3><p>Each semantic state must keep one live mapping. Archiving a column moves its tasks to another live column with the same state.</p></div></div>
     <form class="admin-column-create" on:submit|preventDefault={confirmAdminColumnCreate}><label>New column name<input bind:value={admin.adminColumnName} maxlength="100" placeholder="Review" /></label><label>Semantic mapping<select bind:value={admin.adminColumnState}>{#each Object.entries(stateLabels) as [state, label]}<option value={state}>{label}</option>{/each}</select></label><button class="button primary" type="submit" disabled={admin.adminColumnCreating || !admin.adminColumnName.trim()}>＋ Add column</button></form>
     {#if admin.adminColumnsLoading}<div class="list-skeleton" aria-label="Loading columns"><div></div></div>
