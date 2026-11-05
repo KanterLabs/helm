@@ -147,12 +147,20 @@ func (s *Store) ListCommentsPage(ctx context.Context, taskID string, limit, offs
 	if hasMore {
 		result = result[:limit]
 	}
+	if err := s.hydrateCommentAttachments(ctx, result); err != nil {
+		return nil, false, err
+	}
 	return result, hasMore, nil
 }
 
 func (s *Store) CreateComment(ctx context.Context, taskID, actorID, body string) (Comment, error) {
+	return s.CreateCommentWithAttachments(ctx, taskID, actorID, body, nil, false)
+}
+
+// CreateCommentWithAttachments publishes a comment and its staged images as one transaction.
+func (s *Store) CreateCommentWithAttachments(ctx context.Context, taskID, actorID, body string, attachmentIDs []string, allowAdmin bool) (Comment, error) {
 	body = strings.TrimSpace(body)
-	if body == "" {
+	if body == "" && len(attachmentIDs) == 0 {
 		return Comment{}, invalid("comment body is required", nil)
 	}
 	if len(body) > 20000 {
@@ -167,6 +175,9 @@ func (s *Store) CreateComment(ctx context.Context, taskID, actorID, body string)
 	id, created := newID(), now()
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO comments(id, task_id, actor_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, id, taskID, actorID, body, created, created); err != nil {
+			return err
+		}
+		if _, err := linkTaskAttachmentsTx(ctx, tx, taskID, actorID, attachmentIDs, id, "", allowAdmin); err != nil {
 			return err
 		}
 		_, err := insertEvent(ctx, tx, "comment.created", actorID, projectID, taskID, map[string]any{"comment_id": id})
@@ -200,7 +211,14 @@ func (s *Store) GetComment(ctx context.Context, commentID string) (Comment, erro
 	if errors.Is(err, sql.ErrNoRows) {
 		return Comment{}, notFound("comment not found")
 	}
-	return comment, err
+	if err != nil {
+		return Comment{}, err
+	}
+	comments := []Comment{comment}
+	if err := s.hydrateCommentAttachments(ctx, comments); err != nil {
+		return Comment{}, err
+	}
+	return comments[0], nil
 }
 
 // UpdateComment edits only the current comment row while appending an

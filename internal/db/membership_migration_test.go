@@ -47,7 +47,8 @@ func TestMigration041PreservesPopulatedMembershipData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inspection.SchemaVersion != 41 || len(inspection.PendingVersions) != 0 || len(inspection.UnknownVersions) != 0 {
+	// Later additive migrations must preserve the membership fixture too.
+	if inspection.SchemaVersion < 41 || inspection.SchemaVersion != inspection.EmbeddedSchemaVersion || len(inspection.PendingVersions) != 0 || len(inspection.UnknownVersions) != 0 {
 		t.Fatalf("schema inspection = %#v", inspection)
 	}
 	for _, table := range []string{"workspace_memberships", "project_memberships"} {

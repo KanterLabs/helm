@@ -9,10 +9,12 @@ import (
 )
 
 type Config struct {
-	Addr         string
-	DB           string
-	AuthMode     string
-	PublicOrigin string
+	AttachmentMaxFileBytes      int64
+	AttachmentProjectQuotaBytes int64
+	Addr                        string
+	DB                          string
+	AuthMode                    string
+	PublicOrigin                string
 	// LegacyOrigin retains bearer-only API compatibility during a private hostname move.
 	LegacyOrigin string
 	AdminEmail   string
@@ -271,6 +273,9 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("HELM_LUNA_ENABLED must be true or false: %w", err)
 		}
 		c.LunaDisabled = !parsed
+	}
+	if err := attachmentLimitsFromEnv(&c); err != nil {
+		return Config{}, err
 	}
 	if err := githubFromEnv(&c); err != nil {
 		return Config{}, err

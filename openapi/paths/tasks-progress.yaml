@@ -14,6 +14,9 @@ paths:
         the same transaction. Reusing an Idempotency-Key with the same
         authenticated principal, path, and request body replays the original
         response without publishing a second snapshot, comment, or event.
+        Optional attachment_ids publish up to four staged task images in the
+        same transaction. Images belong to canonical progress history, not
+        the replaceable live snapshot.
         `working`, `waiting`, `verifying`, and `handoff` are publishable states;
         `stale` and `missing` are read-time filter states only.
       tags:

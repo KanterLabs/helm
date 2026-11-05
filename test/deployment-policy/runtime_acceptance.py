@@ -186,7 +186,7 @@ def run(args):
                 summary['runs'].append(report)
                 try:
                     app.start()
-                    report['storage'] = storage.preserved(db, before)
+                    report['storage'] = storage.preserved(db, before, args.candidate_schema if role == 'candidate' else args.recovery_schema)
                     journeys.exercise(app, identities, db)
                     app.stop()
                     cloudflare.exercise(Runtime(image, work, network, sha, 'cloudflare'), identities, report['observations'])
@@ -210,12 +210,16 @@ def main():
     p.add_argument('--candidate', required=True)
     p.add_argument('--recovery', required=True)
     p.add_argument('--candidate-sha', required=True)
+    p.add_argument('--candidate-schema', type=int, default=41)
+    p.add_argument('--recovery-schema', type=int, default=41)
     p.add_argument('--recovery-sha', required=True)
     p.add_argument('--schema35', type=Path)
     p.add_argument('--schema40', type=Path)
     p.add_argument('--output', required=True, type=Path)
     p.add_argument('--go', default='/home/shane/.cache/helm-go-1.25.14/go/bin/go')
     args = p.parse_args()
+    if not (41 <= args.candidate_schema <= 10000 and 41 <= args.recovery_schema <= 10000):
+        p.error('expected schemas must be explicit supported versions at or above41')
     if bool(args.schema35) != bool(args.schema40):
         p.error('both independently captured schema35 and schema40 copies are required')
     run(args)

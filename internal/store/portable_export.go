@@ -47,18 +47,7 @@ func (s *Store) ExportPortableVersion(ctx context.Context, projectIDs []string, 
 	if err != nil {
 		return PortableArchive{}, err
 	}
-	archive, err := exportPortable(ctx, tx, projectIDs)
-	if err == nil {
-		archive.Version = version
-		err = exportPortableMetadata(ctx, tx, &archive)
-	}
-	if err == nil && version >= PortableVersionGithub {
-		archive.Version = version
-		archive.Github, err = exportPortableGithub(ctx, tx, archive)
-	}
-	if err == nil && version < PortableVersionCurrent {
-		portableOmitMetadata(&archive)
-	}
+	archive, err := exportPortableVersionSnapshot(ctx, tx, projectIDs, version)
 	if err != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 			return PortableArchive{}, errors.Join(err, fmt.Errorf("rollback portable export: %w", rollbackErr))
@@ -72,6 +61,24 @@ func (s *Store) ExportPortableVersion(ctx context.Context, projectIDs []string, 
 		return PortableArchive{}, err
 	}
 	return archive, nil
+}
+
+// exportPortableVersionSnapshot composes every JSON section through the same
+// caller-owned read snapshot. Bundle exports add image metadata before commit.
+func exportPortableVersionSnapshot(ctx context.Context, q portableSQL, projectIDs []string, version int) (PortableArchive, error) {
+	archive, err := exportPortable(ctx, q, projectIDs)
+	if err == nil {
+		archive.Version = version
+		err = exportPortableMetadata(ctx, q, &archive)
+	}
+	if err == nil && version >= PortableVersionGithub {
+		archive.Version = version
+		archive.Github, err = exportPortableGithub(ctx, q, archive)
+	}
+	if err == nil && version < PortableVersionCurrent {
+		portableOmitMetadata(&archive)
+	}
+	return archive, err
 }
 
 func exportPortable(ctx context.Context, q portableSQL, projectIDs []string) (PortableArchive, error) {

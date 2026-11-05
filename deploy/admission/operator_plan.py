@@ -4,6 +4,7 @@ from pathlib import Path
 from rollback_policy import Acceptance, NAME_RE, artifact, target_valid
 from .bootstrap import coordinates
 from .filesystem import BootstrapError, canonical, lower_hex, read_private_json
+from . import host_rebind
 
 KEYS = {'format', 'operation', 'action', 'lane', 'role', 'target', 'artifacts',
         'authorization_floor', 'bootstrap_plan', 'acceptance_bundle', 'acceptance_sha256',
@@ -16,14 +17,19 @@ def pair(item):
 
 def load(path):
     plan = read_private_json(Path(path))
-    if (not isinstance(plan, dict) or set(plan) != KEYS or type(plan['format']) is not int
+    rebind = isinstance(plan, dict) and plan.get('action') == host_rebind.ACTION
+    if (not isinstance(plan, dict) or set(plan) != (KEYS | host_rebind.PLAN_KEYS if rebind else KEYS)
+            or type(plan['format']) is not int
             or (plan['format'], plan['operation'], plan['action']) not in (
                 (1, 'native-admission-transition', 'close'),
                 (1, 'native-admission-transition', 'activate'),
-                (2, 'native-admission-upgrade', 'upgrade'))
+                (2, 'native-admission-upgrade', 'upgrade'),
+                (3, 'native-admission-host-rebind', host_rebind.ACTION))
             or plan['role'] not in ('candidate', 'recovery')
             or (plan['action'] == 'upgrade' and plan['role'] != 'candidate')):
         raise BootstrapError('unsupported native operator plan')
+    if rebind:
+        host_rebind.validate_plan(plan)
     target_valid(plan['target'])
     if plan['target']['lane'] != plan['lane']:
         raise BootstrapError('operator target lane mismatch')

@@ -1,0 +1,90 @@
+/* Screenshot content is held only in memory; these styles cover both themes. */
+.screenshot-composer { min-width: 0; border-radius: 8px; }
+.screenshot-composer.dragging { outline: 2px solid var(--accent); outline-offset: 4px; }
+.screenshot-composer-tools, .screenshot-draft-actions, .screenshot-viewer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.screenshot-composer-tools > span { color: var(--muted); font-size: var(--text-2xs); }
+.screenshot-composer .text-button, .screenshot-gallery > .text-button, .screenshot-draft-actions button, .screenshot-viewer button, .screenshot-viewer select, .screenshot-viewer label { min-height: 44px; }
+.screenshot-error { color: var(--red, #b42318); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.screenshot-drafts { list-style: none; margin: 8px 0 16px; padding: 0; display: grid; gap: 10px; }
+.screenshot-draft { display: flex; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.screenshot-draft-preview { width: 64px; height: 64px; object-fit: contain; background: var(--surface); border-radius: 5px; flex-shrink: 0; }
+.screenshot-draft-content { display: grid; flex: 1; min-width: 0; gap: 5px; }
+.screenshot-draft-content > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
+.screenshot-draft-content > span { color: var(--muted); font-size: var(--text-2xs); }
+.screenshot-draft-content input { min-width: 0; width: 100%; min-height: 44px; }
+.screenshot-gallery { margin: 4px 0 18px; }
+.screenshot-gallery > p { color: var(--muted); font-size: var(--text-xs); }
+.screenshot-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr)); gap: 8px; margin: 10px 0; max-width: 100%; }
+.screenshot-card { display: grid; padding: 0; border: 1px solid var(--border); background: var(--surface); color: var(--ink); border-radius: 8px; overflow: hidden; min-width: 0; text-align: left; cursor: pointer; }
+.screenshot-card:hover { border-color: var(--accent); }
+.screenshot-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.screenshot-thumbnail { display: flex; align-items: center; justify-content: center; height: 120px; width: 100%; background: color-mix(in srgb, var(--muted) 8%, var(--surface)); overflow: hidden; }
+.screenshot-thumbnail img { max-height: 120px; max-width: 100%; object-fit: contain; }
+.screenshot-card-caption { padding: 8px; font-size: var(--text-xs); overflow-wrap: anywhere; }
+.screenshot-loading, .screenshot-missing { display: grid; padding: 12px; gap: 5px; color: var(--muted); font-size: var(--text-xs); }
+.screenshot-viewer { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 12px; padding: 18px; width: min(1300px, calc(100vw - 32px)); max-width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow: auto; }
+.screenshot-viewer::backdrop { background: rgb(0 0 0 / 72%); }
+.screenshot-viewer-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.screenshot-viewer-header h2 { margin: 0; font-size: var(--text-lg); }
+.screenshot-viewer-tools { margin: 10px 0; font-size: var(--text-xs); }
+.screenshot-viewer-tools label { display: inline-flex; align-items: center; gap: 6px; }
+.screenshot-viewer select { max-width: 100%; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 5px; }
+.screenshot-compare-choice { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: var(--text-xs); }
+.screenshot-compare-choice select { min-width: 0; flex: 1; min-height: 44px; }
+.screenshot-compare { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.screenshot-compare.comparing { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.screenshot-compare figure { margin: 0; min-width: 0; }
+.screenshot-compare figcaption { display: grid; gap: 5px; margin-bottom: 8px; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.screenshot-compare figcaption small { color: var(--muted); font-size: var(--text-2xs); }
+.screenshot-canvas { overflow: auto; max-height: 65dvh; border: 1px solid var(--border); background: repeating-conic-gradient(color-mix(in srgb, var(--muted) 12%, var(--surface)) 0% 25%, var(--surface) 0% 50%) 50% / 16px 16px; }
+.screenshot-canvas img { display: block; width: 100%; height: auto; object-fit: contain; }
+.screenshot-canvas img.pixelated { image-rendering: pixelated; }
+@media (max-width: 600px) {
+  .screenshot-viewer { padding: 12px; }
+  .screenshot-draft-preview { width: 44px; height: 44px; }
+  .screenshot-compare.comparing { grid-template-columns: minmax(0, 1fr); }
+  .screenshot-viewer-tools { gap: 4px 8px; }
+}
+
+  .task-timeline-draft-recovery {
+    display: grid;
+    gap: 9px;
+    padding: 11px;
+    border: 1px solid color-mix(in srgb, var(--amber), var(--border) 45%);
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--amber-soft), var(--surface) 55%);
+  }
+
+  .task-timeline-draft-recovery-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .task-timeline-draft-recovery-heading strong {
+    color: var(--ink-soft);
+    font-size: var(--text-xs);
+  }
+
+  .task-timeline-draft-recovery-heading p {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: var(--text-2xs);
+    line-height: 1.4;
+  }
+
+  .task-timeline-comment-notice {
+    padding: 7px 9px;
+    border-radius: 6px;
+    color: var(--amber, #986e19);
+    background: var(--amber-soft);
+    font-size: var(--text-2xs);
+    line-height: 1.4;
+  }
+
+  .task-timeline-draft-lock {
+    color: var(--muted);
+    font-size: var(--text-2xs);
+    line-height: 1.4;
+  }

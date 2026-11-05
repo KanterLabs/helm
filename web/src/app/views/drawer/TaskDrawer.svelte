@@ -2,6 +2,8 @@
 
 <script lang="ts">
   // Task drawer shell with details and activity tabs.
+  import ScreenshotComposer from '../../../lib/components/attachments/ScreenshotComposer.svelte';
+  import ScreenshotGallery from '../../../lib/components/attachments/ScreenshotGallery.svelte';
   import AgentWorkPanel from '../../../lib/components/AgentWorkPanel.svelte';
   import PwaStatus from '../../../lib/components/PwaStatus.svelte';
   import TaskActivityTimeline from '../../../lib/components/TaskActivityTimeline.svelte';
@@ -46,11 +48,14 @@
       <div id="drawer-activity-panel" class="drawer-scroll drawer-activity-scroll" role="tabpanel" aria-labelledby="drawer-activity-tab">
         {#if showAgentPulse(drawerTask)}<AgentWorkPanel task={drawerTask} now={live.pulseClock} actorLabel={agentLabelForTask(drawerTask)} />{/if}
         <section class="drawer-section activity-section drawer-timeline-section">
+          <ScreenshotComposer>
           <form class="comment-form" on:submit|preventDefault={postComment}>
             <span class="avatar mini-user-avatar">{projectInitials({ name: signedInUser.name, key: signedInUser.name })}</span>
-            <textarea rows="2" bind:value={drawer.commentBody} placeholder="Leave a note for your team…" aria-label="Comment"></textarea>
-            <button class="icon-button comment-send" type="submit" disabled={!drawer.commentBody.trim() || drawer.commentSending} aria-label="Add comment">↑</button>
+            <textarea rows="2" disabled={drawer.commentSending} bind:value={drawer.commentBody} placeholder="Leave a note for your team…" aria-label="Comment"></textarea>
+            <button class="icon-button comment-send" type="submit" disabled={(!drawer.commentBody.trim() && !drawer.screenshotDrafts.length) || drawer.commentSending || drawer.screenshotDrafts.some((draft) => draft.state !== 'ready')} aria-label="Add comment">↑</button>
           </form>
+          </ScreenshotComposer>
+          {#key `${drawerTask.id}:${session.sessionGeneration}`}<ScreenshotGallery taskId={drawerTask.id} currentActorId={signedInUser.id} canManage={Boolean(signedInUser.admin)} refresh={drawer.drawerTimelineRequest} />{/key}
           <TaskActivityTimeline
             bind:dirty={drawer.editedCommentDirty}
             bind:pendingWrites={drawer.editedCommentPending}

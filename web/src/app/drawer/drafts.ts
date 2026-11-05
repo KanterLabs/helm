@@ -1,4 +1,5 @@
 // Drawer draft synchronization, dirty tracking and closing.
+import { clearScreenshotDrafts } from '../../lib/components/attachments/drafts';
 import { actorId, toInputDate } from '../../lib/state';
 import type { Task } from '../../lib/types';
 import { restoreDialogFocus } from '../dialogs';
@@ -104,6 +105,8 @@ export function confirmDrawerTaskSwitch(task: Task): boolean {
 
 export function closeDrawer(force = false, skipRouteNavigation = false): boolean {
   if (!force && !confirmDrawerDiscard()) return false;
+  clearScreenshotDrafts();
+  drawer.commentSending = false;
   const routeOrigin = drawer.taskRouteOrigin;
   drawer.taskDetailRequest += 1;
   live.drawerLivenessRequest += 1;

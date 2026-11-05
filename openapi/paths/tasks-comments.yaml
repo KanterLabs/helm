@@ -51,8 +51,9 @@ paths:
       summary: Add a comment to a task
       description: |
         Supply body or its text alias. When body is empty or omitted, text is
-        used; when both are non-empty, body wins. At least one non-empty value
-        is required. The response contains the canonical body field.
+        used; when both are non-empty, body wins. Supply text or attachment_ids
+        (up to four staged images) for an image-only comment. Publishing is
+        atomic. The response contains the canonical body and attachments.
       tags:
         - Tasks
       parameters:

@@ -1,6 +1,8 @@
 package store
 
 type PortableImportOptions struct {
+	// bundleComments permits image-only comments only for a validated bundle.
+	bundleComments map[string]bool
 	// TargetProjectID imports a one-project archive into an existing project.
 	// The target is never overwritten; source IDs are mapped to it.
 	TargetProjectID string

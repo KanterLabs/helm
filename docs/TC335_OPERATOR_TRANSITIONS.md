@@ -19,8 +19,9 @@ Provision `/srv/helm/operator/host.json` independently in VERIFIED native host
 context, using the existing host-binding format from
 [the CLOSED bootstrap contract](TC335_CLOSED_BOOTSTRAP.md). This command does not
 create that file or expose a flag that blesses its own namespace. Both native
-init namespaces and the bound boot must match. Reboot requires independently
-reviewed rebinding; a changed binding cannot rewrite existing operator history.
+init namespaces and the bound boot must match. Reboot requires an independently
+[reviewed host rebind](TC335_HOST_REBIND.md); its append-only CLOSED transition
+preserves the original context and all existing operator history.
 
 Before deployment, the parent must verify directory data/config binds, legacy
 UID65532 without ownership capabilities, UID70541 reserved for guarded runtimes,

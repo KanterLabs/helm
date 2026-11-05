@@ -74,5 +74,6 @@ func NewWithBetaSwitch(s *store.Store, manager *auth.Manager, cfg config.Config,
 	}
 	server := &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry(), adminActivity: newAdminActivityTracker(), projectIntelligenceCache: make(map[string]projectIntelligenceCacheEntry), projectIntelligenceRunning: make(map[string]bool)}
 	server.configureGithubServices()
+	server.startAttachmentRuntime()
 	return server
 }

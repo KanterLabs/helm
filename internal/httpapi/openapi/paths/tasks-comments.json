@@ -79,7 +79,7 @@
       "post": {
         "operationId": "createTaskComment",
         "summary": "Add a comment to a task",
-        "description": "Supply body or its text alias. When body is empty or omitted, text is\nused; when both are non-empty, body wins. At least one non-empty value\nis required. The response contains the canonical body field.\n",
+        "description": "Supply body or its text alias. When body is empty or omitted, text is\nused; when both are non-empty, body wins. Supply text or attachment_ids\n(up to four staged images) for an image-only comment. Publishing is\natomic. The response contains the canonical body and attachments.\n",
         "tags": [
           "Tasks"
         ],

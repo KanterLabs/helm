@@ -92,3 +92,15 @@ webhook intake (`HELM_COOLIFY_*`) is described in
 | --- | --- | --- |
 | `HELM_BETA_SWITCH_ENABLED` | `false` | Show the beta release switcher; requires `tailnet` mode on the beta origin. |
 | `HELM_BETA_SWITCH_SOCKET`, `HELM_BETA_SWITCH_SOCKET_PATH` | `/run/helm-beta-switcher/helm-beta-switchd.sock` | Unix socket of the root-owned switch controller. |
+
+## Task images
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HELM_ATTACHMENT_MAX_FILE_BYTES` | `10485760` | Maximum original image bytes; integer 1–41,943,040. |
+| `HELM_ATTACHMENT_PROJECT_QUOTA_BYTES` | `1073741824` | Retained image bytes per project; integer 1–1,099,511,627,776. |
+
+Decoded limits remain 40 million pixels and 8,192 pixels per dimension, with
+four images per update. Capabilities expose effective file and quota limits.
+See [task images](TASK_IMAGES.md) and [attachment operations](ATTACHMENT_OPERATIONS.md)
+for workflows, storage and backup requirements.

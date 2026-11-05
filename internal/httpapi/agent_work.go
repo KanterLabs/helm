@@ -34,6 +34,7 @@ var publishAgentWorkStates = map[string]struct{}{
 // store receives a complete snapshot: omitted optional values are represented
 // by their zero value and therefore clear the prior snapshot value.
 type agentWorkRequest struct {
+	AttachmentIDs       []string `json:"attachment_ids"`
 	OperationID         *string  `json:"operation_id"`
 	State               *string  `json:"state"`
 	Phase               *string  `json:"phase"`
@@ -190,7 +191,7 @@ func decodeAgentWorkInput(r *http.Request) (store.AgentWorkInput, error) {
 	}
 	for name := range fields {
 		switch name {
-		case "operation_id", "state", "phase", "summary", "next_action", "checkpoint_refs", "checkpoint_completed", "checkpoint_total":
+		case "operation_id", "state", "phase", "summary", "next_action", "checkpoint_refs", "checkpoint_completed", "checkpoint_total", "attachment_ids":
 		default:
 			return store.AgentWorkInput{}, taskInputError("unknown agent progress field: " + name)
 		}
@@ -201,7 +202,7 @@ func decodeAgentWorkInput(r *http.Request) (store.AgentWorkInput, error) {
 	// Every exposed progress field is non-nullable. Optional fields clear by
 	// omission in this complete-snapshot endpoint; explicit null is rejected so
 	// clients cannot accidentally turn a typed value into an ambiguous zero.
-	if err := rejectJSONNull(fields, "operation_id", "state", "phase", "summary", "next_action", "checkpoint_refs", "checkpoint_completed", "checkpoint_total"); err != nil {
+	if err := rejectJSONNull(fields, "operation_id", "state", "phase", "summary", "next_action", "checkpoint_refs", "checkpoint_completed", "checkpoint_total", "attachment_ids"); err != nil {
 		return store.AgentWorkInput{}, err
 	}
 	if payload.OperationID == nil || strings.TrimSpace(*payload.OperationID) == "" {
@@ -250,6 +251,14 @@ func decodeAgentWorkInput(r *http.Request) (store.AgentWorkInput, error) {
 			}
 		}
 	}
+	if raw, present := fields["attachment_ids"]; present {
+		if err := validateIdentifierArray(raw, "attachment_ids", false); err != nil {
+			return store.AgentWorkInput{}, err
+		}
+		if len(payload.AttachmentIDs) > 4 {
+			return store.AgentWorkInput{}, taskInputError("attachment_ids must contain at most 4 items")
+		}
+	}
 	completedPresent := jsonFieldPresent(fields, "checkpoint_completed")
 	totalPresent := jsonFieldPresent(fields, "checkpoint_total")
 	if completedPresent != totalPresent {
@@ -273,9 +282,10 @@ func decodeAgentWorkInput(r *http.Request) (store.AgentWorkInput, error) {
 	}
 
 	input := store.AgentWorkInput{
-		OperationID: operationID,
-		State:       *payload.State,
-		Summary:     *payload.Summary,
+		AttachmentIDs: payload.AttachmentIDs,
+		OperationID:   operationID,
+		State:         *payload.State,
+		Summary:       *payload.Summary,
 	}
 	if payload.Phase != nil {
 		input.Phase = *payload.Phase

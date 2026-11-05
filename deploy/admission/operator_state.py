@@ -12,6 +12,7 @@ from .filesystem import (BootstrapError, PRIVATE_ID, bounded_names, canonical, d
                          lower_hex, no_acl, strict_json)
 from .inventory_pages import MAX_INDEXES, MAX_PAGES
 from .operator_plan import upgraded_pair
+from . import host_rebind
 
 MAX_TRANSITIONS = 256
 ORIGIN = 'operator-origin.json'
@@ -21,6 +22,7 @@ ORIGIN_KEYS = {'format', 'bootstrap_plan_sha256', 'bootstrap_metadata_sha256', '
 INTENT_KEYS = {'format', 'sequence', 'previous_intent_sha256', 'plan_sha256', 'action',
                'before', 'marker', 'host_context_sha256', 'data_snapshot_sha256', 'config_snapshot_sha256'}
 UPGRADE_KEYS = INTENT_KEYS | {'artifacts', 'acceptance_sha256'}
+REBIND_KEYS = INTENT_KEYS | {'previous_host_context_sha256'}
 MARKER_KEYS = {'format', 'minimum_authorization', 'phase', 'lane', 'generation', 'operation_nonce',
                'data_device', 'data_inode', 'lock_device', 'lock_inode', 'binary_sha256',
                'role', 'image', 'release_sha'}
@@ -122,25 +124,32 @@ def history(directory, origin, names):
     previous, before, marker = None, origin['initial_marker'], origin['initial_marker']
     records = []
     accepted = before_accepted = origin['artifacts']
+    context = origin['host_context_sha256']
     for sequence, name in enumerate(names, 1):
         record = read_json(directory, name)
         upgrade = record.get('format') == 2 and record.get('action') == 'upgrade'
-        if (not isinstance(record, dict) or set(record) != (UPGRADE_KEYS if upgrade else INTENT_KEYS)
-                or type(record['format']) is not int or record['format'] != (2 if upgrade else 1)
+        rebind = record.get('format') == 3 and record.get('action') == host_rebind.ACTION
+        keys = REBIND_KEYS if rebind else (UPGRADE_KEYS if upgrade else INTENT_KEYS)
+        if (not isinstance(record, dict) or set(record) != keys
+                or type(record['format']) is not int or record['format'] != (3 if rebind else (2 if upgrade else 1))
                 or type(record['sequence']) is not int or record['sequence'] != sequence
                 or record['previous_intent_sha256'] != (digest(previous) if previous else digest(origin))
-                or record['action'] not in ('close', 'activate', 'upgrade')
+                or record['action'] not in ('close', 'activate', 'upgrade', host_rebind.ACTION)
                 or (record['action'] == 'upgrade' and not upgrade)
-                or record['host_context_sha256'] != origin['host_context_sha256']):
+                or (record['action'] == host_rebind.ACTION and not rebind)):
             raise BootstrapError('invalid durable transition chain')
+        context = host_rebind.advance(record, context)
         source_accepted = accepted
         if record['before'] != marker:
-            if record['action'] != 'close' or record['before'] != before:
+            if record['action'] not in ('close', host_rebind.ACTION) or record['before'] != before:
                 raise BootstrapError('only fresh close can cancel a pending transition')
             source_accepted = before_accepted
         marker_valid(record['before'])
         marker_valid(record['marker'])
         desired = record['marker']
+        if rebind and any(desired[key] != record['before'][key]
+                          for key in ('role', 'image', 'release_sha', 'binary_sha256')):
+            raise BootstrapError('host rebind must preserve selected accepted artifact')
         if upgrade:
             if (record['before']['phase'] != 'prepared' or desired['role'] != 'candidate'
                     or not lower_hex(record['acceptance_sha256'], 64)):
