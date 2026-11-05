@@ -4,6 +4,9 @@
 Hooks are deliberately conservative: they read/write only the private,
 allowlisted session state and may refresh agent-work liveness. They never
 invent progress, comments, completion, or block actions on behalf of an agent.
+Screenshot evidence is an explicit CLI action; hooks never capture or upload
+images. This script updates with the complete skill from GitHub main; its
+configured command path remains stable.
 """
 
 from __future__ import annotations

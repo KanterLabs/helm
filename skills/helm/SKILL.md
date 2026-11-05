@@ -18,6 +18,12 @@ to see it. Ordinary project work still follows the task lifecycle below.
 
 ## Start
 
+At session start, run `python3 scripts/update_skill.py` from the installed skill.
+It follows GitHub `main`, installs the complete skill when the revision changes,
+and reconciles lifecycle hook entries even on a no-op. See
+[updates and hooks](references/updates-and-hooks.md) for publication, restart and
+trust boundaries. A beta branch push alone does not update installed copies.
+
 1. Run `python3 scripts/helm.py projects` and match the current repository or workstream to an existing project. Do not silently create a project or put work in an unrelated project.
 2. Search for an existing open task before creating one. Preserve the existing project key and task IDs when resuming work:
 
@@ -73,6 +79,19 @@ Do not use `backlog` for the work currently being performed; the current
 workstream still needs one active, claimed task.
 
 If the correct project is missing or credentials do not permit the work, report that clearly and continue the underlying task when safe. Do not widen token scopes or create credentials without Shane's authorization.
+
+## Share visual evidence
+
+For UI changes and visual verification, read
+[references/task-images.md](references/task-images.md). Humans can attach images
+in the task comment composer; agents can use `comment --image`, structured
+`progress --image`, or the `attachments` commands. Inspect and redact the actual
+capture before upload. The uploader owns secret removal; Helm does not claim to
+scan image pixels for secrets. Use synthetic screenshots for repeatable tests.
+Confirm the configured environment supports images and use its own credential;
+production and beta tokens are independent. A local test screenshot is not a
+live task attachment: upload, publish and verify the task before sending its
+Activity link. Hooks refresh metadata and do not capture or upload screenshots.
 
 ## Keep progress current
 

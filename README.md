@@ -164,7 +164,11 @@ stale.
 the durable work record for coding agents. Install it from
 `KanterLabs/helm/tree/main/skills/helm` with Codex's skill installer. See
 [the skill docs](skills/helm/SKILL.md) for lifecycle hooks and
-[authentication](skills/helm/references/authentication.md).
+[authentication](skills/helm/references/authentication.md). The updater follows
+GitHub `main` and replaces the complete skill, including its hook scripts;
+see [update boundaries](skills/helm/references/updates-and-hooks.md). Agents can
+attach screenshot evidence on supporting installations with `comment --image`
+and structured `progress --image`; see [task images](skills/helm/references/task-images.md).
 
 ## 🏗️ Architecture
 
