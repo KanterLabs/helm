@@ -6,6 +6,25 @@ comment composer. Agents should use the authenticated CLI below. The same task
 and project permissions apply to metadata, originals, and PNG thumbnails; there
 are no public image URLs. Never paste image bytes or credentials into comments.
 
+## Environment and a live example
+
+Use an installation advertising `GET /api/v1/attachments/capabilities`; the CLI
+checks capability limits before staging files. The screenshot implementation is
+currently deployed to the private beta. Do not infer production support from a
+successful beta test, and keep each environment's credentials separate; see
+[authentication](authentication.md#beta-and-production-are-separate-installations).
+
+[HB-2 on beta](https://beta-helm.home.shanekanterman.dev/p/helm-beta/tasks/HB-2?view=activity)
+is a live example with a sanitized comparison-view screenshot. Human access
+uses the normal private sign-in; the temporary publishing token is not part of
+the URL and does not control the attachment's lifetime.
+
+When asked for an example link, inspect existing task evidence first. If needed,
+create the example in an authorized project, upload the file, publish it in a
+comment/progress update, then verify the Activity entry and original bytes.
+An isolated test artifact or a staged upload alone is not a published example.
+Use `/p/PROJECT_SLUG/tasks/TASK_KEY?view=activity` for a direct task link.
+
 ## Capture and inspect before upload
 
 Capture a synthetic or otherwise shareable view. Inspect the actual image and

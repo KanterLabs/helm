@@ -119,3 +119,20 @@ Board-audit workflow:
 The UI's Run audit action creates a queued run for an agent. The bundled Helm
 skill processes that same run with `submit --audit AUDIT_ID`, so a
 UI request is not duplicated before its findings are finalized for review.
+
+## Screenshot evidence and installed skill updates
+
+For UI and game-development reviews, agents can attach an inspected screenshot
+to a comment or structured progress update. Images remain private, follow the
+task's project access and anchor to durable activity history. See the packaged
+[task image workflow](../skills/helm/references/task-images.md) for limits,
+retry-safe commands and the live beta example. Verify a published Activity entry
+before sending a task link; a local test artifact alone is not a live example.
+
+The skill updater distributes helpers, references and lifecycle scripts from
+GitHub main. A beta push or pending PR is insufficient. The global startup policy
+asks the agent to update; the lifecycle hook itself handles recovery/liveness.
+See [updates and hooks](../skills/helm/references/updates-and-hooks.md) for the
+no-op path, configuration/trust boundaries and isolated publication rehearsal.
+Keep production and beta credential profiles separate and use authorized admin
+provisioning when the user has requested it; never impersonate a human edge.

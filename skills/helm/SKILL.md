@@ -18,6 +18,12 @@ to see it. Ordinary project work still follows the task lifecycle below.
 
 ## Start
 
+At session start, run `python3 scripts/update_skill.py` from the installed skill.
+It follows GitHub `main`, installs the complete skill when the revision changes,
+and reconciles lifecycle hook entries even on a no-op. See
+[updates and hooks](references/updates-and-hooks.md) for publication, restart and
+trust boundaries. A beta branch push alone does not update installed copies.
+
 1. Run `python3 scripts/helm.py projects` and match the current repository or workstream to an existing project. Do not silently create a project or put work in an unrelated project.
    For relevant substantive project work, read
    [references/focus-planning.md](references/focus-planning.md) and inspect active
@@ -89,6 +95,10 @@ in the task comment composer; agents can use `comment --image`, structured
 `progress --image`, or the `attachments` commands. Inspect and redact the actual
 capture before upload. The uploader owns secret removal; Helm does not claim to
 scan image pixels for secrets. Use synthetic screenshots for repeatable tests.
+Confirm the configured environment supports images and use its own credential;
+production and beta tokens are independent. A local test screenshot is not a
+live task attachment: upload, publish and verify the task before sending its
+Activity link. Hooks refresh metadata and do not capture or upload screenshots.
 
 ## Keep progress current
 
@@ -277,34 +287,6 @@ The safe read-only identity probe is:
 python3 scripts/helm.py auth-check
 ```
 
-Additional client workflows are available without hand-written HTTP:
-
-```sh
-python3 scripts/helm.py renew --task TC-1 --operation-id UUIDV4
-python3 scripts/helm.py release --task TC-1 --operation-id UUIDV4
-python3 scripts/helm.py events --after 0 --project TC
-python3 scripts/helm.py dependencies list --task TC-1
-python3 scripts/helm.py dependencies add --task TC-1 --prerequisite TC-2
-python3 scripts/helm.py timeline --task TC-1 --kind agent_progress
-python3 scripts/helm.py timeline --project TC --before CURSOR
-python3 scripts/helm.py issues --severity untriaged --resolution unresolved
-python3 scripts/helm.py bug-report --project TC --title "Observed failure" \
-  --actual-behavior "The operation exits unexpectedly"
-python3 scripts/helm.py bug-triage --task TC-2 --severity s2
-python3 scripts/helm.py bug-resolve --task TC-2 --resolution fixed
-python3 scripts/helm.py bug-duplicate --task TC-2 --duplicate-of TC-3
-python3 scripts/helm.py bug-reopen --task TC-2 --reason "The regression remains reproducible"
-python3 scripts/helm.py notifications list --unread
-python3 scripts/helm.py watches list --task TC-2
-```
-
-Workflow mutations generate one UUIDv4 operation ID per logical request when
-omitted and print it in the JSON result. Supply that same ID to replay a lost
-response safely. Notification and watch mutations require UUIDv4 operation
-IDs. Earlier lifecycle, bug, and dependency commands also accept explicit
-legacy operation IDs; those non-UUID values retain deterministic idempotency
-keys for older automation, while malformed IDs are rejected before any network
-mutation.
-Multi-step commands derive a distinct UUIDv4 mutation key per endpoint from the
-operation ID, request path, and body so the server's per-request key reservation
-is respected without sacrificing deterministic replay.
+Additional client workflows are available without hand-written HTTP. Read
+[workflow commands](references/workflow-commands.md) for dependency, activity,
+bug, watch and notification commands and their replay rules.

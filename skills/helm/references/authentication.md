@@ -100,3 +100,26 @@ Preserve task, project, claim, operation, and session identities during a move.
 After `config-check`, run `python3 scripts/helm.py auth-check` from the actual
 hook launch environment to verify the protected identity using GET `/auth/me`.
 Compare the actor identity with the pre-migration baseline before resuming work.
+
+## Beta and production are separate installations
+
+An origin and its token form one credential profile. A production token can
+receive401 from beta even when both services are healthy; changing `HELM_URL`
+does not create a beta grant. Use `HELM_CONFIG` to select a separate owner-only
+credential file and run `config-check` then `auth-check` before mutations. Do not
+overwrite a working production profile to try beta.
+
+Screenshot publishing needs `projects:read`, `tasks:read` and `tasks:write`,
+with an agent project grant and token ceiling covering the target project.
+Structured progress also uses the existing task claim/workflow scopes. Prefer
+an expiring project-scoped credential for a one-off example.
+
+Use existing authorized administrative access when credential provisioning is
+part of the user's request. Do not ask for a secret that approved access already
+provides. Creating credentials still needs that authorization; a401 alone does
+not grant it. Use the supported agent/token administration flow. Native recovery
+or maintenance must follow the deployment's writer-lease, backup and audit
+procedure; do not fabricate human headers or sign a Tailnet owner assertion.
+Read [authorized admin provisioning](admin-provisioning.md) only when that
+conditional maintenance path is needed. Never place a bearer in a task link. After temporary work, remove plaintext
+copies and record the token's scope and expiry without its value.
