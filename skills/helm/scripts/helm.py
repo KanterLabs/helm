@@ -20,12 +20,17 @@ _MODULE_NAMES = (
     "helm_audit_submission",
     "helm_audit_reconcile",
     "helm_releases",
+    "helm_focus_activity",
+    "helm_focus_reader",
+    "helm_focus_review",
+    "helm_focus_mutations",
     "helm_notifications",
     "helm_activity",
     "helm_knowledge",
     "helm_task_lifecycle",
     "helm_progress",
     "helm_parser_projects",
+    "helm_parser_focus",
     "helm_parser_activity",
     "helm_parser_review",
     "helm_parser_work",
@@ -56,7 +61,7 @@ sys.modules[__name__].__class__ = _CompatibilityModule
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("helm_parser_projects", "helm_parser_activity", "helm_parser_review", "helm_parser_work", "helm_parser_attachments"):
+    for name in ("helm_parser_projects", "helm_parser_focus", "helm_parser_activity", "helm_parser_review", "helm_parser_work", "helm_parser_attachments"):
         importlib.import_module(name).register(subparsers)
     return parser
 
@@ -68,7 +73,7 @@ def main() -> int:
         sys.stdout.write("\n")
         return (
             1
-            if args.command in {"auth-check", "auth", "auth_check"}
+            if args.command in {"auth-check", "auth", "auth_check", "focus"}
             and isinstance(result, dict)
             and not result.get("ok", True)
             else 0

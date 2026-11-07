@@ -19,6 +19,11 @@ to see it. Ordinary project work still follows the task lifecycle below.
 ## Start
 
 1. Run `python3 scripts/helm.py projects` and match the current repository or workstream to an existing project. Do not silently create a project or put work in an unrelated project.
+   For relevant substantive project work, read
+   [references/focus-planning.md](references/focus-planning.md) and inspect active
+   Focus areas before proposing new Backlog work, even when the user has not
+   named Focus. Resume owned work first. An explicit task keeps its existing
+   scope; discovery does not authorize another workstream.
 2. Search for an existing open task before creating one. Preserve the existing project key and task IDs when resuming work:
 
    ```sh
@@ -56,6 +61,8 @@ to see it. Ordinary project work still follows the task lifecycle below.
    never edits Codex trust hashes or `config.toml`. If it reports a change,
    review and trust the new command once in Codex `/hooks`; a later no-op does
    not require another review.
+   Read [references/updates-and-hooks.md](references/updates-and-hooks.md) when
+   updating the installed skill or checking startup/recovery behavior.
 
 For planning work that should remain unclaimed in Backlog, create a separate,
 implementation-sized card with acceptance criteria:
@@ -244,6 +251,10 @@ block it with an actionable reason, or publish a structured `handoff` or
 heartbeat alone is not a handoff. Do not mark a task complete merely because
 the current chat is ending; leave safe recovery metadata for the next session
 when work remains.
+When that work belongs to a Focus, include its ID, remaining relevant task keys,
+blockers, and next action in the current task's handoff; re-read live records
+on resumption. See the Focus planning reference for bounded review and safe
+continuation.
 
 ## Authentication and failures
 
