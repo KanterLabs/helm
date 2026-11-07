@@ -204,6 +204,41 @@ private_owner_value() {
 	' "$path"
 }
 
+# release_setting resolves HELM_<suffix>/ROADMAP_<suffix> the way the app's
+# config.resolveEnv does, but fails closed on anything a reader could resolve
+# differently: duplicates, conflicting aliases, quotes, padding or indented
+# and exported keys. Prints the resolved value (possibly empty).
+release_setting() {
+	local path=$1 suffix=$2
+	awk -v helm="HELM_$suffix" -v legacy="ROADMAP_$suffix" '
+		index($0, "=") {
+			line = $0
+			sub(/^[[:space:]]+/, "", line)
+			sub(/^export[[:space:]]+/, "", line)
+			key = substr(line, 1, index(line, "=") - 1)
+			sub(/[[:space:]]+$/, "", key)
+			if (key != helm && key != legacy) next
+			if (line != $0 || substr($0, 1, length(key) + 1) != key "=") bad = 1
+			value = substr($0, index($0, "=") + 1)
+			if (seen[key]++) bad = 1
+			if (value ~ /^[[:space:]]|[[:space:]]$|^["\047]|["\047]$/) bad = 1
+			if (value != "") {
+				if (resolved != "" && value != resolved) bad = 1
+				resolved = value
+			}
+		}
+		END { if (bad) exit 1; print resolved }
+	' "$path"
+}
+
+# release_auth_mode additionally rejects mixed case, which the app lowercases.
+release_auth_mode() {
+	local mode
+	mode=$(release_setting "$1" AUTH_MODE) || return 1
+	[[ "$mode" = "${mode,,}" ]] || return 1
+	printf '%s\n' "$mode"
+}
+
 validate_private_profile() {
 	local owner_file=$1 value peers peer
 	if [[ "$PRIVATE_ORIGIN" = https://helm.home.shanekanterman.dev ]]; then
@@ -332,11 +367,11 @@ source /etc/os-release
 [[ "$ID" = debian && "${VERSION_ID%%.*}" = 12 ]] \
 	|| fail 'Helm production requires Debian 12'
 
-AUTH_MODE=$(private_owner_value "$RELEASE_DIR/roadmap.env" HELM_AUTH_MODE 2>/dev/null || true)
+AUTH_MODE=$(release_auth_mode "$RELEASE_DIR/roadmap.env") || fail 'release authentication mode is ambiguous'
 PRIVATE_TAILNET_BETA=0
 PRIVATE_TAILNET_PROFILE=0
 if [[ "$AUTH_MODE" = tailnet ]]; then
-	case "$(private_owner_value "$RELEASE_DIR/roadmap.env" HELM_PUBLIC_ORIGIN 2>/dev/null || true)" in
+	case "$(release_setting "$RELEASE_DIR/roadmap.env" PUBLIC_ORIGIN 2>/dev/null || true)" in
 		https://beta-helm.home.shanekanterman.dev) PRIVATE_TAILNET_BETA=1 ;;
 		https://helm.home.shanekanterman.dev)
 			PRIVATE_ORIGIN=https://helm.home.shanekanterman.dev
@@ -508,8 +543,8 @@ previous_private_profile=0
 if [[ -n "$previous_target" ]]; then
 	previous_sha=${previous_target##*/}
 	[[ "$previous_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'current release directory name is invalid'
-	previous_mode=$(private_owner_value "$previous_target/roadmap.env" HELM_AUTH_MODE 2>/dev/null || true)
-	previous_origin=$(private_owner_value "$previous_target/roadmap.env" HELM_PUBLIC_ORIGIN 2>/dev/null || true)
+	previous_mode=$(release_auth_mode "$previous_target/roadmap.env" 2>/dev/null || true)
+	previous_origin=$(release_setting "$previous_target/roadmap.env" PUBLIC_ORIGIN 2>/dev/null || true)
 	if [[ "$previous_mode" = tailnet ]]; then
 		case "$previous_origin" in
 			https://beta-helm.home.shanekanterman.dev) previous_private_profile=1 ;;

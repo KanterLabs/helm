@@ -34,6 +34,8 @@ class TokensState {
   manualCopy = $state.raw(false);
   refreshError = $state.raw('');
   revokePending = $state.raw('');
+  /** A token issued but never shown (its session or dialog changed mid-request) that could not be revoked. */
+  orphanNotice = $state.raw('');
   #returnFocus: HTMLElement | null = null;
   #returnAgentId = '';
   #generation = 0;
@@ -107,7 +109,12 @@ class TokensState {
     this.creating = true; this.issueError = '';
     try {
       const result = await api.createToken(agent.id, { name: this.name.trim(), scopes: [...this.scopes], project_ids: this.projectMode === 'selected' ? [...this.projectIds] : [], expires_at: this.expiresAt }, { suppressNetworkUnavailable: true });
-      if (generation !== this.#generation || sessionGeneration !== session.sessionGeneration || !session.user || !session.workspaceAdmin) return;
+      if (generation !== this.#generation || sessionGeneration !== session.sessionGeneration || !session.user || !session.workspaceAdmin) {
+        // Never reveal plaintext to a different session or a dismissed dialog,
+        // but never leave an unseen live credential behind silently either.
+        await this.#discardUnseen(agent, result);
+        return;
+      }
       this.reveal = result; this.revealAgent = agent; this.saved = false; this.copied = false; this.manualCopy = false;
       this.agent = null; this.name = ''; this.issueError = ''; this.candidates = [];
       await loadAgents();
@@ -121,6 +128,15 @@ class TokensState {
         await this.recoverUncertain(before, started);
       }
     } finally { if (generation === this.#generation) this.creating = false; }
+  };
+  #discardUnseen = async (agent: Agent, token: ApiToken) => {
+    try {
+      await api.deleteToken(token.id);
+      toast('info', `A token for ${agent.name} was created during a session change and has been revoked. Generate a new one if you still need it.`);
+    } catch {
+      this.orphanNotice = `A token (${token.id.slice(0, 8)}, “${token.name}”) for ${agent.name} was created but never shown. Revoke it from the inventory.`;
+    }
+    if (session.user && session.workspaceAdmin) await loadAgents();
   };
   recoverUncertain = async (before?: Set<string>, started?: number) => {
     const agent = this.agent, generation = this.#generation, sessionGeneration = session.sessionGeneration;
@@ -148,6 +164,7 @@ class TokensState {
       if (!current()) return false;
       settings.agents = settings.agents.map((item) => ({ ...item, tokens: item.tokens?.filter((entry) => entry.id !== token.id) }));
       this.candidates = this.candidates.filter((item) => item.id !== token.id);
+      if (this.orphanNotice.includes(token.id.slice(0, 8))) this.orphanNotice = '';
       if (!this.candidates.length) this.uncertain = false;
       toast('success', `${token.name} was revoked.`);
       restoreDialogFocus();
