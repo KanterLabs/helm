@@ -81,6 +81,11 @@ class ActivityTests(unittest.TestCase):
             'event_type': 'task.updated', 'payload': {'changed_fields': [], 'version': 2}})
         self.assertEqual(activity_evidence(self.task, [row], complete=True)['at'], self.task['created_at'])
 
+    def test_fractional_timestamps_sort_chronologically(self):
+        rows = [self.row('agent_progress', '2026-11-07T00:00:00.1Z', progress={'phase': 'B'}),
+                self.row('agent_progress', '2026-11-07T00:00:00Z', progress={'phase': 'A'})]
+        self.assertEqual(activity_evidence(self.task, rows, complete=True)['at'], rows[0]['created_at'])
+
 
 if __name__ == '__main__':
     unittest.main()

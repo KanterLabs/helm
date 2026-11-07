@@ -28,7 +28,8 @@ def activity_evidence(task, rows, *, complete):
     uncertain = []
     previous_progress = None
     checklist = {}
-    for row in sorted(rows, key=lambda x: (str(x.get('created_at', '')), str(x.get('id', '')))):
+    for row in sorted(rows, key=lambda x: (parse_time(x.get('created_at')) or
+                      datetime.min.replace(tzinfo=timezone.utc), str(x.get('id', '')))):
         at = row.get('created_at')
         if not parse_time(at):
             uncertain.append(at)

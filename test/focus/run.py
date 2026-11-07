@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real isolated Helm HTTP/CLI acceptance; saves only synthetic response receipts."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,10 @@ def main():
         args.output = ROOT / '.artifacts' / ('focus-' + uuid.uuid4().hex)
     assert not args.output.exists(), 'Use a fresh evidence path'
     args.output.mkdir(parents=True)
-    receipt = {'scenarios': [], 'status': 'failed'}
+    receipt = {'scenarios': [], 'status': 'failed',
+               'source_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+               'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest(),
+               'runner_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     with tempfile.TemporaryDirectory(prefix='helm-focus-') as raw:
         base = Path(raw)
         with socket.socket() as sock:

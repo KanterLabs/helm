@@ -98,11 +98,15 @@ def main():
         helper = target / 'scripts/helm.py'
         assert '--image' in run(['python3', str(helper), 'comment', '--help'], env=env)
         assert 'upload' in run(['python3', str(helper), 'attachments', '--help'], env=env)
+        assert 'review' in run(['python3', str(helper), 'focus', '--help'], env=env)
+        assert '--inactive-days' in run(['python3', str(helper), 'focus', 'review', '--help'], env=env)
+        assert '--task' in run(['python3', str(helper), 'focus', 'assign', '--help'], env=env)
         config = json.loads(run(['python3', str(helper), 'config-check'], env=env))
         assert config['origin'] == 'https://helm.example.test'
         hook_result = json.loads(run(['python3', str(target / 'scripts/helm_hook.py')],
                                      env=env, payload='{"hook_event_name":"SessionStart"}'))
         assert isinstance(hook_result, dict)
+        assert 'Focus discovery' in hook_result['hookSpecificOutput']['additionalContext']
         trace.write_text('')
         third = json.loads(run(['python3', str(installed_updater), '--target', str(target)], env=env))
         assert third == {'updated': False, 'revision': new_revision}
@@ -112,6 +116,7 @@ def main():
         result = dict(result='passed',old_updater_installs_new_package=True,
                       copied_helper_modules=len(source_modules),image_commands_import=True,
                       hook_script_updated=True,hook_configuration_preserved=True,
+                      focus_commands_import=True,fresh_session_focus_reminder=True,
                       unrelated_hooks_credentials_state_and_trust_preserved=True,
                       no_op_only_checks_remote_revision=True,network='isolated local Git transport')
     args.receipt.parent.mkdir(parents=True, exist_ok=True)

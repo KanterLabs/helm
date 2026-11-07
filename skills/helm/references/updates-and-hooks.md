@@ -94,4 +94,3 @@ PostToolUse may remind the agent to publish it without sending a heartbeat.
 Waiting/handoff sessions are not kept alive automatically. Existing stop
 checks require a durable outcome for active work and fail open when recovery
 or the service is unavailable.
-

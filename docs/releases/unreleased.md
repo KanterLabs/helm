@@ -5,6 +5,13 @@ User-visible changes after v0.2.2 belong here, newest first. Latest release:
 
 ## Features
 
+- **Focus guidance for agents:** discover existing goal groups before proposing
+  more Backlog work, review meaningful inactivity and blockers, and carry the
+  remaining cards into a handoff. New `focus` CLI commands cover discovery,
+  bounded read-only review and lifecycle/membership management. Startup hooks
+  mention Focus even in fresh sessions. Heartbeats and identical progress do
+  not make old work look fresh. See the [full main changelog](../FOCUS_AGENT_CHANGELOG.md).
+
 - **Screenshot evidence on tasks:** paste, drop or select PNG, JPEG and static
   WebP images in task activity. Captions, original downloads, comparison view
   and durable progress history help humans and agents review UI and game work.
