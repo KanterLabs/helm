@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -229,6 +230,28 @@ func TestForwardAuthAgentAdmission(t *testing.T) {
 				t.Fatal("agent response contains human assertion")
 			}
 		})
+	}
+}
+
+func TestParseAgentTags(t *testing.T) {
+	for input, want := range map[string][]string{
+		"":                      nil,
+		",":                     nil,
+		"tag:a, tag:b":          {"tag:a", "tag:b"},
+		"tag:a,":                {"tag:a"},
+		" tag:a ":               {"tag:a"},
+		"tag:a,tag:a":           {"tag:a"},
+		"tag:a , ,tag:b,tag:a ": {"tag:a", "tag:b"},
+	} {
+		if got := parseAgentTags(input); !slices.Equal(got, want) {
+			t.Fatalf("parseAgentTags(%q) = %q, want %q", input, got, want)
+		}
+	}
+	key, resolver := []byte("01234567890123456789012345678901"), &mockWhoIs{}
+	for _, input := range []string{"tag:a b", "tag:", "tag:a*", "host:a"} {
+		if _, err := NewHandlerWithAgentTags(key, "ShaneKanterman04@github", "owner@example.com", "https://helm.home.shanekanterman.dev", resolver, parseAgentTags(input)); err == nil {
+			t.Fatalf("agent tags %q were accepted", input)
+		}
 	}
 }
 

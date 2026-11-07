@@ -233,6 +233,37 @@ test.describe('agent token issuance', () => {
     await attachSanitized(testInfo, 'lost-response.json', { posts, orphanRevoked: true }, [plaintext]);
   });
 
+  test('a token issued after the dialog was invalidated is revoked, never revealed', async ({ page, request }) => {
+    await requireDisabledAuth(request);
+    const id = runId();
+    const project = await createProject(request, `TO${id}`.slice(0, 16), `Orphan ${id}`);
+    const agent = await createAgent(request, `Orphan ${id}`);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let issuedId = '';
+    const deletes: string[] = [];
+    page.on('request', (sent) => { if (sent.method() === 'DELETE' && /\/api\/v1\/tokens\//.test(sent.url())) deletes.push(decodeURIComponent(new URL(sent.url()).pathname.split('/').pop() || '')); });
+    await page.route('**/api/v1/agents/*/tokens', async (route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      issuedId = (JSON.parse(body) as { id: string }).id;
+      await held;
+      await route.fulfill({ response, body });
+    });
+    await openAgentSettings(page);
+    const dialog = await openIssue(page, agent.id, agent.name);
+    await dialog.getByLabel('Token name').fill(`Orphan ${id}`);
+    await dialog.getByRole('checkbox', { name: project.name, exact: true }).check();
+    await dialog.getByRole('button', { name: 'Generate token', exact: true }).click();
+    await expect.poll(() => issuedId).not.toBe('');
+    await page.evaluate(() => window.dispatchEvent(new Event('helm:auth-invalidated')));
+    release();
+    await expect(page.getByText('has been revoked')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Save your new token' })).toHaveCount(0);
+    expect(deletes).toEqual([issuedId]);
+    expect(((await listAgents(request)).find((item) => item.id === agent.id)?.tokens || []).some((token) => token.id === issuedId)).toBe(false);
+  });
+
   test('successful issuance survives a failed list refresh', async ({ page, request }) => {
     await requireDisabledAuth(request);
     const id = runId();

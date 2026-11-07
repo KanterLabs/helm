@@ -109,12 +109,47 @@ install_release_env() {
 	mv -T -- "$temporary" "$CONFIG_DIR/roadmap.env" || return 1
 }
 
+# release_setting resolves HELM_<suffix>/ROADMAP_<suffix> the way the app's
+# config.resolveEnv does, but fails closed on anything a reader could resolve
+# differently: duplicates, conflicting aliases, quotes, padding or indented
+# and exported keys. Prints the resolved value (possibly empty).
+release_setting() {
+	local path=$1 suffix=$2
+	awk -v helm="HELM_$suffix" -v legacy="ROADMAP_$suffix" '
+		index($0, "=") {
+			line = $0
+			sub(/^[[:space:]]+/, "", line)
+			sub(/^export[[:space:]]+/, "", line)
+			key = substr(line, 1, index(line, "=") - 1)
+			sub(/[[:space:]]+$/, "", key)
+			if (key != helm && key != legacy) next
+			if (line != $0 || substr($0, 1, length(key) + 1) != key "=") bad = 1
+			value = substr($0, index($0, "=") + 1)
+			if (seen[key]++) bad = 1
+			if (value ~ /^[[:space:]]|[[:space:]]$|^["\047]|["\047]$/) bad = 1
+			if (value != "") {
+				if (resolved != "" && value != resolved) bad = 1
+				resolved = value
+			}
+		}
+		END { if (bad) exit 1; print resolved }
+	' "$path"
+}
+
+# release_auth_mode additionally rejects mixed case, which the app lowercases.
+release_auth_mode() {
+	local mode
+	mode=$(release_setting "$1" AUTH_MODE) || return 1
+	[[ "$mode" = "${mode,,}" ]] || return 1
+	printf '%s\n' "$mode"
+}
+
 private_profile_kind() {
 	local path=$1 mode origin
 	[[ -f "$path" && ! -L "$path" ]] || return 1
-	mode=$(awk -F= '$1 == "HELM_AUTH_MODE" { count++; value = substr($0, index($0, "=") + 1) } END { if (count > 1) exit 1; print value }' "$path") || return 1
+	mode=$(release_auth_mode "$path") || return 1
 	if [[ "$mode" != tailnet ]]; then printf '0'; return; fi
-	origin=$(awk -F= '$1 == "HELM_PUBLIC_ORIGIN" { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$path") || return 1
+	origin=$(release_setting "$path" PUBLIC_ORIGIN) || return 1
 	case "$origin" in
 		https://beta-helm.home.shanekanterman.dev) printf '1' ;;
 		https://helm.home.shanekanterman.dev) printf '2' ;;
@@ -220,12 +255,13 @@ chmod 0600 "$LOCK_PATH"
 flock -x 9
 
 target_private_profile=$(private_profile_kind "$TARGET/roadmap.env") || fail 'requested private profile is invalid'
-current_private_profile=$(private_profile_kind "$CONFIG_DIR/roadmap.env") || fail 'current private profile is invalid'
 validate_private_env "$TARGET/roadmap.env" "$target_private_profile" || fail 'requested private profile conflicts with provisioned configuration'
-if (( target_private_profile != 0 && current_private_profile != 0 && target_private_profile != current_private_profile )); then
-	fail 'rollback cannot cross production and beta private profiles'
+# The live environment is the input rollback exists to replace, so it never
+# blocks recovery. Profile crossing is judged against the verified release
+# that the current link names (below).
+if ! private_profile_kind "$CONFIG_DIR/roadmap.env" >/dev/null 2>&1; then
+	printf '[helm-rollback] current configuration is unrecognized; restoring from the release envelope\n' >&2
 fi
-
 
 previous_target=
 if [[ -L "$CURRENT_LINK" ]]; then
@@ -249,6 +285,11 @@ if [[ -n "$previous_target" ]]; then
 	validate_release_env "$previous_target/roadmap.env" "$previous_sha" ||
 		fail 'current release environment revision is invalid'
 	previous_private_profile=$(private_profile_kind "$previous_target/roadmap.env") || fail 'previous private profile is invalid'
+fi
+# With no current release there is nothing to cross from; a private target is
+# still pinned to the provisioned owner environment by validate_private_env.
+if (( target_private_profile != 0 && previous_private_profile != 0 && target_private_profile != previous_private_profile )); then
+	fail 'rollback cannot cross production and beta private profiles'
 fi
 
 atomic_switch() {
