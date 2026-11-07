@@ -23,6 +23,16 @@ import helm_session
 import helm
 
 
+FOCUS_REMINDER = (
+    "For substantive project work, use Helm's Focus discovery guidance before "
+    "proposing new Backlog work; preserve the user's explicit task scope."
+)
+
+
+def _startup_output(context: str = FOCUS_REMINDER) -> dict[str, Any]:
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}}
+
+
 _EVENT_ALIASES = {
     "session_start": "SessionStart",
     "sessionstart": "SessionStart",
@@ -205,31 +215,29 @@ def handle_event(
         return _safe_empty()
     if name == "Stop" and _truthy(event.get("stop_hook_active")):
         return _safe_empty()
+    # The static reminder is independent of local task mapping and credentials.
+    # Preserve it even when private recovery metadata cannot be loaded.
+    fallback = _startup_output() if name == "SessionStart" else _safe_empty()
     try:
         store = (store_factory or helm_session.StateStore.from_event)(event)
     except Exception as exc:
         _warning(exc)
-        return _safe_empty()
+        return fallback
     if store is None:
-        return _safe_empty()
+        return fallback
 
     try:
         if name == "SessionStart":
             state = store.load()
             if state is None:
-                return _safe_empty()
-            context = _context(state, compact=_is_compact(event))
+                return fallback
+            context = FOCUS_REMINDER + "\n" + _context(state, compact=_is_compact(event))
             try:
                 context += "\n" + ((notes_fn or _agent_notes_context)(state))
             except Exception as exc:
                 _warning(exc)
                 context += "\nAgent notes could not be refreshed; check the task before continuing."
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": context,
-                }
-            }
+            return _startup_output(context)
 
         if name in {"PostToolUse", "PreCompact"}:
             state = store.load()
@@ -277,12 +285,12 @@ def handle_event(
         return _safe_empty()
     except (helm_session.SessionStateError, helm.HelmError, OSError) as exc:
         _warning(exc)
-        return _safe_empty()
+        return fallback
     except Exception as exc:  # pragma: no cover - final fail-open boundary
         # Hook integrations should never expose a traceback, credential, or
         # event payload if an unexpected library failure occurs.
         _warning(exc)
-        return _safe_empty()
+        return fallback
 
 
 def build_parser() -> argparse.ArgumentParser:

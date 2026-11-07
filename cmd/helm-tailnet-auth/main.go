@@ -171,13 +171,33 @@ func NewHandlerWithAdminEmail(key []byte, owner, adminEmail, audience string, re
 	return NewHandlerWithAgentTags(key, owner, adminEmail, audience, resolver, nil)
 }
 
+// parseAgentTags splits an operator-supplied comma list, tolerating spaces
+// around entries, empty entries and duplicates. Each surviving entry is still
+// validated strictly by NewHandlerWithAgentTags.
+func parseAgentTags(value string) []string {
+	var tags []string
+	seen := map[string]struct{}{}
+	for _, part := range strings.Split(value, ",") {
+		tag := strings.TrimSpace(part)
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		tags = append(tags, tag)
+	}
+	return tags
+}
+
 // NewHandlerWithAgentTags opts in exact tagged machines for scoped bearer API
 // requests. This is network admission only: Helm still validates every token.
 func NewHandlerWithAgentTags(key []byte, owner, adminEmail, audience string, resolver WhoIs, tags []string) (http.Handler, error) {
 	agentTags := make(map[string]struct{}, len(tags))
 	for _, tag := range tags {
 		if !strings.HasPrefix(tag, "tag:") || len(tag) <= 4 || strings.ContainsAny(tag, " ,\r\n\t*\x00") {
-			return nil, errors.New("agent tag must be an exact Tailnet tag")
+			return nil, fmt.Errorf("agent tag %q must be an exact Tailnet tag", tag)
 		}
 		agentTags[tag] = struct{}{}
 	}
@@ -513,11 +533,7 @@ func run(args []string) error {
 		return err
 	}
 	resolver := LocalAPIWhoIs{Socket: options.Socket, Timeout: whoIsTimeout}
-	var agentTags []string
-	if options.AgentTags != "" {
-		agentTags = strings.Split(options.AgentTags, ",")
-	}
-	handler, err := NewHandlerWithAgentTags(key, options.Owner, options.AdminEmail, options.Audience, resolver, agentTags)
+	handler, err := NewHandlerWithAgentTags(key, options.Owner, options.AdminEmail, options.Audience, resolver, parseAgentTags(options.AgentTags))
 	if err != nil {
 		return err
 	}

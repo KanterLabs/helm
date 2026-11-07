@@ -44,6 +44,44 @@ fi
 validate_optional_codex "$codex_rollback_fixture" || fail 'valid rollback Codex runtime was rejected'
 printf 'rollback_codex_validation_test=ok\n'
 
+# Release environment profile reads must resolve HELM_/ROADMAP_ aliases the
+# way config.resolveEnv does and fail closed on anything ambiguous. The three
+# root-owned scripts carry identical copies of the reader.
+release_reader() { awk '/^release_setting\(\)/,/^}/; /^release_auth_mode\(\)/,/^}/' "$1"; }
+[[ "$(release_reader "$VERIFY")" = "$(release_reader "$ROLLBACK")" && "$(release_reader "$VERIFY")" = "$(release_reader "$INSTALL")" ]] \
+	|| fail 'release environment readers diverged between verify, rollback and install'
+source <(release_reader "$VERIFY")
+release_env_case() {
+	local expect=$1 want=$2 body=$3 got
+	printf '%b' "$body" > "$fixture/release-setting.env"
+	if got=$(release_auth_mode "$fixture/release-setting.env"); then
+		[[ "$expect" = ok && "$got" = "$want" ]] || fail "release auth mode for '$body' resolved to '$got'"
+	else
+		[[ "$expect" = reject ]] || fail "release auth mode for '$body' was rejected"
+	fi
+}
+release_env_case ok tailnet 'HELM_AUTH_MODE=tailnet\n'
+release_env_case ok tailnet 'ROADMAP_AUTH_MODE=tailnet\n'
+release_env_case ok tailnet 'HELM_AUTH_MODE=tailnet\nROADMAP_AUTH_MODE=tailnet\n'
+release_env_case ok tailnet 'HELM_AUTH_MODE=\nROADMAP_AUTH_MODE=tailnet\n'
+release_env_case ok '' 'HELM_ADDR=127.0.0.1:8080\n'
+release_env_case reject '' 'HELM_AUTH_MODE="tailnet"\n'
+release_env_case reject '' "HELM_AUTH_MODE='tailnet'\n"
+release_env_case reject '' 'HELM_AUTH_MODE=tailnet \n'
+release_env_case reject '' 'HELM_AUTH_MODE=TAILNET\n'
+release_env_case reject '' 'HELM_AUTH_MODE=tailnet\nHELM_AUTH_MODE=tailnet\n'
+release_env_case reject '' 'HELM_AUTH_MODE=local\nROADMAP_AUTH_MODE=tailnet\n'
+release_env_case reject '' '  HELM_AUTH_MODE=tailnet\n'
+release_env_case reject '' 'export ROADMAP_AUTH_MODE=tailnet\n'
+release_env_case reject '' 'HELM_AUTH_MODE =tailnet\n'
+printf 'ROADMAP_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev\n' > "$fixture/release-setting.env"
+[[ "$(release_setting "$fixture/release-setting.env" PUBLIC_ORIGIN)" = https://beta-helm.home.shanekanterman.dev ]] \
+	|| fail 'release origin did not resolve the ROADMAP_ alias'
+contains 'verified_auth_mode=$(release_auth_mode "$work/roadmap.env")' "$VERIFY"
+contains 'AUTH_MODE=$(release_auth_mode "$RELEASE_DIR/roadmap.env") || fail' "$INSTALL"
+contains 'mode=$(release_auth_mode "$path") || return 1' "$ROLLBACK"
+printf 'release_env_reader_tests=ok\n'
+
 # Run the real rollback transaction against a fixture state root. The service,
 # health, install, and rename boundaries are mocked, while release checks,
 # link switching, EXIT recovery, and exact environment restoration remain
@@ -151,7 +189,7 @@ rollback_mv() {
 rollback_sleep() { :; }
 
 rollback_run_case() {
-	local mode=$1 case_dir="$fixture/rollback-$1" status
+	local mode=$1 live_env=${2:-} case_dir="$fixture/rollback-$1${2:+-$2}" status
 	local previous_sha=1111111111111111111111111111111111111111
 	local target_sha=2222222222222222222222222222222222222222
 	local state_dir="$case_dir/state" releases_dir="$case_dir/state/releases"
@@ -175,6 +213,13 @@ rollback_run_case() {
 	cp -- "$previous_dir/roadmap.env" "$case_dir/previous.env.ref"
 	ln -s -- "$previous_dir" "$state_dir/current"
 	printf 'ROADMAP_RELEASE_SHA=%s\nROADMAP_ENV_MARKER=live-before\n' "$previous_sha" > "$config_dir/roadmap.env"
+	case "$live_env" in
+		'') ;;
+		unknown-origin) printf 'HELM_AUTH_MODE=tailnet\nHELM_PUBLIC_ORIGIN=https://unexpected.example\n' >> "$config_dir/roadmap.env" ;;
+		duplicate-mode) printf 'HELM_AUTH_MODE=tailnet\nHELM_AUTH_MODE=tailnet\n' >> "$config_dir/roadmap.env" ;;
+		missing) rm -f -- "$config_dir/roadmap.env" ;;
+		*) fail "unknown rollback live environment fixture: $live_env" ;;
+	esac
 	printf 'active\n' > "$service_state_dir/helm"
 	printf 'active\n' > "$service_state_dir/cloudflared"
 	: > "$call_log"
@@ -224,5 +269,10 @@ rollback_run_case install-before-switch-failure
 rollback_run_case symlink-switch-failure
 rollback_run_case app-restart-failure
 rollback_run_case connector-restart-failure
+# A broken live environment is exactly when rollback is needed; it must not
+# block recovery to the verified previous release.
+rollback_run_case app-restart-failure unknown-origin
+rollback_run_case app-restart-failure duplicate-mode
+rollback_run_case app-restart-failure missing
 printf 'rollback_recovery_runtime_tests=ok\n'
 

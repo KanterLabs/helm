@@ -70,3 +70,27 @@ remote-check-only no-op. It checks that unrelated hooks, credentials, session
 state and trust configuration survive. The receipt contains no real credential
 or private task content. This rehearsal does not publish source; follow it with
 an actual update after GitHub main contains the reviewed change.
+
+## Focus startup and recovery
+
+Each SessionStart emits one static Focus discovery reminder under 400
+characters, including fresh sessions without a tracked task, missing session
+identity, or unreadable/malformed private state. This reminder requires no
+project lookup, credentials, state extension, or API call. It preserves the
+user's explicit task scope and points to skill guidance rather than choosing
+a Focus automatically.
+
+Mapped sessions also recover safe task identity, operation ID, state, and
+checkpoint counts. Current bounded agent notes are fetched from Helm; note
+bodies are never persisted in hook state. If refresh fails, the hook warns
+without exposing the private error and asks the agent to check the task.
+Compaction recovery includes the same single reminder alongside that context.
+
+PostToolUse and PreCompact may refresh due liveness for an eligible mapped
+task; they never perform Focus discovery/review or generate review comments.
+Heartbeat is throttled, does not renew the claim, and cannot replace a
+meaningful structured progress update. Before the initial snapshot,
+PostToolUse may remind the agent to publish it without sending a heartbeat.
+Waiting/handoff sessions are not kept alive automatically. Existing stop
+checks require a durable outcome for active work and fail open when recovery
+or the service is unavailable.

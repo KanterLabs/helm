@@ -8,7 +8,7 @@ GO ?= go
 NPM ?= npm
 SHA ?= $(shell git rev-parse HEAD 2>/dev/null || true)
 
-.PHONY: all web-install web-check web-test web-build openapi openapi-check frontend build test e2e vet lint \
+.PHONY: all web-install web-check web-test web-build openapi openapi-check frontend build test focus-test e2e vet lint \
 	docker-build compose-up compose-down bundle clean release-status publish-beta prepare-release finish-release release-test
 
 all: build
@@ -48,6 +48,13 @@ build: frontend
 	$(GO) build -trimpath -ldflags="-s -w" -o $(DIST_DIR)/$(APP) ./cmd/$(APP)
 
 test: e2e
+
+# Synthetic API/CLI receipts live under .artifacts/focus-<unique run>/.
+focus-test:
+	install -d .artifacts
+	$(GO) build -o .artifacts/focus-helm ./cmd/helm
+	python3 -m unittest discover -s skills/helm/scripts -p 'test_*.py'
+	python3 test/focus/run.py --binary .artifacts/focus-helm
 
 e2e: web-install
 	cd $(WEB_DIR) && $(NPM) run e2e:install

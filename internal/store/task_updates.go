@@ -291,10 +291,11 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		}
 		taskMutation := validated.Title != nil || validated.Description != nil || validated.Priority != nil || validated.ColumnID != nil || validated.Position != nil || validated.AssigneeSet || validated.DueAtSet || validated.LabelsSet || kind != current.Kind
 		if taskMutation {
-			eventPayload := map[string]any{"version": expected + 1}
+			eventPayload := map[string]any{"version": expected + 1,
+				"changed_fields": taskActivityFields(current, title, description, columnID)}
 			// Keep assignment transitions in the event payload so the additive
 			// notification read model can fan out without guessing from a later
-			// task snapshot. Preserve the historic payload for unrelated patches.
+			// task snapshot. Keep these fields alongside bounded work-change evidence.
 			if validated.AssigneeSet {
 				assignmentChanged := assignee != nullableStringValue(current.Assignee)
 				eventPayload["assignee"] = assignee
@@ -374,7 +375,7 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		// but record one fallback task event when none of those paths emitted an
 		// event so collection cursors observe the visible write.
 		if !taskMutation && !bugMutation && !parentChanged && !releaseChanged {
-			if _, err = insertEvent(ctx, tx, "task.updated", actorID, current.ProjectID, id, map[string]any{"version": expected + 1}); err != nil {
+			if _, err = insertEvent(ctx, tx, "task.updated", actorID, current.ProjectID, id, map[string]any{"version": expected + 1, "changed_fields": []string{}}); err != nil {
 				return err
 			}
 		}

@@ -25,6 +25,11 @@ and reconciles lifecycle hook entries even on a no-op. See
 trust boundaries. A beta branch push alone does not update installed copies.
 
 1. Run `python3 scripts/helm.py projects` and match the current repository or workstream to an existing project. Do not silently create a project or put work in an unrelated project.
+   For relevant substantive project work, read
+   [references/focus-planning.md](references/focus-planning.md) and inspect active
+   Focus areas before proposing new Backlog work, even when the user has not
+   named Focus. Resume owned work first. An explicit task keeps its existing
+   scope; discovery does not authorize another workstream.
 2. Search for an existing open task before creating one. Preserve the existing project key and task IDs when resuming work:
 
    ```sh
@@ -62,6 +67,8 @@ trust boundaries. A beta branch push alone does not update installed copies.
    never edits Codex trust hashes or `config.toml`. If it reports a change,
    review and trust the new command once in Codex `/hooks`; a later no-op does
    not require another review.
+   Read [references/updates-and-hooks.md](references/updates-and-hooks.md) when
+   updating the installed skill or checking startup/recovery behavior.
 
 For planning work that should remain unclaimed in Backlog, create a separate,
 implementation-sized card with acceptance criteria:
@@ -254,6 +261,10 @@ block it with an actionable reason, or publish a structured `handoff` or
 heartbeat alone is not a handoff. Do not mark a task complete merely because
 the current chat is ending; leave safe recovery metadata for the next session
 when work remains.
+When that work belongs to a Focus, include its ID, remaining relevant task keys,
+blockers, and next action in the current task's handoff; re-read live records
+on resumption. See the Focus planning reference for bounded review and safe
+continuation.
 
 ## Authentication and failures
 
@@ -276,34 +287,6 @@ The safe read-only identity probe is:
 python3 scripts/helm.py auth-check
 ```
 
-Additional client workflows are available without hand-written HTTP:
-
-```sh
-python3 scripts/helm.py renew --task TC-1 --operation-id UUIDV4
-python3 scripts/helm.py release --task TC-1 --operation-id UUIDV4
-python3 scripts/helm.py events --after 0 --project TC
-python3 scripts/helm.py dependencies list --task TC-1
-python3 scripts/helm.py dependencies add --task TC-1 --prerequisite TC-2
-python3 scripts/helm.py timeline --task TC-1 --kind agent_progress
-python3 scripts/helm.py timeline --project TC --before CURSOR
-python3 scripts/helm.py issues --severity untriaged --resolution unresolved
-python3 scripts/helm.py bug-report --project TC --title "Observed failure" \
-  --actual-behavior "The operation exits unexpectedly"
-python3 scripts/helm.py bug-triage --task TC-2 --severity s2
-python3 scripts/helm.py bug-resolve --task TC-2 --resolution fixed
-python3 scripts/helm.py bug-duplicate --task TC-2 --duplicate-of TC-3
-python3 scripts/helm.py bug-reopen --task TC-2 --reason "The regression remains reproducible"
-python3 scripts/helm.py notifications list --unread
-python3 scripts/helm.py watches list --task TC-2
-```
-
-Workflow mutations generate one UUIDv4 operation ID per logical request when
-omitted and print it in the JSON result. Supply that same ID to replay a lost
-response safely. Notification and watch mutations require UUIDv4 operation
-IDs. Earlier lifecycle, bug, and dependency commands also accept explicit
-legacy operation IDs; those non-UUID values retain deterministic idempotency
-keys for older automation, while malformed IDs are rejected before any network
-mutation.
-Multi-step commands derive a distinct UUIDv4 mutation key per endpoint from the
-operation ID, request path, and body so the server's per-request key reservation
-is respected without sacrificing deterministic replay.
+Additional client workflows are available without hand-written HTTP. Read
+[workflow commands](references/workflow-commands.md) for dependency, activity,
+bug, watch and notification commands and their replay rules.
