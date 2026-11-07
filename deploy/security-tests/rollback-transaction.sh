@@ -44,10 +44,13 @@ fi
 validate_optional_codex "$codex_rollback_fixture" || fail 'valid rollback Codex runtime was rejected'
 printf 'rollback_codex_validation_test=ok\n'
 
-# Rollback's release profile reads must resolve HELM_/ROADMAP_ aliases the way
-# config.resolveEnv does and fail closed on anything ambiguous.
+# Release environment profile reads must resolve HELM_/ROADMAP_ aliases the
+# way config.resolveEnv does and fail closed on anything ambiguous. The three
+# root-owned scripts carry identical copies of the reader.
 release_reader() { awk '/^release_setting\(\)/,/^}/; /^release_auth_mode\(\)/,/^}/' "$1"; }
-source <(release_reader "$ROLLBACK")
+[[ "$(release_reader "$VERIFY")" = "$(release_reader "$ROLLBACK")" && "$(release_reader "$VERIFY")" = "$(release_reader "$INSTALL")" ]] \
+	|| fail 'release environment readers diverged between verify, rollback and install'
+source <(release_reader "$VERIFY")
 release_env_case() {
 	local expect=$1 want=$2 body=$3 got
 	printf '%b' "$body" > "$fixture/release-setting.env"
@@ -74,6 +77,8 @@ release_env_case reject '' 'HELM_AUTH_MODE =tailnet\n'
 printf 'ROADMAP_PUBLIC_ORIGIN=https://beta-helm.home.shanekanterman.dev\n' > "$fixture/release-setting.env"
 [[ "$(release_setting "$fixture/release-setting.env" PUBLIC_ORIGIN)" = https://beta-helm.home.shanekanterman.dev ]] \
 	|| fail 'release origin did not resolve the ROADMAP_ alias'
+contains 'verified_auth_mode=$(release_auth_mode "$work/roadmap.env")' "$VERIFY"
+contains 'AUTH_MODE=$(release_auth_mode "$RELEASE_DIR/roadmap.env") || fail' "$INSTALL"
 contains 'mode=$(release_auth_mode "$path") || return 1' "$ROLLBACK"
 printf 'release_env_reader_tests=ok\n'
 

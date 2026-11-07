@@ -461,12 +461,47 @@ done < <(tail -n +2 "$work/release.manifest")
 [[ "$payload_count" -eq "${#PAYLOAD_MEMBERS[@]}" ]] \
 	|| fail 'release manifest does not enumerate every payload member'
 
+# release_setting resolves HELM_<suffix>/ROADMAP_<suffix> the way the app's
+# config.resolveEnv does, but fails closed on anything a reader could resolve
+# differently: duplicates, conflicting aliases, quotes, padding or indented
+# and exported keys. Prints the resolved value (possibly empty).
+release_setting() {
+	local path=$1 suffix=$2
+	awk -v helm="HELM_$suffix" -v legacy="ROADMAP_$suffix" '
+		index($0, "=") {
+			line = $0
+			sub(/^[[:space:]]+/, "", line)
+			sub(/^export[[:space:]]+/, "", line)
+			key = substr(line, 1, index(line, "=") - 1)
+			sub(/[[:space:]]+$/, "", key)
+			if (key != helm && key != legacy) next
+			if (line != $0 || substr($0, 1, length(key) + 1) != key "=") bad = 1
+			value = substr($0, index($0, "=") + 1)
+			if (seen[key]++) bad = 1
+			if (value ~ /^[[:space:]]|[[:space:]]$|^["\047]|["\047]$/) bad = 1
+			if (value != "") {
+				if (resolved != "" && value != resolved) bad = 1
+				resolved = value
+			}
+		}
+		END { if (bad) exit 1; print resolved }
+	' "$path"
+}
+
+# release_auth_mode additionally rejects mixed case, which the app lowercases.
+release_auth_mode() {
+	local mode
+	mode=$(release_setting "$1" AUTH_MODE) || return 1
+	[[ "$mode" = "${mode,,}" ]] || return 1
+	printf '%s\n' "$mode"
+}
+
 # The root-owned verifier basename fixes the target environment. Only inspect
 # configuration after its signature and payload hash have passed.
 bounded_tar -xOf "$ARCHIVE" roadmap.env > "$work/roadmap.env" || fail 'release environment cannot be read'
-verified_auth_mode=$(awk -F= '$1 == "HELM_AUTH_MODE" { count++; value = substr($0, index($0, "=") + 1) } END { if (count > 1) exit 1; print value }' "$work/roadmap.env") || fail 'release authentication mode is duplicated'
+verified_auth_mode=$(release_auth_mode "$work/roadmap.env") || fail 'release authentication mode is ambiguous'
 if [[ "$verified_auth_mode" = tailnet ]]; then
-	verified_origin=$(awk -F= '$1 == "HELM_PUBLIC_ORIGIN" { count++; value = substr($0, index($0, "=") + 1) } END { if (count != 1) exit 1; print value }' "$work/roadmap.env") || fail 'release private origin is invalid'
+	verified_origin=$(release_setting "$work/roadmap.env" PUBLIC_ORIGIN) || fail 'release private origin is invalid'
 	if (( PRODUCTION_PROFILE == 1 )); then
 		[[ "$verified_origin" = https://helm.home.shanekanterman.dev && "$PRODUCTION_PRIVATE_PROFILE" = 1 ]] || fail 'production verifier rejects a non-production private profile'
 	else
