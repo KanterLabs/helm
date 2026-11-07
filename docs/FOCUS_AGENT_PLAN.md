@@ -1,8 +1,11 @@
 # Focus discovery and Backlog review for agents
 
-Planning date: 7 November 2026. Planning task: TC-368. Implementation remains
-unclaimed in Backlog. This plan makes Focus part of normal agent planning and
-helps people decide what to do with neglected cards.
+Status: Implemented for beta; exact deployment and PR verification in progress.
+
+Planning date: 7 November 2026. Planning task: TC-368. TC-369 through TC-372
+are implemented; TC-373 tracks integrated beta delivery and publication gates.
+This plan makes Focus part of normal agent planning and helps people decide
+what to do with neglected cards.
 
 ## Intended behavior
 
@@ -117,8 +120,8 @@ blockers. Ordinary implementation should not acquire a new approval ceremony.
 
 ## Implementation queue
 
-Each card carries its full measurable acceptance criteria. Dependencies are
-recorded in Helm itself; all five implementation cards remain unclaimed Backlog.
+Each card carries its full measurable acceptance criteria and dependencies in
+Helm. TC-369 through TC-372 are complete; TC-373 owns the remaining delivery.
 
 | Card | Work | Prerequisites |
 | --- | --- | --- |
