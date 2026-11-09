@@ -1,0 +1,21 @@
+name: Helm image validation
+description: Build, smoke-test and scan an immutable image without registry credentials.
+runs:
+  using: composite
+  steps:
+    - name: Build immutable production image
+      shell: bash
+      run: bash test/ci/build-image.sh
+    - name: Upload immutable image artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: helm-image-${{ github.sha }}
+        path: |
+          ${{ runner.temp }}/helm-container/helm-${{ github.sha }}.tar.gz
+          ${{ runner.temp }}/helm-container/helm-${{ github.sha }}.tar.gz.sha256
+          ${{ runner.temp }}/helm-container/codex
+          ${{ runner.temp }}/helm-container/codex.sha256
+          ${{ runner.temp }}/helm-container/cloudflared
+          ${{ runner.temp }}/helm-container/cloudflared.sha256
+        if-no-files-found: error
+        retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}

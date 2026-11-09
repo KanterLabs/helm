@@ -1,0 +1,40 @@
+name: Helm declared validation gate
+description: Verify selected job results against captured source and real execution artifacts.
+inputs:
+  browser:
+    description: Whether browser evidence is selected.
+    required: true
+  scope:
+    description: Effective captured scope.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+      with:
+        name: helm-ci-plan-${{ github.sha }}-${{ github.run_attempt }}
+    - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+      if: inputs.browser == 'true'
+      with:
+        name: helm-e2e-${{ github.sha }}
+        path: ${{ runner.temp }}/browser-proof
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      if: inputs.scope == 'promotion'
+      with:
+        go-version-file: go.mod
+        cache: true
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      if: inputs.scope == 'promotion'
+      with:
+        node-version: 22.23.2
+    - name: Recheck trusted promotion provenance and selected job evidence
+      shell: bash
+      run: |
+        python3 test/ci/gate-job.py --plan ci-plan.json --browser-evidence "$RUNNER_TEMP/browser-proof/helm-e2e-evidence" --output verified-gate.json
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      if: always()
+      with:
+        name: helm-ci-gate-${{ github.sha }}-${{ github.run_attempt }}
+        path: verified-gate.json
+        if-no-files-found: error
+        retention-days: 14

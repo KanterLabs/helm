@@ -1,0 +1,27 @@
+name: Helm trusted image publication
+description: Publish only a validated branch archive and expose its registry digest.
+outputs:
+  image:
+    description: Exact immutable published digest.
+    value: ${{ steps.publish.outputs.image }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+      if: env.PROMOTION_IMAGE == ''
+      with:
+        name: helm-image-${{ github.sha }}
+        path: ${{ runner.temp }}/helm-container
+    - name: Publish the tested image by immutable registry digest
+      id: publish
+      shell: bash
+      env:
+        IMAGE_DIR: ${{ runner.temp }}/helm-container
+      run: |
+        if [[ -n "${PROMOTION_IMAGE:-}" ]]; then
+          [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$PROMOTION_IMAGE" =~ ^ghcr\.io/kanterlabs/helm@sha256:[0-9a-f]{64}$ ]]
+          printf 'image=%s\n' "$PROMOTION_IMAGE" >> "$GITHUB_OUTPUT"
+        else
+          bash test/ci/publish-image.sh
+        fi

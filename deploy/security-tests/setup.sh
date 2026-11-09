@@ -44,7 +44,16 @@ done
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/helm-deploy-security.XXXXXX")
 cleanup_fixture() { rm -rf -- "$fixture"; }
 trap cleanup_fixture EXIT
-sed -n '/^  beta_deploy:/,/^  deploy:/p' "$WORKFLOW" > "$fixture/beta-workflow.yml"
+WORKFLOW_ROUTER="$WORKFLOW"
+workflow_contract="$fixture/ci-workflow-contract.yml"
+cat "$WORKFLOW_ROUTER" \
+  "$ROOT_DIR/.github/actions/ci-checks/action.yml" \
+  "$ROOT_DIR/.github/actions/ci-container/action.yml" \
+  "$ROOT_DIR/test/ci/run-checks.sh" \
+  "$ROOT_DIR/test/ci/build-image.sh" \
+  "$ROOT_DIR/test/ci/publish-image.sh" > "$workflow_contract"
+WORKFLOW="$workflow_contract"
+sed -n '/^  beta_deploy:/,/^  deploy:/p' "$WORKFLOW_ROUTER" > "$fixture/beta-workflow.yml"
 # Mocked backup publication tests do not have a release binary from which to
 # query migration-info; use a deterministic non-secret fixture digest.
 export HELM_MIGRATION_DIGEST=0000000000000000000000000000000000000000000000000000000000000000
