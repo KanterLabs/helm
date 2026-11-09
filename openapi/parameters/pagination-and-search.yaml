@@ -23,7 +23,13 @@ components:
       name: sort
       in: query
       required: false
-      description: Stable server-side task ordering. Board order is the default.
+      description: |
+        Stable server-side task ordering. Board order is the default.
+        `not_after` orders by the neglect signal's bound with key
+        `(not_after IS NULL, not_after, number, id)`: tasks without a bound
+        (`unknown`, or no current row) sort after every time ascending and
+        before every time descending. It makes the request a neglect listing
+        (see `inactive_days`).
       schema:
         type: string
         enum:
@@ -34,6 +40,7 @@ components:
           - updated_at
           - priority
           - title
+          - not_after
       example: position
     TaskOrder:
       name: order

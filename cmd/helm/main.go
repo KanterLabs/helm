@@ -205,6 +205,11 @@ func main() {
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go api.RunRequestActivityFlusher(signalCtx)
+	// The neglect-signal projector seeds and tails in the background; the
+	// listeners above are already serving and /readyz never waits for it.
+	if err := api.StartTaskActivitySignalProjector(signalCtx); err != nil {
+		errorLog("task activity signal projector start failed", err)
+	}
 	<-signalCtx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -223,6 +228,11 @@ func main() {
 		if err := privateServer.Shutdown(shutdownCtx); err != nil {
 			errorLog("tailnet private listener shutdown failed", err)
 		}
+	}
+	// Requests are drained; stop the projector before the database closes.
+	// An interrupted pass commits nothing and the next start resumes.
+	if err := api.StopTaskActivitySignalProjector(shutdownCtx); err != nil {
+		errorLog("task activity signal projector shutdown failed", err)
 	}
 	if err := api.StopGithubServices(shutdownCtx); err != nil {
 		errorLog("GitHub background services shutdown failed", err)

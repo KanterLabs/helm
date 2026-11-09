@@ -1,0 +1,473 @@
+{
+ "classification_version": 1,
+ "classifier": "skills/helm/scripts/helm_focus_activity.py",
+ "classifier_sha256": "3989745aaddb8a90fb61ab8a708def7aca6e73674e4ed6f72606f5d4abddd2b5",
+ "results": {
+  "a-actor-null": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-actor-other-kind": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-legacy-after-comment": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-legacy-before-comment": {
+   "at": "2026-09-09T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "a-legacy-only": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-row-kind-unknown": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-unlisted-bug-duplicate_of": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-unlisted-bug-updated": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-unlisted-comment-created": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-unlisted-task-artifact_linked": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-unlisted-task-progressed": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "a-unlisted-task-synthetic_future_kind": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-checklist-unknown-item": {
+   "at": "2026-09-04T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.checklist_completed",
+   "status": "known"
+  },
+  "e-created-unparseable": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-created-unparseable-with-qualifying": {
+   "at": "2026-09-04T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "e-fractional": {
+   "at": "2026-09-07T00:00:00.1Z",
+   "classification_version": 1,
+   "source": "agent.progress_changed",
+   "status": "known"
+  },
+  "e-newest-ambiguous-reason": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-offset-timezone": {
+   "at": "2026-09-05T02:00:00+02:00",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "e-progress-reverts": {
+   "at": "2026-09-06T00:00:00Z",
+   "classification_version": 1,
+   "source": "agent.progress_changed",
+   "status": "known"
+  },
+  "e-tie-qualifying-ambiguous": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-unparseable-excluded-kind": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-unparseable-garbage": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-unparseable-naive": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-unparseable-null": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "e-unsorted-input": {
+   "at": "2026-09-09T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "q-checklist-added": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.checklist_scope_changed",
+   "status": "known"
+  },
+  "q-checklist-completed": {
+   "at": "2026-09-04T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.checklist_completed",
+   "status": "known"
+  },
+  "q-checklist-removed": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.checklist_scope_changed",
+   "status": "known"
+  },
+  "q-created-event": {
+   "at": "2026-09-01T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.created",
+   "status": "known"
+  },
+  "q-dependency-added": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.dependency_added",
+   "status": "known"
+  },
+  "q-dependency-removed": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.dependency_removed",
+   "status": "known"
+  },
+  "q-human-comment": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "q-legacy-completed-at": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.scope_or_state_changed",
+   "status": "known"
+  },
+  "q-lifecycle-bug-reopened": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "bug.reopened",
+   "status": "known"
+  },
+  "q-lifecycle-bug-resolved": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "bug.resolved",
+   "status": "known"
+  },
+  "q-lifecycle-task-blocked": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.blocked",
+   "status": "known"
+  },
+  "q-lifecycle-task-completed": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.completed",
+   "status": "known"
+  },
+  "q-lifecycle-task-reopened": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.reopened",
+   "status": "known"
+  },
+  "q-lifecycle-task-resolved": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.resolved",
+   "status": "known"
+  },
+  "q-moved": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.moved",
+   "status": "known"
+  },
+  "q-no-rows": {
+   "at": "2026-08-01T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.created",
+   "status": "known"
+  },
+  "q-progress-attachment": {
+   "at": "2026-09-05T00:00:00Z",
+   "classification_version": 1,
+   "source": "agent.progress_changed",
+   "status": "known"
+  },
+  "q-progress-changed": {
+   "at": "2026-09-06T00:00:00Z",
+   "classification_version": 1,
+   "source": "agent.progress_changed",
+   "status": "known"
+  },
+  "q-progress-started": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "agent.progress_started",
+   "status": "known"
+  },
+  "q-scope-column": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.scope_or_state_changed",
+   "status": "known"
+  },
+  "q-scope-description": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.scope_or_state_changed",
+   "status": "known"
+  },
+  "q-scope-title": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.scope_or_state_changed",
+   "status": "known"
+  },
+  "r-attachment-deleted": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-attachment-updated": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-attachment-uploaded": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-bug-triaged": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-comment-deleted": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-comment-updated": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-task-deleted": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-task-dependency_state_changed": {
+   "at": "2026-09-03T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.dependency_state_changed",
+   "status": "known"
+  },
+  "r-task-parent_linked": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-task-parent_unlinked": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "r-task-restored": {
+   "at": null,
+   "classification_version": 1,
+   "reason": "incomplete_or_ambiguous_history",
+   "source": null,
+   "status": "unknown"
+  },
+  "x-agent-comment": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-checklist-recomplete": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.checklist_scope_changed",
+   "status": "known"
+  },
+  "x-checklist-uncomplete": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "task.checklist_scope_changed",
+   "status": "known"
+  },
+  "x-empty-changed-fields": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-metadata-update": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-same-column-move": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-assigned": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-checklist_reordered": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-claim_released": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-claim_renewed": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-claimed": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-heartbeat": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-release_changed": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-released": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  },
+  "x-task-reordered": {
+   "at": "2026-09-02T00:00:00Z",
+   "classification_version": 1,
+   "source": "human.comment",
+   "status": "known"
+  }
+ }
+}

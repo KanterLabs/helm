@@ -16,7 +16,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/metrics" {
-		s.metricsEndpoint(w, r)
+		s.metricsWithTaskActivitySignal(w, r)
 		return
 	}
 	if r.URL.Path == "/openapi.json" {

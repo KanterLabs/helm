@@ -9,6 +9,7 @@ DB is clocked; receipts contain no authentication configuration or token values.
 """
 from datetime import datetime, timedelta, timezone
 import sqlite3
+import time
 import uuid
 
 
@@ -28,6 +29,21 @@ def _membership_snapshot(task):
 
 def _activity(review, task_id):
     return next(task['activity'] for task in review['tasks'] if task['id'] == task_id)
+
+
+def _instant(value):
+    return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+
+
+def _settled(cli, *argv):
+    """Server path (TC-381): a card whose newest event is unprocessed is
+    reported `pending` and the review partial; rerun until it settles."""
+    for _ in range(40):
+        review = cli(*argv)
+        if not any(t['activity'].get('assessment') == 'pending' for t in review['tasks']):
+            return review
+        time.sleep(.25)
+    raise AssertionError('review stayed pending')
 
 
 def _event_count(db_path):
@@ -67,11 +83,12 @@ def _progress_journey(api, cli, db_path, project):
     heartbeat = cli('heartbeat', '--task', task['key'], '--operation-id', repeated_operation)['task']
     assert heartbeat['version'] == repeated['version'], heartbeat
     before = _event_count(db_path)
-    old_review = cli('focus', 'review', '--project', project['id'], '--focus', scope['id'])
+    old_review = _settled(cli, 'focus', 'review', '--project', project['id'], '--focus', scope['id'])
     assert _event_count(db_path) == before, 'read-only review wrote events'
+    assert old_review['activity_signal']['path'] == 'server', old_review
     stale_activity = _activity(old_review, task['id'])
     assert stale_activity['status'] == 'known', stale_activity
-    assert stale_activity['at'] == old_clock, stale_activity
+    assert _instant(stale_activity['at']) == _instant(old_clock), stale_activity
     assert any(row['task_id'] == task['id'] and row['reason'] == 'inactive'
                for row in old_review['findings']), old_review
     with sqlite3.connect(db_path) as db:
@@ -86,15 +103,18 @@ def _progress_journey(api, cli, db_path, project):
     cli('progress', '--task', task['key'], '--state', 'working', '--phase', 'Verify',
         '--completed', '2', '--total', '3', '--next', 'Finish synthetic verification',
         '--message', 'Synthetic verification advanced', '--operation-id', repeated_operation)
-    advanced_review = cli('focus', 'review', '--project', project['id'], '--focus', scope['id'])
+    advanced_review = _settled(cli, 'focus', 'review', '--project', project['id'], '--focus', scope['id'])
     advanced = _activity(advanced_review, task['id'])
-    assert advanced['status'] == 'known' and advanced['at'] != old_clock, advanced
+    assert advanced['status'] == 'known' and _instant(advanced['at']) > _instant(old_clock), advanced
     assert advanced['source'] == 'agent.progress_changed', advanced
     assert not any(row['task_id'] == task['id'] and row['reason'] == 'inactive'
                    for row in advanced_review['findings']), advanced_review
-    truncated = cli('focus', 'review', '--project', project['id'], '--focus', scope['id'], '--timeline-limit', '1')
-    assert truncated['coverage']['partial'], truncated
-    assert _activity(truncated, task['id'])['status'] in ('unknown', 'lower_bound'), truncated
+    # Version 1 truncation (unknown/lower_bound) is neglect case 20; the server
+    # path reads no timelines and reports the flag as unused instead.
+    truncated = _settled(cli, 'focus', 'review', '--project', project['id'], '--focus', scope['id'],
+                         '--timeline-limit', '1')
+    assert 'timeline_limit' in truncated['activity_signal']['unused_limits'], truncated
+    assert _activity(truncated, task['id']) == advanced, truncated
     receipts.append({'name': 'substantive_progress_and_truncated_history',
                      'task_key': task['key'], 'advanced_activity': advanced,
                      'truncated_review': truncated})

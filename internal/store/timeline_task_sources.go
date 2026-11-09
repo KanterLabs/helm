@@ -5,9 +5,27 @@ import (
 	"database/sql"
 )
 
+// timelineCapacity bounds slice preallocation. Page reads never exceed it;
+// the unpaginated activity-signal reader grows its slices as needed.
+func timelineCapacity(limit int) int {
+	if limit > 201 {
+		return 201
+	}
+	return limit
+}
+
 func (s *Store) listTaskTimelineCandidates(ctx context.Context, taskID string, filter TaskTimelineFilter, boundary timelineSortKey) ([]timelineCandidate, error) {
+	return s.collectTaskTimelineCandidates(ctx, taskID, filter, boundary, nil)
+}
+
+// collectTaskTimelineCandidates reads the three task sources with the shared
+// deduplication. With a nil undecodable callback a stored progress row that
+// cannot be decoded fails the read, as the timeline endpoint always has.
+// Otherwise the row is reported and kept as a bare agent_progress candidate
+// (no Progress), so a whole-history reader never aborts on one bad row.
+func (s *Store) collectTaskTimelineCandidates(ctx context.Context, taskID string, filter TaskTimelineFilter, boundary timelineSortKey, undecodable func(id string, err error)) ([]timelineCandidate, error) {
 	sourceLimit := filter.Limit + 1
-	candidates := make([]timelineCandidate, 0, sourceLimit*3)
+	candidates := make([]timelineCandidate, 0, timelineCapacity(sourceLimit)*3)
 	if filter.Kind == "" || filter.Kind == "agent_progress" {
 		histories, err := s.listTimelineHistory(ctx, taskID, boundary, sourceLimit)
 		if err != nil {
@@ -16,7 +34,12 @@ func (s *Store) listTaskTimelineCandidates(ctx context.Context, taskID string, f
 		for _, row := range histories {
 			candidate, err := timelineHistoryCandidate(row)
 			if err != nil {
-				return nil, err
+				if undecodable == nil {
+					return nil, err
+				}
+				undecodable(row.id, err)
+				item := TaskTimelineItem{ID: row.id, Kind: "agent_progress", TaskID: row.taskID, CreatedAt: row.createdAt}
+				candidate = timelineCandidate{item: item, key: newTimelineSortKey(row.createdAt, item.Kind, item.ID, row.timelineEventCursor)}
 			}
 			candidates = append(candidates, candidate)
 		}
@@ -70,7 +93,7 @@ func (s *Store) listTimelineHistory(ctx context.Context, taskID string, boundary
 		return nil, err
 	}
 	defer rows.Close()
-	result := make([]timelineHistoryRow, 0, limit)
+	result := make([]timelineHistoryRow, 0, timelineCapacity(limit))
 	for rows.Next() {
 		var row timelineHistoryRow
 		if err := rows.Scan(&row.id, &row.taskID, &row.operationID, &row.actorID, &row.state, &row.phase, &row.summary, &row.nextAction, &row.refsJSON, &row.completed, &row.total, &row.startedAt, &row.createdAt, &row.generatedCommentID, &row.progressEventCursor, &row.timelineEventCursor, &row.actorKind, &row.actorName); err != nil {
@@ -83,19 +106,25 @@ func (s *Store) listTimelineHistory(ctx context.Context, taskID string, boundary
 
 func (s *Store) listTimelineComments(ctx context.Context, taskID string, boundary timelineSortKey, limit int) ([]timelineCommentRow, error) {
 	predicate, predicateArgs := timelineKeysetPredicate("created_at", "timeline_event_cursor", "id", "comment", boundary)
-	query := `WITH source AS (
+	// The task's comment.created events are grouped once into created
+	// (TC-380), so each comment costs one indexed lookup instead of a scan of
+	// the task's events. CAST(... AS TEXT) is the conversion c.id's TEXT
+	// affinity applied in the former per-comment json_extract(...)=c.id test,
+	// so numeric and text payload ids still match the same comments.
+	query := `WITH created AS MATERIALIZED (
+		SELECT CAST(json_extract(ce.payload, '$.comment_id') AS TEXT) AS comment_id, MAX(ce.cursor) AS cursor
+		FROM events ce
+		WHERE ce.task_id=?
+		  AND ce.type='comment.created'
+		  AND json_valid(ce.payload)
+		GROUP BY 1
+	), source AS (
 		SELECT c.id, c.task_id, c.actor_id, c.body, c.version, c.created_at, c.updated_at, c.deleted_at,
-			COALESCE((
-				SELECT MAX(ce.cursor)
-				FROM events ce
-				WHERE ce.task_id=c.task_id
-				  AND ce.type='comment.created'
-				  AND json_valid(ce.payload)
-				  AND json_extract(ce.payload, '$.comment_id')=c.id
-			), 0) AS timeline_event_cursor,
+			COALESCE(cr.cursor, 0) AS timeline_event_cursor,
 			a.id AS timeline_actor_id, a.kind AS timeline_actor_kind, a.name AS timeline_actor_name
 		FROM comments c
 		LEFT JOIN actors a ON a.id=c.actor_id
+		LEFT JOIN created cr ON cr.comment_id=c.id
 		WHERE c.task_id=?
 		  AND c.deleted_at IS NULL
 		  AND NOT EXISTS (
@@ -106,19 +135,20 @@ func (s *Store) listTimelineComments(ctx context.Context, taskID string, boundar
 	SELECT id, task_id, actor_id, body, version, created_at, updated_at, deleted_at,
 		timeline_event_cursor, timeline_actor_id, timeline_actor_kind, timeline_actor_name
 	FROM source`
-	args := []any{taskID}
+	args := []any{taskID, taskID}
 	if predicate != "" {
 		query += " WHERE " + predicate
 		args = append(args, predicateArgs...)
 	}
 	query += ` ORDER BY created_at DESC, timeline_event_cursor DESC, id DESC LIMIT ?`
 	args = append(args, limit)
+	s.observe(query, args)
 	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make([]timelineCommentRow, 0, limit)
+	result := make([]timelineCommentRow, 0, timelineCapacity(limit))
 	for rows.Next() {
 		var row timelineCommentRow
 		var deletedAt sql.NullString
@@ -174,7 +204,7 @@ func (s *Store) listTimelineEvents(ctx context.Context, taskID string, boundary 
 		return nil, err
 	}
 	defer rows.Close()
-	result := make([]timelineEventRow, 0, limit)
+	result := make([]timelineEventRow, 0, timelineCapacity(limit))
 	for rows.Next() {
 		var row timelineEventRow
 		event, err := scanEventWithActor(rows, &row.actorID, &row.actorKind, &row.actorName)

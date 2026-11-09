@@ -5,6 +5,15 @@ User-visible changes after v0.2.2 belong here, newest first. Latest release:
 
 ## Features
 
+- **Focus review uses the server's neglect signal:** on servers that compute
+  card activity, `focus review` reads one neglect listing instead of replaying
+  every card's timeline, so the unfocused Backlog answer is complete rather
+  than capped. Cards with ambiguous legacy history get a bound, so old cards
+  are reported inactive instead of unknown. Output names the server path and
+  its coverage, and marks cards whose activity is undetermined or still being
+  processed; neither is ever described as active. Older servers get exactly
+  the previous output. See the [Focus changelog](../FOCUS_AGENT_CHANGELOG.md).
+
 - **Focus guidance for agents:** discover existing goal groups before proposing
   more Backlog work, review meaningful inactivity and blockers, and carry the
   remaining cards into a handoff. New `focus` CLI commands cover discovery,

@@ -51,6 +51,9 @@ type Server struct {
 	projectIntelligenceCache    map[string]projectIntelligenceCacheEntry
 	projectIntelligenceRunning  map[string]bool
 	static                      http.Handler
+	// activitySignal runs the neglect-signal projector between
+	// StartTaskActivitySignalProjector and graceful shutdown.
+	activitySignal taskActivitySignalRuntime
 }
 
 type CodexAccountService interface {

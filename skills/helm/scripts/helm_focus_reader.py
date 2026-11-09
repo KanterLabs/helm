@@ -63,9 +63,12 @@ def read_cursor(raw, project, focus):
                 or not isinstance(value.get('offset', 0), int) or value.get('offset', 0) < 0
                 or not isinstance(value.get('queues', {}), dict)):
             raise ValueError()
-        for field in ('focus_after', 'backlog_after', 'fingerprint'):
+        for field in ('focus_after', 'backlog_after', 'fingerprint', 'undetermined_after'):
             if not isinstance(value.get(field, ''), str):
                 raise ValueError()
+        # Server-signal continuations only (TC-381); version 1 cursors omit it.
+        if value.get('signal', 1) != 1 or value.get('signal') is True:
+            raise ValueError()
         if not all(isinstance(k, str) and isinstance(v, str) for k, v in value.get('queues', {}).items()):
             raise ValueError()
         return value
