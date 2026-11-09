@@ -171,6 +171,10 @@ components:
         ticket:
           $ref: "#/components/schemas/TicketMembership"
           description: Tickets workspace membership; omitted for ordinary tasks.
+        activity:
+          $ref: "#/components/schemas/TaskActivity"
+          description: Server-derived neglect signal on task and collection reads; omitted from mutation
+            responses and by servers that predate it.
       additionalProperties: false
     TaskCollection:
       type: object
@@ -185,4 +189,11 @@ components:
         next_cursor:
           type: string
           description: Empty string when there is no next page.
+        evaluated_at:
+          $ref: "#/components/schemas/Timestamp"
+          description: Present only on neglect listings (`inactive_days`, `activity_status` or
+            `sort=not_after`). The one instant the whole page chain is evaluated against; continuation
+            cursors carry it.
+        activity_coverage:
+          $ref: "#/components/schemas/TaskActivityCoverage"
       additionalProperties: false

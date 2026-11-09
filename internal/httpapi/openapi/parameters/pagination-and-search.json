@@ -16,7 +16,7 @@
         "name": "sort",
         "in": "query",
         "required": false,
-        "description": "Stable server-side task ordering. Board order is the default.",
+        "description": "Stable server-side task ordering. Board order is the default.\n`not_after` orders by the neglect signal's bound with key\n`(not_after IS NULL, not_after, number, id)`: tasks without a bound\n(`unknown`, or no current row) sort after every time ascending and\nbefore every time descending. It makes the request a neglect listing\n(see `inactive_days`).\n",
         "schema": {
           "type": "string",
           "enum": [
@@ -26,7 +26,8 @@
             "created_at",
             "updated_at",
             "priority",
-            "title"
+            "title",
+            "not_after"
           ]
         },
         "example": "position"

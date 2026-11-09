@@ -278,6 +278,7 @@ x-helm-fragments:
   - openapi/schemas/search.yaml
   - openapi/schemas/task-attachments.yaml
   - openapi/schemas/task-actions.yaml
+  - openapi/schemas/task-activity.yaml
   - openapi/schemas/task-checklist.yaml
   - openapi/schemas/task-context.yaml
   - openapi/schemas/task-dependencies.yaml

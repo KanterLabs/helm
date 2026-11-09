@@ -51,6 +51,22 @@ budget or narrow the Focus instead of returning a cursor that cannot advance.
 Queue continuation can repeat current Backlog evidence; deduplicate by task ID
 when combining reports. Reports are current evidence, not durable execution plans.
 
+When the server reports the neglect signal, review uses it instead of reading
+timelines: `--inactive-days` becomes the server's `inactive_days` (1-3650; a
+larger value keeps version 1), the Backlog part is one neglect listing plus
+the `activity_status=undetermined` listing, and output adds `activity_signal`
+(`path: "server"`, server `evaluated_at`, `activity_coverage`, `unused_limits`)
+and per-task `not_after` and `assessment` (`inactive`, `active`,
+`undetermined`, `unknown`, `pending`). New findings are `activity_undetermined`
+and `activity_pending`; incomplete coverage adds the warning
+`activity_coverage_incomplete` and makes the review partial. On that path
+`--timeline-limit` has no effect and is listed in `unused_limits`;
+`--history-limit` still caps cards inspected per call; `--focus-limit`,
+`--task-limit`, `--request-limit` and `--time-limit` keep their meaning.
+`coverage.histories_read` stays 0 and `histories_unavailable` counts unknown
+and pending cards. Without the signal, output is byte-for-byte version 1 and
+has no `activity_signal` key. See [Focus planning](focus-planning.md).
+
 Activity classification version 1 compares actual task-scope/state fields,
 human comments, dependency/checklist changes, and changing progress/evidence.
 New `task.updated` events include additive `changed_fields` containing actual

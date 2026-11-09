@@ -203,7 +203,7 @@ func (s *Server) myWork(w http.ResponseWriter, r *http.Request, identity auth.Id
 		// ordering; task numbers are not a seek key for that ordering.
 		next = encodeCursor(filter.Cursor + len(tasks))
 	}
-	s.writeCollection(w, tasks, next)
+	s.writeTaskCollectionWithActivity(w, r, tasks, next)
 }
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request, identity auth.Identity) {

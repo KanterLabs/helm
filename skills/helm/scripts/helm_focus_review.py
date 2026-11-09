@@ -6,8 +6,10 @@ from urllib.parse import quote, urlencode
 
 from helm_config import HelmError, MAX_RELEASE_QUEUE_RESTARTS
 from helm_collections import _release_project, _release_reference, _data, _collection_cursor
-from helm_focus_activity import activity_evidence, parse_time
+from helm_focus_activity import activity_evidence
+from helm_focus_findings import _findings, _sort_task
 from helm_focus_reader import ReviewReader, ReviewLimit, read_cursor, write_cursor
+from helm_focus_signal import Signal, listing_supports, neglect_query, supported, task_supports
 
 
 def _positive(args, name, default, maximum):
@@ -22,50 +24,6 @@ def _scope(task, project):
         raise HelmError('Focus review received a task outside its project')
     if not task.get('id') or not task.get('key'):
         raise HelmError('Focus review received an invalid task')
-
-
-def _sort_task(task, columns, now, dispositions=()):
-    due = parse_time(task.get('due_at'))
-    blocked = (task.get('dependency_summary') or {}).get('blocked') or columns.get(task.get('column_id')) == 'blocked'
-    return (0 if 'owned' in dispositions else 1,
-            0 if due and due <= now else 1,
-            0 if blocked or set(dispositions) & {'dependency_blocked', 'manually_blocked', 'cross_release_conflict'} else 1,
-            task.get('key', ''))
-
-
-def _findings(task, activity, now, days, semantic, disposition):
-    rows = []
-    def add(reason, next_action, timestamp=None, source=None):
-        rows.append({'task_id': task['id'], 'task_key': task['key'],
-                     'focus_id': task.get('release_id'), 'reason': reason,
-                     'at': timestamp, 'source': source, 'next_action': next_action})
-    due = parse_time(task.get('due_at'))
-    if due and due <= now:
-        add('overdue', 'Review the due work and agree a concrete next action.', task['due_at'], 'task.due_at')
-    if semantic == 'blocked' or (task.get('dependency_summary') or {}).get('blocked'):
-        add('blocked', 'Inspect unresolved prerequisites or the recorded manual blocker.')
-    if disposition in {'owned', 'claimed_elsewhere', 'cross_release_conflict', 'manually_blocked', 'dependency_blocked'}:
-        actions = {'owned': 'Resume owned work before claiming another card.',
-                   'claimed_elsewhere': 'Coordinate with the current owner; do not override the claim.',
-                   'cross_release_conflict': 'Review the prerequisite assigned to another active Focus.',
-                   'manually_blocked': 'Resolve the recorded manual blocker within authorized scope.',
-                   'dependency_blocked': 'Review the prerequisite before claiming dependent work.'}
-        add(disposition, actions[disposition])
-    at = parse_time(activity.get('at'))
-    if activity['status'] == 'known' and at and (now - at).total_seconds() >= days * 86400:
-        add('inactive', 'Choose resume, clarify, defer with a review trigger, or close within authorized scope.',
-            activity['at'], activity['source'])
-    elif activity['status'] != 'known':
-        add('activity_unknown', 'Inspect the missing or ambiguous history before drawing an inactivity conclusion.')
-    if not task.get('assignee') and not task.get('claimed_by'):
-        add('unowned', 'Identify who should take the next action; do not auto-assign.')
-    if not (task.get('agent_work') or {}).get('next_action'):
-        add('next_action_missing', 'Clarify the next step; absence of structured progress is not a failure.')
-    description = (task.get('description') or '').casefold()
-    if not (task.get('checklist_summary') or {}).get('total') and not any(
-            word in description for word in ('acceptance', 'checkpoint', 'finish condition')):
-        add('acceptance_evidence_missing', 'Read the card and clarify its finish condition if needed.')
-    return rows
 
 
 def cmd_focus_review(client, args):
@@ -91,6 +49,29 @@ def cmd_focus_review(client, args):
         backlog_after = state.get('backlog_after', '')
         focus_next, backlog_next = focus_after, backlog_after
         offset = state.get('offset', 0)
+        days = limits['inactive_days']
+        # Server neglect signal (TC-381): known from a prior page, or detected
+        # below at no extra request. None keeps version 1 byte-for-byte.
+        signal = Signal(days) if state.get('signal') else None
+        if signal and not supported(days):
+            raise HelmError('This continuation used the server signal; keep --inactive-days at most 3650')
+        undetermined_after = state.get('undetermined_after', '')
+        undetermined_next = undetermined_after
+        backlog_listed = False
+
+        def signal_state(after):
+            return {'signal': 1, 'undetermined_after': after} if signal else {}
+
+        def neglect_page(query):
+            payload, _ = reader.call('GET', f'/projects/{quote(project_id, safe="")}/tasks?' + urlencode(query))
+            if not listing_supports(payload):
+                raise HelmError('The server stopped reporting the neglect signal; restart the review without --cursor')
+            signal.observe(payload)
+            return payload
+
+        def anchor():
+            # One server instant and coverage when no Backlog listing ran.
+            neglect_page(neglect_query(days, limit=1, **({'release': selected[0]['id']} if focus_ref else {})))
         fingerprint = ''
         selected = []
         columns = {}
@@ -145,15 +126,38 @@ def cmd_focus_review(client, args):
                     dispositions.setdefault(task['id'], set()).add(item.get('disposition'))
             if not focus_ref and backlog_after != '!':
                 query = {'state': 'backlog', 'release': 'unassigned', 'limit': limits['task_limit']}
+                if supported(days):  # older servers ignore it: same request, same answer
+                    query['inactive_days'] = days
                 if backlog_after:
                     query['cursor'] = backlog_after
                 payload, _ = reader.call('GET', f'/projects/{quote(project_id, safe="")}/tasks?' + urlencode(query))
+                backlog_listed = True
+                if listing_supports(payload):
+                    signal = signal or Signal(days)
+                    signal.observe(payload)
+                elif signal:
+                    raise HelmError('The server stopped reporting the neglect signal; restart the review without --cursor')
                 for task in _data(payload):
                     _scope(task, project_id)
                     scope[task['id']] = task
                 backlog_next = _collection_cursor(payload) or '!'
             elif focus_ref:
                 backlog_next = '!'
+            if signal and not focus_ref and undetermined_after != '!':
+                # Bounded cards inside the window: undetermined, never active.
+                query = neglect_query(days, 'undetermined', state='backlog', release='unassigned',
+                                      limit=limits['task_limit'])
+                if undetermined_after:
+                    query['cursor'] = undetermined_after
+                payload = neglect_page(query)
+                for task in _data(payload):
+                    _scope(task, project_id)
+                    scope[task['id']] = task
+                undetermined_next = _collection_cursor(payload) or '!'
+            elif signal and focus_ref:
+                undetermined_next = '!'
+            if signal and signal.evaluated_at is None:
+                anchor()
             inventory_complete = True
             tasks = sorted((t for t in scope.values() if not t.get('completed_at')
                             and columns.get(t.get('column_id')) != 'completed'),
@@ -168,19 +172,25 @@ def cmd_focus_review(client, args):
                 if task.get('completed_at') or columns.get(task.get('column_id')) == 'completed':
                     offset += 1
                     continue
+                if signal is None and supported(days) and not backlog_listed and task_supports(task):
+                    signal = Signal(days)
+                    anchor()
                 activity = {'status': 'unknown', 'at': None, 'source': None, 'reason': 'history_unavailable'}
                 timeline_cursor = ''
-                try:
-                    payload, _ = reader.call('GET', '/tasks/' + quote(task['id'], safe='') + '/timeline?' +
-                                             urlencode({'limit': limits['timeline_limit']}))
-                    timeline_cursor = _collection_cursor(payload)
-                    activity = activity_evidence(task, _data(payload), complete=not timeline_cursor)
-                    result['coverage']['histories_read'] += 1
-                except ReviewLimit:
-                    raise
-                except HelmError as exc:
-                    result['warnings'].append({'task_key': task['key'], 'reason': 'history_unavailable',
-                                               'status': exc.status_code})
+                if signal:
+                    activity = signal.assess(task)  # no timeline read on the server path
+                else:
+                    try:
+                        payload, _ = reader.call('GET', '/tasks/' + quote(task['id'], safe='') + '/timeline?' +
+                                                 urlencode({'limit': limits['timeline_limit']}))
+                        timeline_cursor = _collection_cursor(payload)
+                        activity = activity_evidence(task, _data(payload), complete=not timeline_cursor)
+                        result['coverage']['histories_read'] += 1
+                    except ReviewLimit:
+                        raise
+                    except HelmError as exc:
+                        result['warnings'].append({'task_key': task['key'], 'reason': 'history_unavailable',
+                                                   'status': exc.status_code})
                 task_dispositions = dispositions.get(task['id'], set())
                 result['tasks'].append({'id': task['id'], 'key': task['key'], 'title': task.get('title'),
                                         'activity': activity, 'timeline_next': timeline_cursor,
@@ -200,28 +210,37 @@ def cmd_focus_review(client, args):
             if offset < len(tasks):
                 result['next_cursor'] = write_cursor(project_id, focus_ref, offset=offset,
                     fingerprint=fingerprint, focus_after=focus_after, backlog_after=backlog_after,
-                    queues=state.get('queues', {}))
+                    queues=state.get('queues', {}), **signal_state(undetermined_after))
             elif any(value != '!' for value in queues_next.values()):
                 result['next_cursor'] = write_cursor(project_id, focus_ref, offset=0,
-                    focus_after=focus_after, backlog_after=backlog_after, queues=queues_next)
-            elif focus_next != '!' or backlog_next != '!':
+                    focus_after=focus_after, backlog_after=backlog_after, queues=queues_next,
+                    **signal_state(undetermined_after))
+            elif focus_next != '!' or backlog_next != '!' or (signal and undetermined_next != '!'):
                 result['next_cursor'] = write_cursor(project_id, focus_ref, offset=0,
-                    focus_after=focus_next, backlog_after=backlog_next)
+                    focus_after=focus_next, backlog_after=backlog_next, **signal_state(undetermined_next))
         except ReviewLimit:
             result['warnings'].append({'reason': 'request_or_time_budget_exhausted'})
             if inventory_complete:
                 result['next_cursor'] = write_cursor(project_id, focus_ref, offset=offset,
                     fingerprint=fingerprint, focus_after=focus_after, backlog_after=backlog_after,
-                    queues=state.get('queues', {}))
+                    queues=state.get('queues', {}), **signal_state(undetermined_after))
             else:
                 result['resume'] = {'restart_required': True,
                     'next_action': 'Increase --request-limit/--time-limit or narrow --focus; inventory could not finish within this budget.'}
         result['coverage'].update(requests=reader.requests, candidates=len(scope),
                                   inventory_complete=inventory_complete,
                                   ordering='owned queue work, available due/blocker fields, stable task key; findings order applies to inspected evidence',
-                                  histories_unavailable=sum(t['activity']['status'] != 'known' for t in result['tasks']))
+                                  histories_unavailable=sum(
+                                      t['activity'].get('assessment') in ('unknown', 'pending') if signal
+                                      else t['activity']['status'] != 'known' for t in result['tasks']))
         result['coverage']['partial'] = bool(result['next_cursor'] or
             result['coverage']['histories_unavailable'] or not inventory_complete)
+        if signal:
+            result['activity_signal'] = signal.summary()
+            if signal.partial:
+                result['warnings'].append({'reason': 'activity_coverage_incomplete', **signal.coverage,
+                    'next_action': 'Rerun once the server catches up; incomplete coverage is not evidence that nothing is neglected.'})
+                result['coverage']['partial'] = True
         order = {'overdue': 0, 'blocked': 1, 'cross_release_conflict': 1,
                  'manually_blocked': 1, 'dependency_blocked': 1, 'inactive': 2}
         result['findings'].sort(key=lambda item: (order.get(item['reason'], 3), item['task_key'], item['reason']))

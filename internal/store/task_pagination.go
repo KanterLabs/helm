@@ -20,6 +20,10 @@ const (
 	TaskSortUpdatedAt = "updated_at"
 	TaskSortPriority  = "priority"
 	TaskSortTitle     = "title"
+	// TaskSortNotAfter orders by the neglect signal's not_after bound;
+	// tasks without a bound sort after every time ascending
+	// (task_activity_signal_sort.go).
+	TaskSortNotAfter = "not_after"
 )
 
 const taskCursorPrefix = "tc1."
@@ -65,6 +69,8 @@ type TaskCursor struct {
 	ID                     string  `json:"id"`
 	Value                  string  `json:"value,omitempty"`
 	PriorityRank           int     `json:"priority_rank,omitempty"`
+	// Null marks a not_after cursor whose task had no bound.
+	Null bool `json:"null,omitempty"`
 }
 
 // NormalizeTaskSort validates and canonicalizes a public sort name. Aliases
@@ -85,8 +91,10 @@ func NormalizeTaskSort(value string) (string, error) {
 		return TaskSortPriority, nil
 	case TaskSortTitle, "name":
 		return TaskSortTitle, nil
+	case TaskSortNotAfter, "not-after":
+		return TaskSortNotAfter, nil
 	default:
-		return "", fmt.Errorf("sort must be board, position, number, created_at, updated_at, priority, or title")
+		return "", fmt.Errorf("sort must be board, position, number, created_at, updated_at, priority, title, or not_after")
 	}
 }
 
@@ -127,6 +135,8 @@ func EncodeTaskCursor(task Task, sort string, descending bool, collectionRevisio
 		cursor.Value = taskTitleSortKey(task.Title)
 	case TaskSortPriority:
 		cursor.PriorityRank = taskPriorityRank(task.Priority)
+	case TaskSortNotAfter:
+		cursor.Value, cursor.Null = taskNotAfterSortValue(task)
 	}
 	payload, err := json.Marshal(cursor)
 	if err != nil {
@@ -176,6 +186,13 @@ func DecodeTaskCursor(value string) (TaskCursor, error) {
 		if cursor.PriorityRank < 0 || cursor.PriorityRank > 3 {
 			return TaskCursor{}, errors.New("cursor is invalid")
 		}
+	case TaskSortNotAfter:
+		if cursor.Null == (cursor.Value != "") {
+			return TaskCursor{}, errors.New("cursor is invalid")
+		}
+	}
+	if cursor.Null && canonical != TaskSortNotAfter {
+		return TaskCursor{}, errors.New("cursor is invalid")
 	}
 	return cursor, nil
 }
@@ -226,6 +243,8 @@ func taskOrderSQL(sort string, descending bool) (string, error) {
 		return taskPriorityExpression() + " " + direction + ", t.number " + direction + ", t.id " + direction, nil
 	case TaskSortTitle:
 		return "lower(t.title) " + direction + ", t.number " + direction + ", t.id " + direction, nil
+	case TaskSortNotAfter:
+		return taskNotAfterOrderSQL(direction), nil
 	default:
 		return "", errors.New("unsupported task sort")
 	}
@@ -265,6 +284,8 @@ func appendTaskCursorPredicate(query string, args []any, cursor TaskCursor, desc
 		expression := taskPriorityExpression()
 		predicate = "(" + expression + " " + operator + " ? OR (" + expression + " = ? AND (t.number " + operator + " ? OR (t.number = ? AND t.id " + operator + " ?))))"
 		args = append(args, cursor.PriorityRank, cursor.PriorityRank, cursor.Number, cursor.Number, cursor.ID)
+	case TaskSortNotAfter:
+		predicate, args = taskNotAfterCursorPredicate(args, cursor, descending)
 	default:
 		return "", args, errors.New("unsupported task cursor sort")
 	}

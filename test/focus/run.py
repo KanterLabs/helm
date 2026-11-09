@@ -97,9 +97,18 @@ def main():
                 for task in tasks + [backlog]:
                     db.execute("UPDATE tasks SET created_at='2026-01-01T00:00:00Z' WHERE id=?", (task['id'],))
                     db.execute("UPDATE events SET created_at='2026-01-01T00:00:00Z' WHERE task_id=?", (task['id'],))
+            # A direct edit does not advance the event cursor; an excluded
+            # claim/release makes the server signal (TC-381) revisit each card.
+            for task in tasks + [backlog]:
+                current = api('GET', '/tasks/' + task['id'])
+                claimed = api('POST', '/tasks/' + task['id'] + '/claim', {}, version=current['version'])
+                api('POST', '/tasks/' + task['id'] + '/release', {}, version=claimed['version'])
+            with sqlite3.connect(base / 'test.db') as db:
                 before = db.execute('SELECT COUNT(*) FROM events').fetchone()[0]
             review = cli('focus', 'review', '--project', 'SYN')
             assert review['project']['id'] == project['id']
+            # The candidate server has the neglect signal; v1 is neglect case 20.
+            assert review['activity_signal']['path'] == 'server', review.get('activity_signal')
             assert any(item['reason'] == 'inactive' for item in review['findings']), review
             with sqlite3.connect(base / 'test.db') as db:
                 assert db.execute('SELECT COUNT(*) FROM events').fetchone()[0] == before
@@ -107,7 +116,7 @@ def main():
             bounded = cli('focus', 'review', '--project', 'SYN', '--history-limit', '1')
             assert bounded['coverage']['partial'] and bounded.get('next_cursor'), bounded
             following = cli('focus', 'review', '--project', 'SYN', '--history-limit', '1', '--cursor', bounded['next_cursor'])
-            assert following['coverage']['histories_read'] == 1
+            assert len(following['tasks']) == 1 and following['coverage']['histories_read'] == 0, following
             tiny = cli('focus', 'review', '--project', 'SYN', '--request-limit', '3')
             assert tiny['coverage']['partial'] and not tiny['next_cursor'], tiny
             assert tiny['resume']['restart_required'], tiny
@@ -116,14 +125,22 @@ def main():
                                         'partial': bounded['coverage'], 'denied': denied})
             # New events must distinguish actual scope changes from metadata;
             # this real HTTP failure is recorded before adding that behavior.
-            updated = api('PATCH', '/tasks/' + backlog['id'], {'priority': 'high'}, version=backlog['version'])
+            updated = api('PATCH', '/tasks/' + backlog['id'], {'priority': 'high'},
+                          version=api('GET', '/tasks/' + backlog['id'])['version'])
             history = api('GET', '/tasks/' + backlog['id'] + '/timeline')
             patch = next(row['change']['payload'] for row in history['data']
                          if row['kind'] == 'task_change' and row['change']['event_type'] == 'task.updated')
             assert patch.get('changed_fields') == [], patch
             updated = api('PATCH', '/tasks/' + backlog['id'], {'description': 'Acceptance: a concrete next action'}, version=updated['version'])
             fresh = cli('focus', 'review', '--project', 'SYN')
-            evidence = next(t['activity'] for t in fresh['tasks'] if t['id'] == backlog['id'])
+            # Server path: a card with recent known activity is not neglected,
+            # so it leaves the Backlog review; the task read names the source.
+            assert backlog['id'] not in {t['id'] for t in fresh['tasks']}, fresh['tasks']
+            for _ in range(50):
+                evidence = api('GET', '/tasks/' + backlog['id'])['activity']
+                if evidence['status'] != 'pending':
+                    break
+                time.sleep(.1)
             assert evidence['source'] == 'task.scope_or_state_changed', evidence
             receipt['scenarios'].append({'name': 'scope_vs_metadata_events', 'activity': evidence})
             receipt['scenarios'].extend(run_journeys(

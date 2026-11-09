@@ -119,6 +119,15 @@ feed uses a monotonic integer `--after` cursor. `--all` follows pages and
 returns an empty terminal cursor. Timeline `--kind` accepts `agent_progress`,
 `comment`, or `task_change`.
 
+Neglect-signal servers add read-only `activity` to task reads (never to
+mutation responses): `status` (`known`, `bounded`, `unknown`, transport-only
+`pending`), `last_meaningful_at`, `source`, `not_after`, `reason`,
+`classification_version` 2. Project task lists accept `inactive_days` (1-3650;
+inactive known/bounded plus every unknown open card), `activity_status`
+(`known|bounded|unknown|undetermined`; `undetermined` needs `inactive_days`)
+and `sort=not_after`, and then return `evaluated_at` (one per page chain) and
+`activity_coverage`. Older servers ignore the filters. Compare times as instants.
+
 ## Releases and release-bound work
 
 A product release is a project-local planning boundary. It is separate from

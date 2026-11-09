@@ -263,8 +263,9 @@ the current chat is ending; leave safe recovery metadata for the next session
 when work remains.
 When that work belongs to a Focus, include its ID, remaining relevant task keys,
 blockers, and next action in the current task's handoff; re-read live records
-on resumption. See the Focus planning reference for bounded review and safe
-continuation.
+on resumption. See the Focus planning reference for bounded review, server
+activity statuses (`bounded`, `undetermined` and `pending` are never active),
+and safe continuation.
 
 ## Authentication and failures
 

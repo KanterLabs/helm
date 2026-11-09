@@ -114,7 +114,7 @@ func (s *Server) issues(w http.ResponseWriter, r *http.Request, identity auth.Id
 	if more && len(issues) > 0 {
 		next = encodeCursor(filter.Cursor + len(issues))
 	}
-	s.writeCollection(w, issues, next)
+	s.writeTaskCollectionWithActivity(w, r, issues, next)
 }
 
 func (s *Server) issueAction(w http.ResponseWriter, r *http.Request, identity auth.Identity, reference, action string) {

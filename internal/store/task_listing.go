@@ -21,7 +21,8 @@ func (s *Store) ListTasksWithExtra(ctx context.Context, projectID string, filter
 // task. Retained callers can continue using ListTasks/ListTasksWithExtra with
 // the integer offset in TaskFilter.Cursor.
 func (s *Store) ListTasksCursor(ctx context.Context, projectID string, filter TaskFilter) ([]Task, bool, string, error) {
-	return s.listTasksCursor(ctx, projectID, filter, true)
+	page, err := s.listTasksCursor(ctx, projectID, filter, true)
+	return page.Tasks, page.HasMore, page.NextCursor, err
 }
 
 // taskCollectionSnapshot is the read-side boundary for keyset pagination.
@@ -63,43 +64,53 @@ func taskCollectionChanged(expected, current taskCollectionSnapshot) error {
 }
 
 func (s *Store) listTasks(ctx context.Context, projectID string, filter TaskFilter, allowExtra bool) ([]Task, bool, error) {
-	tasks, more, _, err := s.listTasksCursor(ctx, projectID, filter, allowExtra)
-	return tasks, more, err
+	page, err := s.listTasksCursor(ctx, projectID, filter, allowExtra)
+	return page.Tasks, page.HasMore, err
 }
 
-func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter TaskFilter, allowExtra bool) ([]Task, bool, string, error) {
+func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter TaskFilter, allowExtra bool) (TaskPage, error) {
+	tasks, more, next, activity, err := s.listTasksCursorPage(ctx, projectID, filter, allowExtra)
+	return TaskPage{Tasks: tasks, HasMore: more, NextCursor: next, Activity: activity}, err
+}
+
+func (s *Store) listTasksCursorPage(ctx context.Context, projectID string, filter TaskFilter, allowExtra bool) ([]Task, bool, string, *TaskActivityListing, error) {
+	fail := func(err error) ([]Task, bool, string, *TaskActivityListing, error) { return nil, false, "", nil, err }
 	sortName, err := NormalizeTaskSort(filter.Sort)
 	if err != nil {
-		return nil, false, "", invalid(err.Error(), nil)
+		return fail(invalid(err.Error(), nil))
 	}
 	filter.Sort = sortName
 	var cursor TaskCursor
 	useKeyset := strings.TrimSpace(filter.CursorToken) != ""
-	readAt := time.Now().UTC()
+	readAt := s.evaluationNow()
 	var expectedSnapshot taskCollectionSnapshot
 	if useKeyset {
 		cursor, err = DecodeTaskCursor(filter.CursorToken)
 		if err != nil {
-			return nil, false, "", invalid(err.Error(), nil)
+			return fail(invalid(err.Error(), nil))
 		}
 		if cursor.Sort != filter.Sort || cursor.Descending != filter.Descending {
-			return nil, false, "", invalid("cursor does not match the requested sort", nil)
+			return fail(invalid("cursor does not match the requested sort", nil))
 		}
 		if cursor.ProjectID != projectID {
-			return nil, false, "", invalid("cursor does not match the requested project", nil)
+			return fail(invalid("cursor does not match the requested project", nil))
 		}
 		readAt, err = time.Parse(time.RFC3339Nano, cursor.ReadAt)
 		if err != nil {
-			return nil, false, "", invalid("cursor is invalid", nil)
+			return fail(invalid("cursor is invalid", nil))
 		}
 		readAt = readAt.UTC()
 	}
+	signal, err := s.beginTaskActivityListing(ctx, projectID, filter, readAt)
+	if err != nil {
+		return fail(err)
+	}
 	expectedSnapshot, err = s.taskCollectionSnapshot(ctx, projectID)
 	if err != nil {
-		return nil, false, "", err
+		return fail(err)
 	}
 	if useKeyset && (expectedSnapshot.EventCursor != cursor.CollectionRevision || expectedSnapshot.TaskCollectionRevision != cursor.TaskCollectionRevision) {
-		return nil, false, "", taskCollectionChanged(taskCollectionSnapshot{EventCursor: cursor.CollectionRevision, TaskCollectionRevision: cursor.TaskCollectionRevision}, expectedSnapshot)
+		return fail(taskCollectionChanged(taskCollectionSnapshot{EventCursor: cursor.CollectionRevision, TaskCollectionRevision: cursor.TaskCollectionRevision}, expectedSnapshot))
 	}
 	staleCutoff := agentWorkStaleCutoff(readAt)
 	if filter.Limit <= 0 {
@@ -199,7 +210,7 @@ func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter Ta
 				  AND prerequisite.deleted_at IS NULL
 				  AND (prerequisite.completed_at IS NULL OR prerequisite_column.semantic_state <> 'completed'))`
 		default:
-			return nil, false, "", invalid("dependency must be blocked or ready", map[string]any{"dependency": filter.Dependency})
+			return fail(invalid("dependency must be blocked or ready", map[string]any{"dependency": filter.Dependency}))
 		}
 	}
 	// Completion suppresses the liveness classification of a retained
@@ -237,15 +248,16 @@ func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter Ta
 		query += ` AND t.updated_at > ?`
 		args = append(args, filter.UpdatedAfter.UTC().Format(time.RFC3339Nano))
 	}
+	query, args = signal.appendFilter(query, args, filter)
 	if useKeyset {
 		query, args, err = appendTaskCursorPredicate(query, args, cursor, filter.Descending)
 		if err != nil {
-			return nil, false, "", invalid(err.Error(), nil)
+			return fail(invalid(err.Error(), nil))
 		}
 	}
 	order, err := taskOrderSQL(filter.Sort, filter.Descending)
 	if err != nil {
-		return nil, false, "", invalid(err.Error(), nil)
+		return fail(invalid(err.Error(), nil))
 	}
 	// Offset remains available only for retained callers that do not provide a
 	// keyset token. New board requests use a strict tuple predicate and start
@@ -256,22 +268,23 @@ func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter Ta
 		query += ` OFFSET ?`
 		args = append(args, filter.Cursor)
 	}
+	s.observe(query, args)
 	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, false, "", err
+		return fail(err)
 	}
 	result := make([]Task, 0, filter.Limit)
 	for rows.Next() {
 		task, err := taskFromRow(rows)
 		if err != nil {
 			rows.Close()
-			return nil, false, "", err
+			return fail(err)
 		}
 		result = append(result, task)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, false, "", err
+		return fail(err)
 	}
 	rows.Close()
 	hasMore := len(result) > filter.Limit
@@ -281,24 +294,32 @@ func (s *Store) listTasksCursor(ctx context.Context, projectID string, filter Ta
 	}
 	for i := range result {
 		if err := s.enrichTaskAt(ctx, &result[i], readAt); err != nil {
-			return nil, false, "", err
+			return fail(err)
 		}
 	}
 	if err := s.populateTaskDependencySummaries(ctx, result); err != nil {
-		return nil, false, "", err
+		return fail(err)
 	}
 	if err := s.populateTaskReleaseReferences(ctx, result); err != nil {
-		return nil, false, "", err
+		return fail(err)
+	}
+	pending, err := s.populateTaskActivityListing(ctx, signal, result, expectedSnapshot)
+	if err != nil {
+		return fail(err)
 	}
 	currentSnapshot, err := s.taskCollectionSnapshot(ctx, projectID)
 	if err != nil {
-		return nil, false, "", err
+		return fail(err)
 	}
 	if currentSnapshot != expectedSnapshot {
-		return nil, false, "", taskCollectionChanged(expectedSnapshot, currentSnapshot)
+		return fail(taskCollectionChanged(expectedSnapshot, currentSnapshot))
+	}
+	activity, err := s.taskActivityListingMetadata(ctx, signal, projectID, currentSnapshot, pending)
+	if err != nil {
+		return fail(err)
 	}
 	if hasMore && len(result) > 0 {
 		nextCursor = EncodeTaskCursor(result[len(result)-1], filter.Sort, filter.Descending, currentSnapshot.EventCursor, readAt, currentSnapshot.TaskCollectionRevision)
 	}
-	return result, hasMore, nextCursor, nil
+	return result, hasMore, nextCursor, activity, nil
 }

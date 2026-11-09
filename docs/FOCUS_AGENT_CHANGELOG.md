@@ -31,6 +31,19 @@ the candidate to retain its published screenshot guidance and updater behavior.
   explicitly describe inspected evidence rather than ranking an unseen project.
 - Review performs GET requests only and does not move, assign, claim or close cards.
 
+## Server neglect signal in review (unreleased, TC-381)
+
+- `focus review` detects the server signal at no extra request and then reads
+  no timelines: findings come from `Task.activity`, one Backlog neglect
+  listing and the `undetermined` listing, judged at the server's
+  `evaluated_at`. `--inactive-days` maps to `inactive_days` (1-3650).
+- Output adds `activity_signal` (path, version 2, `evaluated_at`,
+  `activity_coverage`, `unused_limits`), per-task `not_after` and
+  `assessment`, and `activity_undetermined`/`activity_pending` findings.
+  Incomplete coverage is partial with an explicit warning.
+- `--timeline-limit` is reported unused on that path; other budgets keep
+  their meaning. Against older servers output is byte-for-byte version 1.
+
 ## Focus management commands
 
 - Add `focus create`, `edit`, `assign`, `unassign`, `complete`, `reopen`, and

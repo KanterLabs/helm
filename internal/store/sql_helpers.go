@@ -7,11 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
 type Store struct {
 	DB *sql.DB
+	// activitySignal is the process's one neglect-signal projector, if any;
+	// committed write transactions wake it (store_transactions.go).
+	activitySignal atomic.Pointer[TaskActivitySignalProjector]
+	// evaluationClock and observeQuery are test seams for neglect listings
+	// (task_activity_signal_clock.go); nil outside in-package tests.
+	evaluationClock func() time.Time
+	observeQuery    func(query string, args []any)
 }
 
 func New(database *sql.DB) *Store { return &Store{DB: database} }
@@ -117,21 +125,6 @@ func taskFromRow(scanner interface{ Scan(...any) error }) (Task, error) {
 const taskColumns = `t.id, t.number, t.project_id, t.kind, t.column_id, t.title, t.description,
 	t.priority, t.position, t.assignee_id, t.claimed_by, t.claim_expires_at, t.due_at,
 	t.version, t.completed_at, t.created_at, t.updated_at, t.parent_task_id, t.release_id`
-
-func (s *Store) withTx(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	if err := fn(tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	return nil
-}
 
 func insertEvent(ctx context.Context, tx dependencySQL, eventType, actorID, projectID, taskID string, payload any) (int64, error) {
 	id := newID()
