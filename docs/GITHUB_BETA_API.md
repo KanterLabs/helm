@@ -47,6 +47,23 @@ verified titles, check results or deployment state.
   Agents need `tasks:read` and `?authorization_id=<grant-id>` matching their
   exact agent/token and project. Readiness uses the granting human account;
   humans omit this parameter and check their own account.
+- `GET /projects/{project}/github/branches`: requires `tasks:read` and
+  project access; optional `?repository=owner/name` must be one the project
+  selected and defaults to the first. Contacts GitHub and stores nothing.
+  Returns `{state, message, repository, repositories, base, staging, branches,
+  partial, fetched_at}`. `base` is `main`, otherwise the default branch:
+  `{name, sha, committed_at?}`. `staging` is the `beta` branch measured
+  against `base`, or `null` without one. Each branch is `{name, sha,
+  committed_at?, ahead, behind, compared, in_staging?}`: `ahead` counts its
+  commits missing from `base`, `behind` counts `base` commits it lacks.
+  Counts mean nothing unless `compared` is true, so never show an uncompared
+  branch as merged. `in_staging` appears only after a successful comparison
+  with `staging`. State is `ready|no_repository|not_configured|
+  permission_required|repository_not_allowed|rate_limited|unavailable`; any
+  state but `ready` carries no branch data. A report compares at most 300
+  branches and starts at most 160 new comparisons, so `partial` means repeat
+  the request to continue. Finished comparisons are kept in memory by commit
+  pair and dropped with every other private cache on permission loss.
 
 Runtime config: `HELM_GITHUB_ENABLED`, `HELM_GITHUB_TOKEN_FILE`,
 `HELM_GITHUB_REPOSITORIES` (comma-separated owner/name allowlist). Credential

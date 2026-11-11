@@ -1,0 +1,155 @@
+{
+  "components": {
+    "schemas": {
+      "GithubBranchTip": {
+        "type": "object",
+        "required": [
+          "name",
+          "sha"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "committed_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubBranch": {
+        "type": "object",
+        "description": "One branch measured against the base trunk. Counts mean nothing unless compared is true; an uncompared branch must never be treated as merged.",
+        "required": [
+          "name",
+          "sha",
+          "ahead",
+          "behind",
+          "compared"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "committed_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "ahead": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Commits on this branch that the base trunk lacks."
+          },
+          "behind": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Commits on the base trunk that this branch lacks."
+          },
+          "compared": {
+            "type": "boolean"
+          },
+          "in_staging": {
+            "type": "boolean",
+            "description": "Present only after a successful comparison with the staging trunk. True when staging already contains every commit of this branch."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GithubBranchReport": {
+        "type": "object",
+        "required": [
+          "state",
+          "message",
+          "repository",
+          "repositories",
+          "base",
+          "staging",
+          "branches",
+          "partial",
+          "fetched_at"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "no_repository",
+              "not_configured",
+              "permission_required",
+              "repository_not_allowed",
+              "rate_limited",
+              "unavailable"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string",
+            "description": "The reported repository, or empty when the project selected none."
+          },
+          "repositories": {
+            "type": "array",
+            "description": "Distinct repositories selected by the project.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10
+          },
+          "base": {
+            "description": "Null unless state is ready.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GithubBranchTip"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "staging": {
+            "description": "The beta trunk measured against base; null without a beta branch.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GithubBranch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "branches": {
+            "type": "array",
+            "description": "Every other branch, ordered by name. Empty unless state is ready.",
+            "items": {
+              "$ref": "#/components/schemas/GithubBranch"
+            },
+            "maxItems": 300
+          },
+          "partial": {
+            "type": "boolean",
+            "description": "True when the listing was truncated or some branches could not be compared yet."
+          },
+          "fetched_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

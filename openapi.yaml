@@ -153,6 +153,7 @@ x-helm-fragments:
   - openapi/paths/github-audit-evidence.yaml
   - openapi/paths/github-audit-job.yaml
   - openapi/paths/github-audit-start.yaml
+  - openapi/paths/github-branches.yaml
   - openapi/paths/github-integration.yaml
   - openapi/paths/github-selection.yaml
   - openapi/paths/hooks-tickets-email.yaml
@@ -261,6 +262,7 @@ x-helm-fragments:
   - openapi/schemas/github-audit-authorizations.yaml
   - openapi/schemas/github-audit-evidence.yaml
   - openapi/schemas/github-audit-jobs.yaml
+  - openapi/schemas/github-branches.yaml
   - openapi/schemas/github-integration.yaml
   - openapi/schemas/health.yaml
   - openapi/schemas/intelligence.yaml
