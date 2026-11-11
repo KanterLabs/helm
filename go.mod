@@ -2,7 +2,7 @@ module github.com/KanterLabs/helm
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	golang.org/x/crypto v0.55.0
