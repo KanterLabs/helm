@@ -2,14 +2,15 @@ import type { NavIconName } from './components/NavIcon.svelte';
 import type { Project } from './types';
 
 /** Project-scoped destinations nested under the active project in the sidebar. */
-export type ProjectNavView = 'board' | 'timeline' | 'releases' | 'roadmap' | 'audits';
+export type ProjectNavView = 'board' | 'timeline' | 'releases' | 'roadmap' | 'audits' | 'branches';
 
 export const projectNavItems: ReadonlyArray<{ view: ProjectNavView; label: string; icon: NavIconName }> = [
   { view: 'board', label: 'Board', icon: 'board' },
   { view: 'timeline', label: 'Timeline', icon: 'timeline' },
   { view: 'releases', label: 'Focus', icon: 'focus' },
   { view: 'roadmap', label: 'Progress', icon: 'progress' },
-  { view: 'audits', label: 'Audits', icon: 'audits' }
+  { view: 'audits', label: 'Audits', icon: 'audits' },
+  { view: 'branches', label: 'Branches', icon: 'branches' }
 ];
 
 /** Progress is the project-filtered roadmap, so it is active only with a project filter. */
@@ -23,6 +24,7 @@ const viewLabels: Record<string, string> = {
   timeline: 'Timeline',
   releases: 'Focus',
   audits: 'Audits',
+  branches: 'Branches',
   issues: 'Issues',
   tickets: 'Tickets',
   'my-work': 'My work',

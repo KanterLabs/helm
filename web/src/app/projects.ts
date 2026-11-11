@@ -8,13 +8,14 @@ import { loadProjectAdmin } from './admin';
 import { loadBoard } from './board/load';
 import { applyBoardRoute } from './board/pages';
 import { loadBoardTimeline } from './boardTimeline';
+import { loadBranches } from './branches';
 import { friendlyError, toast } from './feedback';
 import { applyIssueRouteFilters, loadIssueMetrics, loadIssues } from './issues';
 import { loadMyWork, loadSidebarCounts } from './myWork';
 import { clearSavedBoards } from './offline';
 import { loadReleasesPage } from './releases/load';
 import { loadRoadmap } from './roadmap';
-import { canonicalizeProjectFocusLocation, getAuditIdFromLocation, getProjectSlugFromLocation, getTaskRouteFromLocation, isProjectAuditLocation, isProjectReleasesLocation, isProjectRoadmapLocation, isProjectTimelineLocation, navigate, openTaskFromRoute } from './routing';
+import { canonicalizeProjectFocusLocation, getAuditIdFromLocation, getProjectSlugFromLocation, getTaskRouteFromLocation, isProjectAuditLocation, isProjectBranchesLocation, isProjectReleasesLocation, isProjectRoadmapLocation, isProjectTimelineLocation, navigate, openTaskFromRoute } from './routing';
 import { applySearchRouteFilters, loadSearch } from './search';
 import { loadAgents, loadCodexAccount } from './settings';
 import { board } from './state/board.svelte';
@@ -132,6 +133,10 @@ export async function loadProjects() {
       roadmapData.roadmapProjectId = undefined;
       workspace.auditIdFromRoute = getAuditIdFromLocation();
       workspace.view = 'audits';
+    } else if (routeProject && isProjectBranchesLocation()) {
+      roadmapData.roadmapProjectId = undefined;
+      workspace.view = 'branches';
+      await loadBranches(routeProject.id);
     } else if (routeProject && isProjectTimelineLocation()) {
       roadmapData.roadmapProjectId = undefined;
       workspace.view = 'timeline';

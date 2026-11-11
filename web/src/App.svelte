@@ -46,6 +46,7 @@
   import ProjectModal from './app/views/overlays/ProjectModal.svelte';
   import ReleaseModals from './app/views/overlays/ReleaseModals.svelte';
   import TaskModal from './app/views/overlays/TaskModal.svelte';
+  import BranchesView from './app/views/pages/BranchesView.svelte';
   import IssuesView from './app/views/pages/IssuesView.svelte';
   import MyWorkView from './app/views/pages/MyWorkView.svelte';
   import ReleasesView from './app/views/pages/ReleasesView.svelte';
@@ -220,6 +221,8 @@
           {:else}
             <div class="empty-state welcome-state"><div class="welcome-orbit"><span>R</span></div><span class="eyebrow">Choose a project</span><h1>Audits live with a board.</h1><p>Select a project first, then review its captured board audits.</p><button class="button primary button-large" type="button" on:click={() => setView('board')}>Browse projects</button></div>
           {/if}
+        {:else if workspace.view === 'branches'}
+          <BranchesView />
         {:else if workspace.view === 'search'}
           <SearchView />
         {:else if workspace.view === 'issues'}

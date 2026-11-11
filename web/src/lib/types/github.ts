@@ -24,6 +24,35 @@ export interface ProjectGithubSelection {
   repositories: GithubRepositorySelection[];
 }
 
+export interface GithubBranchTip {
+  name: string;
+  sha: string;
+  committed_at?: string;
+}
+
+/** Counts mean nothing unless `compared` is true; never treat it as merged. */
+export interface GithubBranch extends GithubBranchTip {
+  ahead: number;
+  behind: number;
+  compared: boolean;
+  /** Present only after a successful comparison with the staging trunk. */
+  in_staging?: boolean;
+}
+
+export type GithubBranchReportState = 'ready' | 'no_repository' | GithubIntegrationState | 'repository_not_allowed';
+
+export interface GithubBranchReport {
+  state: GithubBranchReportState | string;
+  message: string;
+  repository: string;
+  repositories: string[];
+  base: GithubBranchTip | null;
+  staging: GithubBranch | null;
+  branches: GithubBranch[];
+  partial: boolean;
+  fetched_at: string | null;
+}
+
 export type GithubAiState = 'connected' | 'not_connected' | 'disabled' | 'unavailable';
 
 export interface GithubReadiness {
