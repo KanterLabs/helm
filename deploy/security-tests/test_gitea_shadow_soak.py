@@ -10,72 +10,21 @@ or the exit status. A sentinel token stands in for the real one. No network.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 
 import gitea_shadow_soak_fixture as fx
+from gitea_shadow_soak_checks import both, commit, exits, expect, gate_unmet, is_class, streak
 from gitea_shadow_soak_fixture import SHA_7B6, SHA_498, SHA_912, Scenario, at, fake_sha
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "deploy/gitea-shadow-soak.py"
 TOKEN = "sentinel-token-9f8e7d6c5b4a"
+TOKEN_ENV = "HELM_SOAK_PROOF_TOKEN"
 GREEN = {"checks": "success", "browser": "success", "race": "success"}
-
-
-def commit(ledger, sha):
-    found = [c for c in ledger["commits"] if c["sha"] == sha or c["sha"].startswith(sha)]
-    if len(found) != 1:
-        raise AssertionError(f"expected one ledger commit for {sha}, found {len(found)}")
-    return found[0]
-
-
-def expect(condition, message):
-    if not condition:
-        raise AssertionError(message)
-
-
-def is_class(sha, klass, reason=None):
-    def check(result):
-        entry = commit(result["ledger"], sha)
-        expect(entry["class"] == klass, f"{sha[:8]} is {entry['class']} {entry['reasons']}, want {klass}")
-        if reason:
-            expect(reason in entry["reasons"], f"{sha[:8]} reasons {entry['reasons']} lack {reason}")
-    return check
-
-
-def streak(count, ended_by=None):
-    def check(result):
-        got = result["ledger"]["streak"]
-        expect(got["count"] == count, f"streak {got['count']}, want {count}")
-        end = (got["ended_by"] or {}).get("sha")
-        expect(end == ended_by, f"streak ended by {end}, want {ended_by}")
-    return check
-
-
-def both(*checks):
-    def check(result):
-        for item in checks:
-            item(result)
-    return check
-
-
-def exits(status, phrase=None, ledger_written=None):
-    def check(result):
-        expect(result["exit"] == status, f"exit {result['exit']}, want {status}: {result['stderr'][-300:]}")
-        if phrase:
-            expect(phrase in result["stderr"], f"stderr lacks {phrase!r}: {result['stderr'][-300:]}")
-        if ledger_written is not None:
-            expect((result["ledger"] is not None) == ledger_written, "ledger presence is wrong")
-    return check
-
-
-def gate_unmet(part):
-    def check(result):
-        gate = result["ledger"]["gate"]
-        expect(gate["met"] is False and gate[part] is False, f"gate {gate}")
-    return check
 
 
 # Scenario edits. Each returns (scenario, extra args, annotations or None).
@@ -199,6 +148,14 @@ def twenty(s, slow=0):
         if slow:
             run = [r for r in s.gitea_runs if r["head_sha"] == sha][0]
             s.gitea_jobs[run["id"]] = fx.jobs_for(run["created_at"], GREEN, slow=slow)
+    return s
+
+
+def late_disagreement(s):
+    # After twenty agreeing pairs, both pipelines test a commit dated 2026-11-01 and disagree.
+    twenty(s)
+    s.add_github(fake_sha(200), dict(GREEN, container="success"), created=at(300), timestamp="2026-11-01T00:00:00Z")
+    s.add_gitea(fake_sha(200), dict(GREEN, checks="failure"), created=at(300, 20))
     return s
 
 
@@ -341,6 +298,7 @@ CASES = [
     ("github-run-before-since-found-by-sha", hidden_github, [], None, is_class(fake_sha(6), "agree")),
     ("streak-rule", streak_sequence, [], None, both(
         streak(2, fake_sha(11)), is_class(fake_sha(13), "unpaired"), is_class(fake_sha(15), "incomplete"))),
+    ("late-disagreement-on-old-commit-resets", late_disagreement, [], None, streak(0, fake_sha(200))),
     ("annotation-visible-class-unchanged", base, [], ANNOTATION_498,
      both(annotation_kept, is_class(SHA_498, "excluded", "cancelled"))),
     ("annotation-does-not-excuse", annotated_disagreement, [],
@@ -368,6 +326,9 @@ CASES = [
     ("missing-token-stops", base, ["--token-file", "/nonexistent/helm-token"], None,
      exits(2, "token", ledger_written=False)),
     ("empty-token-stops", base, ["--empty-token"], None, exits(2, "token", ledger_written=False)),
+    ("token-from-environment", base, ["--env-token"], None, both(exits(0), is_class(SHA_7B6, "agree"))),
+    ("token-environment-unset-stops", base, ["--env-token-unset"], None,
+     exits(2, "environment variable", ledger_written=False)),
     ("since-required", base, ["--no-since"], None, exits(2, "--since")),
 ]
 
@@ -382,13 +343,20 @@ def run_case(directory, name, edit, extra, annotations):
     notes = Path(directory) / f"{name}.annotations.json"
     notes.write_text(json.dumps(annotations or {}))
     ledger = Path(directory) / f"{name}.ledger.json"
-    args = [sys.executable, str(TOOL), "--replay", str(replay), "--token-file", str(token),
+    # HOME points at the scratch directory so the default token file never stands in.
+    env = {k: v for k, v in os.environ.items() if k != TOKEN_ENV} | {"HOME": str(directory)}
+    source = ["--token-file", str(token)]
+    if "--env-token" in extra or "--env-token-unset" in extra:
+        source = ["--token-env", TOKEN_ENV]
+        if "--env-token" in extra:
+            env[TOKEN_ENV] = TOKEN
+    args = [sys.executable, str(TOOL), "--replay", str(replay), *source,
             "--annotations", str(notes), "--ledger", str(ledger), "--page-size", str(page_size)]
     if "--no-since" not in extra:
         args += ["--since", fx.SINCE]
-    skip = {"--empty-token", "--no-since", "--page-size", str(page_size)}
+    skip = {"--empty-token", "--no-since", "--env-token", "--env-token-unset", "--page-size", str(page_size)}
     args += [a for a in extra if a not in skip]
-    result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(args, capture_output=True, text=True, timeout=30, env=env)
     for stream in (result.stdout, result.stderr, ledger.read_text() if ledger.exists() else ""):
         if TOKEN in stream:
             raise AssertionError("the token appeared in output")
