@@ -44,8 +44,10 @@ recorded API responses that must fail for the stated reason.
   `disagree` ends the streak; `unpaired`, `incomplete` and `excluded` neither
   count nor reset. The output states this rule and names the commit that
   ended the streak.
-- **Order.** Commits are ordered by GitHub's head-commit timestamp, falling
-  back to the earliest run creation time, then by SHA.
+- **Order.** Commits are ordered by when they were compared: the latest
+  creation time among a commit's runs on either side, then by SHA. The
+  commit's own date is not used, because a branch can be pushed long after it
+  was committed.
 - **Timing.** Whole-run wall clock is the last compared job's completion minus
   the run's creation time, on both sides, so it includes queue time and the
   same job set. Per job: queue is start minus ready time (run creation, or the
@@ -72,6 +74,7 @@ recorded API responses that must fail for the stated reason.
 | `container` is reported as agreeing although Gitea never ran it. | Proof: it is listed under "not compared" for the commit and in the summary. |
 | A compared job is missing from one side's completed run. | Proof: `disagree` with reason `job-missing`. |
 | A disagreement with a recorded, legitimate cause (run 391's `setup-go` bug) disappears or is excused. | Proof: annotations from `deploy/gitea-shadow-soak-annotations.json` are shown beside the commit in both outputs and never change its class or the streak. An annotation must name a full SHA; one that matches no commit is listed as unused. |
+| Both pipelines test an old-dated commit today and disagree, but the commit sorts behind newer agreeing commits, so the streak still reads as met. | Proof: order follows run creation, not the commit date; a disagreement whose runs are the newest ends the streak at zero whatever the commit's date. |
 | Commits with no relation to the shadow are counted (pushed before shadow began). | `--since` (a date or a commit) is required; a commit is in range when one of its candidate or excluded runs was created at or after it. |
 | A Gitea-only commit is called `unpaired` because GitHub's run was created before `--since`. | For each such commit the GitHub runs are looked up by full SHA before classifying. |
 
@@ -91,6 +94,7 @@ recorded API responses that must fail for the stated reason.
 | Failure | Detection |
 | --- | --- |
 | "No secret present" is reported true when the token could not read the secrets or variables endpoints (Gitea answers 403 to a read-only token). | Proof: each of repository secrets, repository variables, organization secrets and organization variables is `absent`, `present` (names and count only) or `not checked` with the HTTP status and Gitea's message. The claim is true only if all four were read and are empty; otherwise it is false or `not checked`, and the gate is not met. |
+| The check can only pass with an owner's token, and that token gets written to a file to satisfy the tool. | `--token-env NAME` reads the token from an environment variable set by a secret injector, with the same checks as the file; it cannot be combined with `--token-file`. Proof: a run with the token in the environment succeeds, and an unset or empty variable stops the tool with exit status 2. |
 | A secret value is printed. | Gitea never returns values; the ledger records names and counts only. |
 
 ## Collection and integrity
