@@ -157,10 +157,9 @@ def dispatch_does_not_stand_in(s):
 
 
 def pre_shadow_labels(s):
-    results = {"checks": "success", "browser": "success", "race": "success", "container": "success",
-               "beta_deploy": "skipped", "deploy": "skipped"}
-    s.add_github(fake_sha(4), results, created=at(5))
-    s.add_gitea(fake_sha(4), results, labels=["ubuntu-24.04"], created=at(6))
+    # Shadow job names, but the hosted label a .github/workflows run asks for.
+    s.add_github(fake_sha(4), dict(GREEN, container="success"), created=at(5))
+    s.add_gitea(fake_sha(4), GREEN, labels=["ubuntu-24.04"], created=at(6))
     return s
 
 
