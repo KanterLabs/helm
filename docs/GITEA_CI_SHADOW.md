@@ -34,7 +34,10 @@ reaches only Gitea and the public internet. There is no Docker daemon, no
   off, then [`prepare-runner.sh`](../.gitea/scripts/prepare-runner.sh) stops
   the job unless Go equals the `go.mod` toolchain, Node is 22.23.2, Python is
   3.11 or newer and the job is root. `GOTOOLCHAIN=local` stops Go from
-  switching toolchains behind that check.
+  switching toolchains behind that check. The two `setup-go` steps override
+  it to `auto`, because that action reads `go.mod`'s toolchain line only when
+  the value is not `local`; the first shadow run installed Go 1.26.0 without
+  the override.
 - **Compose.** `docker compose config` becomes `docker-compose config` with
   the standalone Compose v5.6.1 binary, checked against its pinned SHA-256. It
   renders and validates `compose.yaml` without a Docker CLI or daemon. Nothing
