@@ -97,7 +97,7 @@ recorded API responses that must fail for the stated reason.
 
 | Failure | Detection |
 | --- | --- |
-| Pagination drops runs or jobs. | Proof: every list is paged until a short page, deduplicated by id, and its count must equal the total the API reports (`total_count` or `X-Total-Count`); otherwise the tool stops with exit status 2 and writes no ledger. |
+| Pagination drops runs or jobs. | Proof: every list is paged until a short page, deduplicated by id, and its count must equal the total the API reports (`total_count` or `X-Total-Count`); otherwise the tool stops with exit status 2 and writes no ledger. Gitea's run list is newest first and is read only until a run created before `--since`, so its total cannot be compared; instead the run numbers read must be contiguous, and a run with no creation time never ends the read. |
 | A transient error (timeout, 5xx) silently drops commits. | Retried three times, then the tool stops with exit status 2 and writes no ledger. Any other unexpected HTTP status stops it at once. |
 | The token leaks into output, the ledger or an error message. | The token is read from `~/.config/actionrunners/gitea-token-helm` at run time and sent only as a header. Errors name the request path, never headers. Proof: both outputs and stderr are scanned for the token, and the tool refuses to write if it appears. |
 | The token file is missing or empty, and the tool quietly reads Gitea anonymously. | Proof: the tool stops with exit status 2. |
