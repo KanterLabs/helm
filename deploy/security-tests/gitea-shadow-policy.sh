@@ -12,6 +12,11 @@ python3 "$DEPLOY_DIR/test-gitea-ci-policy.py" "$GITEA_WORKFLOW"
 python3 "$DEPLOY_DIR/security-tests/test_gitea_ci_policy.py" --artifact "$fixture/gitea-ci-policy-proofs.json"
 bash -n "$GITEA_PREPARE"
 
+# Shadow soak ledger (H4): offline proofs over recorded API responses; no
+# network. Contract: docs/GITEA_CI_SOAK_FAILURES.md.
+python3 -m py_compile "$DEPLOY_DIR/gitea-shadow-soak.py" "$DEPLOY_DIR/shadow_soak_ledger.py" "$DEPLOY_DIR/shadow_soak_sources.py"
+python3 "$DEPLOY_DIR/security-tests/test_gitea_shadow_soak.py" --artifact "$fixture/gitea-shadow-soak-proofs.json"
+
 # The shared composite keeps uploading on GitHub unless a caller opts out.
 contains "default: 'true'" "$BROWSER_ACTION"
 count_contains 1 "if: always() && inputs.upload-evidence == 'true'" "$BROWSER_ACTION"

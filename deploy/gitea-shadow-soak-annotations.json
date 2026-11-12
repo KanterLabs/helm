@@ -1,0 +1,6 @@
+{
+  "49816fd973f9e054cc1e9c994893fbc07f92524e": {
+    "note": "Gitea shadow run failed because setup-go installed Go 1.26.0 instead of go.mod's toolchain while GOTOOLCHAIN was local; a workflow bug, fixed in 7b6ec06. GitHub's run was cancelled (superseded), so nothing was compared.",
+    "evidence": "Gitea run 391; GitHub run 43166353227 (cancelled); fix commit 7b6ec06dfa7696687368e1154c9cc505c157c34d"
+  }
+}
