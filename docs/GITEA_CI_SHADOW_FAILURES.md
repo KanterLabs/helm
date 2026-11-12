@@ -11,6 +11,8 @@ checker run by `deploy/test-deployment-security.sh` in both pipelines, with a
 mutation proof that the checker rejects the bad workflow. "Runner" means the
 job itself fails with a message that names the cause. "Soak" means it can only
 be observed by comparing real runs once the repository is enrolled (H4).
+The soak ledger that does that comparison has its own contract,
+[GITEA_CI_SOAK_FAILURES.md](GITEA_CI_SOAK_FAILURES.md).
 
 ## Trust boundary
 
