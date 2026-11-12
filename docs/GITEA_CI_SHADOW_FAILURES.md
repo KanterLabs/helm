@@ -59,6 +59,7 @@ be observed by comparing real runs once the repository is enrolled (H4).
 | `docker compose config` cannot run because the runner has no Docker CLI. | Runner installs the pinned standalone Compose binary, which renders and validates `compose.yaml` without a daemon. A missing binary fails the step. |
 | A check needs a Docker daemon or `sudo`. | Runner: the command fails. None in `checks` or `browser` does today (the image build is `container`, deferred); this must stay true, and any new one is a parity failure, not a skip. |
 | The deployment security tests take a different branch as root: GitHub-hosted runners are not root, so the root-only paths of the rollback and restore tests first run here. | Runner and local container replay before enrollment; a failure is fixed, never skipped. |
+| The container lacks a tool GitHub's Ubuntu image has, and a test fails or quietly skips itself. Found by the local replay: bookworm's mawk 1.3.4-20200120 has no `{n}` intervals (the deploy gateway's hwaddr check rejects a valid CT); `jq` is missing (the Service Auth probe); the restore SQL overlay test skips itself without `sqlite3`. | Runner: `checks` installs gawk, jq, sqlite3, zip and zstd, then fails unless each command exists and `awk` supports intervals. |
 | The job runs out of 4 GiB memory or 40 GB disk on the short label. | Soak: compare durations and failures; move to heavy only with evidence. |
 
 ## Gitea behaviour differences
@@ -79,4 +80,5 @@ be observed by comparing real runs once the repository is enrolled (H4).
 | A job on Gitea skips or weakens a command that GitHub runs, so it passes a commit GitHub fails. | Review against `.github/workflows/ci.yml`; the shadow guide lists every intended difference. Soak compares results per commit. |
 | Gitea fails a commit GitHub passes (flaky, resource, network). | Soak; each disagreement is triaged and recorded before the 20-run gate counts. |
 | The shared composite action changes for Gitea and alters the GitHub path. | GitHub keeps running it unchanged; the new input defaults to the old behaviour, and the existing pinned workflow tests pass untouched. |
+| A command added to GitHub's `checks` is never ported to the shadow job. | Parity check in the policy module: GitHub's two `checks` steps must run the same commands, Compose spelling aside. |
 | Editing the Gitea policy test weakens the existing `.github/workflows/ci.yml` checks. | The existing checks and their mutation proofs keep running unmodified beside the new ones. |

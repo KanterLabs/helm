@@ -36,6 +36,24 @@ have_node=$(node --version)
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' \
 	|| fail "Python $(python3 --version 2>&1) is older than 3.11"
 command -v git >/dev/null || fail 'git is not installed'
+
+# Tools GitHub's ubuntu-24.04 image ships and the checks use; bookworm lacks
+# them. Some tests skip themselves when a tool is missing (the restore SQL
+# overlay without sqlite3), so each must exist, not merely be tolerated.
+# Bookworm's default mawk 1.3.4-20200120 also has no {n} interval expressions,
+# which the deploy gateway's hwaddr check needs; gawk replaces it as awk.
+readonly PARITY_PACKAGES=(gawk jq sqlite3 zip zstd)
+readonly PARITY_COMMANDS=(gawk jq sqlite3 zip zstd)
+awk_supports_intervals() { awk 'BEGIN { exit !("aa" ~ /^a{2}$/) }'; }
+install_parity_tools() {
+	DEBIAN_FRONTEND=noninteractive apt-get update -qq
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${PARITY_PACKAGES[@]}" >/dev/null
+	local tool
+	for tool in "${PARITY_COMMANDS[@]}"; do
+		command -v "$tool" >/dev/null || fail "$tool is missing after installation"
+	done
+	awk_supports_intervals || fail "awk ($(readlink -f "$(command -v awk)")) lacks interval expressions"
+}
 printf 'go=%s node=%s python=%s uid=0\n' "$have_go" "$have_node" "$(python3 -c 'import platform; print(platform.python_version())')"
 
 install_compose() {
@@ -70,6 +88,6 @@ install_chromium() {
 }
 
 case "$job" in
-	checks) install_compose ;;
+	checks) install_parity_tools; install_compose ;;
 	browser) install_chromium ;;
 esac
