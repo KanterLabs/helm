@@ -43,10 +43,11 @@ a durable manager host.
    six jobs, and exact `runs-on`, action and secret strings. A move or relabel
    fails CI until those tests change.
 2. **Both pipelines can run on the same commit.** The migrated repos keep CI
-   in `.gitea/workflows`, which GitHub ignores. Gitea is expected to prefer
-   that directory over `.github/workflows`; confirm on 28.3.0 before relying
-   on it. Gitea has created no Helm run since 2026-10-02 although pushes
-   continued; find out why before adding workflows.
+   in `.gitea/workflows`, which GitHub ignores. Gitea 28.3.0 prefers that
+   directory over `.github/workflows` (checked in its source and by the
+   canary branch). Without it, Gitea already creates a run from
+   `.github/workflows` for every Helm push; those jobs ask for `ubuntu-24.04`,
+   which no runner serves, so they are cancelled or abandoned after a day.
 3. **Job VMs reach only Gitea and the public internet.** No tailnet, Coolify,
    Infisical, LAN or other slot. Deploy steps cannot run in canonical CI.
 4. **The deploy jobs are already inert.** Both pause variables are `true`, the
@@ -178,7 +179,7 @@ first shadow slice narrows them in the
 | --- | --- | --- |
 | H0 | Decide the questions under Decisions (done 2026-11-12) | None |
 | H1 | Commit the failure contract (shadow slice done); record hosted p50 and p95 per job from the last 30 push runs | H0 |
-| H2 | Enroll Helm: bot identity and tokens, Helm template, profiles, fleet entry on canary labels, Gitea edge allowlist check, dashboard baseline | H0 |
+| H2 | Enroll Helm: bot identity and tokens, Helm template, profiles, fleet entry on canary labels, Gitea edge allowlist check, dashboard baseline (canary labels on generic profiles applied 2026-11-12; template pending) | H0 |
 | H3 | Add the shadow workflow and update the pinned tests to cover both pipelines (`checks`, `browser`, `race` and their policy test added; `container` waits for the H2 template; unexercised until H2) | H1, H2 |
 | H4 | Shadow soak: 20 consecutive green runs with parity, timings and isolation canaries | H3 |
 | H5 | Trusted publication: Dev publisher and receipts for Helm | H3 |

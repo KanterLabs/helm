@@ -15,7 +15,7 @@ Paths outside this repository are written as plain text.
 | Workflows exist only in `.github/workflows` | `ci.yml`, `beta-candidate.yml`, `warm-runner-canary.yml` |
 | Homelab routing for `browser` is off | `HELM_WARM_RUNNER_ENABLED=false` since 2026-11-07 |
 | Both deploy jobs are paused | `HELM_BETA_DEPLOY_PAUSED=true`, `HELM_PRODUCTION_DEPLOY_PAUSED=true` |
-| Gitea has run 6 Helm jobs ever, the last on 2026-10-02 | Gitea Actions API |
+| Gitea creates a run from `.github/workflows` for every Helm push (56 so far); only one job ever started, on 2026-10-02, because nothing serves `ubuntu-24.04` | Gitea Actions API |
 | No runner is registered for Helm or the organization on Gitea | Gitea Actions API; instance scope not checked |
 | Gitea and GitHub tips match | `main` `0bdb2c9`, `beta` `10cadb1` |
 | The GitHub repository is public; `main` requires four checks | `checks`, `browser`, `race`, `container`; strict; admins enforced |
@@ -215,8 +215,9 @@ Checkout `6490114`, equal to the server on 2026-11-12. Seventeen pages.
 
 ## 11. Unknowns to settle in H1 and H2
 
-- Why Gitea creates no Helm runs today, and whether it prefers
-  `.gitea/workflows` when both directories exist on 28.3.0.
+- Settled on 2026-11-12: Gitea 28.3.0 prefers `.gitea/workflows` when both
+  directories exist, and Helm's existing Gitea runs never start because no
+  runner serves `ubuntu-24.04`.
 - The exact status context names Gitea reports for the four jobs.
 - Whether the Helm suites run under the template's container settings:
   cgroup metrics in `test/e2e/runner-metrics.py`, process subreapers, port
