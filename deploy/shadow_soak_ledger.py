@@ -20,6 +20,7 @@ RULES = {
                  "and is not green.",
     "streak": "Newest to oldest: agree adds one, disagree ends the streak; unpaired, incomplete and "
               "excluded neither count nor reset it.",
+    "order": "By the latest run creation time on either side, then SHA; the commit's own date is not used.",
     "timing": "Wall clock is the last compared job's completion minus run creation on both sides, so it "
               "includes queue time and the same jobs. Per-job queue starts at run creation or when the "
               "needed jobs end. Samples are agreeing commits, one first-attempt run per side.",
@@ -208,9 +209,10 @@ def streak(commits):
 
 
 def order_key(github, gitea):
-    heads = [r["head_time"] for r in github if r["head_time"]]
+    """When the commit was last compared; its own date only if no run has a creation time."""
     created = [r["created"] for r in github + gitea if r["created"]]
-    return min(heads) if heads else (min(created) if created else 0)
+    heads = [r["head_time"] for r in github if r["head_time"]]
+    return max(created) if created else (min(heads) if heads else 0)
 
 
 def build(github_runs, gitea_runs, secrets, annotations, inputs):

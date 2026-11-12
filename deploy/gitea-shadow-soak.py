@@ -36,16 +36,21 @@ class UsageError(Exception):
     pass
 
 
-def read_token(path):
-    try:
-        token = Path(path).read_text().strip()
-    except OSError:
-        token = ""
+def read_token(path, variable=None):
+    """The token from a file, or from an environment variable a secret injector set."""
+    if variable:
+        token, where = os.environ.get(variable, "").strip(), f"token environment variable {variable}"
+    else:
+        where = f"token file {path}"
+        try:
+            token = Path(path).read_text().strip()
+        except OSError:
+            token = ""
     if not token:
-        raise UsageError(f"the Gitea token file {path} is missing or empty; refusing to read Gitea anonymously")
+        raise UsageError(f"the Gitea {where} is missing or empty; refusing to read Gitea anonymously")
     if len(token) < 20 or any(c.isspace() for c in token):
         # A short value would also make the leak scan below match ordinary words.
-        raise UsageError(f"the Gitea token file {path} does not hold a single token")
+        raise UsageError(f"the Gitea {where} does not hold a single token")
     return token
 
 
@@ -156,12 +161,15 @@ def main(argv=None):
     parser.add_argument("--annotations", type=Path, default=ANNOTATIONS)
     parser.add_argument("--gate", action="store_true", help="exit 1 unless the H4 gate is met")
     parser.add_argument("--page-size", type=int, default=50, choices=range(1, 51), metavar="1..50")
-    parser.add_argument("--token-file", type=Path, default=TOKEN_FILE)
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--token-file", type=Path, default=TOKEN_FILE)
+    source.add_argument("--token-env", metavar="NAME", help="read the Gitea token from this environment "
+                        "variable; for an owner's token from a secret injector, which must not be written to disk")
     parser.add_argument("--replay", type=Path, help="recorded responses instead of the network (tests)")
     args = parser.parse_args(argv)
     token = ""
     try:
-        token = read_token(args.token_file)
+        token = read_token(args.token_file, args.token_env)
         annotations = read_annotations(args.annotations)
         transport = sources.ReplayTransport(json.loads(args.replay.read_text())) if args.replay \
             else sources.LiveTransport(token)
