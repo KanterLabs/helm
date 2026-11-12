@@ -7,6 +7,12 @@ inputs:
   workers:
     description: Maximum concurrent isolated browser fixtures.
     default: '4'
+  upload-evidence:
+    description: >-
+      Upload the evidence with actions/upload-artifact. The Gitea shadow
+      workflow sets 'false' and uploads the same paths with the Gitea artifact
+      action, because the v7 action is unproven there.
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -20,7 +26,7 @@ runs:
         HELM_E2E_INCLUDE_DEADLINES: 'true'
       run: python3 test/e2e/runner-metrics.py --output "$RUNNER_TEMP/helm-runner-metrics" -- ./test/e2e/run.sh
     - name: Upload browser and resource evidence
-      if: always()
+      if: always() && inputs.upload-evidence == 'true'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ inputs.evidence-name }}
