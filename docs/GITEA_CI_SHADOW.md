@@ -40,6 +40,13 @@ reaches only Gitea and the public internet. There is no Docker daemon, no
   renders and validates `compose.yaml` without a Docker CLI or daemon. Nothing
   else in `checks` or `browser` needs Docker, `sudo` or a GitHub-only
   variable.
+- **Ubuntu tools.** `checks` installs gawk, jq, sqlite3, zip and zstd, which
+  GitHub's image ships and bookworm lacks, and fails unless each exists. A
+  local replay found three effects: bookworm's mawk (1.3.4-20200120) has no
+  `{n}` intervals, so the deploy gateway's hwaddr check rejected a valid CT;
+  the Service Auth probe needs `jq`; and the restore SQL overlay test skips
+  itself silently without `sqlite3`. The gateway check would fail the same way
+  on any Debian 12 host whose `awk` is that mawk.
 - **Chromium.** `npx playwright install --with-deps chromium` installs its
   system packages directly, since the job is root, and the script launches
   Chromium once before the suites start.
