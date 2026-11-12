@@ -16,9 +16,10 @@ still runs on GitHub: pull requests, the four required checks, image
 publication, and the tooling that proves where an image came from.
 GitHub-hosted runners were a stopgap taken on 2026-10-11 when the old homelab
 fleet was retired. Data Center Tycoon, Portfolio and the wiki now run on Gitea
-Actions with disposable ActionRunners VMs. Helm has no fleet entry yet. Its
-shadow workflow, `.gitea/workflows/ci.yml`, exists but cannot run until H2
-enrolls the repository; see the [shadow CI guide](GITEA_CI_SHADOW.md).
+Actions with disposable ActionRunners VMs. Helm joined the fleet on canary
+labels on 2026-11-12. Its shadow workflow, `.gitea/workflows/ci.yml`, runs on
+every push to Gitea while GitHub stays authoritative; see the
+[shadow CI guide](GITEA_CI_SHADOW.md).
 
 ## Outcome
 
@@ -180,8 +181,8 @@ first shadow slice narrows them in the
 | H0 | Decide the questions under Decisions (done 2026-11-12) | None |
 | H1 | Commit the failure contract (shadow slice done); record hosted p50 and p95 per job from the last 30 push runs | H0 |
 | H2 | Enroll Helm: bot identity and tokens, Helm template, profiles, fleet entry on canary labels, Gitea edge allowlist check, dashboard baseline (canary labels on generic profiles applied 2026-11-12; template pending) | H0 |
-| H3 | Add the shadow workflow and update the pinned tests to cover both pipelines (`checks`, `browser`, `race` and their policy test added; `container` waits for the H2 template; unexercised until H2) | H1, H2 |
-| H4 | Shadow soak: 20 consecutive green runs with parity, timings and isolation canaries | H3 |
+| H3 | Add the shadow workflow and update the pinned tests to cover both pipelines (`checks`, `browser`, `race` and their policy test live on `beta` since 2026-11-12; `container` waits for the H2 template) | H1, H2 |
+| H4 | Shadow soak: 20 consecutive commits where both pipelines agree, with timings and isolation canaries; `deploy/gitea-shadow-soak.py` is the evidence | H3 |
 | H5 | Trusted publication: Dev publisher and receipts for Helm | H3 |
 | H6 | Gitea provenance and acceptance; deploy one Gitea-built candidate to beta | H5 |
 | H7 | Cutover: protection, production labels, mirror, GitHub Actions off | H4, H6 |

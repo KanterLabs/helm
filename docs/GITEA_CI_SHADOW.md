@@ -151,7 +151,8 @@ so two ledgers can be diffed.
   secrets and variables were all read and are empty. The bot token gets HTTP
   403 on all four today, so the ledger says "not checked" and the gate stays
   unmet until someone with owner access runs it with a token that can read
-  them (`--token-file`).
+  them. Pass that token with `--token-env NAME` from a secret injector; do not
+  write an owner's token to a file.
 - **Evidence.** `helm-e2e-<sha>` holds the browser artifacts and
   `helm-runner-metrics`, the same bundle as on GitHub.
   [test/e2e/README.md](../test/e2e/README.md) explains the bundle.
