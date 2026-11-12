@@ -23,7 +23,7 @@ test.describe('Sidebar and site navigation', () => {
     const projectRow = sidebar.getByRole('button', { name: project.name, exact: true });
     await expect(projectRow).toHaveAttribute('aria-expanded', 'true');
     const views = sidebar.getByRole('group', { name: `${project.name} views` });
-    for (const label of ['Board', 'Timeline', 'Focus', 'Progress', 'Audits']) {
+    for (const label of ['Board', 'Timeline', 'Focus', 'Progress', 'Audits', 'Branches']) {
       await expect(views.getByRole('button', { name: label, exact: true })).toBeVisible();
     }
     await expect(views.getByRole('button', { name: 'Board', exact: true })).toHaveAttribute('aria-current', 'page');

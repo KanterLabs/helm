@@ -35,7 +35,7 @@ class NavState {
 
   // Derived values
   sidebarRail = $derived(!nav.mobileNavOpen && (nav.sidebarCollapsed || nav.narrowSidebar));
-  projectScopedView = $derived(workspace.view === 'board' || workspace.view === 'timeline' || workspace.view === 'releases' || workspace.view === 'audits' || (workspace.view === 'roadmap' && Boolean(roadmapData.roadmapProjectId)));
+  projectScopedView = $derived(workspace.view === 'board' || workspace.view === 'timeline' || workspace.view === 'releases' || workspace.view === 'audits' || workspace.view === 'branches' || (workspace.view === 'roadmap' && Boolean(roadmapData.roadmapProjectId)));
   projectWindow = $derived(sidebarProjectWindow(workspace.orderedProjects.filter((project) => !project.favorite), workspace.activeProjectSlug, nav.showAllProjects));
   currentViewLabel = $derived(navViewLabel(workspace.view, Boolean(roadmapData.roadmapProjectId)));
   filteredSwitcherProjects = $derived(workspace.orderedProjects.filter((project) =>

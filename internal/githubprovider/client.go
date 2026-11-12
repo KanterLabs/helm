@@ -44,6 +44,7 @@ type Client struct {
 	cache             map[string]cacheEntry
 	cacheBytes        int
 	snapshots         map[string]PullRequestSnapshot
+	comparisons       map[string]comparison
 	backoffUntil      time.Time
 	denied            map[string]bool
 	lastDiagnostics   Diagnostics
@@ -51,7 +52,7 @@ type Client struct {
 
 // New never contacts GitHub or makes the optional integration a startup gate.
 func New(options Options) *Client {
-	c := &Client{enabled: options.Enabled, tokenFile: options.TokenFile, allowed: map[string]bool{}, endpoint: "https://api.github.com", generation: 1, cache: map[string]cacheEntry{}, snapshots: map[string]PullRequestSnapshot{}, denied: map[string]bool{}}
+	c := &Client{enabled: options.Enabled, tokenFile: options.TokenFile, allowed: map[string]bool{}, endpoint: "https://api.github.com", generation: 1, cache: map[string]cacheEntry{}, snapshots: map[string]PullRequestSnapshot{}, comparisons: map[string]comparison{}, denied: map[string]bool{}}
 	for _, raw := range options.Repositories {
 		repository, err := NormalizeRepository(raw)
 		if err != nil || len(c.allowed) >= 50 {
@@ -85,6 +86,7 @@ func (c *Client) resetLocked() {
 	c.cache = map[string]cacheEntry{}
 	c.cacheBytes = 0
 	c.snapshots = map[string]PullRequestSnapshot{}
+	c.comparisons = map[string]comparison{}
 	c.backoffUntil = time.Time{}
 }
 
@@ -181,6 +183,13 @@ func (c *Client) deny(repository string, generation uint64) {
 }
 
 func (c *Client) get(ctx context.Context, repository, relative string, target any) (bool, error) {
+	return c.fetch(ctx, repository, relative, target, false)
+}
+
+// fetch performs one bounded authenticated GET. A pinned request addresses
+// immutable content by commit SHA: it bypasses the conditional cache, and a
+// 404 means only that the commit is gone, not that repository access was lost.
+func (c *Client) fetch(ctx context.Context, repository, relative string, target any, pinned bool) (bool, error) {
 	token, err := c.credentials()
 	if err != nil {
 		return false, err
@@ -196,6 +205,7 @@ func (c *Client) get(ctx context.Context, repository, relative string, target an
 		return false, providerError("rate_limited")
 	}
 	cached, hasCache := c.cache[relative]
+	hasCache = hasCache && !pinned
 	c.mu.Unlock()
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -237,6 +247,9 @@ func (c *Client) get(ctx context.Context, repository, relative string, target an
 		c.mu.Unlock()
 		return false, providerError("rate_limited")
 	}
+	if pinned && response.StatusCode == http.StatusNotFound {
+		return false, providerError("not_found")
+	}
 	if response.StatusCode == 401 || response.StatusCode == 403 || response.StatusCode == 404 {
 		c.deny(repository, generation)
 		return false, providerError("permission_required")
@@ -265,7 +278,7 @@ func (c *Client) get(ctx context.Context, repository, relative string, target an
 		return false, providerError("unavailable")
 	}
 	c.mu.Lock()
-	if c.generation == generation && response.StatusCode == http.StatusOK {
+	if !pinned && c.generation == generation && response.StatusCode == http.StatusOK {
 		if len(c.cache) >= maxCacheEntries || c.cacheBytes+len(data) > maxCacheBytes {
 			c.cache = map[string]cacheEntry{}
 			c.cacheBytes = 0

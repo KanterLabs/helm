@@ -41,7 +41,7 @@ for name in GOMAXPROCS GOFLAGS GOOS GOARCH GOEXPERIMENT CGO_ENABLED CGO_CFLAGS C
   [[ ! -v "$name" ]] || args+=(--env "$name")
 done
 docker run "${args[@]}" \
-  golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 \
+  golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 \
   go "$@" &
 docker_pid=$!
 status=0

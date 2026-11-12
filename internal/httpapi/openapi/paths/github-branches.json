@@ -1,0 +1,65 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/github/branches": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "getProjectGithubBranches",
+        "summary": "Compare repository branches with the base trunk",
+        "description": "Requires tasks:read and project access. Contacts GitHub and reports every branch of one selected repository against its base trunk (main, otherwise the default branch), plus how the beta staging trunk compares when it exists. Nothing is stored. A provider failure is a state with no branch data, not an HTTP error. A partial report leaves some branches uncompared; repeat the request to continue.",
+        "tags": [
+          "GitHub"
+        ],
+        "externalDocs": {
+          "description": "GitHub beta API guide",
+          "url": "docs/GITHUB_BETA_API.md"
+        },
+        "parameters": [
+          {
+            "name": "repository",
+            "in": "query",
+            "required": false,
+            "description": "A repository selected by this project. Defaults to the first selected repository.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[^/]+/[^/]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubBranchReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

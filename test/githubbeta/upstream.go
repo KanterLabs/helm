@@ -17,12 +17,13 @@ const (
 )
 
 type syntheticState struct {
-	mu          sync.Mutex
-	revoked     bool
-	delayMS     int
-	requests    int
-	aiCalls     int
-	lastAIActor string
+	mu            sync.Mutex
+	revoked       bool
+	delayMS       int
+	branchDelayMS int
+	requests      int
+	aiCalls       int
+	lastAIActor   string
 }
 
 func (s *syntheticState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -41,6 +42,9 @@ func (s *syntheticState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, prefix)
+	if s.serveBranches(w, r, path) {
+		return
+	}
 	switch {
 	case path == "":
 		writeJSON(w, map[string]any{"id": 7401, "full_name": syntheticRepository, "default_branch": "main", "permissions": map[string]bool{"pull": true}})

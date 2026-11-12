@@ -30,3 +30,28 @@ The shell accepts a prebuilt harness, never builds or replaces embedded web
 assets implicitly, preserves artifacts, and cleans up its temporary database,
 token and running process. Its restart control reopens the same SQLite database.
 Control routes exist only in this dedicated loopback-only test executable.
+
+## Branches view (TC-384)
+
+Scenarios recorded before the endpoint, view and browser test.
+
+- A project without a selected repository must explain how to select one. It
+  must not show an empty graph or contact GitHub.
+- A repository outside the project selection must be rejected before any
+  upstream request, and a project-scoped token must not read another project.
+- The page must state how the staging branch compares with the base branch and
+  draw every unmerged, recently updated branch with its ahead and behind
+  counts. Stale and merged branches stay hidden until their toggle is pressed,
+  and each toggle shows its count while hidden.
+- A branch whose comparison failed must be reported as not compared. It must
+  not be drawn as merged or as zero commits ahead.
+- A branch already contained in staging must be marked in words, not only by
+  colour.
+- Revoked upstream access must remove branch names already on the page at the
+  next refresh and show the permission message. Access returns only after a
+  real provider request succeeds.
+- Switching project or leaving the view during a slow load must not paint the
+  previous project's branches.
+- Desktop light, desktop dark and phone layouts must not overflow sideways.
+  The run keeps screenshots and the captured API response, and none of them
+  contains the sentinel credential.

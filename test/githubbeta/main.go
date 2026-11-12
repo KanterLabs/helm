@@ -154,8 +154,9 @@ func (h *harness) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			var input struct {
-				Revoked *bool `json:"revoked"`
-				DelayMS *int  `json:"delay_ms"`
+				Revoked       *bool `json:"revoked"`
+				DelayMS       *int  `json:"delay_ms"`
+				BranchDelayMS *int  `json:"branch_delay_ms"`
 			}
 			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&input); err != nil {
 				http.Error(w, "invalid state", 400)
@@ -167,6 +168,9 @@ func (h *harness) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if input.DelayMS != nil && *input.DelayMS >= 0 && *input.DelayMS <= 30000 {
 				h.state.delayMS = *input.DelayMS
+			}
+			if input.BranchDelayMS != nil && *input.BranchDelayMS >= 0 && *input.BranchDelayMS <= 4000 {
+				h.state.branchDelayMS = *input.BranchDelayMS
 			}
 			h.state.mu.Unlock()
 		} else if r.Method != http.MethodGet {

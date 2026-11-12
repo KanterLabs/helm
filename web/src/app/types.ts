@@ -4,7 +4,7 @@ import type { CommandView } from '../lib/commandPalette';
 import type { Column, Project, Task } from '../lib/types';
 import type { ToastAccessibility } from '../lib/ui';
 
-export type View = CommandView | 'releases' | 'admin' | 'tickets';
+export type View = CommandView | 'releases' | 'admin' | 'tickets' | 'branches';
 
 export type AuthView = 'login' | 'setup' | 'tailnet';
 
