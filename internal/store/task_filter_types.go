@@ -58,4 +58,14 @@ type TaskFilter struct {
 	// cursors remain monotonic database cursors via EventFilter.After.
 	Cursor int
 	Limit  int
+	// Neglect signal (test/neglect/API.md). InactiveDays (1 to 3650) selects
+	// open tasks whose not_after <= evaluated_at - N days, plus unknown rows;
+	// ActivityStatus narrows by known, bounded, unknown or undetermined.
+	// Either input, or Sort=not_after, makes a neglect listing: it waits up to
+	// ActivityWait for the projector and reports evaluated_at and coverage.
+	// IncludeActivity populates Task.activity on a plain listing.
+	InactiveDays    int
+	ActivityStatus  string
+	IncludeActivity bool
+	ActivityWait    time.Duration
 }

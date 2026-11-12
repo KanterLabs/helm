@@ -18,6 +18,8 @@ func (s *Server) dispatchGithub(w http.ResponseWriter, r *http.Request, identity
 		s.projectGithub(w, r, identity, parts[1])
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "github" && parts[3] == "readiness":
 		s.projectGithubReadiness(w, r, identity, parts[1])
+	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "github" && parts[3] == "branches":
+		s.projectGithubBranches(w, r, identity, parts[1])
 	case len(parts) == 3 && parts[0] == "projects" && parts[2] == "github-audits":
 		s.githubAuditStart(w, r, identity, parts[1])
 	case (len(parts) == 3 || len(parts) == 4) && parts[0] == "projects" && parts[2] == "github-audit-authorizations":

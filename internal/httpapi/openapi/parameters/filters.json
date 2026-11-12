@@ -43,6 +43,33 @@
         },
         "example": "1.4"
       },
+      "InactiveDaysFilter": {
+        "name": "inactive_days",
+        "in": "query",
+        "required": false,
+        "description": "Neglect filter. Selects open tasks whose `activity.not_after` is at or\nbefore `evaluated_at` minus this many 24-hour days, plus every open\ntask whose activity is `unknown` (no usable bound). Completed and\ndeleted tasks never match.\n",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650
+        },
+        "example": 14
+      },
+      "ActivityStatusFilter": {
+        "name": "activity_status",
+        "in": "query",
+        "required": false,
+        "description": "Neglect filter by stored activity status. With `inactive_days`,\n`known` and `bounded` also apply the threshold. `undetermined`\nrequires `inactive_days` and selects `bounded` tasks newer than the\nthreshold: not shown to be inactive, never active.\n",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "known",
+            "bounded",
+            "unknown",
+            "undetermined"
+          ]
+        }
+      },
       "ReleaseIDFilter": {
         "name": "release_id",
         "in": "query",

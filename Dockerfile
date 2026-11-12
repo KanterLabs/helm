@@ -30,7 +30,7 @@ RUN npm install --global --ignore-scripts "@openai/codex@${CODEX_VERSION}" \
 # versions. Rebuild the checksum-pinned 2026.9.3 source with the security
 # fixes, retaining its feature code. GOSUMDB verifies the pinned module updates
 # and their transitive modules.
-FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 AS cloudflared
+FROM --platform=$BUILDPLATFORM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS cloudflared
 
 ARG TARGETARCH
 WORKDIR /src/cloudflared
@@ -47,7 +47,7 @@ RUN case "$TARGETARCH" in \
        -ldflags="-s -w -X main.Version=2026.9.3-helm.3 -X main.BuildTime=2026-11-07-0000" \
        -o /out/cloudflared ./cmd/cloudflared
 
-FROM golang:1.26.10-bookworm@sha256:fe3da92a5cb2881e4aa75e625cb0b7c50571632fb4cf340cbe53e6ccdcffdd51 AS build
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./

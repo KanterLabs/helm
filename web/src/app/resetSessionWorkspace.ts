@@ -2,6 +2,7 @@
 // sign-out and membership access changes; this never revokes the server cookie.
 import { resetMembershipState } from '../lib/components/membership/membersState.svelte';
 import { clearBetaState } from './beta';
+import { resetBranches } from './branches';
 import { invalidateBulkRequest } from './bulk';
 import { resetCreationSession } from './creation';
 import { tokens } from './tokens.svelte';
@@ -91,6 +92,7 @@ export async function resetSessionWorkspace(): Promise<void> {
   timeline.boardTimelineNextCursor = '';
   timeline.boardTimelineError = '';
   timeline.boardTimelineProjectId = '';
+  resetBranches();
   roadmapData.roadmapActors = {};
   roadmapData.roadmapActorsLoaded = false;
   roadmapData.roadmapActorsLoading = false;

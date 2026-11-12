@@ -38,6 +38,10 @@ export function isProjectTimelineLocation(): boolean {
   return /^\/p\/[^/]+\/timeline\/?$/.test(window.location.pathname);
 }
 
+export function isProjectBranchesLocation(): boolean {
+  return /^\/p\/[^/]+\/branches\/?$/.test(window.location.pathname);
+}
+
 export function isProjectAuditLocation(): boolean {
   return /^\/p\/[^/]+\/audits(?:\/[^/]+)?\/?$/.test(window.location.pathname);
 }

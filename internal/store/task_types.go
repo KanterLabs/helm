@@ -43,4 +43,7 @@ type Task struct {
 	AlertSource *AlertSource `json:"alert_source,omitempty"`
 	// Ticket is present only for Tickets workspace members.
 	Ticket *TicketMembership `json:"ticket,omitempty"`
+	// Activity is the neglect signal, set on task and collection reads only
+	// (task_activity_signal_reads.go); mutation responses omit it.
+	Activity *TaskActivity `json:"activity,omitempty"`
 }

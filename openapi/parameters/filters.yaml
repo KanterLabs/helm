@@ -38,6 +38,36 @@ components:
         minLength: 1
         maxLength: 200
       example: "1.4"
+    InactiveDaysFilter:
+      name: inactive_days
+      in: query
+      required: false
+      description: |
+        Neglect filter. Selects open tasks whose `activity.not_after` is at or
+        before `evaluated_at` minus this many 24-hour days, plus every open
+        task whose activity is `unknown` (no usable bound). Completed and
+        deleted tasks never match.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3650
+      example: 14
+    ActivityStatusFilter:
+      name: activity_status
+      in: query
+      required: false
+      description: |
+        Neglect filter by stored activity status. With `inactive_days`,
+        `known` and `bounded` also apply the threshold. `undetermined`
+        requires `inactive_days` and selects `bounded` tasks newer than the
+        threshold: not shown to be inactive, never active.
+      schema:
+        type: string
+        enum:
+          - known
+          - bounded
+          - unknown
+          - undetermined
     ReleaseIDFilter:
       name: release_id
       in: query

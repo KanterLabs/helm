@@ -119,15 +119,16 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request, identity auth.Ide
 			return
 		}
 		filter := store.TaskFilter{State: state, Column: columnFilter, Priority: priority, Label: label, Assignee: assignee, Kind: kind, Severity: severity, Reporter: reporter, Resolution: resolution, ReleaseID: releaseFilter, Dependency: dependency, AgentState: agentState, ActionNeeded: actionNeeded, Query: query, Cursor: offset, CursorToken: cursorToken, Sort: sortName, Descending: descending, Limit: limit, UpdatedAfter: updatedAfter}
-		tasks, more, nextCursor, err := s.Store.ListTasksCursor(r.Context(), project.ID, filter)
+		if err := parseTaskActivityFilter(r, &filter); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+			return
+		}
+		page, err := s.Store.ListTaskPage(r.Context(), project.ID, filter)
 		if err != nil {
 			s.writeStoreError(w, err)
 			return
 		}
-		if !more {
-			nextCursor = ""
-		}
-		s.writeCollection(w, tasks, nextCursor)
+		s.writeTaskPage(w, page)
 	case http.MethodPost:
 		input, err := decodeTaskInput(r, true)
 		if err != nil {
@@ -290,7 +291,7 @@ func (s *Server) task(w http.ResponseWriter, r *http.Request, identity auth.Iden
 		if !requireScope(w, identity, "tasks:read") {
 			return
 		}
-		s.writeTask(w, http.StatusOK, task)
+		s.writeTaskRead(w, r, task)
 	case http.MethodPatch:
 		input, err := decodeTaskInput(r, false)
 		if err != nil {

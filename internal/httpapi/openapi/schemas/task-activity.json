@@ -1,0 +1,107 @@
+{
+  "components": {
+    "schemas": {
+      "TaskActivity": {
+        "type": "object",
+        "required": [
+          "status",
+          "last_meaningful_at",
+          "source",
+          "not_after",
+          "reason",
+          "classification_version"
+        ],
+        "description": "Neglect signal derived from the task's whole history (classification\nversion 2). A task is inactive for N days exactly when `not_after` is\nat or before the evaluation instant minus N days. `pending` is a\ntransport-only status: the server has not yet processed every event\nof the task, so the evidence fields are null or empty. Never use a\n`pending` or `bounded` task as evidence of recent activity.\n",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "known",
+              "bounded",
+              "unknown",
+              "pending"
+            ]
+          },
+          "last_meaningful_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last qualifying activity; set only when `known`."
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Qualifying source such as `human.comment`; empty unless `known`."
+          },
+          "not_after": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest possible time of meaningful activity; equals `last_meaningful_at` when `known`; null when `unknown` or `pending`."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "",
+              "legacy_update",
+              "unknown_event_type",
+              "actor_unavailable",
+              "unparseable_time",
+              "classification_error"
+            ],
+            "description": "Why a `bounded` or `unknown` result is not exact; empty otherwise."
+          },
+          "classification_version": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Classifier version of the stored result; null when `pending`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskActivityCoverage": {
+        "type": "object",
+        "required": [
+          "complete",
+          "lag",
+          "pending"
+        ],
+        "description": "Present only on neglect listings. `complete` is true only when every\nevent of the project up to the request's snapshot is processed, every\nlive task of the project has a current result, and no returned task is\n`pending`; otherwise the listing is not the full answer and tasks may\nbe missing from it. A page chain whose first page is complete is gap-\nand duplicate-free; a project write between pages returns\n`409 task_collection_changed`.\n",
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "lag": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Event cursors of this project not yet processed."
+          },
+          "pending": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Tasks on this page returned with status `pending`."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

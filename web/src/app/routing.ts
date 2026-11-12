@@ -6,6 +6,7 @@ import { loadProjectAdmin } from './admin';
 import { loadBoard } from './board/load';
 import { applyBoardRoute, invalidateBoardColumnRequests, syncBoardViewURL } from './board/pages';
 import { loadBoardTimeline } from './boardTimeline';
+import { loadBranches, resetBranches } from './branches';
 import { invalidateBulkRequest } from './bulk';
 import { hasPendingCreation } from './creation';
 import { closeDrawer, confirmDrawerDiscard } from './drawer/drafts';
@@ -35,8 +36,8 @@ import { projectForTask } from './taskQueries';
 import type { View } from './types';
 import { parseTaskRoute } from '../lib/state';
 import { tokens } from './tokens.svelte';
-import { getProjectSlugFromLocation, getTaskRouteFromLocation, isProjectTimelineLocation, isProjectAuditLocation, getAuditIdFromLocation, isProjectRoadmapLocation, isProjectReleasesLocation, canonicalizeProjectFocusLocation } from './routingLocations';
-export { getProjectSlugFromLocation, getTaskRouteFromLocation, isTaskLocation, isProjectRoadmapLocation, isProjectFocusLocation, isProjectReleasesLocation, canonicalizeProjectFocusLocation, isProjectTimelineLocation, isProjectAuditLocation, getAuditIdFromLocation } from './routingLocations';
+import { getProjectSlugFromLocation, getTaskRouteFromLocation, isProjectTimelineLocation, isProjectAuditLocation, isProjectBranchesLocation, getAuditIdFromLocation, isProjectRoadmapLocation, isProjectReleasesLocation, canonicalizeProjectFocusLocation } from './routingLocations';
+export { getProjectSlugFromLocation, getTaskRouteFromLocation, isTaskLocation, isProjectRoadmapLocation, isProjectFocusLocation, isProjectReleasesLocation, canonicalizeProjectFocusLocation, isProjectTimelineLocation, isProjectAuditLocation, isProjectBranchesLocation, getAuditIdFromLocation } from './routingLocations';
 
 export async function openTaskFromRoute(
   route: NonNullable<ReturnType<typeof parseTaskRoute>>,
@@ -109,6 +110,7 @@ export async function selectProject(project: Project, push = true, routeReleaseF
   timeline.boardTimelineNextCursor = '';
   timeline.boardTimelineError = '';
   timeline.boardTimelineProjectId = '';
+  resetBranches();
   workspace.recentProjectIds = rememberProject(project.id, localStorage);
   localStorage.setItem(helmStorageKeys.lastProject, project.slug);
   nav.projectSwitcherOpen = false;
@@ -167,6 +169,10 @@ export async function setView(next: View, push = true): Promise<boolean> {
     // already warm in the common path; this guarded read fills it for a
     // direct project-audit navigation as well.
     if (!board.columns.length || !board.tasks.length) await loadBoard();
+  } else if (next === 'branches' && workspace.activeProject) {
+    roadmapData.roadmapProjectId = undefined;
+    if (push) navigate(`/p/${encodeURIComponent(workspace.activeProject.slug)}/branches`);
+    await loadBranches(workspace.activeProject.id);
   } else if (next === 'releases' && workspace.activeProject) {
     roadmapData.roadmapProjectId = undefined;
     releasePlan.releaseSelectedId = '';
@@ -289,6 +295,12 @@ export function handlePopState() {
         board.labels = [];
         void loadBoard();
       }
+    } else if (project && isProjectBranchesLocation()) {
+      workspace.projectSwitchVersion += 1;
+      workspace.activeProjectSlug = project.slug;
+      roadmapData.roadmapProjectId = undefined;
+      workspace.view = 'branches';
+      void loadBranches(project.id);
     } else if (project && isProjectRoadmapLocation()) {
       workspace.projectSwitchVersion += 1;
       workspace.activeProjectSlug = project.slug;

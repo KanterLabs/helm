@@ -5,6 +5,24 @@ User-visible changes after v0.2.2 belong here, newest first. Latest release:
 
 ## Features
 
+- **Branches view:** a project with a selected GitHub repository gets a
+  **Branches** page in its sidebar group. Every branch is drawn against `main`:
+  it forks from the main line where it fell behind, and each dot is a commit
+  ahead. A headline states how `beta` compares with `main`, and a branch that
+  `beta` already contains is marked. Stale and merged branches stay hidden
+  behind counted toggles. The page reads GitHub live and stores nothing, so
+  revoked access removes branch names at the next refresh. See the
+  [GitHub beta API](../GITHUB_BETA_API.md).
+
+- **Focus review uses the server's neglect signal:** on servers that compute
+  card activity, `focus review` reads one neglect listing instead of replaying
+  every card's timeline, so the unfocused Backlog answer is complete rather
+  than capped. Cards with ambiguous legacy history get a bound, so old cards
+  are reported inactive instead of unknown. Output names the server path and
+  its coverage, and marks cards whose activity is undetermined or still being
+  processed; neither is ever described as active. Older servers get exactly
+  the previous output. See the [Focus changelog](../FOCUS_AGENT_CHANGELOG.md).
+
 - **Focus guidance for agents:** discover existing goal groups before proposing
   more Backlog work, review meaningful inactivity and blockers, and carry the
   remaining cards into a handoff. New `focus` CLI commands cover discovery,

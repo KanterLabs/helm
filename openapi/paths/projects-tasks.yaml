@@ -37,6 +37,14 @@ paths:
         task with no prerequisites does not match). Supplied scalar filters are
         single-valued; empty identifier/enum/timestamp values and values outside
         their declared enum, format, or length are rejected with `400`.
+        Every task carries `activity`. `inactive_days`, `activity_status` and
+        `sort=not_after` make a neglect listing: they combine with every other
+        filter, the server waits up to 250 ms for the signal to catch up, and
+        the response adds `evaluated_at` and `activity_coverage`. A task with
+        unprocessed history is returned `pending`, never as inactive. Neglect
+        listings continue only with the keyset cursor they return (offset
+        cursors are `400`); the cursor carries `evaluated_at`. Older servers
+        reject `sort=not_after` and omit `evaluated_at`.
       tags:
         - Tasks
       parameters:
@@ -55,6 +63,8 @@ paths:
         - $ref: "#/components/parameters/ReleaseFilter"
         - $ref: "#/components/parameters/SearchQuery"
         - $ref: "#/components/parameters/UpdatedAfter"
+        - $ref: "#/components/parameters/InactiveDaysFilter"
+        - $ref: "#/components/parameters/ActivityStatusFilter"
         - $ref: "#/components/parameters/TaskSort"
         - $ref: "#/components/parameters/TaskOrder"
         - $ref: "#/components/parameters/Cursor"

@@ -5,6 +5,7 @@ import type {
   GithubAuditJob,
   GithubAuditStartInput,
   GithubAuditStartResult,
+  GithubBranchReport,
   GithubIntegration,
   GithubReadiness,
   GithubRepositorySelection,
@@ -39,6 +40,10 @@ export const githubApi = {
     }),
 
   getGithubReadiness: (projectId: string) => request<GithubReadiness>(`${project(projectId)}/github/readiness`),
+
+  /** Contacts GitHub; a provider failure is a `state`, not a thrown error. */
+  getProjectGithubBranches: (projectId: string, repository?: string) =>
+    request<GithubBranchReport>(pathWithQuery(`${project(projectId)}/github/branches`, { repository })),
 
   listTaskArtifacts: (taskId: string) => request<TaskArtifactCollection>(`${task(taskId)}/artifacts`),
 
