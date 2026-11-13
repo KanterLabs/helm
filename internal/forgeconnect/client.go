@@ -43,8 +43,36 @@ var systemBundles = []string{
 // Private and loopback addresses are allowed; self-hosted forges live there.
 func blockedAddr(ip netip.Addr) bool {
 	ip = ip.Unmap()
+	if inner, ok := embeddedIPv4(ip); ok {
+		return blockedAddr(inner)
+	}
 	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip == broadcast
+		ip.IsMulticast() || ip.IsUnspecified() || ip == broadcast || ip == metadataAWSv6 || ip == metadataAlibaba
+}
+
+// Cloud metadata services that sit outside the link-local ranges. Only the
+// exact addresses are refused: 100.64.0.0/10 is also where tailnets live.
+var (
+	metadataAWSv6   = netip.MustParseAddr("fd00:ec2::254")
+	metadataAlibaba = netip.MustParseAddr("100.100.100.200")
+	nat64Prefix     = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFourPrefix = netip.MustParsePrefix("2002::/16")
+)
+
+// embeddedIPv4 unwraps an IPv4 address carried inside NAT64 or 6to4, so a
+// blocked address cannot be reached through a translation prefix.
+func embeddedIPv4(ip netip.Addr) (netip.Addr, bool) {
+	if !ip.Is6() {
+		return netip.Addr{}, false
+	}
+	b := ip.As16()
+	switch {
+	case nat64Prefix.Contains(ip):
+		return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
+	case sixToFourPrefix.Contains(ip):
+		return netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}), true
+	}
+	return netip.Addr{}, false
 }
 
 // controlAddress runs in the dialer after name resolution, on the exact

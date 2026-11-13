@@ -82,9 +82,9 @@ Connected shows:
 
 - "Connected to gitea.example.com as @login", with the product and version.
 - An access badge: **Read-only access** (`scoped`), or a warning block for
-  `full`: "This server gave Helm full access to this account. Helm only reads,
-  but use a dedicated account with access to just the repositories Helm
-  needs."
+  `full`: "This server gave Helm more than read-only access to this account.
+  Helm only reads, but use a dedicated account with access to just the
+  repositories Helm needs."
 - "Helm can read N repositories" with **View**, which loads the list on
   demand and offers a filter box when there are more than ten.
 - **Test connection**, and **Disconnect**. Disconnect asks for confirmation

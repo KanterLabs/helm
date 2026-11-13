@@ -152,7 +152,9 @@ Relevant server settings (`[oauth2]`): `ENABLED` (default true),
    input. Changing it later forces Forgejo users to revoke first.
 3. After every sign-in, prove the grant is limited: a request needing a scope
    Helm did not ask for (`GET /api/v1/user/orgs`) must be refused. If it
-   succeeds, the grant is full access and Helm must say so.
+   succeeds, the grant is full access and Helm must say so. Gitea's refusal
+   names the granted scope ("…, token scope=read:repository,read:user", worded
+   this way since 1.23), so Helm can also catch a grant widened after sign-in.
 4. Do not request `openid`. Identity comes from `/api/v1/user`.
 5. Detect a confidential application from the exchange error and tell the
    administrator to untick the box.

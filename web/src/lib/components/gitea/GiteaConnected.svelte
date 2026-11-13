@@ -52,7 +52,7 @@
   </div>
 
   {#if status.access === 'full'}
-    <div class="inline-alert warning" data-gitea-access="full"><span aria-hidden="true">!</span><span>This server gave Helm full access to this account. Helm only reads, but use a dedicated account with access to just the repositories Helm needs.</span></div>
+    <div class="inline-alert warning" data-gitea-access="full"><span aria-hidden="true">!</span><span>This server gave Helm more than read-only access to this account. Helm only reads, but use a dedicated account with access to just the repositories Helm needs.</span></div>
   {:else if status.access !== 'scoped'}
     <p class="optional" data-gitea-access="unknown">Helm has not yet confirmed that its access is read-only. Test the connection to check.</p>
   {/if}

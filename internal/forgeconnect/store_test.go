@@ -141,7 +141,7 @@ func TestStoreLoadRejects(t *testing.T) {
 }
 
 func TestStorePartialWriteLeavesOldFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "forge")
 	s := newFileStore(dir)
 	old := sampleRecord()
 	if err := s.save(old); err != nil {
@@ -164,7 +164,7 @@ func TestStorePartialWriteLeavesOldFile(t *testing.T) {
 }
 
 func TestStoreWriteFailure(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "forge")
 	s := newFileStore(dir)
 	old := sampleRecord()
 	_ = s.save(old)

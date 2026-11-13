@@ -79,6 +79,8 @@ type fakeForge struct {
 	tokenOverride string // raw JSON body for the next token response
 	tokenStatus   int    // status for every token response when set
 	orgsStatus    int
+	orgsMessage   string // refusal text for the limit check when set
+	repeatLast    bool   // each repository page starts with the previous page's last item
 	userStatus    int
 	reposStatus   int
 	repos         int
@@ -357,7 +359,11 @@ func (f *fakeForge) api(w http.ResponseWriter, r *http.Request, path string) {
 			writeJSON(w, http.StatusOK, []any{})
 			return
 		}
-		writeJSON(w, f.orgsStatus, map[string]string{"message": "token does not have at least one of required scope(s) " + upstreamSentinel})
+		message := "token does not have at least one of required scope(s) " + upstreamSentinel
+		if f.orgsMessage != "" {
+			message = f.orgsMessage
+		}
+		writeJSON(w, f.orgsStatus, map[string]string{"message": message})
 	case "/api/v1/user/repos":
 		if f.reposStatus != 0 {
 			writeJSON(w, f.reposStatus, map[string]string{"message": upstreamSentinel})
@@ -382,7 +388,11 @@ func (f *fakeForge) api(w http.ResponseWriter, r *http.Request, path string) {
 			return
 		}
 		list := []map[string]any{}
-		for i := (page - 1) * limit; i < page*limit && i < f.repos; i++ {
+		start := (page - 1) * limit
+		if f.repeatLast {
+			start -= page - 1
+		}
+		for i := start; i < start+limit && i < f.repos; i++ {
 			list = append(list, map[string]any{"full_name": fmt.Sprintf("team/repo-%03d", i), "private": i%2 == 0, "archived": i%5 == 0})
 		}
 		writeJSON(w, http.StatusOK, list)

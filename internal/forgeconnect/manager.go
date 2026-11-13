@@ -19,6 +19,7 @@ const (
 	refreshMargin    = 5 * time.Minute
 	refreshEvery     = 24 * time.Hour
 	rejectWindow     = time.Minute
+	refreshTimeout   = 10 * time.Second
 	defaultKeepAlive = time.Hour
 )
 
@@ -111,6 +112,9 @@ func New(o Options) (*Manager, error) {
 	}
 	if o.StateDir != "" {
 		m.store = newFileStore(o.StateDir)
+		m.store.refused = func(reason string) {
+			m.logf(`{"level":"warn","msg":"gitea connection not saved","code":%q,"reason":%q}`, CodeStorageFailed, reason)
+		}
 		m.store.cleanTemps()
 		m.rec, m.broken = m.store.load()
 		if m.rec != nil {

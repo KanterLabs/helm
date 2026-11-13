@@ -28,8 +28,9 @@ branches from Gitea is the next plan; it builds on contract C1.
    input, never changed casually: Forgejo refuses a changed scope until the
    user revokes the old grant.
 4. **Helm proves the grant is limited.** After sign-in and on every check, a
-   read Helm did not ask for must be refused. If it succeeds the connection is
-   kept but marked full access, with a warning.
+   read Helm did not ask for must be refused, and where the forge names the
+   granted scope in that refusal (Gitea does) it must be read-only. Otherwise
+   the connection is kept but marked as more than read-only, with a warning.
 5. **One installation-wide connection**, made by a human administrator. The
    docs recommend a dedicated non-administrator forge account.
 6. **Everything lives in one 0600 file**: server, client ID, tokens, account.

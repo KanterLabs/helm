@@ -158,3 +158,36 @@ are to `docs/GITEA_OAUTH_PLAN.md`.
   denied, forged or refused sign-in. `Finish` now logs one line with the code
   only. Test: `TestFailedSignInIsLogged`; the per-test sentinel scan proves no
   upstream text rides along.
+
+## From the independent review
+
+Each has a test in `review_test.go` unless noted.
+
+- **"Read-only" claimed without proof.** The limit check only showed the grant
+  was not full access. A grant widened on the forge afterwards (scope belongs
+  to the grant on Gitea) still looked limited. Gitea names the granted scope
+  in its refusal; any scope beyond `read:*` or `public-only` now reports
+  `full`. Test: `TestLimitCheckReadsGrantedScope`.
+- **A refresh reply without a refresh token threw the old one away.** Test:
+  `TestRefreshWithoutNewRefreshTokenKeepsOld`.
+- **A caller that went away mid-refresh lost a pair the forge had already
+  rotated**, ending the connection in one-time mode. The exchange now
+  outlives its caller's context. Test:
+  `TestCancelledCallerDoesNotLoseRotatedTokens`.
+- **Cloud metadata outside 169.254.0.0/16 was reachable**: `fd00:ec2::254`,
+  `100.100.100.200`, and link-local addresses wrapped in NAT64 or 6to4. Test:
+  `TestGuardBlocksOtherMetadataAddresses`.
+- **Saving re-permissioned a directory Helm did not create**, and a symlinked
+  directory could never be saved to. Tests:
+  `TestStoreLeavesForeignDirectoryAlone`, `TestStoreFollowsSymlinkedDirectory`.
+- **A repository listed on two pages appeared twice.** Test:
+  `TestRepositoriesAreDeduplicated`.
+- **Any callback with the wrong state cancelled the sign-in in progress.**
+  Test: `TestWrongStateKeepsPendingSignIn`.
+- **A token could be sent to a server connected a moment later**: the token
+  and the base URL were read under separate locks. They now come from one
+  snapshot; covered by the race tests, not a dedicated one.
+- **`TestKeepAlive` raced the save.** It now waits for the stored time.
+
+Known and accepted: two administrators finishing sign-in at the same moment
+leaves the loser's grant on the forge until it is removed there.

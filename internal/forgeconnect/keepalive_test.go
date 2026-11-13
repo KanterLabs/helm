@@ -41,9 +41,12 @@ func TestKeepAlive(t *testing.T) {
 		t.Fatal("keep-alive refreshed a fresh sign-in")
 	}
 	e.clock.Advance(24*time.Hour + time.Minute)
-	waitFor(t, "a keep-alive refresh", func() bool { return e.forge.refreshes() == 1 })
+	// Wait for the save, not only the forge's counter: the fsync can lag it.
+	waitFor(t, "a saved keep-alive refresh", func() bool {
+		return e.forge.refreshes() == 1 && e.stored().RefreshedAt.Equal(e.clock.Now())
+	})
 	time.Sleep(50 * time.Millisecond)
-	if e.forge.refreshes() != 1 || !e.stored().RefreshedAt.Equal(e.clock.Now()) {
+	if e.forge.refreshes() != 1 {
 		t.Fatalf("refreshes = %d", e.forge.refreshes())
 	}
 	// A revoked grant found by the keep-alive ends the connection and logs

@@ -125,8 +125,11 @@ func TestFinishStateRules(t *testing.T) {
 	_, first := e.forge.approve(e.begin(testActor))
 	code, second := e.forge.approve(e.begin(testActor))
 	wantCode(t, e.err(e.m.Finish(e.ctx(), testActor, first, code, "", "")), CodeStateInvalid)
-	// The mismatch consumed the pending sign-in.
-	wantCode(t, e.err(e.m.Finish(e.ctx(), testActor, second, code, "", "")), CodeStateInvalid)
+	// The stale state did not cancel the sign-in in progress.
+	if err := e.err(e.m.Finish(e.ctx(), testActor, second, code, "", "")); err != nil {
+		t.Fatalf("the current sign-in was cancelled by a stale one: %v", err)
+	}
+	e.m.Disconnect(testActor)
 
 	// Empty state, empty code.
 	wantCode(t, e.err(e.m.Finish(e.ctx(), testActor, "", "x", "", "")), CodeStateInvalid)

@@ -109,6 +109,9 @@ type fileStore struct {
 	// beforeRename is a test seam for a write failure after the temp file
 	// is written.
 	beforeRename func() error
+	// refused, when set, hears why a directory was refused, so an operator
+	// is not left with only "could not save".
+	refused func(reason string)
 }
 
 func newFileStore(dir string) *fileStore {
@@ -161,14 +164,18 @@ func (s *fileStore) save(rec *record) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return storageFailed
 	}
-	info, err := os.Lstat(s.dir)
+	// Stat, not Lstat: operators link data directories. A directory Helm made
+	// is already private. One that others can reach is refused, never
+	// re-permissioned: it may be shared on purpose.
+	info, err := os.Stat(s.dir)
 	if err != nil || !info.IsDir() {
 		return storageFailed
 	}
-	if info.Mode().Perm() != 0o700 {
-		if err := os.Chmod(s.dir, 0o700); err != nil {
-			return storageFailed
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != s.uid() || info.Mode().Perm()&0o077 != 0 {
+		if s.refused != nil {
+			s.refused("state directory must belong to the Helm user and be closed to group and others (mode 0700)")
 		}
+		return storageFailed
 	}
 	tmp, err := os.CreateTemp(s.dir, tempPattern)
 	if err != nil {

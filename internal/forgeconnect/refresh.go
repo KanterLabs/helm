@@ -26,7 +26,7 @@ func (m *Manager) Current() (token, identity string, err error) {
 // it is within 5 minutes of expiry, over 24 hours since the last refresh, or
 // was rejected. A network failure keeps a token that has not expired.
 func (m *Manager) Fresh(ctx context.Context) (token, identity string, err error) {
-	token, identity, _, err = m.fresh(ctx)
+	token, identity, _, _, err = m.fresh(ctx)
 	return token, identity, err
 }
 
@@ -68,31 +68,34 @@ func (m *Manager) dueLocked() bool {
 	return m.rejected || !now.Before(m.rec.AccessExpiresAt.Add(-refreshMargin)) || now.Sub(m.rec.RefreshedAt) > refreshEvery
 }
 
-func (m *Manager) fresh(ctx context.Context) (string, string, uint64, error) {
+// fresh returns the token together with the server it belongs to, read under
+// one lock, so a token is never sent to a server connected a moment later.
+func (m *Manager) fresh(ctx context.Context) (token, identity, base string, seq uint64, err error) {
 	if !m.enabled {
-		return "", "", 0, fail(CodeUnavailable)
+		return "", "", "", 0, fail(CodeUnavailable)
 	}
 	m.mu.Lock()
 	if err := m.connectedLocked(); err != nil {
 		m.mu.Unlock()
-		return "", "", 0, err
+		return "", "", "", 0, err
 	}
-	rec, seq, due := *m.rec, m.refreshSeq, m.dueLocked()
+	rec, seen, due := *m.rec, m.refreshSeq, m.dueLocked()
 	m.mu.Unlock()
+	base = rec.Server.BaseURL
 	if !due {
-		return rec.AccessToken, rec.ID, seq, nil
+		return rec.AccessToken, rec.ID, base, seen, nil
 	}
-	token, next, err := m.refresh(ctx, seq)
+	renewed, next, err := m.refresh(ctx, seen)
 	if err == nil {
-		return token, rec.ID, next, nil
+		return renewed, rec.ID, base, next, nil
 	}
 	if Code(err) == CodeReconnectRequired || Code(err) == CodeUnavailable {
-		return "", "", 0, err
+		return "", "", "", 0, err
 	}
 	if m.now().Before(rec.AccessExpiresAt) {
-		return rec.AccessToken, rec.ID, seq, nil
+		return rec.AccessToken, rec.ID, base, seen, nil
 	}
-	return "", "", 0, err
+	return "", "", "", 0, err
 }
 
 // refresh exchanges the refresh token once. Callers pass the refresh
@@ -119,7 +122,11 @@ func (m *Manager) refresh(ctx context.Context, seen uint64) (string, uint64, err
 		return "", 0, fail(CodeReconnectRequired)
 	}
 	m.mu.Unlock()
-	r, err := m.postToken(ctx, rec.Server.BaseURL, url.Values{
+	// The forge may rotate the pair the moment it answers. A caller that goes
+	// away must not cost us the reply, so the exchange outlives its context.
+	exchange, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
+	defer cancel()
+	r, err := m.postToken(exchange, rec.Server.BaseURL, url.Values{
 		"grant_type": {"refresh_token"}, "client_id": {rec.ClientID}, "refresh_token": {rec.RefreshToken},
 	})
 	if err != nil {
@@ -140,7 +147,10 @@ func (m *Manager) refresh(ctx context.Context, seen uint64) (string, uint64, err
 	}
 	now := m.now()
 	next := rec
-	next.AccessToken, next.RefreshToken = tokens.access, tokens.refresh
+	next.AccessToken = tokens.access
+	if tokens.refresh != "" { // RFC 6749 section 6: no new refresh token means keep the old one
+		next.RefreshToken = tokens.refresh
+	}
 	next.AccessExpiresAt, next.RefreshedAt = now.Add(tokens.lifetime), now
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -175,11 +185,10 @@ func (m *Manager) endLocked(gen uint64) {
 // and retries; a refreshed token rejected again within a minute ends the
 // connection.
 func (m *Manager) apiGet(ctx context.Context, path string, limit int64) (*reply, error) {
-	token, _, seq, err := m.fresh(ctx)
+	token, _, base, seq, err := m.fresh(ctx)
 	if err != nil {
 		return nil, err
 	}
-	base := m.BaseURL()
 	for attempt := 0; attempt < 3; attempt++ {
 		r, err := m.get(ctx, base+path, token, limit)
 		if err != nil {

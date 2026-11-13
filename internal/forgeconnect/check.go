@@ -76,7 +76,7 @@ func (m *Manager) runCheck(ctx context.Context) (result CheckResult, account Acc
 	if r, err = m.apiGet(ctx, gitea.LimitCheckPath, maxBody); err != nil {
 		return checkFailure(err), account, "", 0, false
 	}
-	access = limitStatus(r.status)
+	access = limitStatus(r)
 	if r, err = m.apiGet(ctx, gitea.ReposPath+"?limit=1", maxBody); err != nil {
 		return checkFailure(err), account, "", 0, false
 	}
@@ -91,6 +91,7 @@ func (m *Manager) runCheck(ctx context.Context) (result CheckResult, account Acc
 func (m *Manager) Repositories(ctx context.Context) (list []Repository, truncated bool, err error) {
 	size := gitea.RepoPageSize
 	list = []Repository{}
+	seen := map[string]bool{} // a repository created mid-listing shifts another onto two pages
 	for page := 1; page <= gitea.MaxRepoPages; page++ {
 		r, err := m.apiGet(ctx, fmt.Sprintf("%s?limit=%d&page=%d", gitea.ReposPath, size, page), maxRepoPage)
 		if err != nil {
@@ -101,7 +102,8 @@ func (m *Manager) Repositories(ctx context.Context) (list []Repository, truncate
 			return nil, false, fail(CodeServerUnreachable)
 		}
 		for _, item := range items {
-			if item.FullName != "" && len(item.FullName) <= 512 {
+			if item.FullName != "" && len(item.FullName) <= 512 && !seen[item.FullName] {
+				seen[item.FullName] = true
 				list = append(list, item)
 			}
 		}

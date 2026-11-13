@@ -96,7 +96,7 @@ test('back from the forge connected: a scoped connection, its repositories and a
 test('full access is a warning, not a badge', async ({ page }, testInfo) => {
   await installGiteaMocks(page, connectedStatus({ access: 'full' }));
   await openSettings(page);
-  await expect(panel(page).locator('[data-gitea-access="full"]')).toContainText('This server gave Helm full access to this account. Helm only reads, but use a dedicated account with access to just the repositories Helm needs.');
+  await expect(panel(page).locator('[data-gitea-access="full"]')).toContainText('This server gave Helm more than read-only access to this account. Helm only reads, but use a dedicated account with access to just the repositories Helm needs.');
   await expect(panel(page).getByText('Read-only access', { exact: true })).toHaveCount(0);
   await snap(page, testInfo, 'connected-full');
 });

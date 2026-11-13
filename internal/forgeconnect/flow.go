@@ -94,9 +94,15 @@ func (m *Manager) finish(ctx context.Context, actorID, state, code, upstreamErro
 	}
 	m.mu.Lock()
 	pending, ok := m.pending[actorID]
-	delete(m.pending, actorID)
+	expired := ok && !m.now().Before(pending.expires)
+	match := ok && !expired && state != "" && subtle.ConstantTimeCompare([]byte(state), []byte(pending.state)) == 1
+	// Only the matching callback (or expiry) ends a pending sign-in, so a stale
+	// tab or a foreign link cannot cancel the one in progress.
+	if match || expired {
+		delete(m.pending, actorID)
+	}
 	m.mu.Unlock()
-	if !ok || state == "" || !m.now().Before(pending.expires) || subtle.ConstantTimeCompare([]byte(state), []byte(pending.state)) != 1 {
+	if !match {
 		return fail(CodeStateInvalid)
 	}
 	if upstreamError != "" {
@@ -139,7 +145,7 @@ func (m *Manager) finish(ctx context.Context, actorID, state, code, upstreamErro
 	}
 	access := AccessUnknown
 	if r, err := m.get(ctx, base+gitea.LimitCheckPath, tokens.access, maxBody); err == nil {
-		access = limitStatus(r.status)
+		access = limitStatus(r)
 	}
 	count, hasCount := -1, false
 	if r, err := m.get(ctx, base+gitea.ReposPath+"?limit=1", tokens.access, maxBody); err == nil && r.status == http.StatusOK {
@@ -238,16 +244,6 @@ func parseAccount(r *reply) (Account, bool) {
 		return Account{}, false
 	}
 	return Account{Login: account.Login, ID: account.ID}, true
-}
-
-func limitStatus(status int) string {
-	switch status {
-	case http.StatusForbidden:
-		return AccessScoped
-	case http.StatusOK:
-		return AccessFull
-	}
-	return AccessUnknown
 }
 
 func totalCount(header http.Header) (int, bool) {

@@ -80,19 +80,29 @@ Do not use a site administrator. A site administrator's sign-in can read
 every repository on the server, including other people's private ones, even
 with the read-only scope.
 
-## If Helm says it has full access
+## If Helm says it has more than read-only access
 
-You may see: "This server gave Helm full access to this account. Helm only
-reads, but use a dedicated account with access to just the repositories Helm
-needs."
+You may see: "This server gave Helm more than read-only access to this
+account. Helm only reads, but use a dedicated account with access to just the
+repositories Helm needs."
 
-This means the forge did not enforce the read-only scope, for example a Gitea
-release too old to support scopes. Helm stays connected and only ever reads,
-but the stored sign-in could do anything the account can. To fix it:
+Helm checks this after every sign-in and every **Test connection**. It means
+one of two things:
 
-1. Upgrade the forge if it is old, or move Helm to a dedicated
+- The forge did not enforce the read-only scope, for example a Gitea release
+  older than 1.23.
+- Helm's authorization on the forge was approved again with a wider scope.
+  On Gitea the scope belongs to the authorization, so Helm's existing sign-in
+  gains it. Gitea tells Helm the scope it granted, and Helm warns when that
+  is more than reading. Forgejo refuses to widen an existing authorization.
+
+Helm stays connected and only ever reads, but the stored sign-in could do
+more than read. To fix it:
+
+1. Under **Authorized OAuth2 Applications** on the forge, remove Helm.
+2. Upgrade the forge if it is old, or move Helm to a dedicated
    non-administrator account (see [Use a dedicated account](#use-a-dedicated-account)).
-2. Select **Disconnect**, then connect again.
+3. Select **Disconnect**, then connect again.
 
 If you see "Helm has not yet confirmed that its access is read-only. Test the
 connection to check.", the check could not finish. Select **Test connection**.
@@ -244,7 +254,11 @@ cannot trust as signed out and leaves it in place: one readable by group or
 others, owned by another user, a symbolic link, over 32 KB, or unreadable.
 **Disconnect** deletes it. If you set `HELM_FORGE_STATE_DIR` yourself, choose
 a directory Helm can write to; the packaged systemd unit only allows writes
-under `/var/lib/roadmap/data`.
+under `/var/lib/roadmap/data`. Helm creates the directory if it is missing. A
+directory that already exists must belong to Helm's user and be closed to
+group and others (mode 0700); it may be a symbolic link to one. Helm refuses
+a shared directory, and says why in its log, rather than changing its
+permissions.
 
 ### Addresses Helm contacts
 

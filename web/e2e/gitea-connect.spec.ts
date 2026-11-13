@@ -250,7 +250,7 @@ test('a full-access grant shows the full-access warning', async ({ page, request
   await control(request, { full_access: true });
   await testConnection(page);
   const full = panel(page).locator('[data-gitea-access="full"]');
-  await expect(full).toContainText('This server gave Helm full access to this account.');
+  await expect(full).toContainText('This server gave Helm more than read-only access to this account.');
   await expect(panel(page).locator('[data-gitea-access="scoped"]')).toHaveCount(0);
   expect((await helmStatus(request)).access).toBe('full');
   await snap(page, testInfo, 'full-access');
