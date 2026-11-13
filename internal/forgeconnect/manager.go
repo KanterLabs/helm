@@ -108,7 +108,7 @@ func New(o Options) (*Manager, error) {
 	if o.HTTPClient != nil {
 		m.http = injectedClient(o.HTTPClient)
 	} else {
-		m.http = newGuardedClient(loadRootPool(), requestTimeout)
+		m.http = newGuardedClient(loadRootPool(), requestTimeout, http.ProxyFromEnvironment, systemResolve)
 	}
 	if o.StateDir != "" {
 		m.store = newFileStore(o.StateDir)

@@ -41,7 +41,7 @@ func TestControlAddress(t *testing.T) {
 // The guard runs in the dialer, so the address checked is the address
 // dialled: there is no earlier lookup for DNS rebinding to slip past.
 func TestGuardedClientRefusesLinkLocalDial(t *testing.T) {
-	client := newGuardedClient(nil, time.Second)
+	client := newGuardedClient(nil, time.Second, nil, nil)
 	for _, target := range []string{"http://169.254.169.254/latest/meta-data/", "http://[::ffff:169.254.169.254]/", "http://[fe80::1]/"} {
 		response, err := client.Get(target)
 		if response != nil {
@@ -58,10 +58,10 @@ func TestGuardedClientRefusesLinkLocalDial(t *testing.T) {
 	}
 }
 
-func TestGuardedClientIgnoresProxy(t *testing.T) {
-	transport := newGuardedClient(nil, time.Second).Transport.(*http.Transport)
-	if transport.Proxy != nil {
-		t.Fatal("the guarded transport must not use an environment proxy")
+func TestGuardedClientFollowsProxyPolicyWithVerifiedTLS(t *testing.T) {
+	transport := newGuardedClient(nil, time.Second, http.ProxyFromEnvironment, nil).Transport.(*http.Transport)
+	if transport.Proxy == nil {
+		t.Fatal("the guarded transport must follow the operator's proxy settings")
 	}
 	if transport.TLSClientConfig == nil || transport.TLSClientConfig.InsecureSkipVerify {
 		t.Fatal("TLS verification must stay on")
@@ -103,7 +103,7 @@ func TestSlowServerTimesOut(t *testing.T) {
 		}
 	}))
 	defer slow.Close()
-	m, err := New(Options{Enabled: true, PublicOrigin: testOrigin, StateDir: t.TempDir(), HTTPClient: newGuardedClient(nil, 100*time.Millisecond)})
+	m, err := New(Options{Enabled: true, PublicOrigin: testOrigin, StateDir: t.TempDir(), HTTPClient: newGuardedClient(nil, 100*time.Millisecond, nil, nil)})
 	if err != nil {
 		t.Fatal(err)
 	}

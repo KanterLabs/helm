@@ -1,6 +1,7 @@
 package forgeconnect
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -91,12 +93,61 @@ func controlAddress(_, address string, _ syscall.RawConn) error {
 
 func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
-// newGuardedClient is the production client: address guard, no proxy, no
-// redirects, verified TLS. A nil pool means the system roots.
-func newGuardedClient(pool *x509.CertPool, timeout time.Duration) *http.Client {
+// proxyFunc is the operator's proxy policy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY
+// in production). resolveFunc looks a name up locally.
+type (
+	proxyFunc   func(*http.Request) (*url.URL, error)
+	resolveFunc func(ctx context.Context, host string) ([]netip.Addr, error)
+)
+
+func systemResolve(ctx context.Context, host string) ([]netip.Addr, error) {
+	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+}
+
+// guardProxy keeps the address rules when a request leaves through a proxy.
+// The dialer then sees only the proxy, so the target is checked here: a
+// literal address outright, a name by what it resolves to locally. A name
+// that does not resolve here is left to the proxy, whose own policy decides;
+// some deployments can only resolve through it.
+func guardProxy(proxy proxyFunc, resolve resolveFunc) proxyFunc {
+	if proxy == nil {
+		return nil
+	}
+	if resolve == nil {
+		resolve = systemResolve
+	}
+	return func(request *http.Request) (*url.URL, error) {
+		via, err := proxy(request)
+		if err != nil || via == nil {
+			return via, err // direct: the dialer's guard applies
+		}
+		host := request.URL.Hostname()
+		if ip, err := netip.ParseAddr(host); err == nil {
+			if blockedAddr(ip.WithZone("")) {
+				return nil, errBlockedAddress
+			}
+			return via, nil
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+		defer cancel()
+		if addrs, err := resolve(ctx, host); err == nil {
+			for _, addr := range addrs {
+				if blockedAddr(addr.WithZone("")) {
+					return nil, errBlockedAddress
+				}
+			}
+		}
+		return via, nil
+	}
+}
+
+// newGuardedClient is the production client: address guard, the operator's
+// proxy policy, no redirects, verified TLS. A nil pool means the system
+// roots; a nil proxy means always direct.
+func newGuardedClient(pool *x509.CertPool, timeout time.Duration, proxy proxyFunc, resolve resolveFunc) *http.Client {
 	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: controlAddress}
 	transport := &http.Transport{
-		Proxy:                  nil, // a proxy would dial on our behalf and bypass the guard
+		Proxy:                  guardProxy(proxy, resolve),
 		DialContext:            dialer.DialContext,
 		TLSClientConfig:        &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
 		TLSHandshakeTimeout:    timeout,

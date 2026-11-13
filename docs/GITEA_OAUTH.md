@@ -274,7 +274,15 @@ typed, so it applies these rules:
   broadcast and unspecified addresses are refused, checked on the address
   actually dialled.
 - Redirects are not followed, each request times out after 10 seconds, and
-  responses are size-limited. No proxy is used.
+  responses are size-limited.
+- Helm follows the operator's proxy settings (`HTTPS_PROXY`, `HTTP_PROXY`,
+  `NO_PROXY`). If the Helm server can only reach the network through a proxy,
+  the forge's host must be allowed there; if the forge is reachable directly,
+  list it in `NO_PROXY`. Through a proxy, Helm still refuses the addresses
+  above before the request leaves, by the address typed or by what the name
+  resolves to on the Helm server. "Helm could not reach that server" on a
+  server that works from your own machine usually means one of these two
+  settings.
 - Messages from the forge are never shown or logged; Helm reports one of its
   own codes instead.
 

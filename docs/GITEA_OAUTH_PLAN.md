@@ -180,6 +180,10 @@ The server contacts an address an administrator typed, so:
   are allowed: self-hosted forges live there.
 - No redirects, 10-second timeout, 64 KB response cap (1 MB for a repository
   page).
+- Follow the operator's proxy settings; a locked-down server may have no other
+  way out. Through a proxy the dialer sees only the proxy, so check the target
+  before the request leaves: a literal address outright, a name by what it
+  resolves to locally.
 - Never pass an upstream body or `error_description` to the browser or a log.
   Map to the C1 codes.
 - TLS uses system roots plus `SSL_CERT_FILE` and `SSL_CERT_DIR`. No option to
