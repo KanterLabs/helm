@@ -10,6 +10,7 @@ import { activityApi } from './api/activity';
 import { createViewsApi } from './api/views';
 import { auditsApi } from './api/audits';
 import { githubApi } from './api/github';
+import { giteaApi } from './api/gitea';
 import { membershipApi } from './api/membership';
 import { collectPages } from './api/client';
 import type { Actor, Collection, Task, Release } from './types';
@@ -33,6 +34,7 @@ export const api = {
   ...createViewsApi((): ReturnType<typeof createViewsApi> => api),
   ...auditsApi,
   ...githubApi,
+  ...giteaApi,
   ...membershipApi
 };
 
