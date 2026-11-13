@@ -86,8 +86,9 @@ test('an empty panel reaches Connected with the address, the client ID and the f
   entries.push('http-consent');
   // click, not check(): ticking it starts the check and the box leaves the page at once.
   await warning.getByRole('checkbox', { name: 'Continue without encryption' }).click();
-  await expect(found(page)).toContainText(`Found Gitea 28.3.0 at ${forgeURL}`);
-  await expect(found(page)).toContainText('without encryption');
+  // The exact separator matters: Svelte drops a leading space at the start of an
+  // {#if} block, which once rendered "…PORT· without encryption".
+  await expect(found(page)).toContainText(`Found Gitea 28.3.0 at ${forgeURL} · without encryption`);
   await expect(stepTwo(page)).toBeVisible();
   const redirectURI = (await panel(page).locator('[data-gitea-redirect-uri]').innerText()).trim();
   expect(redirectURI).toBe(`${helmOrigin}${callbackPath}`);
@@ -146,8 +147,7 @@ test('an empty panel reaches Connected with the address, the client ID and the f
 test('Connected shows the account, read-only access and repositories, and Test connection asks the forge', async ({ page, request }, testInfo) => {
   await openSettings(page);
   await expect(connected(page)).toHaveText(`Connected to ${forgeURL} as @helm-reader`);
-  await expect(panel(page)).toContainText('Gitea 28.3.0');
-  await expect(panel(page)).toContainText('without encryption · connected just now');
+  await expect(panel(page)).toContainText('Gitea 28.3.0 · without encryption · connected just now');
   await expect(panel(page).locator('[data-gitea-access="scoped"]')).toHaveText('Read-only access');
   await expect(panel(page).locator('[data-gitea-access="full"]')).toHaveCount(0);
   await expect(panel(page).locator('.gitea-repos-head')).toContainText('Helm can read 57 repositories');
@@ -326,15 +326,6 @@ test('Deny on the forge keeps the typed values, and a confidential application i
   expect((await helmStatus(request)).state).toBe('disconnected');
   await snap(page, testInfo, 'client-confidential');
   await control(request, { confidential: false });
-});
-
-// Product bug (cosmetic): Svelte drops the leading space inside the {#if}
-// blocks at GiteaConnected.svelte:49 and GiteaSetup.svelte:133, so the panel
-// reads "Gitea 28.3.0· without encryption" and "…127.0.0.1:PORT· without
-// encryption". Remove fixme once the space is rendered.
-test.fixme('the http marker is separated from the version and the address by " · "', async ({ page }) => {
-  await openSettings(page);
-  await expect(panel(page)).toContainText('Gitea 28.3.0 · without encryption');
 });
 
 test('no forge secret reaches the server output, the database, Helm responses or the browser console', async ({}, testInfo) => {

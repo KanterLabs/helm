@@ -130,7 +130,7 @@
       <div class="gitea-step-body">
         {#if probe}
           <p class="gitea-found" data-gitea-found>
-            <span>Found {product}{probe.server.version ? ` ${probe.server.version}` : ''} at <strong>{displayAddress(probe.server.base_url)}</strong>{#if probe.server.insecure_http}<span class="gitea-insecure"> · without encryption</span>{/if}</span>
+            <span>Found {product}{probe.server.version ? ` ${probe.server.version}` : ''} at <strong>{displayAddress(probe.server.base_url)}</strong>{#if probe.server.insecure_http}<span class="gitea-insecure">{' · without encryption'}</span>{/if}</span>
             <button class="text-button" type="button" aria-label="Change server address" on:click={change}>Change</button>
           </p>
         {:else}

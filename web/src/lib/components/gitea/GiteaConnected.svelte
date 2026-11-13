@@ -46,7 +46,7 @@
     <span class="gitea-tick" aria-hidden="true">✓</span>
     <div class="gitea-identity-text">
       <h3 tabindex="-1" data-gitea-connected-heading data-product={product}>Connected to {host} as @{status.account?.login || 'unknown'}</h3>
-      <p>{product}{version ? ` ${version}` : ''}{#if status.server?.insecure_http} · without encryption{/if} · connected {relativeTime(status.connected_at)} · checked {relativeTime(status.checked_at)}</p>
+      <p>{product}{version ? ` ${version}` : ''}{#if status.server?.insecure_http}{' · without encryption'}{/if} · connected {relativeTime(status.connected_at)} · checked {relativeTime(status.checked_at)}</p>
     </div>
     {#if status.access === 'scoped'}<span class="gitea-badge" data-gitea-access="scoped">Read-only access</span>{/if}
   </div>
