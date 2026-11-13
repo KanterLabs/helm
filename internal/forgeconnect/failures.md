@@ -191,3 +191,15 @@ Each has a test in `review_test.go` unless noted.
 
 Known and accepted: two administrators finishing sign-in at the same moment
 leaves the loser's grant on the forge until it is removed there.
+
+## Found on beta
+
+- **A server whose only way out is an egress proxy could never reach the
+  forge.** The client ignored `HTTPS_PROXY` on purpose, so on a host that
+  blocks direct egress every probe timed out. It now follows the operator's
+  proxy policy. Because the dialer then sees only the proxy, the target is
+  checked before the request leaves. Tests: `proxy_test.go`.
+- **A proxy used to reach a blocked address.** A literal link-local or
+  metadata address, or a name that resolves to one locally, is refused and
+  never sent to the proxy. Test:
+  `TestProxyCannotBeUsedToReachBlockedAddresses`.
