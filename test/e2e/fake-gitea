@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Synthetic Gitea 28.3.0 OAuth2 provider and API for the connection E2E spec.
+
+Usage: fake-gitea PORT_FILE SENTINEL
+Binds an ephemeral loopback port and writes it to PORT_FILE once listening.
+Every secret it issues starts with SENTINEL (codes, access and refresh tokens,
+client secrets), so retained evidence can be scanned for leaks. Answers as the
+research record (docs/GITEA_OAUTH_RESEARCH.md) says a real forge does.
+HTML pages and repositories: fake_gitea_pages.py. Failure list: GITEA_FAILURES.md.
+
+GET  /__state    counters and flags only; never a code or token.
+POST /__control  JSON: {"reset": true}, {"token_lifetime": seconds},
+                 {"expire_access": true}, {"one_time_refresh": bool},
+                 {"revoke": true}, {"full_access": bool}, {"confidential": bool}.
+"""
+import base64
+import hashlib
+import html
+import json
+import os
+import secrets
+import sys
+import threading
+import time
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlencode, urlparse
+
+import fake_gitea_pages as pages
+
+PORT_FILE, SENTINEL = sys.argv[1], sys.argv[2]
+VERSION = "28.3.0"
+USER = {"id": 7, "login": "helm-reader", "full_name": "Helm reader", "email": "helm-reader@forge.invalid",
+        "is_admin": False, "username": "helm-reader"}
+UNAUTHORIZED = {"message": "invalid username, password or token"}
+DENIED_DESCRIPTION = "fake-gitea: the user denied the request"
+lock = threading.Lock()
+
+
+def fresh_state():
+    return {"apps": {}, "codes": {}, "grants": {}, "access": {}, "refresh": {}, "consents": {}, "serial": 0,
+            "flags": {"token_lifetime": 3600, "one_time_refresh": False, "full_access": False},
+            "counters": {key: 0 for key in (
+                "applications_created", "authorize_requests", "authorize_rejected", "consent_shown", "approvals",
+                "denials", "exchanges", "exchange_failures", "refreshes", "refresh_failures", "refresh_reuse_refused",
+                "api_calls", "api_unauthorized", "user_calls", "limit_checks", "repo_pages", "access_expired")},
+            "last_authorize": None, "last_exchange_error": "", "last_refresh_error": "", "token_prefixes": []}
+
+
+state = fresh_state()
+
+
+def issue(kind):
+    state["serial"] += 1
+    return f"{SENTINEL}-{kind}-{state['serial']}-{secrets.token_hex(6)}"
+
+
+def norm_uri(value):
+    return value.strip().lower().rstrip("/")
+
+
+def public_state():
+    apps = [{"name": app["name"], "client_id": cid, "confidential": app["confidential"],
+             "redirect_uris": app["redirect_uris"]} for cid, app in state["apps"].items()]
+    grants = [{"client_id": g["client_id"], "scope": g["scope"], "revoked": g["revoked"]} for g in state["grants"].values()]
+    return {"version": VERSION, "flags": state["flags"], "counters": state["counters"], "apps": apps,
+            "grants": grants, "last_authorize": state["last_authorize"],
+            "last_exchange_error": state["last_exchange_error"], "last_refresh_error": state["last_refresh_error"]}
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "fake-gitea"
+
+    def log_message(self, *args):
+        pass  # Never log: request lines carry codes.
+
+    def send(self, status, body, content_type, headers=None):
+        data = body if isinstance(body, bytes) else body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def json(self, status, value, headers=None):
+        self.send(status, json.dumps(value), "application/json;charset=utf-8", headers)
+
+    def page(self, status, title, body):
+        self.send(status, pages.PAGE.format(title=html.escape(title), version=VERSION, body=body), "text/html; charset=utf-8")
+
+    def redirect(self, target):
+        self.send_response(303)
+        self.send_header("Location", target)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def form(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length).decode() if length else ""
+        return {key: values[0] for key, values in parse_qs(raw, keep_blank_values=True).items()}
+
+    def origin(self):
+        return f"http://{self.headers.get('Host')}"
+
+    def do_GET(self):
+        with lock:
+            self.route("GET")
+
+    def do_POST(self):
+        with lock:
+            self.route("POST")
+
+    def route(self, method):
+        url = urlparse(self.path)
+        query = {key: values[0] for key, values in parse_qs(url.query, keep_blank_values=True).items()}
+        path = url.path
+        if path == "/__state" and method == "GET":
+            return self.json(200, public_state())
+        if path == "/__control" and method == "POST":
+            return self.control()
+        if path == "/.well-known/openid-configuration" and method == "GET":
+            return self.discovery()
+        if path == "/user/settings/applications" and method == "GET":
+            return self.applications()
+        if path == "/user/settings/applications/oauth2" and method == "POST":
+            return self.create_application()
+        if path == "/login/oauth/authorize" and method == "GET":
+            return self.authorize(query)
+        if path == "/login/oauth/grant" and method == "POST":
+            return self.grant()
+        if path == "/login/oauth/access_token" and method == "POST":
+            return self.token()
+        if path.startswith("/api/v1/"):
+            return self.api(method, path, query)
+        return self.page(404, "Not found", "<section><h1>Page not found</h1></section>")
+
+    def control(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(length) or b"{}")
+        global state
+        if body.get("reset"):
+            state = fresh_state()
+        if "token_lifetime" in body:
+            state["flags"]["token_lifetime"] = int(body["token_lifetime"])
+        if body.get("expire_access"):
+            for token in state["access"].values():
+                token["exp"] = 0
+            state["counters"]["access_expired"] += 1
+        if "one_time_refresh" in body:
+            state["flags"]["one_time_refresh"] = bool(body["one_time_refresh"])
+        if body.get("revoke"):
+            for grant in state["grants"].values():
+                grant["revoked"] = True
+        if "full_access" in body:
+            state["flags"]["full_access"] = bool(body["full_access"])
+        if "confidential" in body:
+            for app in state["apps"].values():
+                app["confidential"] = bool(body["confidential"])
+        return self.json(200, public_state())
+
+    def discovery(self):
+        base = self.origin()
+        return self.json(200, {
+            "issuer": base, "authorization_endpoint": base + "/login/oauth/authorize",
+            "token_endpoint": base + "/login/oauth/access_token", "jwks_uri": base + "/login/oauth/keys",
+            "userinfo_endpoint": base + "/login/oauth/userinfo", "introspection_endpoint": base + "/login/oauth/introspect",
+            "response_types_supported": ["code", "id_token"], "id_token_signing_alg_values_supported": ["RS256"],
+            "subject_types_supported": ["public"], "scopes_supported": ["openid", "profile", "email", "groups"],
+            "claims_supported": ["aud", "exp", "iat", "iss", "sub", "name", "preferred_username", "email", "locale"],
+            "code_challenge_methods_supported": ["plain", "S256"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+        })
+
+    def applications(self):
+        return self.page(200, "Applications", pages.applications(state["apps"]))
+
+    def create_application(self):
+        form = self.form()
+        name, uris = form.get("application_name", "").strip(), [u.strip() for u in form.get("redirect_uris", "").splitlines() if u.strip()]
+        if not name or not uris:
+            return self.page(400, "Applications", "<section><p>Application Name and Redirect URIs are required.</p></section>")
+        client_id = str(uuid.uuid4())
+        confidential = form.get("confidential_client") == "on"
+        state["apps"][client_id] = {"name": name, "redirect_uris": uris, "confidential": confidential,
+                                    "secret": issue("clientsecret") if confidential else ""}
+        state["counters"]["applications_created"] += 1
+        return self.page(201, "Application created", pages.created(client_id, uris, confidential))
+
+    def authorize(self, q):
+        counters = state["counters"]
+        counters["authorize_requests"] += 1
+        state["last_authorize"] = {key: q.get(key, "") for key in ("client_id", "redirect_uri", "response_type", "scope", "code_challenge_method")}
+        state["last_authorize"]["has_state"] = bool(q.get("state"))
+        state["last_authorize"]["has_code_challenge"] = bool(q.get("code_challenge"))
+        app = state["apps"].get(q.get("client_id", ""))
+        if app is None:
+            counters["authorize_rejected"] += 1
+            return self.page(400, "Error", "<section><h1>Client ID not registered</h1></section>")
+        redirect = q.get("redirect_uri", "")
+        if norm_uri(redirect) not in [norm_uri(u) for u in app["redirect_uris"]]:
+            counters["authorize_rejected"] += 1
+            return self.page(400, "Error", "<section><h1>Unregistered Redirect URI</h1></section>")
+        back = {"state": q.get("state", "")}
+        if q.get("response_type") != "code":
+            return self.redirect(redirect + "?" + urlencode({"error": "unsupported_response_type", **back}))
+        if not app["confidential"] and (not q.get("code_challenge") or q.get("code_challenge_method") not in ("S256", "plain")):
+            counters["authorize_rejected"] += 1
+            return self.redirect(redirect + "?" + urlencode({"error": "invalid_request", "error_description": "PKCE is required for public clients", **back}))
+        consent = secrets.token_hex(12)
+        state["consents"][consent] = {key: q.get(key, "") for key in ("client_id", "state", "scope", "code_challenge", "code_challenge_method")}
+        state["consents"][consent]["redirect_uri"] = redirect
+        counters["consent_shown"] += 1
+        return self.page(200, "Authorize Application", pages.consent(app["name"], q.get("scope", ""), redirect, consent))
+
+    def grant(self):
+        form = self.form()
+        pending = state["consents"].pop(form.get("consent", ""), None)
+        if pending is None:
+            return self.page(400, "Error", "<section><h1>This authorization request has expired</h1></section>")
+        back = {"state": pending["state"]}
+        if form.get("granted") != "true":
+            state["counters"]["denials"] += 1
+            return self.redirect(pending["redirect_uri"] + "?" + urlencode({"error": "access_denied", "error_description": DENIED_DESCRIPTION, **back}))
+        state["counters"]["approvals"] += 1
+        grant_id = next((gid for gid, g in state["grants"].items() if g["client_id"] == pending["client_id"] and not g["revoked"]), None)
+        if grant_id is None:
+            grant_id = secrets.token_hex(8)
+            state["grants"][grant_id] = {"client_id": pending["client_id"], "scope": pending["scope"], "revoked": False}
+        state["grants"][grant_id]["scope"] = pending["scope"]
+        code = issue("code")
+        state["codes"][code] = {**pending, "grant": grant_id, "used": False, "issued": time.time()}
+        return self.redirect(pending["redirect_uri"] + "?" + urlencode({"code": code, **back}))
+
+    def token_error(self, error, description):
+        return self.json(400, {"error": error, "error_description": description})
+
+    def issue_tokens(self, grant_id):
+        lifetime = state["flags"]["token_lifetime"]
+        access, refresh = issue("access"), issue("refresh")
+        state["access"][access] = {"grant": grant_id, "exp": time.time() + lifetime}
+        state["refresh"][refresh] = {"grant": grant_id, "used": False}
+        return self.json(200, {"access_token": access, "token_type": "bearer", "expires_in": lifetime, "refresh_token": refresh})
+
+    def token(self):
+        form = self.form()
+        counters = state["counters"]
+        grant_type, client_id = form.get("grant_type", ""), form.get("client_id", "")
+        app = state["apps"].get(client_id)
+        if grant_type == "authorization_code":
+            counters["exchanges"] += 1
+            error = self.exchange_error(form, app)
+            if error:
+                counters["exchange_failures"] += 1
+                state["last_exchange_error"] = error[0]
+                return self.token_error(*error)
+            grant = state["codes"][form["code"]]
+            grant["used"] = True
+            return self.issue_tokens(grant["grant"])
+        if grant_type == "refresh_token":
+            error = self.refresh_error(form, app)
+            if error:
+                counters["refresh_failures"] += 1
+                state["last_refresh_error"] = error[0]
+                return self.token_error(*error)
+            record = state["refresh"][form["refresh_token"]]
+            if state["flags"]["one_time_refresh"]:
+                record["used"] = True
+            counters["refreshes"] += 1
+            return self.issue_tokens(record["grant"])
+        return self.token_error("unsupported_grant_type", "Only refresh_token or authorization_code grant type is supported")
+
+    def exchange_error(self, form, app):
+        if app is None:
+            return "invalid_client", f"cannot load client with client id: '{form.get('client_id', '')}'"
+        if app["confidential"] and not form.get("client_secret"):
+            return "unauthorized_client", "invalid empty client secret"
+        code = state["codes"].get(form.get("code", ""))
+        if code is None or code["used"] or code["client_id"] != form.get("client_id"):
+            return "unauthorized_client", "client is not authorized"
+        if norm_uri(code["redirect_uri"]) != norm_uri(form.get("redirect_uri", "")):
+            return "unauthorized_client", "unexpected redirect URI"
+        verifier = form.get("code_verifier", "")
+        if code["code_challenge_method"] == "S256":
+            expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        else:
+            expected = verifier
+        if not verifier or not secrets.compare_digest(expected, code["code_challenge"]):
+            return "unauthorized_client", "failed PKCE code challenge"
+        if state["grants"][code["grant"]]["revoked"]:
+            return "invalid_grant", "grant does not exist"
+        return None
+
+    def refresh_error(self, form, app):
+        if app is None:
+            return "invalid_client", f"cannot load client with client id: '{form.get('client_id', '')}'"
+        if app["confidential"] and not form.get("client_secret"):
+            return "invalid_client", "invalid empty client secret"
+        record = state["refresh"].get(form.get("refresh_token", ""))
+        if record is None:
+            return "unauthorized_client", "unable to parse refresh token"
+        if state["grants"][record["grant"]]["revoked"]:
+            return "invalid_grant", "grant does not exist"
+        if record["used"]:
+            state["counters"]["refresh_reuse_refused"] += 1
+            return "unauthorized_client", "token was already used"
+        return None
+
+    def bearer(self):
+        header = self.headers.get("Authorization") or ""
+        scheme, _, token = header.partition(" ")
+        if scheme.lower() not in ("bearer", "token") or not token:
+            return None
+        record = state["access"].get(token.strip())
+        if record is None or record["exp"] <= time.time() or state["grants"][record["grant"]]["revoked"]:
+            return None
+        return state["grants"][record["grant"]]
+
+    def api(self, method, path, query):
+        counters = state["counters"]
+        counters["api_calls"] += 1
+        if path == "/api/v1/version" and method == "GET":
+            return self.json(200, {"version": VERSION})
+        grant = self.bearer()
+        if grant is None:
+            counters["api_unauthorized"] += 1
+            return self.json(401, UNAUTHORIZED)
+        full = state["flags"]["full_access"] or not grant["scope"].strip()
+        if path == "/api/v1/user" and method == "GET":
+            counters["user_calls"] += 1
+            return self.json(200, USER)
+        if path == "/api/v1/user/orgs" and method == "GET":
+            counters["limit_checks"] += 1
+            if full:
+                return self.json(200, [], {"X-Total-Count": "0"})
+            return self.json(403, {"message": "token does not have at least one of required scope(s), required=[read:organization], token scope=" + grant["scope"].replace(" ", ","),
+                                   "url": self.origin() + "/api/swagger"})
+        if path == "/api/v1/user/repos" and method == "GET":
+            counters["repo_pages"] += 1
+            limit = max(1, min(50, int(query.get("limit") or 30)))
+            page = max(1, int(query.get("page") or 1))
+            items = pages.REPOS[(page - 1) * limit: page * limit]
+            last = max(1, -(-len(pages.REPOS) // limit))
+            links = []
+            if page < last:
+                links.append(f'<{self.origin()}/api/v1/user/repos?limit={limit}&page={page + 1}>; rel="next"')
+                links.append(f'<{self.origin()}/api/v1/user/repos?limit={limit}&page={last}>; rel="last"')
+            headers = {"X-Total-Count": str(len(pages.REPOS))}
+            if links:
+                headers["Link"] = ", ".join(links)
+            return self.json(200, items, headers)
+        return self.json(404, {"message": "The target couldn't be found.", "errors": []})
+
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+temporary = PORT_FILE + ".tmp"
+with open(temporary, "w") as stream:
+    stream.write(str(server.server_address[1]))
+os.replace(temporary, PORT_FILE)
+server.serve_forever()
