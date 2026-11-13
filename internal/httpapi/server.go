@@ -8,6 +8,7 @@ import (
 	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
+	"github.com/KanterLabs/helm/internal/forgeconnect"
 	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 	"net/http"
@@ -30,8 +31,11 @@ type Server struct {
 	// PublicEndpoints provisions and runs the optional Cloudflare tunnel
 	// that exposes webhook routes publicly; nil when not configured.
 	PublicEndpoints *publicendpoint.Manager
-	idemMu          sync.Mutex
-	betaSwitchIdem  map[string]betaSwitchReplay
+	// Gitea is the optional Gitea / Forgejo OAuth connection; nil when it
+	// could not be built (the routes then report it disabled).
+	Gitea          *forgeconnect.Manager
+	idemMu         sync.Mutex
+	betaSwitchIdem map[string]betaSwitchReplay
 	// mutationLimiter is initialized by New and is intentionally process-local.
 	// Persistent agent accounting lives in store so a restart cannot reset the
 	// actor's resource budget.
@@ -77,6 +81,7 @@ func NewWithBetaSwitch(s *store.Store, manager *auth.Manager, cfg config.Config,
 	}
 	server := &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry(), adminActivity: newAdminActivityTracker(), projectIntelligenceCache: make(map[string]projectIntelligenceCacheEntry), projectIntelligenceRunning: make(map[string]bool)}
 	server.configureGithubServices()
+	server.configureGiteaConnection()
 	server.startAttachmentRuntime()
 	return server
 }

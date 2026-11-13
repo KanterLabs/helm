@@ -1,0 +1,217 @@
+components:
+  schemas:
+    GiteaServer:
+      type: object
+      description: A Gitea or Forgejo server Helm has found. `base_url` is the settled address.
+      required:
+        - base_url
+        - product
+        - version
+        - insecure_http
+      properties:
+        base_url:
+          type: string
+          maxLength: 255
+          example: https://gitea.example
+        product:
+          type: string
+          enum:
+            - gitea
+            - forgejo
+        version:
+          type: string
+          description: Empty when the server does not report it anonymously.
+          example: 28.3.0
+        insecure_http:
+          type: boolean
+          description: The server is reached over unencrypted http (the administrator allowed it).
+      additionalProperties: false
+    GiteaAccount:
+      type: object
+      required:
+        - login
+        - id
+      properties:
+        login:
+          type: string
+          example: helm-bot
+        id:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    GiteaCheck:
+      type: object
+      description: The last connection check, kept across restarts. `code` is a Gitea error code or empty.
+      required:
+        - state
+        - code
+      properties:
+        state:
+          type: string
+          enum:
+            - ok
+            - unreachable
+            - unauthorized
+        code:
+          type: string
+      additionalProperties: false
+    GiteaStatus:
+      type: object
+      description: |
+        The installation-wide Gitea / Forgejo connection. Never contains a
+        token. `server`, `account`, `connected_at` and `checked_at` are null
+        until Helm has connected.
+      required:
+        - available
+        - unavailable_reason
+        - redirect_uri
+        - state
+        - server
+        - client_id
+        - account
+        - access
+        - repository_count
+        - connected_at
+        - checked_at
+        - check
+        - register_url
+        - revoke_url
+      properties:
+        available:
+          type: boolean
+          description: Sign-in can be offered (enabled and `HELM_PUBLIC_ORIGIN` set).
+        unavailable_reason:
+          type: string
+          enum:
+            - ""
+            - disabled
+            - public_origin_missing
+        redirect_uri:
+          type: string
+          description: The callback to register on the forge; empty without a public origin.
+          example: https://helm.example/api/v1/integrations/gitea/oauth/callback
+        state:
+          type: string
+          enum:
+            - disconnected
+            - connected
+            - reconnect_required
+        server:
+          oneOf:
+            - $ref: "#/components/schemas/GiteaServer"
+            - type: "null"
+        client_id:
+          type: string
+        account:
+          oneOf:
+            - $ref: "#/components/schemas/GiteaAccount"
+            - type: "null"
+        access:
+          type: string
+          description: "`scoped` when the forge refused a read Helm did not ask for, `full` when it allowed it."
+          enum:
+            - scoped
+            - full
+            - unknown
+        repository_count:
+          type: integer
+          minimum: 0
+        connected_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        checked_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        check:
+          $ref: "#/components/schemas/GiteaCheck"
+        register_url:
+          type: string
+          description: Forge page where the OAuth2 application is created; empty before a server is known.
+        revoke_url:
+          type: string
+          description: Forge page where the authorization is removed; empty before a server is known.
+      additionalProperties: false
+    GiteaProbeRequest:
+      type: object
+      required:
+        - base_url
+      properties:
+        base_url:
+          type: string
+          description: Any address on the forge; the scheme may be omitted (https is assumed).
+        allow_insecure_http:
+          type: boolean
+          default: false
+      additionalProperties: false
+    GiteaProbeResult:
+      type: object
+      required:
+        - server
+        - redirect_uri
+        - register_url
+      properties:
+        server:
+          $ref: "#/components/schemas/GiteaServer"
+        redirect_uri:
+          type: string
+        register_url:
+          type: string
+      additionalProperties: false
+    GiteaStartRequest:
+      type: object
+      description: In `reconnect_required`, empty `base_url` and `client_id` reuse the stored values.
+      required:
+        - base_url
+        - client_id
+      properties:
+        base_url:
+          type: string
+        client_id:
+          type: string
+        allow_insecure_http:
+          type: boolean
+          default: false
+      additionalProperties: false
+    GiteaAuthorize:
+      type: object
+      required:
+        - authorize_url
+      properties:
+        authorize_url:
+          type: string
+          description: The forge's consent page; it always starts with the probed base URL.
+      additionalProperties: false
+    GiteaRepository:
+      type: object
+      required:
+        - full_name
+        - private
+        - archived
+      properties:
+        full_name:
+          type: string
+          example: team/service
+        private:
+          type: boolean
+        archived:
+          type: boolean
+      additionalProperties: false
+    GiteaRepositoryList:
+      type: object
+      required:
+        - repositories
+        - truncated
+      properties:
+        repositories:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/GiteaRepository"
+        truncated:
+          type: boolean
+          description: The account can read more than the 500 listed.
+      additionalProperties: false

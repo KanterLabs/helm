@@ -9,6 +9,7 @@
           "schema": {
             "type": "string",
             "enum": [
+              "gitea-oauth",
               "public-access",
               "ticket-webhooks"
             ]

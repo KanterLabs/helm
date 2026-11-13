@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { loadOpenAPI } from './openapi-source.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const userGuides = ['docs/PUBLIC_ACCESS.md', 'docs/TICKET_WEBHOOKS.md'];
+const userGuides = ['docs/GITEA_OAUTH.md', 'docs/PUBLIC_ACCESS.md', 'docs/TICKET_WEBHOOKS.md'];
 // The authenticated Intake collection is separate from public webhook ingress.
 const guidedPaths = /^\/api\/v1\/(hooks|ticket-webhooks|public-endpoints|email-intake|cloudflare|docs)\b|^\/api\/v1\/intake\/coolify(?:\/|$)/;
 const operationName = /^(get|post|create|list|rotate|disable|set|send|test|start|finish|connect|disconnect|receive)[A-Z]\w+$/;

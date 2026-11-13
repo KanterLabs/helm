@@ -78,6 +78,8 @@ This creates `data/roadmap.db`, `data/attachments`, and the archived
 config/runtime paths. It copies only manifest-listed objects. Runtime archive
 paths must belong to config, codex-users or public-endpoints and contain only
 regular files/directories; unsafe archive paths and links fail verification.
+The Gitea connection's `data/forge` directory is not archived, so a restored
+lane signs in to Gitea again ([GITEA_OAUTH.md](GITEA_OAUTH.md#restores-moves-and-downgrades)).
 No service is activated, and no source lock, staging files, runtime lease,
 security profile, authorization floor or production ownership is changed.
 The app creates its own GC lock when a separately authorized recovery is

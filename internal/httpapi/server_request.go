@@ -236,6 +236,12 @@ func (s *Server) prepareRequest(w http.ResponseWriter, r *http.Request) (auth.Id
 		return auth.Identity{}, false, false
 	}
 	if err != nil {
+		if protected && isGiteaCallback(r) {
+			// A person returning from the forge without a Helm session sees
+			// Settings with an error, never raw JSON.
+			giteaRedirect(w, r, "state_invalid")
+			return auth.Identity{}, false, false
+		}
 		if protected {
 			s.writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required", nil)
 			return auth.Identity{}, false, false

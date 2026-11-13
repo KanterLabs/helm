@@ -38,12 +38,14 @@ relay_url="http://127.0.0.1:$relay_port/cloudflare/callback"
 started_at=$(date +%s)
 server_pid=
 fake_cf_pid=
+fake_gitea_pid=
 relay_pid=
 browser_pid=
 coolify_secret=
 fake_cf_token=
 fake_cf_zoneless=
 fake_cf_norules=
+gitea_sentinel=
 server_log="$work_dir/$auth_mode-server.log"
 server_db="$work_dir/$auth_mode-roadmap.db"
 
@@ -54,7 +56,7 @@ collect_evidence() {
   # The coordinator also signals this worker's process group on cancellation.
   # Stop Helm before copying SQLite so its WAL is checkpointed and closed.
   local pid file secret
-  for pid in "$browser_pid" "$server_pid" "$fake_cf_pid" "$relay_pid"; do
+  for pid in "$browser_pid" "$server_pid" "$fake_cf_pid" "$fake_gitea_pid" "$relay_pid"; do
     if [[ -n "$pid" ]]; then
       kill -TERM "$pid" >/dev/null 2>&1 || true
       wait "$pid" >/dev/null 2>&1 || true
@@ -71,6 +73,37 @@ collect_evidence() {
       exit_status=1
     fi
   done
+  # Every secret fake-gitea issues starts with the sentinel. Access and refresh
+  # tokens may appear nowhere, including inside trace archives; the one-time
+  # authorization code (and a confidential client's secret) legitimately pass
+  # through the browser, so only trace archives may hold those.
+  if [[ -n "$gitea_sentinel" ]] && ! python3 - "$artifact_dir" "$gitea_sentinel" <<'PY'
+import sys
+import zipfile
+from pathlib import Path
+
+root, sentinel = Path(sys.argv[1]), sys.argv[2].encode()
+everywhere = [sentinel + b"-access-", sentinel + b"-refresh-"]
+outside_browser = everywhere + [sentinel + b"-code-", sentinel + b"-clientsecret-"]
+leaks = []
+for path in sorted(root.rglob("*")):
+    if not path.is_file() or path.is_symlink():
+        continue
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as archive:
+            for member in archive.namelist():
+                if any(marker in archive.read(member) for marker in everywhere):
+                    leaks.append(f"{path.relative_to(root)}:{member}")
+        continue
+    if any(marker in path.read_bytes() for marker in outside_browser):
+        leaks.append(str(path.relative_to(root)))
+for leak in leaks:
+    print(f"Gitea forge secret leaked into retained evidence: {leak}", file=sys.stderr)
+sys.exit(1 if leaks else 0)
+PY
+  then
+    exit_status=1
+  fi
   if grep -rqF 'WARNING: DATA RACE' "$artifact_dir"; then
     printf 'Worker Go race detector reported a data race\n' >&2
     exit_status=1
@@ -125,6 +158,12 @@ FAKE_OAUTH_CLIENT_ID=e2e-client FAKE_OAUTH_REDIRECT="$relay_url" \
 fake_cf_pid=$!
 node "$root/test/e2e/relay-server.mjs" "$relay_port" >"$work_dir/relay.private" 2>&1 &
 relay_pid=$!
+# Synthetic Gitea 28.3.0 on an ephemeral loopback port (written to a file).
+gitea_sentinel="gtsentinel$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
+gitea_port_file="$work_dir/gitea.port"
+python3 "$root/test/e2e/fake-gitea" "$gitea_port_file" "$gitea_sentinel" >"$work_dir/gitea.private" 2>&1 &
+fake_gitea_pid=$!
+gitea_origin=
 cloudflared_wrapper="$work_dir/cloudflared"
 printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "$root/test/e2e/fake-cloudflared" "$work_dir/fake-cloudflared.jsonl" > "$cloudflared_wrapper"
 chmod +x "$cloudflared_wrapper"
@@ -154,10 +193,14 @@ server_pid=$!
 
 ready=false
 for attempt in $(seq 1 30); do
-  for pid in "$server_pid" "$fake_cf_pid" "$relay_pid"; do
+  for pid in "$server_pid" "$fake_cf_pid" "$fake_gitea_pid" "$relay_pid"; do
     kill -0 "$pid" >/dev/null 2>&1 || { printf 'Worker fixture exited during startup\n' >&2; exit 1; }
   done
-  if curl --fail --silent --max-time 2 "$origin/readyz" >/dev/null && \
+  if [[ -z "$gitea_origin" && -s "$gitea_port_file" ]]; then
+    gitea_origin="http://127.0.0.1:$(cat "$gitea_port_file")"
+  fi
+  if [[ -n "$gitea_origin" ]] && curl --fail --silent --max-time 2 "$gitea_origin/__state" >/dev/null && \
+    curl --fail --silent --max-time 2 "$origin/readyz" >/dev/null && \
     curl --fail --silent --max-time 2 "$cf_origin/__state" >/dev/null && \
     curl --silent --output /dev/null --max-time 2 "$relay_url"; then
     ready=true
@@ -166,7 +209,7 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 [[ "$ready" == true ]] || { printf 'Worker fixtures did not become ready\n' >&2; exit 1; }
-for pid in "$server_pid" "$fake_cf_pid" "$relay_pid"; do
+for pid in "$server_pid" "$fake_cf_pid" "$fake_gitea_pid" "$relay_pid"; do
   kill -0 "$pid" >/dev/null 2>&1 || { printf 'Worker fixture exited before browser tests\n' >&2; exit 1; }
 done
 
@@ -178,6 +221,7 @@ done
   export HELM_E2E_FAKE_CF_TOKEN="$fake_cf_token"
   export HELM_E2E_FAKE_CF_ZONELESS_TOKEN="$fake_cf_zoneless"
   export HELM_E2E_FAKE_CF_NORULES_TOKEN="$fake_cf_norules"
+  export HELM_E2E_FAKE_GITEA_URL="$gitea_origin" HELM_E2E_FAKE_GITEA_SENTINEL="$gitea_sentinel"
   export HELM_E2E_CLOUDFLARED_LOG="$work_dir/fake-cloudflared.jsonl"
   export HELM_E2E_ARTIFACT_DIR="$artifact_dir"
   export HELM_E2E_COOLIFY_SECRET="$coolify_secret" HELM_E2E_COOLIFY_PROJECT=COOLIFYE2E

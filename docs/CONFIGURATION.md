@@ -75,6 +75,15 @@ requires the requesting human's personal AI connection. See the
 [GitHub beta API](GITHUB_BETA_API.md) for readiness, PR linking, audit jobs
 and explicit portable v3 history.
 
+## Gitea and Forgejo
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `HELM_GITEA_OAUTH` | `on` | `off` turns off the Gitea / Forgejo connection in Settings. Sign-in also needs `HELM_PUBLIC_ORIGIN`. |
+| `HELM_FORGE_STATE_DIR` | a `forge` directory beside the `HELM_DB` file | Holds the connection's owner-only state file (`gitea.json`). It must be writable by Helm. |
+
+See [GITEA_OAUTH.md](GITEA_OAUTH.md#for-operators).
+
 ## Public access and alert intake
 
 Public URLs, email addresses and guided Cloudflare setup are configured by

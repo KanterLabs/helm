@@ -71,6 +71,10 @@ type Config struct {
 	GitHubEnabled      bool
 	GitHubTokenFile    string
 	GitHubRepositories []string
+	// GiteaOAuth offers the Gitea / Forgejo connection (HELM_GITEA_OAUTH);
+	// ForgeStateDir holds its state file (HELM_FORGE_STATE_DIR).
+	GiteaOAuth    bool
+	ForgeStateDir string
 }
 
 func FromEnv() (Config, error) {
@@ -278,6 +282,9 @@ func FromEnv() (Config, error) {
 		return Config{}, err
 	}
 	if err := githubFromEnv(&c); err != nil {
+		return Config{}, err
+	}
+	if err := giteaFromEnv(&c); err != nil {
 		return Config{}, err
 	}
 	return validateEnvironment(c, tailnetAllowedPeers)
