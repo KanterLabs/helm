@@ -156,6 +156,21 @@ test('reconnect required signs in again with the stored server, once', async ({ 
   await snap(page, testInfo, 'reconnect-returned-denied');
 });
 
+test('an unreadable saved connection starts over at step 1', async ({ page }, testInfo) => {
+  // The server reports reconnect_required with no server when its saved file
+  // cannot be trusted. "Sign in again" would have nothing to reuse.
+  await installGiteaMocks(page, connectedStatus({
+    state: 'reconnect_required', access: 'unknown', server: null, client_id: '', account: null, register_url: '', revoke_url: ''
+  }));
+  await openSettings(page);
+  await expect(panel(page).locator('[data-gitea-lost]')).toContainText("Helm's saved connection could not be read");
+  await expect(panel(page).getByRole('textbox', { name: /Server address/ })).toBeVisible();
+  await expect(panel(page).getByRole('button', { name: 'Sign in again' })).toHaveCount(0);
+  await expect(panel(page)).not.toContainText('Helm was connected to');
+  await expect(panel(page).locator('.gitea-state')).toHaveText('Not connected');
+  await snap(page, testInfo, 'reconnect-unreadable');
+});
+
 test('unavailable sign-in says why and offers nothing to fill in', async ({ page }, testInfo) => {
   const mock = await installGiteaMocks(page, disconnectedStatus({ available: false, unavailable_reason: 'public_origin_missing' }));
   await openSettings(page);

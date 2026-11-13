@@ -22,9 +22,12 @@
   let returned: Message | null = null;
   let setupKey = 0;
 
-  $: state = status ? (!status.available ? 'unavailable' : status.state) : '';
+  // A saved connection Helm cannot trust arrives as reconnect_required with no
+  // server: there is nothing to sign in to again, so start over at step 1.
+  $: lost = !!status && status.available && status.state === 'reconnect_required' && !status.server?.base_url;
+  $: state = status ? (!status.available ? 'unavailable' : lost ? 'disconnected' : status.state) : '';
   $: product = state === 'disconnected' && probedProduct ? probedProduct : productLabel(status?.server?.product);
-  $: badge = !status ? '' : !status.available ? 'Unavailable' : status.state === 'connected' ? 'Connected' : status.state === 'reconnect_required' ? 'Signed out' : 'Not connected';
+  $: badge = !status ? '' : state === 'unavailable' ? 'Unavailable' : state === 'connected' ? 'Connected' : state === 'reconnect_required' ? 'Signed out' : 'Not connected';
 
   async function announce(text: string) {
     live = '';
@@ -121,6 +124,7 @@
     {:else if state === 'reconnect_required'}
       <GiteaReconnect {status} result={returned} onChange={changed} onShowConnection={showConnection} {announce} />
     {:else}
+      {#if lost}<p class="gitea-unavailable gitea-lost" data-gitea-lost>Helm's saved connection could not be read, so it needs connecting again.</p>{/if}
       {#key setupKey}
         <GiteaSetup {status} {restore} {announce} onProduct={(next) => { probedProduct = next; }} onShowConnection={showConnection} />
       {/key}
@@ -138,6 +142,7 @@
   .gitea-state[data-state='disconnected'], .gitea-state[data-state='unavailable'] { border-style: dashed; }
   .gitea-skeleton > div { height: 120px; }
   .gitea-unavailable { margin: 0; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: 9px; color: var(--ink-soft); background: var(--surface-muted); font-size: var(--text-sm); line-height: 1.5; overflow-wrap: anywhere; }
+  .gitea-lost { margin-bottom: 10px; }
   .gitea-unavailable code { font-family: var(--font-mono); font-size: var(--text-xs); }
   .gitea-settings > :global(.gitea-message) { margin-bottom: 10px; }
   @media (prefers-reduced-motion: reduce) { .gitea-skeleton > div { animation: none; } }

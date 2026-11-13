@@ -101,3 +101,7 @@ at 320 px.
     Spec: no recorded request carries the header.
 29. **Test connection failure hidden.** Spec: a check that returns
     `check.state: unreachable` shows and announces the problem.
+30. **A saved connection Helm cannot trust offers a dead "Sign in again".** The
+    server reports `reconnect_required` with no server, so there is nothing to
+    reuse. The panel starts over at step 1 with a notice. Spec: "an unreadable
+    saved connection starts over at step 1".
