@@ -153,3 +153,8 @@ are to `docs/GITEA_OAUTH_PLAN.md`.
 | R2 | A version 1 file written before these fields existed | Still loads as connected; count 0, empty check | `TestLastCheckSurvivesRestart` |
 | R3 | A stored count or check that is out of range or not one of the known values | The file is not trusted (`reconnect_required`), never echoed | `TestLastCheckSurvivesRestart` |
 | R4 | A failed check after a good one | The failure is stored, the last good count is kept | `TestLastCheckSurvivesRestart` |
+
+- **A failed sign-in is invisible to the operator.** Nothing was logged for a
+  denied, forged or refused sign-in. `Finish` now logs one line with the code
+  only. Test: `TestFailedSignInIsLogged`; the per-test sentinel scan proves no
+  upstream text rides along.

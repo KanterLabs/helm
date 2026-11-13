@@ -80,6 +80,15 @@ func (m *Manager) Begin(ctx context.Context, actorID string, in BeginInput) (str
 // Finish completes the sign-in the same actor started. It consumes the
 // pending sign-in whatever the outcome.
 func (m *Manager) Finish(ctx context.Context, actorID, state, code, upstreamError, upstreamDescription string) error {
+	err := m.finish(ctx, actorID, state, code, upstreamError, upstreamDescription)
+	if err != nil {
+		// Code only: an operator can see a sign-in failed without any upstream text.
+		m.logf(`{"level":"warn","msg":"gitea sign-in failed","code":%q}`, Code(err))
+	}
+	return err
+}
+
+func (m *Manager) finish(ctx context.Context, actorID, state, code, upstreamError, upstreamDescription string) error {
 	if !m.signInAvailable() {
 		return fail(CodeUnavailable)
 	}
