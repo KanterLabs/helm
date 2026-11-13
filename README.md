@@ -251,6 +251,7 @@ also works on headless servers. Credentials stay in per-user directories under
 | Every setting (`HELM_*` variables) | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) |
 | Webhooks: let outside apps open tickets | [`docs/TICKET_WEBHOOKS.md`](docs/TICKET_WEBHOOKS.md) |
 | Public access: Connect Cloudflare, public URL, email addresses | [`docs/PUBLIC_ACCESS.md`](docs/PUBLIC_ACCESS.md) |
+| Connect a self-hosted Gitea or Forgejo (read-only sign-in) | [`docs/GITEA_OAUTH.md`](docs/GITEA_OAUTH.md) |
 | Operations, backups, and restore | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
 | How the maintainers deploy Helm | [`docs/HOMELAB_DEPLOYMENT.md`](docs/HOMELAB_DEPLOYMENT.md) |
 | Prepare beta for a versioned production release | [`docs/RELEASING.md`](docs/RELEASING.md) |

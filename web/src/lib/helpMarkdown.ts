@@ -9,7 +9,7 @@ export function slug(heading: string): string {
   return heading.trim().toLowerCase().replace(/<[^>]+>/g, '').replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
 }
 
-const helpPages: Record<string, string> = { 'PUBLIC_ACCESS.md': 'public-access', 'TICKET_WEBHOOKS.md': 'ticket-webhooks' };
+const helpPages: Record<string, string> = { 'GITEA_OAUTH.md': 'gitea-oauth', 'PUBLIC_ACCESS.md': 'public-access', 'TICKET_WEBHOOKS.md': 'ticket-webhooks' };
 
 function escapeHTML(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);

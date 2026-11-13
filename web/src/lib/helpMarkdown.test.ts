@@ -20,6 +20,12 @@ describe('renderHelpMarkdown', () => {
     expect(slug('Public URL (Cloudflare Tunnel)')).toBe('public-url-cloudflare-tunnel');
   });
 
+  it('keeps links to the Gitea guide in the drawer', () => {
+    const html = renderHelpMarkdown('## Private certificate authorities\n\nSee [certificates](GITEA_OAUTH.md#private-certificate-authorities).');
+    expect(html).toContain('<h3 id="private-certificate-authorities">');
+    expect(html).toContain('data-help-page="gitea-oauth" data-help-anchor="private-certificate-authorities"');
+  });
+
   it('keeps tables inside list items and continues lists across blank lines', () => {
     const html = renderHelpMarkdown('1. First\n\n   | Step | Does |\n   | --- | --- |\n   | A | B |\n\n   After the table.\n2. Second\n\n3. Third');
     expect(html).toContain('<ol><li>First<div class="help-table"><table>');
