@@ -144,3 +144,12 @@ are to `docs/GITEA_OAUTH_PLAN.md`.
 | --- | --- | --- | --- |
 | X1 | Access token, refresh token, code, verifier, state or upstream `error_description` / body in an error string or log line | Never; scanned with distinct sentinels across a full scenario | `TestNoSecretLeaks` |
 | X2 | Secrets in the status document | Never | `TestNoSecretLeaks` |
+
+## Last check survives a restart (WP3)
+
+| # | Failure | Required behaviour | Test |
+| --- | --- | --- | --- |
+| R1 | After a restart the status says 0 repositories and no check result until someone presses Test connection | `repository_count` and `check` are stored in the file; `Status()` after `New` shows the last known values | `TestLastCheckSurvivesRestart` |
+| R2 | A version 1 file written before these fields existed | Still loads as connected; count 0, empty check | `TestLastCheckSurvivesRestart` |
+| R3 | A stored count or check that is out of range or not one of the known values | The file is not trusted (`reconnect_required`), never echoed | `TestLastCheckSurvivesRestart` |
+| R4 | A failed check after a good one | The failure is stored, the last good count is kept | `TestLastCheckSurvivesRestart` |

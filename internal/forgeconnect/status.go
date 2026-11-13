@@ -9,10 +9,23 @@ const (
 	CheckUnauthorized = "unauthorized"
 )
 
-// CheckResult is the outcome of the last Check in this process.
+// CheckResult is the outcome of the last Check, kept in the state file.
 type CheckResult struct {
 	State string `json:"state"`
 	Code  string `json:"code"`
+}
+
+// valid accepts the empty result (never checked) and the known outcomes.
+func (c CheckResult) valid() bool {
+	switch c.State {
+	case "":
+		return c.Code == ""
+	case CheckOK:
+		return c.Code == "" || c.Code == CodeStorageFailed
+	case CheckUnreachable, CheckUnauthorized:
+		return knownCode(c.Code)
+	}
+	return false
 }
 
 // Status is the C5 status document.

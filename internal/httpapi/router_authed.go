@@ -15,6 +15,9 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 	if s.dispatchGithub(w, r, identity, parts) {
 		return
 	}
+	if s.dispatchGitea(w, r, identity, parts) {
+		return
+	}
 	if len(parts) == 1 {
 		switch parts[0] {
 		case "projects":

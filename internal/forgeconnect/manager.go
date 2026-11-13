@@ -113,6 +113,9 @@ func New(o Options) (*Manager, error) {
 		m.store = newFileStore(o.StateDir)
 		m.store.cleanTemps()
 		m.rec, m.broken = m.store.load()
+		if m.rec != nil {
+			m.repoCount, m.check = m.rec.RepositoryCount, m.rec.Check
+		}
 	}
 	return m, nil
 }

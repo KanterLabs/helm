@@ -45,13 +45,13 @@ func TestStoreRoundTrip(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(dir, "gitea.json"))
 	var fields map[string]any
 	_ = json.Unmarshal(raw, &fields)
-	for _, key := range []string{"version", "id", "kind", "server", "client_id", "access_token", "refresh_token", "access_expires_at", "refreshed_at", "account", "access", "connected_by", "connected_at", "checked_at"} {
+	for _, key := range []string{"version", "id", "kind", "server", "client_id", "access_token", "refresh_token", "access_expires_at", "refreshed_at", "account", "access", "connected_by", "connected_at", "checked_at", "repository_count", "check"} {
 		if _, ok := fields[key]; !ok {
 			t.Errorf("file lacks %q", key)
 		}
 	}
-	if len(fields) != 14 {
-		t.Errorf("file has %d fields, want 14", len(fields))
+	if len(fields) != 16 {
+		t.Errorf("file has %d fields, want 16", len(fields))
 	}
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {

@@ -57,6 +57,10 @@ type record struct {
 	ConnectedBy     string    `json:"connected_by"`
 	ConnectedAt     time.Time `json:"connected_at"`
 	CheckedAt       time.Time `json:"checked_at"`
+	// RepositoryCount and Check are the last check's outcome, so a restart
+	// shows them. Optional: version 1 files written before them still load.
+	RepositoryCount int         `json:"repository_count"`
+	Check           CheckResult `json:"check"`
 }
 
 var versionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_~-]{0,63}$`)
@@ -90,6 +94,9 @@ func (r *record) valid() bool {
 		return false
 	}
 	if r.Access != AccessScoped && r.Access != AccessFull && r.Access != AccessUnknown {
+		return false
+	}
+	if r.RepositoryCount < 0 || r.RepositoryCount > maxRepositoryCount || !r.Check.valid() {
 		return false
 	}
 	return r.Account.Login != "" && len(r.Account.Login) <= 255

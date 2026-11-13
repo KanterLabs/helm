@@ -24,6 +24,16 @@ const (
 	CodeReconnectRequired  = "reconnect_required"
 )
 
+func knownCode(code string) bool {
+	switch code {
+	case CodeUnavailable, CodeInvalidServerURL, CodeInsecureHTTP, CodeServerUnreachable, CodeTLSError, CodeNotAForge,
+		CodeIssuerMismatch, CodeAlreadyConnected, CodeStateInvalid, CodeDenied, CodeScopeConflict, CodeAuthorizeFailed,
+		CodeClientConfidential, CodeClientUnknown, CodeExchangeFailed, CodeStorageFailed, CodeReconnectRequired:
+		return true
+	}
+	return false
+}
+
 // Error is the only error type this package returns.
 type Error struct {
 	Code string

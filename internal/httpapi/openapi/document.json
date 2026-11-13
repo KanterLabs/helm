@@ -133,6 +133,10 @@
     {
       "name": "GitHub",
       "description": "Beta repository connections, explicit pull request links and server-run evidence audits"
+    },
+    {
+      "name": "Gitea",
+      "description": "The installation-wide Gitea / Forgejo OAuth connection"
     }
   ],
   "paths": {},

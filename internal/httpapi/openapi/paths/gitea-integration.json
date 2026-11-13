@@ -1,0 +1,347 @@
+{
+  "paths": {
+    "/api/v1/integrations/gitea": {
+      "get": {
+        "operationId": "getGiteaConnection",
+        "summary": "Get the Gitea / Forgejo connection",
+        "description": "Human administrators only (bearer tokens are refused). Never contacts\nthe forge and never returns a token. When the integration is off\n(`HELM_GITEA_OAUTH=off`) or could not start, `available` is false\nwith `unavailable_reason: disabled`.\n",
+        "tags": [
+          "Gitea"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "Gitea OAuth plan (contract C5)",
+          "url": "docs/GITEA_OAUTH_PLAN.md"
+        },
+        "responses": {
+          "200": {
+            "description": "The connection status document, never cached (no-store).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiteaStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/gitea/probe": {
+      "post": {
+        "operationId": "probeGiteaServer",
+        "summary": "Find a Gitea or Forgejo server",
+        "description": "Human administrators only. Reads the server's OpenID discovery\ndocument from the typed address, its parents or its origin, and\nreturns the settled base address. Saves nothing. Error codes:\n`invalid_server_url`, `insecure_http`, `not_a_forge`,\n`issuer_mismatch` (with `details.issuer`) → 400;\n`server_unreachable`, `tls_error` → 502; `unavailable` → 503 (off or\nno public origin).\n",
+        "tags": [
+          "Gitea"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GiteaProbeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server, the callback to register and the page to register it on.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiteaProbeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/gitea/oauth/start": {
+      "post": {
+        "operationId": "startGiteaSignIn",
+        "summary": "Begin signing in to Gitea or Forgejo",
+        "description": "Human administrators only. Probes the server again and returns its\nconsent URL (authorization code with PKCE, public client, scope\n`read:repository read:user`). The PKCE verifier and state stay on\nthis server for 10 minutes, per administrator; a second start\nreplaces the first. Error codes as for the probe, plus\n`client_unknown` → 400 and `already_connected` → 409.\n",
+        "tags": [
+          "Gitea"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GiteaStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The forge's consent page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiteaAuthorize"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/gitea/oauth/callback": {
+      "get": {
+        "operationId": "finishGiteaSignIn",
+        "summary": "Browser return from Gitea or Forgejo sign-in",
+        "description": "Redeems the code for the administrator who started sign-in, then\nredirects to `/settings?gitea=connected` or\n`/settings?gitea_error=<code>`, where `<code>` is only ever a Gitea\nconnection error code (for example `state_invalid`, `denied`,\n`scope_conflict`, `client_confidential`, `exchange_failed`). Upstream\ntext is never reflected. Without a Helm session, or for another\nadministrator, the answer is the same redirect with `state_invalid`.\nSent with `Referrer-Policy: no-referrer`.\n",
+        "tags": [
+          "Gitea"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error_description",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to Settings with the outcome in the query string.",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/gitea/check": {
+      "post": {
+        "operationId": "checkGiteaConnection",
+        "summary": "Test the Gitea / Forgejo connection",
+        "description": "Human administrators only. Refreshes the sign-in if needed, re-reads\nthe account, re-runs the read-only proof and counts repositories.\nFailures are reported in `check`, not as an error status. The result\nis kept across restarts.\n",
+        "tags": [
+          "Gitea"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection status document after the check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiteaStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/gitea/repositories": {
+      "get": {
+        "operationId": "listGiteaRepositories",
+        "summary": "List repositories the connected account can read",
+        "description": "Human administrators only. At most 500 (10 pages of 50); `truncated`\nmeans there are more. Error codes: `unavailable` → 409 when not\nconnected, 503 when off; `reconnect_required` → 409;\n`server_unreachable`, `tls_error` → 502.\n",
+        "tags": [
+          "Gitea"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository names and flags only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiteaRepositoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/gitea/disconnect": {
+      "post": {
+        "operationId": "disconnectGitea",
+        "summary": "Disconnect from Gitea or Forgejo",
+        "description": "Human administrators only. Deletes the local state file. Gitea has\nno revocation endpoint: the authorization stays on the forge until\nthe user removes it at `revoke_url`. `storage_failed` → 500.\n",
+        "tags": [
+          "Gitea"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection status document, now disconnected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiteaStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

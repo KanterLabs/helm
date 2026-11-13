@@ -40,17 +40,17 @@ func (m *Manager) record(gen uint64, result CheckResult, account Account, access
 		return
 	}
 	next := *m.rec
-	next.CheckedAt = m.now()
+	next.CheckedAt, next.Check = m.now(), result
 	if result.State == CheckOK {
 		next.Account, next.Access = account, access
 		if hasCount {
-			m.repoCount = count
+			next.RepositoryCount = count
 		}
 	}
 	if err := m.store.save(&next); err != nil && result.State == CheckOK {
 		result.Code = Code(err)
 	}
-	m.rec, m.check = &next, result
+	m.rec, m.check, m.repoCount = &next, result, next.RepositoryCount
 }
 
 func checkFailure(err error) CheckResult {

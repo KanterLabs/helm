@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const maxTokenLifetime = 30 * 24 * time.Hour
+const (
+	maxTokenLifetime   = 30 * 24 * time.Hour
+	maxRepositoryCount = 1_000_000_000
+)
 
 // Begin starts a sign-in for one actor and returns the forge's authorize
 // URL. A second Begin by the same actor replaces the first.
@@ -138,6 +141,10 @@ func (m *Manager) Finish(ctx context.Context, actorID, state, code, upstreamErro
 		Version: recordVersion, ID: randomToken(16), Kind: gitea.Kind, Server: server, ClientID: pending.clientID,
 		AccessToken: tokens.access, RefreshToken: tokens.refresh, AccessExpiresAt: now.Add(tokens.lifetime),
 		RefreshedAt: now, Account: account, Access: access, ConnectedBy: actorID, ConnectedAt: now, CheckedAt: now,
+		Check: CheckResult{State: CheckOK},
+	}
+	if hasCount {
+		rec.RepositoryCount = count
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -149,10 +156,7 @@ func (m *Manager) Finish(ctx context.Context, actorID, state, code, upstreamErro
 	}
 	m.rec, m.broken, m.rejected, m.lastRefresh = rec, false, false, time.Time{}
 	m.gen++
-	m.check, m.repoCount = CheckResult{State: CheckOK}, 0
-	if hasCount {
-		m.repoCount = count
-	}
+	m.check, m.repoCount = rec.Check, rec.RepositoryCount
 	m.logf(`{"level":"info","msg":"gitea connected","access":%q}`, access)
 	return nil
 }
@@ -239,7 +243,7 @@ func limitStatus(status int) string {
 
 func totalCount(header http.Header) (int, bool) {
 	n, err := strconv.Atoi(strings.TrimSpace(header.Get("X-Total-Count")))
-	if err != nil || n < 0 || n > 1_000_000_000 {
+	if err != nil || n < 0 || n > maxRepositoryCount {
 		return 0, false
 	}
 	return n, true

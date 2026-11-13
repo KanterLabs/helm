@@ -91,6 +91,8 @@ tags:
     description: Operator-configured external alert webhooks that create assigned Backlog tasks
   - name: GitHub
     description: Beta repository connections, explicit pull request links and server-run evidence audits
+  - name: Gitea
+    description: The installation-wide Gitea / Forgejo OAuth connection
 x-helm-fragments:
   - openapi/authentication.yaml
   - openapi/examples/agents.yaml
@@ -156,6 +158,7 @@ x-helm-fragments:
   - openapi/paths/github-branches.yaml
   - openapi/paths/github-integration.yaml
   - openapi/paths/github-selection.yaml
+  - openapi/paths/gitea-integration.yaml
   - openapi/paths/hooks-tickets-email.yaml
   - openapi/paths/hooks-tickets.yaml
   - openapi/paths/import-trello.yaml
@@ -264,6 +267,7 @@ x-helm-fragments:
   - openapi/schemas/github-audit-jobs.yaml
   - openapi/schemas/github-branches.yaml
   - openapi/schemas/github-integration.yaml
+  - openapi/schemas/gitea-integration.yaml
   - openapi/schemas/health.yaml
   - openapi/schemas/intelligence.yaml
   - openapi/schemas/labels.yaml

@@ -87,6 +87,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
+			if isGiteaCallback(r) {
+				giteaRedirect(w, r, "state_invalid")
+				return
+			}
 			s.writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required", nil)
 			return
 		}
