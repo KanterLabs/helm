@@ -25,6 +25,9 @@ const (
 	refreshMargin  = 10 * time.Minute
 	rejectWindow   = time.Minute
 	refreshTimeout = 10 * time.Second
+	refreshBackoff = 30 * time.Second // after a failed exchange
+	// maxBeginsPerMinute bounds device-code requests to GitHub.
+	maxBeginsPerMinute = 6
 )
 
 // Connection states (C5).
@@ -76,7 +79,17 @@ type Manager struct {
 	refreshSeq  uint64    // bumped on every successful refresh
 	inflight    *refreshCall
 	unsaved     bool // a refreshed pair is held in memory only
-	listeners   []func([]string)
+	// A failed exchange is not repeated for refreshBackoff; refreshFailedGen
+	// ties it to the connection it failed for.
+	refreshFailedAt  time.Time
+	refreshFailedGen uint64
+	// Consecutive refusals of tokens fresh from a refresh, for rejectGen.
+	rejectStreak int
+	rejectGen    uint64
+	announced    string // the state the listeners were last told about
+	listeners    []func([]string)
+	begins       []time.Time // recent device-code requests
+	syncing      *syncCall   // the sync every concurrent caller shares
 
 	beginMu  sync.Mutex // one Begin at a time: a double click asks GitHub once
 	notifyMu sync.Mutex // orders allowlist notifications
@@ -235,6 +248,7 @@ func (m *Manager) publish() {
 	defer m.notifyMu.Unlock()
 	m.mu.Lock()
 	list, listeners := m.repositoriesLocked(), slices.Clone(m.listeners)
+	m.announced = m.stateLocked() // before the calls: a listener may read us
 	m.mu.Unlock()
 	for _, fn := range listeners {
 		fn(slices.Clone(list))

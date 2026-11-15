@@ -261,16 +261,19 @@ func TestSourceRejectedOncePer401(t *testing.T) {
 	c := sourceFixture(t, src, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(int(status.Load())) })
 	// The hook calls back into the client: it must not run under the lock.
 	src.onRejected = func(string) { c.SetRepositories(c.AllowedRepositories()); _ = c.Generation() }
-	if _, err := c.FetchPullRequest(context.Background(), "example/repo", 7); ErrorCode(err) != "permission_required" {
+	generation := c.Generation()
+	// A refused token is the source's to renew. It is not a lost permission:
+	// nothing is denied and the generation stays.
+	if _, err := c.FetchPullRequest(context.Background(), "example/repo", 7); ErrorCode(err) != "unavailable" {
 		t.Fatal(err)
 	}
 	if got := src.rejections(); len(got) != 1 || got[0] != sourceTokenA {
 		t.Fatalf("rejections after one 401: %d", len(got))
 	}
-	if c.AccessAllowed("example/repo") {
-		t.Fatal("401 did not take the existing deny path")
+	if !c.AccessAllowed("example/repo") || c.Generation() != generation {
+		t.Fatal("a refused token was treated as a lost permission")
 	}
-	if _, err := c.Resolve(context.Background(), "example/repo", "main"); ErrorCode(err) != "permission_required" {
+	if _, err := c.Resolve(context.Background(), "example/repo", "main"); ErrorCode(err) != "unavailable" {
 		t.Fatal(err)
 	}
 	if got := src.rejections(); len(got) != 1 {
@@ -288,6 +291,9 @@ func TestSourceRejectedOncePer401(t *testing.T) {
 	}
 	if got := src.rejections(); len(got) != 2 {
 		t.Fatalf("403/404 reported as rejection: %d", len(got))
+	}
+	if c.AccessAllowed("example/repo") || c.Generation() == generation {
+		t.Fatal("403/404 did not take the deny path")
 	}
 }
 

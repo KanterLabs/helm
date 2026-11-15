@@ -50,6 +50,30 @@ straightforward, responsive and easy". That means:
 - The panel updates by itself when GitHub approves; nobody presses refresh.
 - Screenshots of every C6 row at 1280 and 390 px wide.
 
+## Changes to the contracts after review
+
+These replace the matching words in C1, C2, C4 and C5.
+
+**A6. A refused token from a renewing source is not a lost permission (C1).**
+C1 said the provider calls `Rejected` and then takes its deny path. That moved
+the generation on a routine refresh whenever a request was in flight with the
+token just rotated away. For a source that implements `Rejected`, a 401 is
+reported, the fetch is retried once with the current token, and nothing is
+denied. 403 and 404 still deny. The token file keeps its deny path.
+
+**A7. Ending and retrying (C2, C4).** One 401 for a token fresh from a refresh
+renews once more; two in a row, or `bad_refresh_token`, end the sign-in. A
+failed refresh is not repeated for 30 seconds. `Fresh` answers for the
+connection held when it returns, token and identity together. A sign-in that
+ends by the clock alone still notifies the allowlist listeners.
+
+**A8. Limits (C2, C4, C5).** Installation and repository pages may be up to
+2 MB (a page of 100 repositories does not fit in 64 KB); every other reply
+stays at 64 KB. Concurrent syncs share one run. At most 6 device-code requests
+a minute; beyond that connect answers 429 `rate_limited`. Only the
+administrator who began an attempt may cancel it; anyone may replace it.
+Connect and disconnect take no body.
+
 ## Gates
 
 **G1.** Unchanged, and the only step that needs Shane before sign-in works

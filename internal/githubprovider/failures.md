@@ -97,3 +97,15 @@ Recorded before `credential.go`, `SetRepositories` and their isolation tests.
   while the read was in flight.
 - Operator mode: with no source configured the token file behaves exactly as
   before, and an explicit source takes precedence over `TokenFile`.
+
+## Found by the independent review
+
+- A 401 for a token from a renewing source took the deny path: the
+  generation moved, every cache was cleared and verified pull requests read
+  as unverified. It happened on a routine refresh whenever a request was in
+  flight with the token another caller had just rotated away. A refused
+  token from such a source is the source's to renew: the provider reports
+  it, retries once with the current token, and denies nothing. 403 and 404
+  still mean lost permission. The token file, which cannot renew, keeps its
+  deny path. `TestRotatedTokenIsRetriedNotDenied`,
+  `TestRefusedTwiceIsUnavailableNotDenied`, `TestSourceRejectedOncePer401`.

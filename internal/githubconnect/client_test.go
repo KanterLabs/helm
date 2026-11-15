@@ -127,7 +127,7 @@ func TestOriginsAreValidated(t *testing.T) {
 
 func TestErrorCodesAreStable(t *testing.T) {
 	want := []string{"already_connected", "github_refused", "github_unreachable", "invalid_request", "not_connected",
-		"operator_managed", "reconnect_required", "signin_unavailable", "storage_failed"}
+		"operator_managed", "reconnect_required", "signin_unavailable", "storage_failed", "too_many_attempts"}
 	got := slices.Clone(Codes)
 	slices.Sort(got)
 	if !slices.Equal(got, want) {

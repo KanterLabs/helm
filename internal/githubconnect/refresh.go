@@ -31,15 +31,30 @@ func (m *Manager) usableLocked() error {
 	return nil
 }
 
+// unusable reports why no token can be handed out. When the sign-in has
+// ended by the clock alone, nothing else has told the allowlist listeners,
+// so it does (once: publish records what it announced).
+func (m *Manager) unusable() error {
+	m.mu.Lock()
+	err := m.usableLocked()
+	stale := err != nil && m.announced != m.stateLocked()
+	m.mu.Unlock()
+	if stale {
+		m.publish()
+	}
+	return err
+}
+
 // Current returns the stored access token and the connection's identity. It
 // performs no network I/O. The identity is a random ID made at connect time,
 // so a refresh never changes it.
 func (m *Manager) Current() (token, identity string, err error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.usableLocked(); err != nil {
-		return "", "", err
+	if m.usableLocked() != nil {
+		m.mu.Unlock()
+		return "", "", m.unusable()
 	}
+	defer m.mu.Unlock()
 	return m.rec.AccessToken, m.rec.ID, nil
 }
 
@@ -47,34 +62,35 @@ func (m *Manager) Current() (token, identity string, err error) {
 // one GitHub refused. A failed renewal keeps a token that is still valid.
 func (m *Manager) Fresh(ctx context.Context) (token, identity string, err error) {
 	m.mu.Lock()
-	if err := m.usableLocked(); err != nil {
+	if m.usableLocked() != nil {
 		m.mu.Unlock()
-		return "", "", err
+		return "", "", m.unusable()
 	}
 	if m.unsaved && m.saveLocked(m.rec) == nil {
 		m.unsaved = false
 	}
-	rec, seq, due := *m.rec, m.refreshSeq, m.dueLocked()
+	rec, seq, gen, due := *m.rec, m.refreshSeq, m.gen, m.dueLocked()
 	m.mu.Unlock()
 	if !due {
 		return rec.AccessToken, rec.ID, nil
 	}
-	token, err = m.refresh(ctx, seq)
-	if err == nil {
-		return token, rec.ID, nil
+	_, err = m.refresh(ctx, seq)
+	m.mu.Lock()
+	if m.gen != gen || err == nil {
+		// Answer for the connection held now, token and identity together.
+		// It may have ended, or been replaced by a new sign-in, meanwhile.
+		if m.usableLocked() != nil {
+			m.mu.Unlock()
+			return "", "", m.unusable()
+		}
+		defer m.mu.Unlock()
+		return m.rec.AccessToken, m.rec.ID, nil
 	}
-	switch Code(err) {
-	case CodeReconnectRequired:
-		return "", "", sourceError("reconnect_required")
-	case CodeNotConnected:
-		return "", "", sourceError("not_configured")
-	}
+	defer m.mu.Unlock()
 	if ctx.Err() != nil {
 		return "", "", sourceError("unavailable")
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	still := m.rec != nil && m.rec.ID == rec.ID && m.rec.AccessToken == rec.AccessToken && !m.rejected &&
+	still := m.rec != nil && m.rec.AccessToken == rec.AccessToken && !m.rejected &&
 		(rec.AccessExpiresAt.IsZero() || m.now().Before(rec.AccessExpiresAt))
 	if still {
 		return rec.AccessToken, rec.ID, nil
@@ -83,15 +99,28 @@ func (m *Manager) Fresh(ctx context.Context) (token, identity string, err error)
 }
 
 // Rejected hears that GitHub answered 401 for token. The next Fresh renews
-// it. A token that cannot be renewed, or that came from a renewal moments
-// ago, means the authorization is gone: the sign-in ends.
+// it. A token that cannot be renewed means the authorization is gone. So do
+// two refusals in a row of tokens that each came from a renewal moments
+// before; one alone may be GitHub catching up, so it only renews again.
 func (m *Manager) Rejected(token string) {
 	m.mu.Lock()
 	if m.rec == nil || m.rec.AccessToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(m.rec.AccessToken)) != 1 {
 		m.mu.Unlock()
 		return
 	}
-	if m.rec.RefreshToken != "" && (m.lastRefresh.IsZero() || m.now().Sub(m.lastRefresh) >= rejectWindow) {
+	if m.rejected { // already known; counted once
+		m.mu.Unlock()
+		return
+	}
+	if m.rejectGen != m.gen {
+		m.rejectStreak, m.rejectGen = 0, m.gen
+	}
+	if m.lastRefresh.IsZero() || m.now().Sub(m.lastRefresh) >= rejectWindow {
+		m.rejectStreak = 0
+	} else {
+		m.rejectStreak++
+	}
+	if m.rec.RefreshToken != "" && m.rejectStreak < 2 {
 		m.rejected = true
 		m.mu.Unlock()
 		return
@@ -134,6 +163,10 @@ func (m *Manager) refresh(ctx context.Context, seen uint64) (string, error) {
 			m.mu.Unlock()
 			return "", fail(CodeReconnectRequired)
 		}
+		if m.refreshFailedGen == m.gen && !m.refreshFailedAt.IsZero() && m.now().Sub(m.refreshFailedAt) < refreshBackoff {
+			m.mu.Unlock()
+			return "", fail(CodeGitHubUnreachable) // do not ask GitHub again yet
+		}
 		call = &refreshCall{done: make(chan struct{})}
 		m.inflight = call
 		rec, gen := *m.rec, m.gen
@@ -160,6 +193,9 @@ func (m *Manager) exchange(ctx context.Context, call *refreshCall, rec record, g
 	defer func() {
 		m.mu.Lock()
 		m.inflight = nil
+		if call.err != nil && Code(call.err) != CodeReconnectRequired && m.gen == gen {
+			m.refreshFailedAt, m.refreshFailedGen = m.now(), gen
+		}
 		m.mu.Unlock()
 		close(call.done)
 	}()
@@ -227,6 +263,7 @@ func (m *Manager) exchange(ctx context.Context, call *refreshCall, rec record, g
 	current.RefreshToken, current.RefreshExpiresAt = next.RefreshToken, next.RefreshExpiresAt
 	err = m.saveLocked(&current)
 	m.rec, m.rejected, m.lastRefresh, m.unsaved = &current, false, now, err != nil
+	m.refreshFailedAt = time.Time{}
 	m.refreshSeq++
 	if err != nil {
 		m.logf(`{"level":"warn","msg":"github refresh not saved","code":%q}`, CodeStorageFailed)

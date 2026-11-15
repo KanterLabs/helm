@@ -121,3 +121,30 @@ Each entry names the test that covers it.
 - A malformed client ID or slug accepted; a state directory with control
   characters; the default not beside the database.
   `TestGitHubDeviceFlowEnvironment` in `internal/config/github_test.go`.
+
+## Found by the independent review (WP7)
+
+- A failing refresh is retried on every read: with GitHub's token endpoint
+  down, each provider read (the audit loop ticks every second) asks it
+  again and waits for it. One exchange per 30 seconds after a failure; a
+  still-valid token keeps working meanwhile. `TestFailedRefreshBacksOff`.
+- One 401 for a token fresh from a refresh ends the sign-in and wipes a
+  refresh token that still works. The first such 401 refreshes once more;
+  only a second one in a row, or `bad_refresh_token`, ends the sign-in.
+  `TestRejectionAfterRefreshRetriesBeforeEnding`,
+  `TestRejectedForcesOneRefresh`.
+- A sign-in that ends by the clock alone (the refresh token's lifetime
+  passes) never tells the allowlist listeners, so the provider keeps the old
+  list. `TestClockExpiryNotifiesListeners`.
+- Another administrator cancels an attempt they did not begin (the attempt
+  ID is in everyone's status). Only the beginner cancels; anyone may still
+  replace it with their own. `TestCancelByAnotherAdministratorIsIgnored`.
+- A connection replaced while a refresh is in flight: `Fresh` answers with
+  the old identity or a false `not_configured`, flipping the provider's
+  generation twice. It answers for the connection held now.
+  `TestFreshAnswersForTheConnectionHeldNow`.
+- Nothing bounds how often an administrator's script makes Helm ask GitHub:
+  every connect after a cancel requests a device code, and every concurrent
+  Test connection reads all installations again. At most 6 device-code
+  requests a minute; concurrent syncs share one run. `TestBeginBudget`,
+  `TestConcurrentSyncsShareOneRun`.

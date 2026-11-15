@@ -23,6 +23,35 @@ var errUnauthorized = errors.New("github connection: unauthorized")
 // operator ceiling and stores the result. A 401 is reported to the refresh
 // logic and retried once with a renewed token.
 func (m *Manager) Sync(ctx context.Context) error {
+	m.mu.Lock()
+	call := m.syncing
+	if call != nil { // share the run already in flight
+		m.mu.Unlock()
+		select {
+		case <-call.done:
+			return call.err
+		case <-ctx.Done():
+			return fail(CodeGitHubUnreachable)
+		}
+	}
+	call = &syncCall{done: make(chan struct{})}
+	m.syncing = call
+	m.mu.Unlock()
+	call.err = m.sync(ctx)
+	m.mu.Lock()
+	m.syncing = nil
+	m.mu.Unlock()
+	close(call.done)
+	return call.err
+}
+
+// syncCall is one sync that every concurrent caller shares.
+type syncCall struct {
+	done chan struct{}
+	err  error
+}
+
+func (m *Manager) sync(ctx context.Context) error {
 	for try := 0; try < 2; try++ {
 		token, identity, err := m.Fresh(ctx)
 		if err != nil {

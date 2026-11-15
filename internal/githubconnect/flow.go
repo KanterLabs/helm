@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +69,13 @@ func (m *Manager) Begin(ctx context.Context, actorID string) (Status, error) {
 		m.mu.Unlock()
 		return s, nil
 	}
+	now := m.now()
+	m.begins = slices.DeleteFunc(m.begins, func(at time.Time) bool { return now.Sub(at) >= time.Minute })
+	if len(m.begins) >= maxBeginsPerMinute {
+		m.mu.Unlock()
+		return m.Status(actorID), fail(CodeTooManyAttempts)
+	}
+	m.begins = append(m.begins, now)
 	m.mu.Unlock()
 	att, err := m.requestDeviceCode(ctx, actorID)
 	if err != nil {
@@ -86,11 +94,12 @@ func (m *Manager) Begin(ctx context.Context, actorID string) (Status, error) {
 	return s, nil
 }
 
-// Cancel ends the attempt with attemptID. A stale ID changes nothing, so an
-// old tab cannot cancel the attempt that replaced it.
+// Cancel ends the attempt with attemptID if actorID began it. A stale ID
+// changes nothing, so an old tab cannot cancel the attempt that replaced it,
+// and another administrator can replace an attempt but not cancel it.
 func (m *Manager) Cancel(actorID, attemptID string) Status {
 	m.mu.Lock()
-	if m.attempt != nil && attemptID != "" && m.attempt.id == attemptID {
+	if m.attempt != nil && attemptID != "" && m.attempt.id == attemptID && m.attempt.actor == actorID {
 		m.attempt = nil
 	}
 	s := m.statusLocked(actorID)

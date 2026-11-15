@@ -47,6 +47,7 @@ type fakeGitHub struct {
 	refreshScript []string // outcomes for refreshes; empty means rotate
 	refreshCalls  int
 	refreshGate   chan struct{} // when set, a refresh waits on it
+	apiGate       chan struct{}
 	pollGate      chan struct{} // when set, a device-code poll waits on it
 	noExpiry      bool
 
@@ -195,6 +196,11 @@ func (g *fakeGitHub) refresh(w http.ResponseWriter, token string) {
 }
 
 func (g *fakeGitHub) api(w http.ResponseWriter, r *http.Request) {
+	if gate := g.apiGate; gate != nil { // when set, an API call waits on it
+		g.mu.Unlock()
+		<-gate
+		g.mu.Lock()
+	}
 	switch {
 	case r.URL.Path == "/user":
 		if g.user != "" {

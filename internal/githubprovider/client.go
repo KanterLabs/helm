@@ -273,9 +273,18 @@ func (c *Client) fetch(ctx context.Context, repository, relative string, target 
 // fetchToken is fetch that also reports, through used, the token it sent.
 // The token comes from Fresh, so it may differ from what Current returns later.
 func (c *Client) fetchToken(ctx context.Context, repository, relative string, target any, pinned bool, used *string) (bool, error) {
+	return c.fetchAttempt(ctx, repository, relative, target, pinned, used, "")
+}
+
+// fetchAttempt is one request. refused is the token GitHub just answered 401
+// for, when this is the single retry after a renewing source was told.
+func (c *Client) fetchAttempt(ctx context.Context, repository, relative string, target any, pinned bool, used *string, refused string) (bool, error) {
 	token, fingerprint, err := c.credential(ctx, true)
 	if err != nil {
 		return false, err
+	}
+	if refused != "" && token == refused {
+		return false, providerError("unavailable") // not renewed yet
 	}
 	if used != nil {
 		*used = token
@@ -343,6 +352,16 @@ func (c *Client) fetchToken(ctx context.Context, repository, relative string, ta
 	}
 	if response.StatusCode == 401 {
 		c.rejected(token)
+		// A source that renews tokens owns a refused one: the token may have
+		// been rotated away mid-request, and the source ends the sign-in when
+		// renewal fails. It is not a lost permission, so nothing is denied.
+		if _, renews := c.source.(CredentialRejecter); renews {
+			response.Body.Close()
+			if refused == "" {
+				return c.fetchAttempt(ctx, repository, relative, target, pinned, used, token)
+			}
+			return false, providerError("unavailable")
+		}
 	}
 	if response.StatusCode == 401 || response.StatusCode == 403 || response.StatusCode == 404 {
 		c.deny(repository, generation)

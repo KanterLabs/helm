@@ -28,11 +28,14 @@ const (
 	CodeStorageFailed = "storage_failed"
 	// CodeReconnectRequired: the sign-in has ended; connect again.
 	CodeReconnectRequired = "reconnect_required"
+	// CodeTooManyAttempts: more device codes were requested within a minute
+	// than a person connecting would need.
+	CodeTooManyAttempts = "too_many_attempts"
 )
 
 // Codes lists every code above.
 var Codes = []string{CodeSigninUnavailable, CodeOperatorManaged, CodeInvalidRequest, CodeAlreadyConnected, CodeNotConnected,
-	CodeGitHubUnreachable, CodeGitHubRefused, CodeStorageFailed, CodeReconnectRequired}
+	CodeGitHubUnreachable, CodeGitHubRefused, CodeStorageFailed, CodeReconnectRequired, CodeTooManyAttempts}
 
 // Error is the only error type Begin, Sync and Disconnect return.
 type Error struct{ Code string }

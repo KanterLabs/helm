@@ -193,12 +193,13 @@ on (the recommended App setting), GitHub
 within 10 minutes of the access token's expiry, or after GitHub rejects it,
 Helm exchanges the refresh token for a new pair, saves both, and carries on.
 Refreshing needs no client secret and does not disturb verified pull
-requests. A failed network call keeps a token that is still valid.
+requests. A failed network call keeps a token that is still valid, and Helm
+waits 30 seconds before asking GitHub again.
 
 The sign-in ends, and the panel shows **GitHub sign-in needs renewing**, when
 GitHub refuses the refresh token (expired, revoked or already used), when
-GitHub rejects a token Helm refreshed less than a minute before, or when a token without a
-refresh token is rejected. An App without token expiry gets tokens that never
+GitHub twice in a row rejects a token Helm had just refreshed, or when a
+token without a refresh token is rejected. An App without token expiry gets tokens that never
 expire and are never refreshed.
 
 ## Disconnecting
@@ -245,8 +246,8 @@ token gets 403 `human_account_required`. They are never replayed from an
 | --- | --- |
 | `GET /integrations/github` | The integration document with its `connection` object. No GitHub call. |
 | `POST /integrations/github/check` | In `device_flow` mode, re-reads installations first, then tests. |
-| `POST /integrations/github/connect` (`connectGithub`) | Starts sign-in, or returns your pending code. |
-| `POST /integrations/github/connect/cancel` | Body `{"attempt_id": "…"}`. A stale ID changes nothing (200). |
+| `POST /integrations/github/connect` (`connectGithub`) | Starts sign-in, or returns your pending code. No body. At most 6 new attempts a minute. |
+| `POST /integrations/github/connect/cancel` | Body `{"attempt_id": "…"}`. Only the administrator who began the attempt cancels it; a stale ID or someone else's attempt changes nothing (200). |
 | `POST /integrations/github/disconnect` (`disconnectGithub`) | Deletes the credential. Twice is fine. |
 
 The `connection` object: `mode` (`operator_token` or `device_flow`),
@@ -260,11 +261,12 @@ object reads `operator_token` / `disconnected`.
 
 | Status | `error.code` |
 | --- | --- |
-| 400 | `invalid_request` (bad cancel body) |
+| 400 | `invalid_request` (bad cancel body, or a body on connect or disconnect) |
 | 403 | `human_account_required`; `forbidden` for a member who is not an administrator |
 | 405 | `method_not_allowed` |
 | 409 | `github_operator_managed`, `github_signin_unavailable` (no client ID, GitHub disabled, or shutting down), `github_already_connected`, `github_not_connected`, `github_reconnect_required` |
 | 424 | `github_unreachable`, `github_refused` |
+| 429 | `rate_limited` (too many sign-in attempts in a minute; see `Retry-After`) |
 | 500 | `github_storage_failed`, `internal_error` |
 
 These routes never answer 502 or 504: a proxy in front of Helm may replace

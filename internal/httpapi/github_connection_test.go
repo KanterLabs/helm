@@ -174,6 +174,7 @@ func TestGithubConnectionErrorTable(t *testing.T) {
 		githubconnect.CodeGitHubUnreachable: {424, "github_unreachable"},
 		githubconnect.CodeGitHubRefused:     {424, "github_refused"},
 		githubconnect.CodeStorageFailed:     {500, "github_storage_failed"},
+		githubconnect.CodeTooManyAttempts:   {429, "rate_limited"},
 	}
 	if len(want) != len(githubconnect.Codes) {
 		t.Fatalf("table covers %d codes, manager has %d", len(want), len(githubconnect.Codes))

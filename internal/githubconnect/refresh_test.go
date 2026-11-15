@@ -268,10 +268,15 @@ func TestRejectedForcesOneRefresh(t *testing.T) {
 	if token, _, _ := e.fresh(); token != second || e.refreshes() != 1 {
 		t.Fatal("a rejection of the old token caused another refresh")
 	}
-	e.m.Rejected(second) // a token fresh from a refresh, refused at once
+	e.m.Rejected(second) // a token fresh from a refresh, refused at once: renew once more
+	third, _, err := e.fresh()
+	if err != nil || third == second || e.refreshes() != 2 {
+		t.Fatalf("refused fresh token: %v, %d refreshes", err, e.refreshes())
+	}
+	e.m.Rejected(third) // and again: the authorization is gone
 	_, _, err = e.fresh()
 	if githubprovider.ErrorCode(err) != "reconnect_required" {
-		t.Fatalf("refused fresh token: %v", err)
+		t.Fatalf("second refused fresh token: %v", err)
 	}
 }
 

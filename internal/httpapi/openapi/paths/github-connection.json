@@ -4,7 +4,7 @@
       "post": {
         "operationId": "connectGithub",
         "summary": "Begin GitHub sign-in",
-        "description": "Begins a device-flow sign-in, or returns the caller's pending attempt. Another administrator's attempt is replaced. The user code is sent only to the administrator who began the attempt. Answers 409 github_operator_managed in operator_token mode, 409 github_signin_unavailable without a GitHub App client ID, and 409 github_already_connected while connected. Human administrators only; bearer tokens are refused with 403 human_account_required. Not idempotently replayed: an Idempotency-Key is ignored and nothing is stored. Sent with Cache-Control: no-store.",
+        "description": "Begins a device-flow sign-in, or returns the caller's pending attempt. Another administrator's attempt is replaced. The user code is sent only to the administrator who began the attempt. Answers 409 github_operator_managed in operator_token mode, 409 github_signin_unavailable without a GitHub App client ID, and 409 github_already_connected while connected. Takes no input: an empty body or an empty object. More than 6 new attempts within a minute answer 429 rate_limited with Retry-After, without asking GitHub. Human administrators only; bearer tokens are refused with 403 human_account_required. Not idempotently replayed: an Idempotency-Key is ignored and nothing is stored. Sent with Cache-Control: no-store.",
         "tags": [
           "GitHub"
         ],
@@ -49,6 +49,9 @@
           "424": {
             "$ref": "#/components/responses/GithubDependencyFailed"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
           }
@@ -59,7 +62,7 @@
       "post": {
         "operationId": "cancelGithubConnect",
         "summary": "Cancel GitHub sign-in",
-        "description": "Ends the attempt with this ID. A stale ID changes nothing and still answers 200 with the current document. Human administrators only; bearer tokens are refused with 403 human_account_required. Not idempotently replayed: an Idempotency-Key is ignored and nothing is stored. Sent with Cache-Control: no-store.",
+        "description": "Ends the attempt with this ID, if the caller began it. A stale ID, or an attempt another administrator began, changes nothing and still answers 200 with the current document. Human administrators only; bearer tokens are refused with 403 human_account_required. Not idempotently replayed: an Idempotency-Key is ignored and nothing is stored. Sent with Cache-Control: no-store.",
         "tags": [
           "GitHub"
         ],

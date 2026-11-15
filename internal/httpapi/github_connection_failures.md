@@ -110,3 +110,15 @@ entry names the test that covers it; the tests live in
 
 - The new routes reported as `/api/v1/other`, or a route label that grows
   without bound. `TestGithubConnectionMetricRoutes`.
+
+## Found by the independent review (WP7)
+
+- Another administrator cancels an attempt they did not begin: the cancel is
+  answered 200 and changes nothing. `TestGithubConnectionReviewFindings`.
+- A script loops connect and cancel, and each loop asks GitHub for a device
+  code: beyond the manager's budget the route answers 429 `rate_limited`
+  with `Retry-After`, and GitHub is not asked. `TestGithubConnectionReviewFindings`,
+  `TestGithubConnectionErrorTable`.
+- Connect and disconnect accepted and ignored any body. They take no input:
+  an empty body or `{}` only, anything else is 400 `invalid_request`.
+  `TestGithubConnectionReviewFindings`.

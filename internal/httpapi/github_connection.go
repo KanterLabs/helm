@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -47,6 +49,7 @@ var githubConnectionErrors = map[string]struct {
 	githubconnect.CodeGitHubUnreachable: {http.StatusFailedDependency, "github_unreachable", "Helm could not reach GitHub."},
 	githubconnect.CodeGitHubRefused:     {http.StatusFailedDependency, "github_refused", "GitHub refused the request."},
 	githubconnect.CodeStorageFailed:     {http.StatusInternalServerError, "github_storage_failed", "Helm could not save or remove its GitHub credential."},
+	githubconnect.CodeTooManyAttempts:   {http.StatusTooManyRequests, "rate_limited", "Too many sign-in attempts in a short time; wait a minute."},
 }
 
 // githubConnectionError returns the answer for err. Only the code is read:
@@ -60,6 +63,9 @@ func githubConnectionError(err error) (int, string, string) {
 
 func (s *Server) writeGithubConnectionError(w http.ResponseWriter, err error) {
 	status, code, message := githubConnectionError(err)
+	if status == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", "60")
+	}
 	s.writeError(w, status, code, message, nil)
 }
 
@@ -160,6 +166,9 @@ func (s *Server) githubConnection(w http.ResponseWriter, r *http.Request, identi
 			return
 		}
 		attemptID = *input.AttemptID
+	} else if !emptyJSONBody(r) {
+		s.writeError(w, http.StatusBadRequest, "invalid_request", "this request takes no body", nil)
+		return
 	}
 	if s.githubMode() == githubconnect.ModeOperatorToken {
 		s.writeGithubConnectionError(w, &githubconnect.Error{Code: githubconnect.CodeOperatorManaged})
@@ -187,4 +196,18 @@ func (s *Server) githubConnection(w http.ResponseWriter, r *http.Request, identi
 		return
 	}
 	s.writeGithubIntegration(w, actorID, s.cachedGithubDiagnostics())
+}
+
+// emptyJSONBody reports whether the request carries no input: no body at
+// all, or an empty JSON object.
+func emptyJSONBody(r *http.Request) bool {
+	body, err := requestBodyData(r)
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	text := strings.TrimSpace(string(body))
+	return text == "" || text == "{}"
 }
