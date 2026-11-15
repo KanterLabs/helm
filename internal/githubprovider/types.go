@@ -12,6 +12,9 @@ type Options struct {
 	Enabled      bool
 	TokenFile    string
 	Repositories []string
+	// Source supplies the token. Nil means the token file above, whose
+	// identity is the token's SHA-256 (operator_token mode).
+	Source CredentialSource
 	// HTTPClient and Endpoint are constructor-only injection points for tests.
 	// Runtime configuration must never expose an API origin override.
 	HTTPClient *http.Client
@@ -99,6 +102,8 @@ func (e *Error) Error() string {
 	switch e.Code {
 	case "not_configured":
 		return "GitHub integration is not configured."
+	case "reconnect_required":
+		return "GitHub sign-in expired; reconnect GitHub."
 	case "permission_required":
 		return "GitHub repository access or token permissions are required."
 	case "rate_limited":

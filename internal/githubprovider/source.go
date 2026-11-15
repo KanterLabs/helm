@@ -126,7 +126,8 @@ func (c *Client) ReadFile(ctx context.Context, repository, sha, path string) (Fi
 		Target       string `json:"target"`
 		SubmoduleURL string `json:"submodule_git_url"`
 	}
-	if _, err = c.get(ctx, repository, "/repos/"+repository+"/contents/"+escapedPath(path)+"?ref="+sha, &response); err != nil {
+	var used string
+	if _, err = c.fetchToken(ctx, repository, "/repos/"+repository+"/contents/"+escapedPath(path)+"?ref="+sha, &response, false, &used); err != nil {
 		return File{}, err
 	}
 	if response.Type != "file" || response.Target != "" || response.SubmoduleURL != "" || response.Encoding != "base64" || response.Size < 0 || response.Size > maxFileBytes || response.SHA != expectedBlob {
@@ -140,7 +141,8 @@ func (c *Client) ReadFile(ctx context.Context, repository, sha, path string) (Fi
 	if err != nil {
 		return File{}, err
 	}
-	if strings.Contains(string(content), token) {
+	// The source may have refreshed during the read: refuse either token.
+	if strings.Contains(string(content), token) || strings.Contains(string(content), used) {
 		return File{}, providerError("file_unavailable")
 	}
 	if !c.sameGeneration(generation) {
