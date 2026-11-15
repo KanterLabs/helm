@@ -127,3 +127,16 @@ it. `ui` is `web/e2e/github-connection-ui.spec.ts`; `screens` is
     "Try again", which cannot help: the operator must fix Helm's GitHub
     state directory. Test: ui "an HTML 502 from a proxy is not blamed on
     GitHub" (the `github_storage_failed` step).
+
+## Found while documenting
+
+21. **GitHub turned off is blamed on a missing client ID.** With
+    `HELM_GITHUB_ENABLED` unset the document says `enabled: false`, and the
+    panel said "This Helm has no GitHub App client ID" even when one was set.
+    It must say GitHub is turned off and name `HELM_GITHUB_ENABLED`; the
+    client ID sentence is for an enabled Helm only.
+    Test: guide "says GitHub is off, not that a client ID is missing".
+22. **Nothing in the panel opens the guide.** The not-set-up views offer
+    **Setup guide** and the connect view offers **How this works**; both open
+    the in-app help page `github-device-flow`, with no network beyond Helm.
+    Test: guide "the setup guide and how-this-works open in-app help".

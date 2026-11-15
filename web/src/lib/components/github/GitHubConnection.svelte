@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import { api } from '../../api';
+  import { openHelp } from '../../help';
   import type { GithubConnection, GithubIntegration } from '../../types';
   import GitHubDeviceCode from './GitHubDeviceCode.svelte';
   import GitHubDisconnectConfirm from './GitHubDisconnectConfirm.svelte';
@@ -207,12 +208,21 @@
   <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-github-connection-live>{live}</p>
 
   {#if view === 'unavailable'}
-    <h3 tabindex="-1" data-github-view-heading>GitHub sign-in is not set up</h3>
-    <p>This Helm has no GitHub App client ID, so sign-in is off. An operator can set <code>HELM_GITHUB_APP_CLIENT_ID</code> and restart Helm, or give Helm a read-only token through <code>HELM_GITHUB_TOKEN_FILE</code> instead.</p>
+    {#if integration.enabled === false}
+      <h3 tabindex="-1" data-github-view-heading>GitHub is turned off on this Helm</h3>
+      <p>An operator can turn it on by setting <code>HELM_GITHUB_ENABLED=true</code> and restarting Helm.</p>
+    {:else}
+      <h3 tabindex="-1" data-github-view-heading>GitHub sign-in is not set up</h3>
+      <p>This Helm has no GitHub App client ID, so sign-in is off. An operator can set <code>HELM_GITHUB_APP_CLIENT_ID</code> and restart Helm, or give Helm a read-only token through <code>HELM_GITHUB_TOKEN_FILE</code> instead.</p>
+    {/if}
+    <button class="text-button guide-link" type="button" on:click={() => openHelp('github-device-flow', 'settings')}>Setup guide</button>
   {:else if view === 'disconnected'}
     <h3 tabindex="-1" data-github-view-heading>Connect Helm to GitHub</h3>
     <p>Helm shows pull request status on cards and runs audits on the repositories you choose. You enter a short code on GitHub; there are no tokens to copy, and access is read-only.</p>
-    <button class="button primary button-large" type="button" disabled={Boolean(busy)} on:click={() => void connect()}>Connect GitHub</button>
+    <div class="connect-row">
+      <button class="button primary button-large" type="button" disabled={Boolean(busy)} on:click={() => void connect()}>Connect GitHub</button>
+      <button class="text-button" type="button" on:click={() => openHelp('github-device-flow')}>How this works</button>
+    </div>
   {:else if view === 'starting'}
     <h3 tabindex="-1" data-github-view-heading class="starting"><span class="spinner" aria-hidden="true"></span>Getting a code from GitHub…</h3>
   {:else if view === 'pending' && attempt}
@@ -265,6 +275,7 @@
 <style>
   .connection { display: grid; gap: 12px; justify-items: start; min-width: 0; }
   .connection > * { max-width: 100%; }
+  .connect-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
   .connection > p, .connection > .inline-alert, .connection > :global([data-github-disconnect-confirm]) { justify-self: stretch; }
   h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--text-base); outline: none; }
   p { margin: 0; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.5; max-width: 62ch; overflow-wrap: anywhere; }

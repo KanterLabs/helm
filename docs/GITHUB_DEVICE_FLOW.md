@@ -70,7 +70,8 @@ stays at **One more step: choose repositories**.
 
 | Panel heading (badge) | Meaning | What to do |
 | --- | --- | --- |
-| **GitHub sign-in is not set up** (Not configured) | No client ID, or `HELM_GITHUB_ENABLED` is not `true` | Ask the operator to finish [Settings](#settings) and restart Helm. |
+| **GitHub is turned off on this Helm** (Not configured) | `HELM_GITHUB_ENABLED` is not `true` | Ask the operator to set it and restart Helm. **Setup guide** opens this page. |
+| **GitHub sign-in is not set up** (Not configured) | GitHub is on, but there is no client ID | Ask the operator to finish [Settings](#settings) and restart Helm. **Setup guide** opens this page. |
 | **Connect Helm to GitHub** (Not connected) | No connection | Press **Connect GitHub**. |
 | **Enter this code on GitHub** (Waiting for GitHub) | Your code is waiting | Enter it on GitHub, or press **Cancel**. |
 | **Another administrator is connecting GitHub** (Waiting for GitHub) | Someone else's code is waiting | Wait, or **Connect it myself instead**. |

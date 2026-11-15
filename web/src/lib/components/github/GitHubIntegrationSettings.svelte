@@ -3,6 +3,7 @@
   import { api } from '../../api';
   import { ApiError, type GithubIntegration, type Project } from '../../types';
   import GitHubConnection from './GitHubConnection.svelte';
+  import HelpDrawer from '../HelpDrawer.svelte';
   import GitHubRepositorySelection from './GitHubRepositorySelection.svelte';
   import { badge, NOT_HELMS_ANSWER, type ConnectionView } from './connection';
   import { relativeTime } from './pullRequests';
@@ -93,6 +94,8 @@
     {/if}
   {/if}
 </section>
+<!-- The Settings page has no other help drawer; the panel's guide links open this one. -->
+<HelpDrawer />
 
 <style>
   .github-settings { display: grid; gap: 14px; }
