@@ -10,7 +10,7 @@ paths:
         github_operator_managed in operator_token mode, 409
         github_signin_unavailable without a GitHub App client ID, and 409
         github_already_connected while connected. Takes no input: an empty
-        body or an empty object. More than 6 new attempts within a minute
+        body or an empty object. More than 20 new attempts within a minute
         answer 429 rate_limited with Retry-After, without asking GitHub.
         Human administrators only; bearer tokens are refused with 403
         human_account_required. Not idempotently replayed: an Idempotency-Key

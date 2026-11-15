@@ -69,7 +69,7 @@ ends by the clock alone still notifies the allowlist listeners.
 
 **A8. Limits (C2, C4, C5).** Installation and repository pages may be up to
 2 MB (a page of 100 repositories does not fit in 64 KB); every other reply
-stays at 64 KB. Concurrent syncs share one run. At most 6 device-code requests
+stays at 64 KB. Concurrent syncs share one run. At most 20 device-code requests
 a minute; beyond that connect answers 429 `rate_limited`. Only the
 administrator who began an attempt may cancel it; anyone may replace it.
 Connect and disconnect take no body.

@@ -246,7 +246,7 @@ token gets 403 `human_account_required`. They are never replayed from an
 | --- | --- |
 | `GET /integrations/github` | The integration document with its `connection` object. No GitHub call. |
 | `POST /integrations/github/check` | In `device_flow` mode, re-reads installations first, then tests. |
-| `POST /integrations/github/connect` (`connectGithub`) | Starts sign-in, or returns your pending code. No body. At most 6 new attempts a minute. |
+| `POST /integrations/github/connect` (`connectGithub`) | Starts sign-in, or returns your pending code. No body. At most 20 new attempts a minute. |
 | `POST /integrations/github/connect/cancel` | Body `{"attempt_id": "…"}`. Only the administrator who began the attempt cancels it; a stale ID or someone else's attempt changes nothing (200). |
 | `POST /integrations/github/disconnect` (`disconnectGithub`) | Deletes the credential. Twice is fine. |
 

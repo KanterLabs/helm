@@ -70,7 +70,9 @@ func (m *Manager) Begin(ctx context.Context, actorID string) (Status, error) {
 		return s, nil
 	}
 	now := m.now()
-	m.begins = slices.DeleteFunc(m.begins, func(at time.Time) bool { return now.Sub(at) >= time.Minute })
+	// Forget requests older than a minute, and any stamped in the future (the
+	// clock stepped back): those must not hold the cap shut.
+	m.begins = slices.DeleteFunc(m.begins, func(at time.Time) bool { return now.Sub(at) >= time.Minute || at.After(now) })
 	if len(m.begins) >= maxBeginsPerMinute {
 		m.mu.Unlock()
 		return m.Status(actorID), fail(CodeTooManyAttempts)

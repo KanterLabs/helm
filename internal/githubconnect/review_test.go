@@ -238,7 +238,25 @@ func TestBeginBudget(t *testing.T) {
 		t.Fatalf("a refused attempt still asked GitHub (%d calls, was %d)", got, calls)
 	}
 	e.clock.advance(time.Minute + time.Second)
-	if s, err := e.m.Begin(e.ctx(), testActor); err != nil || s.Attempt == nil {
+	s, err := e.m.Begin(e.ctx(), testActor)
+	if err != nil || s.Attempt == nil {
 		t.Fatalf("after a minute: %v", err)
+	}
+	e.m.Cancel(testActor, s.Attempt.ID)
+	if maxBeginsPerMinute < 12 {
+		t.Fatalf("a cap of %d a minute is within reach of people connecting", maxBeginsPerMinute)
+	}
+	// A clock that steps backwards leaves requests stamped in the future.
+	// They must not count against the cap until the clock catches up.
+	for i := 1; i < maxBeginsPerMinute; i++ {
+		s, err := e.m.Begin(e.ctx(), testActor)
+		if err != nil {
+			t.Fatalf("refill %d: %v", i, err)
+		}
+		e.m.Cancel(testActor, s.Attempt.ID)
+	}
+	e.clock.advance(-2 * time.Hour)
+	if s, err := e.m.Begin(e.ctx(), testActor); err != nil || s.Attempt == nil {
+		t.Fatalf("after the clock stepped back: %v", err)
 	}
 }

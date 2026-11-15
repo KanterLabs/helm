@@ -116,7 +116,7 @@ entry names the test that covers it; the tests live in
 - Another administrator cancels an attempt they did not begin: the cancel is
   answered 200 and changes nothing. `TestGithubConnectionReviewFindings`.
 - A script loops connect and cancel, and each loop asks GitHub for a device
-  code: beyond the manager's budget the route answers 429 `rate_limited`
+  code: beyond the manager's budget (20 a minute) the route answers 429 `rate_limited`
   with `Retry-After`, and GitHub is not asked. `TestGithubConnectionReviewFindings`,
   `TestGithubConnectionErrorTable`.
 - Connect and disconnect accepted and ignored any body. They take no input:

@@ -26,8 +26,9 @@ const (
 	rejectWindow   = time.Minute
 	refreshTimeout = 10 * time.Second
 	refreshBackoff = 30 * time.Second // after a failed exchange
-	// maxBeginsPerMinute bounds device-code requests to GitHub.
-	maxBeginsPerMinute = 6
+	// maxBeginsPerMinute bounds device-code requests to GitHub. It stops a
+	// runaway loop; it is well beyond what people connecting need.
+	maxBeginsPerMinute = 20
 )
 
 // Connection states (C5).

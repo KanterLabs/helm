@@ -145,6 +145,8 @@ Each entry names the test that covers it.
   `TestFreshAnswersForTheConnectionHeldNow`.
 - Nothing bounds how often an administrator's script makes Helm ask GitHub:
   every connect after a cancel requests a device code, and every concurrent
-  Test connection reads all installations again. At most 6 device-code
-  requests a minute; concurrent syncs share one run. `TestBeginBudget`,
-  `TestConcurrentSyncsShareOneRun`.
+  Test connection reads all installations again. At most 20 device-code
+  requests a minute; concurrent syncs share one run. The cap must not bite
+  people: 6 was low enough that the real-backend proof's own attempts hit
+  it. A clock that steps backwards must not hold the cap shut either.
+  `TestBeginBudget`, `TestConcurrentSyncsShareOneRun`.

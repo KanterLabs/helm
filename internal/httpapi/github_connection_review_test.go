@@ -43,7 +43,7 @@ func TestGithubConnectionReviewFindings(t *testing.T) {
 	// A loop of connect and cancel is cut off before it hammers GitHub.
 	e.document(e.call("owner", http.MethodPost, cancelRoute, `{"attempt_id":"`+attempt.ID+`"}`))
 	var limited bool
-	for i := 0; i < 20 && !limited; i++ {
+	for i := 0; i < 60 && !limited; i++ {
 		res := e.call("owner", http.MethodPost, connRoute, "")
 		if res.Code == http.StatusTooManyRequests {
 			if code := e.errorCode(res, http.StatusTooManyRequests); code != "rate_limited" || res.Header().Get("Retry-After") == "" || res.Header().Get("Cache-Control") != "no-store" {
@@ -56,9 +56,9 @@ func TestGithubConnectionReviewFindings(t *testing.T) {
 		e.document(e.call("owner", http.MethodPost, cancelRoute, `{"attempt_id":"`+doc.Connection.Attempt.ID+`"}`))
 	}
 	if !limited {
-		t.Fatal("20 connects in a row were all accepted")
+		t.Fatal("60 connects in a row were all accepted")
 	}
-	if calls := e.gh.read(func(g *connGitHub) int { return g.deviceCalls }); calls > 6 {
+	if calls := e.gh.read(func(g *connGitHub) int { return g.deviceCalls }); calls > 20 {
 		t.Fatalf("GitHub was asked for %d device codes", calls)
 	}
 }
