@@ -30,7 +30,7 @@
   // Device-flow sign-in has its own panel; operator_token mode and servers
   // without a `connection` object keep the token panel below unchanged.
   $: device = integration?.connection?.mode === 'device_flow';
-  $: deviceBadge = device && integration ? badge(deviceView, integration.state) : null;
+  $: deviceBadge = device && integration ? badge(deviceView, integration.state, integration.checked_at) : null;
   $: info = integration ? states[integration.state] || { label: integration.state.replace(/_/g, ' '), help: '' } : null;
 
   onMount(() => { void load(); });

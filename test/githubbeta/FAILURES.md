@@ -55,3 +55,44 @@ Scenarios recorded before the endpoint, view and browser test.
 - Desktop light, desktop dark and phone layouts must not overflow sideways.
   The run keeps screenshots and the captured API response, and none of them
   contains the sentinel credential.
+
+## Device-flow sign-in against the real binary (WP5)
+
+Scenarios recorded before the harness's `device-flow` mode and its spec
+(`web/e2e/github-device-flow-beta.spec.ts`). The browser drives the real
+panel, routes, connection manager, credential file, provider and SQLite;
+only GitHub's device, token, user and installation endpoints are synthetic.
+Two real local-login administrators are used. Each entry names its test.
+
+- The panel does not update by itself after GitHub approves: the admin has to
+  reload or press something. (*journey*: no navigation between approve and
+  the next state.)
+- A connection with zero installed repositories says "connected" and never
+  corrects itself, or "I've installed it" does not find repositories installed
+  meanwhile. (*journey*: install step, then check finds two.)
+- An access-token refresh bumps the provider generation, so a verified pull
+  request turns unverified. Either path counts: the token nearing expiry, or
+  GitHub answering 401 for it. (*journey*: refresh by expiry, then by 401;
+  the upstream refresh count rises and the PR stays verified.)
+- A repository removed on GitHub stays readable (its pull request details
+  stay on screen) or stays offered for selection or audit after Test
+  connection. (*journey*: lose `synthetic/helm-beta`.)
+- Disconnect leaves the credential file behind, or the provider still holds a
+  token and keeps reading GitHub. (*journey*: file gone, no upstream request
+  on a PR refresh, status not configured.)
+- A denied or expired attempt leaves its code on screen, or offers nothing to
+  do next; Try again shows the old code. (*denied and expired*.)
+- A second administrator sees the first one's code in the panel or in any
+  API response. (*second administrator*.)
+- A refresh GitHub refuses (`bad_refresh_token`) leaves a "connected" panel
+  or a raw error instead of **Reconnect GitHub**, or reconnecting fails.
+  (*failed refresh*.)
+- The credential file or its directory is not private (0600 in 0700), or a
+  restart does not load the connection back. (*journey*.)
+- A sentinel (access token, refresh token, device code) appears in browser
+  artifacts, API responses, harness output or the SQLite files; or a user
+  code appears in the harness output or SQLite. (`run.sh` scan.)
+- The `operator_token` suite changes behaviour: it must run the same three
+  specs against the same harness mode, unchanged. (`run.sh` default run.)
+- Running both modes leaks state between them (the second server reuses the
+  first one's database or credential). (`run.sh` clears the state directory.)

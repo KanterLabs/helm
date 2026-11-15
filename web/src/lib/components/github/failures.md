@@ -127,3 +127,24 @@ it. `ui` is `web/e2e/github-connection-ui.spec.ts`; `screens` is
     "Try again", which cannot help: the operator must fix Helm's GitHub
     state directory. Test: ui "an HTML 502 from a proxy is not blamed on
     GitHub" (the `github_storage_failed` step).
+
+## Found by the real-backend proof (WP5)
+
+21. **A connection that has not been checked yet reads as broken.** Right
+    after sign-in, and after every restart, the provider has not checked
+    GitHub, so the document says `unavailable` ("GitHub access has not been
+    checked.") with the zero `checked_at`. The panel showed a red
+    **Unavailable** badge and "Helm could not reach GitHub just now" although
+    nothing failed. Mocked routes always sent a checked state, so only the
+    real binary showed it. An unchecked state is not a failure: the badge says
+    Connected and the summary already says "not checked yet". Tests:
+    `connection.test.ts`; real backend `github-device-flow-beta.spec.ts`.
+22. **"sign-infor @login"**: the reconnect sentence lost the space before
+    "for" (Svelte drops whitespace at the start of an `{#if}` block). Test:
+    real backend "a refused refresh ends in Reconnect GitHub".
+23. **A sign-in that ends during Test connection gets a vague alert.** The
+    server answers 409 `github_reconnect_required`; the panel said "The GitHub
+    connection changed in the meantime … try again if you still need to",
+    while the only useful step is **Reconnect GitHub**. Tests:
+    `connection.test.ts`; real backend "a refused refresh ends in Reconnect
+    GitHub".

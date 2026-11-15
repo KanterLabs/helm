@@ -35,12 +35,21 @@ type harness struct {
 	upstream *httptest.Server
 	state    *syntheticState
 	ai       *syntheticAI
+	// deviceFlow serves the device_flow credential mode: no token file, two
+	// local-login administrators and a connection manager whose GitHub is
+	// the synthetic upstream.
+	deviceFlow bool
+	clock      *harnessClock
 }
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18082", "loopback listen address")
 	work := flag.String("work-dir", "", "protected temporary working directory")
+	mode := flag.String("credential-mode", "operator-token", "operator-token (token file) or device-flow (sign-in)")
 	flag.Parse()
+	if *mode != "operator-token" && *mode != "device-flow" {
+		log.Fatal("-credential-mode must be operator-token or device-flow")
+	}
 	if *work == "" {
 		log.Fatal("-work-dir is required")
 	}
@@ -54,18 +63,25 @@ func main() {
 	if err = os.Chmod(*work, 0700); err != nil {
 		log.Fatal("cannot protect work directory")
 	}
-	tokenFile := filepath.Join(*work, "github-token")
-	if err = os.WriteFile(tokenFile, []byte(sentinelToken), 0600); err != nil {
-		log.Fatal("cannot create synthetic credential")
-	}
-	defer os.Remove(tokenFile)
 	state := &syntheticState{}
 	upstream := httptest.NewServer(state)
 	defer upstream.Close()
-	h := &harness{state: state, upstream: upstream, ai: &syntheticAI{state: state}, cfg: config.Config{
+	h := &harness{state: state, upstream: upstream, ai: &syntheticAI{state: state}, clock: &harnessClock{}, cfg: config.Config{
 		Addr: *addr, DB: filepath.Join(*work, "helm.db"), AuthMode: "disabled", PublicOrigin: "http://" + *addr,
-		GitHubEnabled: true, GitHubTokenFile: tokenFile, GitHubRepositories: []string{syntheticRepository},
+		GitHubEnabled: true,
 	}}
+	if *mode == "device-flow" {
+		h.deviceFlow, state.device.enabled = true, true
+		h.cfg.AuthMode, h.cfg.GitHubAppClientID, h.cfg.GitHubAppSlug = "local", deviceClientID, deviceAppSlug
+		h.cfg.GitHubStateDir = filepath.Join(*work, "github")
+	} else {
+		tokenFile := filepath.Join(*work, "github-token")
+		if err = os.WriteFile(tokenFile, []byte(sentinelToken), 0600); err != nil {
+			log.Fatal("cannot create synthetic credential")
+		}
+		defer os.Remove(tokenFile)
+		h.cfg.GitHubTokenFile, h.cfg.GitHubRepositories = tokenFile, []string{syntheticRepository}
+	}
 	if err = h.open(); err != nil {
 		log.Fatal("cannot initialize synthetic Helm: ", err)
 	}
@@ -92,6 +108,18 @@ func (h *harness) open() error {
 	}
 	h.database = database
 	data := store.New(database)
+	if h.deviceFlow {
+		if err = h.ensureAdmins(context.Background(), data); err != nil {
+			return err
+		}
+		s := httpapi.New(data, auth.NewManager(data, h.cfg), h.cfg, h.ai)
+		if err = h.installDeviceFlow(s, data); err != nil {
+			return err
+		}
+		s.StartGithubServices(context.Background())
+		h.server = s
+		return nil
+	}
 	actor, err := data.EnsureDisabledActor(context.Background())
 	if err != nil {
 		return err
@@ -145,6 +173,10 @@ func (h *harness) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]bool{"restarted": true})
+		return
+	}
+	if r.URL.Path == "/__githubbeta/device" {
+		h.deviceControl(w, r)
 		return
 	}
 	if r.URL.Path == "/__githubbeta/state" {
