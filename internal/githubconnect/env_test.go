@@ -47,6 +47,7 @@ type fakeGitHub struct {
 	refreshScript []string // outcomes for refreshes; empty means rotate
 	refreshCalls  int
 	refreshGate   chan struct{} // when set, a refresh waits on it
+	pollGate      chan struct{} // when set, a device-code poll waits on it
 	noExpiry      bool
 
 	issued        int
@@ -130,6 +131,11 @@ func (g *fakeGitHub) issue(w http.ResponseWriter, withRefresh bool) {
 
 func (g *fakeGitHub) poll(w http.ResponseWriter, deviceCode string) {
 	g.polls++
+	if gate := g.pollGate; gate != nil {
+		g.mu.Unlock()
+		<-gate
+		g.mu.Lock()
+	}
 	if !strings.HasPrefix(deviceCode, deviceSentinel) {
 		writeJSON(w, map[string]any{"error": "incorrect_device_code"})
 		return

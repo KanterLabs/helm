@@ -227,15 +227,30 @@ func (e *env) currentAttempt() *attempt {
 	return e.m.attempt
 }
 
+// pollDuring runs one poll of the current attempt and calls during while
+// GitHub is answering it (with success).
+func (e *env) pollDuring(during func()) {
+	e.t.Helper()
+	att := e.currentAttempt()
+	gate := make(chan struct{})
+	e.gh.set(func(g *fakeGitHub) { g.pollScript, g.pollGate = []string{"success"}, gate })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.m.pollOnce(e.ctx(), att)
+	}()
+	waitFor(e.t, "the poll to reach GitHub", func() bool { return e.gh.count(func(g *fakeGitHub) int { return g.polls }) == 1 })
+	during()
+	close(gate)
+	<-done
+}
+
 func TestReplacedAttemptSuccessIsDiscarded(t *testing.T) {
 	e := newEnv(t)
 	e.begin(testActor)
-	old := e.currentAttempt()
-	e.begin(otherActor)
-	e.gh.set(func(g *fakeGitHub) { g.pollScript = []string{"success"} })
-	e.m.pollOnce(e.ctx(), old)
+	e.pollDuring(func() { e.begin(otherActor) })
 	s := e.m.Status(otherActor)
-	if s.State != StateDisconnected || s.Attempt == nil || s.Attempt.State != AttemptPending {
+	if s.State != StateDisconnected || s.Attempt == nil || s.Attempt.State != AttemptPending || s.Attempt.UserCode == "" {
 		t.Fatalf("late success of a replaced attempt changed state: %+v", s)
 	}
 }
@@ -243,12 +258,18 @@ func TestReplacedAttemptSuccessIsDiscarded(t *testing.T) {
 func TestSuccessAfterCancelIsDiscarded(t *testing.T) {
 	e := newEnv(t)
 	s := e.begin(testActor)
-	att := e.currentAttempt()
-	e.m.Cancel(testActor, s.Attempt.ID)
-	e.gh.set(func(g *fakeGitHub) { g.pollScript = []string{"success"} })
-	e.m.pollOnce(e.ctx(), att)
+	e.pollDuring(func() { e.m.Cancel(testActor, s.Attempt.ID) })
 	if got := e.m.Status(testActor); got.State != StateDisconnected || got.Attempt != nil {
 		t.Fatalf("success after cancel connected: %+v", got)
+	}
+}
+
+func TestSuccessAfterDisconnectIsDiscarded(t *testing.T) {
+	e := newEnv(t)
+	e.begin(testActor)
+	e.pollDuring(func() { must(t, e.err(e.m.Disconnect(testActor))) })
+	if got := e.m.Status(testActor); got.State != StateDisconnected || got.Attempt != nil {
+		t.Fatalf("success after disconnect connected: %+v", got)
 	}
 }
 
