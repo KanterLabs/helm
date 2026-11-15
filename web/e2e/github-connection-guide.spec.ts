@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { baseConnection, installConnectionMocks, type Connection } from './support/githubConnectionFixture';
 
 // The connection panel's not-set-up wording and its links to the in-app
-// guide. Covers web/src/lib/components/github/failures.md entries 21 and 22.
+// guide. Covers web/src/lib/components/github/failures.md entries 24 and 25.
 test.use({ serviceWorkers: 'block' });
 
 const panelOf = (page: Page) => page.locator('[data-github-connection]');

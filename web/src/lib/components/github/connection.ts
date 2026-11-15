@@ -63,6 +63,7 @@ export function plainError(failure: unknown, fallback: string): string {
     case 'offline_read_only': return 'Helm is offline, so it cannot change the GitHub connection. Reconnect, then try again.';
     case 'github_operator_managed': return 'An operator manages GitHub for this Helm with a token file, so sign-in here is off. Reload the page to see the current setup.';
     case 'github_signin_unavailable': return 'GitHub sign-in is not set up on this Helm. Ask your operator to set it up, then reload this page.';
+    case 'github_reconnect_required': return 'GitHub sign-in has ended. Press Reconnect GitHub to connect again.';
     case 'github_storage_failed': return 'Helm could not save or remove its GitHub credential. Ask your operator to check Helm\'s GitHub state directory, then try again.';
   }
   if (failure.status === 424) return 'Helm could not reach GitHub. Wait a minute, then try again.';
@@ -90,8 +91,18 @@ export function announcement(view: ConnectionView, connection: GithubConnection,
   }
 }
 
+/**
+ * True when the server has not checked GitHub since it started (or since
+ * sign-in): it then sends `unavailable` with its zero time, which is not a
+ * failure. Nothing real predates 1970.
+ */
+function neverChecked(checkedAt: string | undefined | null): boolean {
+  return !checkedAt || !(Date.parse(checkedAt) > 0);
+}
+
 /** Health of a connected integration after its last check, in plain words. */
-export function healthNote(state: string): string {
+export function healthNote(state: string, checkedAt?: string | null): string {
+  if (state === 'unavailable' && neverChecked(checkedAt)) return '';
   switch (state) {
     case 'permission_required': return 'Helm cannot read one or more repositories. Use Choose repositories on GitHub to give it access, then test again.';
     case 'unavailable': return 'Helm could not reach GitHub just now. Other Helm work is unaffected; test again in a few minutes.';
@@ -101,14 +112,14 @@ export function healthNote(state: string): string {
 }
 
 /** Header badge for the device-flow panel. */
-export function badge(view: ConnectionView, integrationState: string): { label: string; state: string } {
+export function badge(view: ConnectionView, integrationState: string, checkedAt?: string | null): { label: string; state: string } {
   switch (view) {
     case 'unavailable': return { label: 'Not configured', state: 'not_configured' };
     case 'starting': case 'pending': case 'other_pending': return { label: 'Waiting for GitHub', state: 'pending' };
     case 'no_repositories': return { label: 'Needs repositories', state: 'permission_required' };
     case 'reconnect_required': return { label: 'Reconnect needed', state: 'permission_required' };
     case 'connected':
-      if (integrationState === 'unavailable') return { label: 'Unavailable', state: 'unavailable' };
+      if (integrationState === 'unavailable' && !neverChecked(checkedAt)) return { label: 'Unavailable', state: 'unavailable' };
       if (integrationState === 'rate_limited') return { label: 'Rate limited', state: 'rate_limited' };
       if (integrationState === 'permission_required') return { label: 'Permission required', state: 'permission_required' };
       return { label: 'Connected', state: 'connected' };

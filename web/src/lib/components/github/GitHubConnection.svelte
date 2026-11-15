@@ -43,7 +43,7 @@
   $: view = busy === 'connect' ? 'starting' : connectionView(connection, now);
   $: installUrl = githubUrl(connection.install_url);
   $: count = doc.allowed_repositories?.length || 0;
-  $: health = healthNote(doc.state);
+  $: health = healthNote(doc.state, doc.checked_at);
   $: summary = [
     `${count} ${count === 1 ? 'repository' : 'repositories'} available`,
     connection.connected_at ? `connected ${relativeTime(connection.connected_at)}` : '',
@@ -155,7 +155,7 @@
       if (kind === 'check' && currentView() === before) {
         checkNote = before === 'no_repositories'
           ? 'Helm still sees no repositories. Finish installing on GitHub (choose at least one repository), then press I’ve installed it again.'
-          : healthNote(next.state) || `Test passed. Helm can read ${next.allowed_repositories.length === 1 ? 'your repository' : 'your repositories'}.`;
+          : healthNote(next.state, next.checked_at) || `Test passed. Helm can read ${next.allowed_repositories.length === 1 ? 'your repository' : 'your repositories'}.`;
       }
     } catch (failure) {
       if (destroyed) return;
@@ -240,7 +240,7 @@
     <button class="button primary button-large" type="button" disabled={Boolean(busy)} on:click={() => void connect()}>Try again</button>
   {:else if view === 'reconnect_required'}
     <h3 tabindex="-1" data-github-view-heading>GitHub sign-in needs renewing</h3>
-    <p>Helm’s GitHub sign-in{#if connection.login} for <strong>@{connection.login}</strong>{/if} expired or was removed on GitHub. Reconnect to keep pull request status and audits working.</p>
+    <p>Helm’s GitHub sign-in{#if connection.login}{' '}for <strong>@{connection.login}</strong>{/if} expired or was removed on GitHub. Reconnect to keep pull request status and audits working.</p>
     <button class="button primary button-large" type="button" disabled={Boolean(busy)} on:click={() => void connect()}>Reconnect GitHub</button>
   {:else if view === 'no_repositories' || view === 'connected'}
     {#if view === 'no_repositories'}
