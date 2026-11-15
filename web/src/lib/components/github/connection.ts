@@ -63,6 +63,7 @@ export function plainError(failure: unknown, fallback: string): string {
     case 'offline_read_only': return 'Helm is offline, so it cannot change the GitHub connection. Reconnect, then try again.';
     case 'github_operator_managed': return 'An operator manages GitHub for this Helm with a token file, so sign-in here is off. Reload the page to see the current setup.';
     case 'github_signin_unavailable': return 'GitHub sign-in is not set up on this Helm. Ask your operator to set it up, then reload this page.';
+    case 'github_storage_failed': return 'Helm could not save or remove its GitHub credential. Ask your operator to check Helm\'s GitHub state directory, then try again.';
   }
   if (failure.status === 424) return 'Helm could not reach GitHub. Wait a minute, then try again.';
   if (failure.status === 401) return 'Your Helm session has ended. Sign in again, then try again.';

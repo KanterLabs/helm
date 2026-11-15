@@ -73,7 +73,8 @@
               "connected",
               "permission_required",
               "unavailable",
-              "rate_limited"
+              "rate_limited",
+              "reconnect_required"
             ]
           },
           "message": {
@@ -90,7 +91,8 @@
           "state",
           "message",
           "allowed_repositories",
-          "checked_at"
+          "checked_at",
+          "connection"
         ],
         "properties": {
           "enabled": {
@@ -106,7 +108,8 @@
               "connected",
               "permission_required",
               "unavailable",
-              "rate_limited"
+              "rate_limited",
+              "reconnect_required"
             ]
           },
           "message": {
@@ -120,6 +123,9 @@
           },
           "checked_at": {
             "$ref": "#/components/schemas/Timestamp"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/GithubSigninConnection"
           }
         },
         "additionalProperties": false

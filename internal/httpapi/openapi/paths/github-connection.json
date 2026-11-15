@@ -1,0 +1,173 @@
+{
+  "paths": {
+    "/api/v1/integrations/github/connect": {
+      "post": {
+        "operationId": "connectGithub",
+        "summary": "Begin GitHub sign-in",
+        "description": "Begins a device-flow sign-in, or returns the caller's pending attempt. Another administrator's attempt is replaced. The user code is sent only to the administrator who began the attempt. Answers 409 github_operator_managed in operator_token mode, 409 github_signin_unavailable without a GitHub App client ID, and 409 github_already_connected while connected. Human administrators only; bearer tokens are refused with 403 human_account_required. Not idempotently replayed: an Idempotency-Key is ignored and nothing is stored. Sent with Cache-Control: no-store.",
+        "tags": [
+          "GitHub"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub device-flow sign-in plan",
+          "url": "docs/GITHUB_DEVICE_FLOW_PLAN.md"
+        },
+        "responses": {
+          "200": {
+            "description": "The integration document, as GET /api/v1/integrations/github returns it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubDiagnostics"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/GithubConnectionConflict"
+          },
+          "424": {
+            "$ref": "#/components/responses/GithubDependencyFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/github/connect/cancel": {
+      "post": {
+        "operationId": "cancelGithubConnect",
+        "summary": "Cancel GitHub sign-in",
+        "description": "Ends the attempt with this ID. A stale ID changes nothing and still answers 200 with the current document. Human administrators only; bearer tokens are refused with 403 human_account_required. Not idempotently replayed: an Idempotency-Key is ignored and nothing is stored. Sent with Cache-Control: no-store.",
+        "tags": [
+          "GitHub"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub device-flow sign-in plan",
+          "url": "docs/GITHUB_DEVICE_FLOW_PLAN.md"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubConnectCancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The integration document, as GET /api/v1/integrations/github returns it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubDiagnostics"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/GithubConnectionConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/github/disconnect": {
+      "post": {
+        "operationId": "disconnectGithub",
+        "summary": "Disconnect GitHub",
+        "description": "Deletes Helm's GitHub credential and ends any attempt; the repository allowlist empties at once. It does not revoke the authorization on GitHub (see authorizations_url). Disconnecting twice is fine. A credential that cannot be removed answers 500 github_storage_failed. Human administrators only; bearer tokens are refused with 403 human_account_required. Not idempotently replayed: an Idempotency-Key is ignored and nothing is stored. Sent with Cache-Control: no-store.",
+        "tags": [
+          "GitHub"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "externalDocs": {
+          "description": "GitHub device-flow sign-in plan",
+          "url": "docs/GITHUB_DEVICE_FLOW_PLAN.md"
+        },
+        "responses": {
+          "200": {
+            "description": "The integration document, as GET /api/v1/integrations/github returns it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubDiagnostics"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/GithubConnectionConflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    }
+  }
+}

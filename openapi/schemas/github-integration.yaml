@@ -56,6 +56,7 @@ components:
             - permission_required
             - unavailable
             - rate_limited
+            - reconnect_required
         message:
           type: string
       additionalProperties: false
@@ -68,6 +69,7 @@ components:
         - message
         - allowed_repositories
         - checked_at
+        - connection
       properties:
         enabled:
           type: boolean
@@ -81,6 +83,7 @@ components:
             - permission_required
             - unavailable
             - rate_limited
+            - reconnect_required
         message:
           type: string
         allowed_repositories:
@@ -89,6 +92,8 @@ components:
             type: string
         checked_at:
           $ref: "#/components/schemas/Timestamp"
+        connection:
+          $ref: "#/components/schemas/GithubSigninConnection"
       additionalProperties: false
     GithubReadiness:
       type: object

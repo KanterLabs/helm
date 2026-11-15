@@ -18,24 +18,6 @@ func (s *Server) githubService() *GithubService {
 	}
 	return NewGithubService(s.Store, nil)
 }
-func (s *Server) githubIntegration(w http.ResponseWriter, r *http.Request, identity auth.Identity, check bool) {
-	if !requireAdmin(w, identity) {
-		return
-	}
-	if (check && r.Method != http.MethodPost) || (!check && r.Method != http.MethodGet) {
-		s.writeError(w, 405, "method_not_allowed", "method not allowed", nil)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	diagnostics := s.githubService().Diagnostics(ctx, check)
-	body, err := json.Marshal(diagnostics)
-	if err != nil {
-		s.writeInternal(w, err)
-		return
-	}
-	s.writeRaw(w, 200, body, "")
-}
 func (s *Server) projectGithub(w http.ResponseWriter, r *http.Request, identity auth.Identity, reference string) {
 	if !requireScope(w, identity, "tasks:read") {
 		return

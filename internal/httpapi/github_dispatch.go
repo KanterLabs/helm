@@ -14,6 +14,10 @@ func (s *Server) dispatchGithub(w http.ResponseWriter, r *http.Request, identity
 		s.githubIntegration(w, r, identity, false)
 	case len(parts) == 3 && parts[0] == "integrations" && parts[1] == "github" && parts[2] == "check":
 		s.githubIntegration(w, r, identity, true)
+	case len(parts) == 3 && parts[0] == "integrations" && parts[1] == "github" && (parts[2] == "connect" || parts[2] == "disconnect"):
+		s.githubConnection(w, r, identity, parts[2])
+	case len(parts) == 4 && parts[0] == "integrations" && parts[1] == "github" && parts[2] == "connect" && parts[3] == "cancel":
+		s.githubConnection(w, r, identity, "cancel")
 	case len(parts) == 3 && parts[0] == "projects" && parts[2] == "github":
 		s.projectGithub(w, r, identity, parts[1])
 	case len(parts) == 4 && parts[0] == "projects" && parts[2] == "github" && parts[3] == "readiness":
