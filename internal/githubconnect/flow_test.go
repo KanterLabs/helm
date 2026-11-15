@@ -14,8 +14,13 @@ func TestConnectEndToEnd(t *testing.T) {
 	if got.Mode != ModeDeviceFlow || !got.SigninAvailable || got.State != StateDisconnected || got.Attempt != nil {
 		t.Fatalf("initial status %+v", got)
 	}
+	var mu sync.Mutex
 	var repos [][]string
-	e.m.OnRepositories(func(list []string) { repos = append(repos, list) })
+	e.m.OnRepositories(func(list []string) {
+		mu.Lock()
+		defer mu.Unlock()
+		repos = append(repos, list)
+	})
 	e.connect()
 	s := e.m.Status(testActor)
 	if s.Login != "octocat" || s.ConnectedAt == "" || s.Attempt != nil || s.RepositoriesTruncated {
@@ -27,9 +32,11 @@ func TestConnectEndToEnd(t *testing.T) {
 	if want := []string{"kanterlabs/docs", "kanterlabs/helm"}; strings.Join(e.m.Repositories(), ",") != strings.Join(want, ",") {
 		t.Fatalf("repositories %v", e.m.Repositories())
 	}
-	if len(repos) < 2 || strings.Join(repos[len(repos)-1], ",") != "kanterlabs/docs,kanterlabs/helm" {
-		t.Fatalf("listener saw %v", repos)
-	}
+	waitFor(t, "the listener", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(repos) >= 2 && strings.Join(repos[len(repos)-1], ",") == "kanterlabs/docs,kanterlabs/helm"
+	})
 	token, identity, err := e.m.Current()
 	if e.err(err) != nil || !strings.Contains(token, accessSentinel) || identity == "" {
 		t.Fatalf("Current: %v", err)
@@ -37,8 +44,10 @@ func TestConnectEndToEnd(t *testing.T) {
 	if forms := e.gh.count(func(g *fakeGitHub) int { return len(g.deviceForm) }); forms != 1 {
 		t.Fatalf("device calls %d", forms)
 	}
-	if e.gh.deviceForm[0] != testClientID {
-		t.Fatalf("client_id sent %q", e.gh.deviceForm[0])
+	var sent string
+	e.gh.set(func(g *fakeGitHub) { sent = g.deviceForm[0] })
+	if sent != testClientID {
+		t.Fatalf("client_id sent %q", sent)
 	}
 }
 
