@@ -9,6 +9,7 @@
           "schema": {
             "type": "string",
             "enum": [
+              "github-device-flow",
               "public-access",
               "ticket-webhooks"
             ]
