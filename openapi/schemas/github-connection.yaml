@@ -1,0 +1,95 @@
+components:
+  schemas:
+    GithubSigninConnection:
+      type: object
+      description: Device-flow sign-in state (docs/GITHUB_DEVICE_FLOW_PLAN.md, C5). In
+        operator_token mode it is always `{"mode":"operator_token","signin_available":false,"state":"disconnected","repositories_truncated":false}`;
+        the operator's token is described by the integration's own state.
+      required:
+        - mode
+        - signin_available
+        - state
+        - repositories_truncated
+      properties:
+        mode:
+          type: string
+          enum:
+            - operator_token
+            - device_flow
+        signin_available:
+          type: boolean
+          description: False without a configured GitHub App client ID, in operator_token mode, or
+            while Helm shuts down.
+        state:
+          type: string
+          enum:
+            - disconnected
+            - connected
+            - no_repositories
+            - reconnect_required
+        login:
+          type: string
+          description: GitHub login of the connected account. Absent when never connected.
+        connected_at:
+          $ref: "#/components/schemas/Timestamp"
+        install_url:
+          type: string
+          format: uri
+          description: Installation page of Helm's GitHub App on https://github.com. Absent without
+            a configured App slug.
+        authorizations_url:
+          type: string
+          format: uri
+          description: Where the user revokes Helm's authorization on GitHub.
+        repositories_truncated:
+          type: boolean
+          description: GitHub reported more repositories than Helm reads (at most 50).
+        attempt:
+          $ref: "#/components/schemas/GithubSigninAttempt"
+      additionalProperties: false
+    GithubSigninAttempt:
+      type: object
+      description: The one sign-in attempt. Absent (never null) when there is none.
+      required:
+        - id
+        - state
+        - verification_uri
+        - expires_at
+        - message
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        state:
+          type: string
+          enum:
+            - pending
+            - expired
+            - denied
+            - failed
+        user_code:
+          type: string
+          description: Sent only to the administrator who began the attempt, and only while it is
+            pending.
+        verification_uri:
+          type: string
+          format: uri
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        message:
+          type: string
+          description: Helm's own sentence for an ended attempt; empty while pending.
+      additionalProperties: false
+    GithubConnectCancelRequest:
+      type: object
+      required:
+        - attempt_id
+      properties:
+        attempt_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: .*\S.*
+          description: A stale ID changes nothing, so an old tab cannot cancel a newer attempt.
+      additionalProperties: false

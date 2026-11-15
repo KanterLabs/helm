@@ -119,3 +119,11 @@ it. `ui` is `web/e2e/github-connection-ui.spec.ts`; `screens` is
     check: the `operator_token` panel says "Last checked never", and the
     connected view says "not checked yet". This is the one intended change to
     the `operator_token` panel's text. Test: `pullRequests.test.ts`.
+
+## Found while wiring the routes (WP3)
+
+20. **The server cannot write or remove its credential file** and answers
+    500 `github_storage_failed`. Without its own sentence the panel said
+    "Try again", which cannot help: the operator must fix Helm's GitHub
+    state directory. Test: ui "an HTML 502 from a proxy is not blamed on
+    GitHub" (the `github_storage_failed` step).

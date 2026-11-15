@@ -213,6 +213,12 @@ test('an HTML 502 from a proxy is not blamed on GitHub', async ({ page }, testIn
   await connect.click();
   await expect(alert).toContainText('GitHub sign-in is not set up on this Helm');
   await clean();
+  // The server answers this code when the credential file cannot be written
+  // or removed (disconnect); the panel's wording does not depend on the route.
+  mock.failNext('POST /integrations/github/connect', { status: 500, code: 'github_storage_failed', message: 'Synthetic storage failure' });
+  await connect.click();
+  await expect(alert).toHaveText("Helm could not save or remove its GitHub credential. Ask your operator to check Helm's GitHub state directory, then try again.");
+  await clean();
   // A failed poll keeps the code and says so plainly.
   await connect.click();
   await expect(panel.locator('[data-github-user-code]')).toBeVisible();
