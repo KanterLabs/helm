@@ -71,6 +71,12 @@ type Config struct {
 	GitHubEnabled      bool
 	GitHubTokenFile    string
 	GitHubRepositories []string
+	// Device-flow sign-in (docs/GITHUB_DEVICE_FLOW_PLAN.md). An empty client
+	// ID turns sign-in off. The state directory holds the connection file and
+	// defaults to a "github" directory beside the database.
+	GitHubAppClientID string
+	GitHubAppSlug     string
+	GitHubStateDir    string
 }
 
 func FromEnv() (Config, error) {
