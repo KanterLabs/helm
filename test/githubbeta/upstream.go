@@ -24,42 +24,48 @@ type syntheticState struct {
 	requests      int
 	aiCalls       int
 	lastAIActor   string
+	device        deviceUpstream
 }
 
 func (s *syntheticState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.requests++
-	revoked := s.revoked
 	s.mu.Unlock()
-	if revoked || r.Header.Get("Authorization") != "Bearer "+sentinelToken {
+	if s.serveDevice(w, r) {
+		return
+	}
+	s.mu.Lock()
+	authorized := s.authorizedLocked(r)
+	s.mu.Unlock()
+	if !authorized {
 		w.WriteHeader(http.StatusUnauthorized)
 		writeJSON(w, map[string]string{"message": "Synthetic GitHub access revoked"})
 		return
 	}
-	prefix := "/repos/" + syntheticRepository
-	if !strings.HasPrefix(r.URL.Path, prefix) {
+	repository, path, ok := s.repositoryOf(r.URL.Path)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	path := strings.TrimPrefix(r.URL.Path, prefix)
+	repositoryID := repositoryIDs[repository]
 	if s.serveBranches(w, r, path) {
 		return
 	}
 	switch {
 	case path == "":
-		writeJSON(w, map[string]any{"id": 7401, "full_name": syntheticRepository, "default_branch": "main", "permissions": map[string]bool{"pull": true}})
+		writeJSON(w, map[string]any{"id": repositoryID, "full_name": repository, "default_branch": "main", "permissions": map[string]bool{"pull": true}})
 	case path == "/pulls":
 		writeJSON(w, []any{})
 	case path == "/pulls/42":
 		writeJSON(w, map[string]any{"title": "Synthetic merged implementation", "state": "closed", "merged": true,
 			"draft": false, "merge_commit_sha": sourceSHA, "head": map[string]string{"sha": sourceSHA},
-			"base": map[string]any{"sha": baseSHA, "repo": map[string]int{"id": 7401}}})
+			"base": map[string]any{"sha": baseSHA, "repo": map[string]int{"id": repositoryID}}})
 	case path == "/pulls/42/reviews":
 		writeJSON(w, []any{map[string]any{"id": 1, "state": "APPROVED", "commit_id": sourceSHA, "user": map[string]int{"id": 31}}})
 	case strings.HasSuffix(path, "/check-runs"):
 		writeJSON(w, map[string]any{"total_count": 1, "check_runs": []any{map[string]string{
 			"name": "Synthetic source validation", "head_sha": sourceSHA, "status": "completed", "conclusion": "success",
-			"html_url": "https://github.com/" + syntheticRepository + "/actions/runs/7401"}}})
+			"html_url": "https://github.com/" + repository + "/actions/runs/7401"}}})
 	case strings.HasSuffix(path, "/statuses"):
 		writeJSON(w, []any{})
 	case strings.HasPrefix(path, "/commits/"):

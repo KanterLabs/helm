@@ -3,8 +3,10 @@ paths:
     get:
       operationId: getGithubIntegration
       summary: Get GitHub connection diagnostics
-      description: Human administrators receive sanitized configuration and connection state. No token or
-        private source content is returned.
+      description: Human administrators receive sanitized configuration and connection state, including
+        the device-flow `connection` object. No token or private source content is returned; a
+        sign-in user code is included only for the administrator who began the attempt. Sent with
+        Cache-Control no-store.
       tags:
         - GitHub
       security:
@@ -37,7 +39,10 @@ paths:
       operationId: checkGithubIntegration
       summary: Test the GitHub connection
       description: Human administrators test endpoint permissions against the configured allowlist.
-        Provider failures are represented in the diagnostic state.
+        Provider failures are represented in the diagnostic state. In device_flow mode the
+        repositories reachable through the GitHub App's installations are read first; that step
+        answers 409 github_not_connected or github_reconnect_required without a usable connection,
+        and 424 when GitHub cannot be reached or refuses. Sent with Cache-Control no-store.
       tags:
         - GitHub
       security:
@@ -63,5 +68,9 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/GithubConnectionConflict"
+        "424":
+          $ref: "#/components/responses/GithubDependencyFailed"
         "500":
           $ref: "#/components/responses/InternalServerError"

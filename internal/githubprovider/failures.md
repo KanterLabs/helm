@@ -59,3 +59,53 @@ Recorded before `branches.go` and its isolation tests.
 - Scope and secrets: a repository outside the allowlist receives no token; a
   missing credential fails without network I/O; errors and JSON never contain
   the synthetic sentinel.
+
+## Credential source and dynamic allowlist (device-flow WP1)
+
+Recorded before `credential.go`, `SetRepositories` and their isolation tests.
+
+- Generation: a refreshed token of the same grant (same identity, new token)
+  must keep the generation and the caches, or every 8-hour refresh would mark
+  verified pull requests unverified. A changed identity, or a credential that
+  appears or disappears, must bump it and purge every private cache.
+- Freshness: only a request to GitHub may ask the source to renew. Local reads
+  (`Generation`, `AccessAllowed`, `CachedDiagnostics`, scope checks) must use
+  `Current` and do no network I/O.
+- Source output: an empty, whitespace-padded, multi-line, control-bearing or
+  oversized token, or an empty identity, must never reach an Authorization
+  header; it reads as unavailable. A source error that is not a provider
+  error, or carries a code other than `not_configured`, `unavailable` or
+  `reconnect_required`, must surface as `unavailable` without its text.
+  `reconnect_required` must reach diagnostics so the panel can say what to do.
+- Rejection: a 401 must call `Rejected` exactly once with the token that was
+  sent, never for 403 or 404, never twice for one rejected token, and never
+  while the provider holds its lock (the source may call back into it).
+- Re-entrancy: a source that calls back into the client from `Current`,
+  `Fresh` or `Rejected` (for example `SetRepositories`) must not deadlock.
+- Allowlist input: invalid, duplicate (including by case) or more than 50
+  repositories are dropped; the result is normalized and sorted and does not
+  depend on input order. Setting the same set again must not bump the
+  generation.
+- Allowlist swap: removing a repository must deny it locally at once, purge
+  caches and bump the generation. A fetch that passed its scope check before
+  the swap must not send the token for, or cache data of, a removed
+  repository; a fetch already in flight must discard its result.
+- Data race: every read of the allowlist (scope checks, diagnostics, the
+  configured check) takes the lock, so concurrent swaps are race-free.
+- Leak check across refresh: a file whose content contains the token used to
+  fetch it must be refused even if the source refreshed to another token
+  while the read was in flight.
+- Operator mode: with no source configured the token file behaves exactly as
+  before, and an explicit source takes precedence over `TokenFile`.
+
+## Found by the independent review
+
+- A 401 for a token from a renewing source took the deny path: the
+  generation moved, every cache was cleared and verified pull requests read
+  as unverified. It happened on a routine refresh whenever a request was in
+  flight with the token another caller had just rotated away. A refused
+  token from such a source is the source's to renew: the provider reports
+  it, retries once with the current token, and denies nothing. 403 and 404
+  still mean lost permission. The token file, which cannot renew, keeps its
+  deny path. `TestRotatedTokenIsRetriedNotDenied`,
+  `TestRefusedTwiceIsUnavailableNotDenied`, `TestSourceRejectedOncePer401`.

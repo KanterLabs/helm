@@ -5,13 +5,14 @@ package helmdocs
 
 import "embed"
 
-//go:embed PUBLIC_ACCESS.md TICKET_WEBHOOKS.md
+//go:embed GITHUB_DEVICE_FLOW.md PUBLIC_ACCESS.md TICKET_WEBHOOKS.md
 var files embed.FS
 
 // Pages maps help page names (used in /api/v1/docs/{page}) to guides.
 var Pages = map[string]string{
-	"public-access":   "PUBLIC_ACCESS.md",
-	"ticket-webhooks": "TICKET_WEBHOOKS.md",
+	"github-device-flow": "GITHUB_DEVICE_FLOW.md",
+	"public-access":      "PUBLIC_ACCESS.md",
+	"ticket-webhooks":    "TICKET_WEBHOOKS.md",
 }
 
 // Read returns a help page's Markdown.

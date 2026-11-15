@@ -8,6 +8,7 @@ import (
 	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
+	"github.com/KanterLabs/helm/internal/githubconnect"
 	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 	"net/http"
@@ -23,6 +24,9 @@ type Server struct {
 	// separate from ordinary task reads and the external audit submission API.
 	Github       *GithubService
 	GithubAudits *GithubAuditService
+	// GithubConnection holds the device-flow sign-in; nil in operator_token
+	// mode or when GitHub is disabled.
+	GithubConnection *githubconnect.Manager
 	// BetaSwitch is an injected client for the root-owned beta switch broker.
 	// The HTTP layer never invokes deployment commands or accesses release
 	// paths directly.
