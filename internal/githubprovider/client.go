@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,14 +34,18 @@ type cacheEntry struct {
 type Client struct {
 	enabled           bool
 	tokenFile         string
+	source            CredentialSource
+	strictSource      bool
 	repositories      []string
 	allowed           map[string]bool
 	http              *http.Client
 	endpoint          string
 	mu                sync.Mutex
 	generation        uint64
-	fingerprint       [32]byte
+	fingerprint       [32]byte // SHA-256 of the source identity
 	credentialPresent bool
+	rejectedToken     [32]byte
+	allowlistVersion  uint64
 	cache             map[string]cacheEntry
 	cacheBytes        int
 	snapshots         map[string]PullRequestSnapshot
@@ -64,6 +69,10 @@ func New(options Options) *Client {
 		}
 	}
 	sort.Strings(c.repositories)
+	c.source = fileSource{filename: options.TokenFile}
+	if options.Source != nil {
+		c.source, c.strictSource = options.Source, true
+	}
 	hc := http.Client{Timeout: 5 * time.Second}
 	if options.HTTPClient != nil {
 		hc = *options.HTTPClient
@@ -90,13 +99,29 @@ func (c *Client) resetLocked() {
 	c.backoffUntil = time.Time{}
 }
 
+// credentials reads the held token without renewing it or contacting GitHub.
 func (c *Client) credentials() (string, error) {
-	token, err := readToken(c.tokenFile)
-	if !c.enabled || len(c.repositories) == 0 {
-		token = ""
-		err = providerError("not_configured")
+	token, _, err := c.credential(context.Background(), false)
+	return token, err
+}
+
+// credential asks the source outside c.mu, since a source may call back into
+// the client, then records presence and identity. Only a change of identity or
+// presence moves the generation: a refreshed token of the same grant does not.
+func (c *Client) credential(ctx context.Context, fresh bool) (string, [32]byte, error) {
+	c.mu.Lock()
+	configured := c.enabled && len(c.repositories) > 0
+	c.mu.Unlock()
+	token, identity, err := "", "", providerError("not_configured")
+	if configured {
+		if fresh {
+			token, identity, err = c.source.Fresh(ctx)
+		} else {
+			token, identity, err = c.source.Current()
+		}
+		token, identity, err = checkCredential(token, identity, err, c.strictSource)
 	}
-	fingerprint := sha256.Sum256([]byte(token))
+	fingerprint := sha256.Sum256([]byte(identity))
 	c.mu.Lock()
 	present := err == nil
 	if present != c.credentialPresent || fingerprint != c.fingerprint {
@@ -108,9 +133,58 @@ func (c *Client) credentials() (string, error) {
 	}
 	c.mu.Unlock()
 	if err != nil {
-		return "", providerError("not_configured")
+		return "", fingerprint, err
 	}
-	return token, nil
+	return token, fingerprint, nil
+}
+
+// SetRepositories replaces the allowlist. Entries are normalized, invalid and
+// duplicate ones dropped, and the sorted result capped at 50, so the outcome
+// does not depend on input order. A changed set purges every private cache and
+// bumps the generation; the same set again changes nothing.
+func (c *Client) SetRepositories(repositories []string) {
+	seen := map[string]bool{}
+	list := []string{}
+	for _, raw := range repositories {
+		if repository, err := NormalizeRepository(raw); err == nil && !seen[repository] {
+			seen[repository] = true
+			list = append(list, repository)
+		}
+	}
+	sort.Strings(list)
+	if len(list) > 50 {
+		list = list[:50]
+	}
+	allowed := make(map[string]bool, len(list))
+	for _, repository := range list {
+		allowed[repository] = true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if slices.Equal(list, c.repositories) {
+		return
+	}
+	c.repositories, c.allowed = list, allowed
+	c.resetLocked()
+	c.lastDiagnostics = Diagnostics{}
+	c.allowlistVersion++
+}
+
+// rejected reports a 401 to a source that wants it, once per token and never
+// under c.mu.
+func (c *Client) rejected(token string) {
+	rejecter, ok := c.source.(CredentialRejecter)
+	if !ok {
+		return
+	}
+	sum := sha256.Sum256([]byte(token))
+	c.mu.Lock()
+	repeat := c.rejectedToken == sum
+	c.rejectedToken = sum
+	c.mu.Unlock()
+	if !repeat {
+		rejecter.Rejected(token)
+	}
 }
 
 func readToken(filename string) (string, error) {
@@ -158,7 +232,10 @@ func (c *Client) scoped(repository string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !c.allowed[normalized] {
+	c.mu.Lock()
+	allowed := c.allowed[normalized]
+	c.mu.Unlock()
+	if !allowed {
 		return "", providerError("repository_not_allowed")
 	}
 	if _, err = c.credentials(); err != nil {
@@ -190,15 +267,29 @@ func (c *Client) get(ctx context.Context, repository, relative string, target an
 // immutable content by commit SHA: it bypasses the conditional cache, and a
 // 404 means only that the commit is gone, not that repository access was lost.
 func (c *Client) fetch(ctx context.Context, repository, relative string, target any, pinned bool) (bool, error) {
-	token, err := c.credentials()
+	return c.fetchToken(ctx, repository, relative, target, pinned, nil)
+}
+
+// fetchToken is fetch that also reports, through used, the token it sent.
+// The token comes from Fresh, so it may differ from what Current returns later.
+func (c *Client) fetchToken(ctx context.Context, repository, relative string, target any, pinned bool, used *string) (bool, error) {
+	token, fingerprint, err := c.credential(ctx, true)
 	if err != nil {
 		return false, err
 	}
+	if used != nil {
+		*used = token
+	}
 	c.mu.Lock()
 	generation := c.generation
-	if !c.credentialPresent || c.fingerprint != sha256.Sum256([]byte(token)) {
+	if !c.credentialPresent || c.fingerprint != fingerprint {
 		c.mu.Unlock()
 		return false, providerError("unavailable")
+	}
+	// The allowlist may have changed since the caller's scope check.
+	if !c.allowed[repository] {
+		c.mu.Unlock()
+		return false, providerError("repository_not_allowed")
 	}
 	if time.Now().Before(c.backoffUntil) {
 		c.mu.Unlock()
@@ -249,6 +340,9 @@ func (c *Client) fetch(ctx context.Context, repository, relative string, target 
 	}
 	if pinned && response.StatusCode == http.StatusNotFound {
 		return false, providerError("not_found")
+	}
+	if response.StatusCode == 401 {
+		c.rejected(token)
 	}
 	if response.StatusCode == 401 || response.StatusCode == 403 || response.StatusCode == 404 {
 		c.deny(repository, generation)
@@ -308,14 +402,26 @@ func (c *Client) transientBackoff(generation uint64) {
 func (c *Client) Diagnostics(ctx context.Context) Diagnostics {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	d := Diagnostics{Enabled: c.enabled, State: "not_configured", Message: (&Error{Code: "not_configured"}).Error(), AllowedRepositories: append([]string{}, c.repositories...), CheckedAt: time.Now().UTC()}
-	defer func() { c.mu.Lock(); c.lastDiagnostics = d; c.mu.Unlock() }()
+	c.mu.Lock()
+	repositories := append([]string{}, c.repositories...)
+	allowlistVersion := c.allowlistVersion
+	c.mu.Unlock()
+	d := Diagnostics{Enabled: c.enabled, State: "not_configured", Message: (&Error{Code: "not_configured"}).Error(), AllowedRepositories: repositories, CheckedAt: time.Now().UTC()}
+	defer func() {
+		c.mu.Lock()
+		// A result for a replaced allowlist must not become the cached state.
+		if c.allowlistVersion == allowlistVersion {
+			c.lastDiagnostics = d
+		}
+		c.mu.Unlock()
+	}()
 	if _, err := c.credentials(); err != nil {
+		d.State, d.Message = ErrorCode(err), err.Error()
 		return d
 	}
 	d.Configured = true
 	generation := c.Generation()
-	for _, repository := range c.repositories {
+	for _, repository := range repositories {
 		var metadata struct {
 			ID            int64  `json:"id"`
 			DefaultBranch string `json:"default_branch"`

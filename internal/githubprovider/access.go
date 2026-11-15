@@ -1,7 +1,11 @@
 package githubprovider
 
-// AllowedRepositories returns a copy of the constructor's immutable allowlist.
-func (c *Client) AllowedRepositories() []string { return append([]string{}, c.repositories...) }
+// AllowedRepositories returns a copy of the current allowlist.
+func (c *Client) AllowedRepositories() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string{}, c.repositories...)
+}
 
 // AccessAllowed performs no network I/O. It reflects current credential
 // availability and permission loss already observed by provider requests.
@@ -25,10 +29,10 @@ func (c *Client) CachedDiagnostics() Diagnostics {
 	d := c.lastDiagnostics
 	d.Enabled = c.enabled
 	d.Configured = err == nil
-	d.AllowedRepositories = c.AllowedRepositories()
+	d.AllowedRepositories = append([]string{}, c.repositories...)
 	if err != nil {
-		d.State = "not_configured"
-		d.Message = (&Error{Code: "not_configured"}).Error()
+		d.State = ErrorCode(err)
+		d.Message = err.Error()
 	} else if d.State == "" {
 		d.State = "unavailable"
 		d.Message = "GitHub access has not been checked."
