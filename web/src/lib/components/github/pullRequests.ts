@@ -140,7 +140,10 @@ export function summaryAccessibleLabel(summary: ArtifactSummary, taskKey: string
 
 export function relativeTime(value: string | undefined | null, now = Date.now()): string {
   if (!value) return 'never';
-  const elapsed = now - Date.parse(value);
+  const at = Date.parse(value);
+  // The server sends its zero time (year 1) for "never"; nothing real predates 1970.
+  if (at <= 0) return 'never';
+  const elapsed = now - at;
   if (!Number.isFinite(elapsed)) return 'at an unknown time';
   const minutes = Math.floor(Math.max(0, elapsed) / 60_000);
   if (minutes < 1) return 'just now';

@@ -46,7 +46,7 @@
   $: summary = [
     `${count} ${count === 1 ? 'repository' : 'repositories'} available`,
     connection.connected_at ? `connected ${relativeTime(connection.connected_at)}` : '',
-    doc.checked_at ? `last checked ${relativeTime(doc.checked_at)}` : ''
+    relativeTime(doc.checked_at) === 'never' ? 'not checked yet' : `last checked ${relativeTime(doc.checked_at)}`
   ].filter(Boolean).join(' · ');
   $: void viewChanged(view);
   $: if (attempt && view === 'pending' && secondsLeft(attempt.expires_at, now) === 60 && warnedMinute !== attempt.id) {

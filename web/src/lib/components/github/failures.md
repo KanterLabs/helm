@@ -110,3 +110,12 @@ it. `ui` is `web/e2e/github-connection-ui.spec.ts`; `screens` is
     disconnect sentence overflow at 320 px. Test: screens "no sideways
     scrolling at 320 px in any state", plus screenshots of every C6 row at
     1280 and 390 px in light and dark.
+
+## Found on beta
+
+19. **A server that has never checked GitHub sends Go's zero time**
+    (`0001-01-01T00:00:00Z`), and the panel says "Last checked 739934 d ago".
+    Seen on beta in the `operator_token` panel. A time before 1970 is not a
+    check: the `operator_token` panel says "Last checked never", and the
+    connected view says "not checked yet". This is the one intended change to
+    the `operator_token` panel's text. Test: `pullRequests.test.ts`.
