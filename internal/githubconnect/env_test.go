@@ -38,8 +38,8 @@ type fakeGitHub struct {
 	*httptest.Server
 	mu sync.Mutex
 
-	deviceReply   string   // raw body override for /login/device/code
-	deviceStatus  int      // status override
+	deviceReply   string // raw body override for /login/device/code
+	deviceStatus  int    // status override
 	deviceCalls   int
 	deviceForm    []string // client_id of each call
 	pollScript    []string // outcomes for device-code polls; empty means pending

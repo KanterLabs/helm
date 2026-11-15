@@ -37,7 +37,7 @@ func TestRequestsGoThroughTheProxy(t *testing.T) {
 	defer func() { proxyFromEnvironment = real }()
 
 	var logs []string
-	m, err := newManager(Options{ClientID: testClientID, StateDir: t.TempDir(), WebOrigin: "http://github.test", APIOrigin: "http://api.github.test"},
+	m, err := newManager(Options{ClientID: testClientID, StateDir: t.TempDir() + "/github", WebOrigin: "http://github.test", APIOrigin: "http://api.github.test"},
 		func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) })
 	if err != nil {
 		t.Fatal(err)

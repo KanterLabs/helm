@@ -10,7 +10,7 @@ func TestTokenReplyIsValidated(t *testing.T) {
 	good := map[string]tokenSet{
 		`{` + access + `,"token_type":"bearer","expires_in":28800,` + refresh + `,"refresh_token_expires_in":15897600}`: {
 			access: "ghu_" + accessSentinel + "1", refresh: "ghr_" + refreshSentinel + "1", lifetime: 8 * time.Hour, refreshLifetime: 15897600 * time.Second},
-		`{` + access + `,"token_type":"Bearer","scope":""}`: {access: "ghu_" + accessSentinel + "1"},
+		`{` + access + `,"token_type":"Bearer","scope":""}`:         {access: "ghu_" + accessSentinel + "1"},
 		`{` + access + `,"token_type":"bearer","expires_in":28800}`: {access: "ghu_" + accessSentinel + "1", lifetime: 8 * time.Hour},
 	}
 	for body, want := range good {

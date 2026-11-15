@@ -73,11 +73,17 @@ func TestUntrustedFilesAreReconnectRequired(t *testing.T) {
 			write(t, target, good, 0o600)
 			must(t, os.Symlink(target, path))
 		},
-		"directory":     func(t *testing.T, path string) { must(t, os.Mkdir(path, 0o700)) },
-		"oversized":     func(t *testing.T, path string) { write(t, path, append(bytes.Clone(good), bytes.Repeat([]byte(" "), 17<<10)...), 0o600) },
-		"truncated":     func(t *testing.T, path string) { write(t, path, good[:len(good)/2], 0o600) },
-		"version":       func(t *testing.T, path string) { write(t, path, mutate(func(m map[string]any) { m["version"] = 2 }), 0o600) },
-		"unknown field": func(t *testing.T, path string) { write(t, path, mutate(func(m map[string]any) { m["extra"] = true }), 0o600) },
+		"directory": func(t *testing.T, path string) { must(t, os.Mkdir(path, 0o700)) },
+		"oversized": func(t *testing.T, path string) {
+			write(t, path, append(bytes.Clone(good), bytes.Repeat([]byte(" "), 17<<10)...), 0o600)
+		},
+		"truncated": func(t *testing.T, path string) { write(t, path, good[:len(good)/2], 0o600) },
+		"version": func(t *testing.T, path string) {
+			write(t, path, mutate(func(m map[string]any) { m["version"] = 2 }), 0o600)
+		},
+		"unknown field": func(t *testing.T, path string) {
+			write(t, path, mutate(func(m map[string]any) { m["extra"] = true }), 0o600)
+		},
 		"spaced token": func(t *testing.T, path string) {
 			write(t, path, mutate(func(m map[string]any) { m["access_token"] = "ghu_" + accessSentinel + " x" }), 0o600)
 		},
