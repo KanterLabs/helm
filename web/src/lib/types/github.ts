@@ -12,6 +12,36 @@ export interface GithubIntegration {
   message: string;
   allowed_repositories: string[];
   checked_at?: string | null;
+  /** Absent from servers older than device-flow sign-in. */
+  connection?: GithubConnection;
+}
+
+// Device-flow sign-in (docs/GITHUB_DEVICE_FLOW_PLAN.md, contract C5).
+export type GithubConnectionMode = 'operator_token' | 'device_flow';
+export type GithubConnectionState = 'disconnected' | 'connected' | 'no_repositories' | 'reconnect_required';
+export type GithubConnectAttemptState = 'pending' | 'expired' | 'denied' | 'failed';
+
+export interface GithubConnectAttempt {
+  id: string;
+  state: GithubConnectAttemptState | string;
+  /** Sent only to the administrator who began the attempt. */
+  user_code?: string;
+  verification_uri: string;
+  expires_at: string;
+  message: string;
+}
+
+export interface GithubConnection {
+  mode: GithubConnectionMode | string;
+  signin_available: boolean;
+  state: GithubConnectionState | string;
+  login?: string;
+  connected_at?: string | null;
+  install_url?: string;
+  authorizations_url?: string;
+  repositories_truncated?: boolean;
+  /** Absent when there is no attempt. */
+  attempt?: GithubConnectAttempt | null;
 }
 
 export interface GithubRepositorySelection {

@@ -29,6 +29,15 @@ export const githubApi = {
   checkGithubIntegration: () =>
     request<GithubIntegration>('/integrations/github/check', { method: 'POST', idempotencyKey: key() }),
 
+  /** Device flow: begin (or resume) a sign-in attempt; returns the integration document. */
+  connectGithub: () => request<GithubIntegration>('/integrations/github/connect', { method: 'POST' }),
+
+  cancelGithubConnect: (attemptId: string) =>
+    request<GithubIntegration>('/integrations/github/connect/cancel', { method: 'POST', body: { attempt_id: attemptId } }),
+
+  /** Deletes Helm's credential; it does not revoke the authorization on GitHub. */
+  disconnectGithub: () => request<GithubIntegration>('/integrations/github/disconnect', { method: 'POST' }),
+
   getProjectGithub: (projectId: string) => request<ProjectGithubSelection>(`${project(projectId)}/github`),
 
   putProjectGithub: (projectId: string, repositories: GithubRepositorySelection[], version: number) =>
