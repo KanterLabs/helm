@@ -5,6 +5,10 @@ It runs in private Helm beta; production configuration is unchanged.
 
 ## Runtime configuration
 
+This section configures `operator_token` mode. To let an administrator sign
+in from Settings instead, with no token file, see
+[GitHub sign-in](GITHUB_DEVICE_FLOW.md).
+
 The existing Coolify service reads `/srv/helm/beta/config/runtime.env` and
 mounts that directory read-only at `/etc/roadmap`. Preserve all existing
 configuration and add only:

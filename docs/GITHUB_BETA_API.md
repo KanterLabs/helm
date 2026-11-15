@@ -1,7 +1,9 @@
 # GitHub beta API
 
 For activation, backups and the legacy-image rollback boundary, see
-[GitHub audit beta operations](GITHUB_BETA_OPERATIONS.md).
+[GitHub audit beta operations](GITHUB_BETA_OPERATIONS.md). Device-flow
+sign-in, its `connection` object and the connect, cancel and disconnect
+routes are described in [GitHub sign-in](GITHUB_DEVICE_FLOW.md#api).
 
 Implemented beta routes below are relative to `/api/v1`. The existing
 external-agent audit submission, listing and review endpoints remain available.
@@ -67,7 +69,9 @@ verified titles, check results or deployment state.
 
 Runtime config: `HELM_GITHUB_ENABLED`, `HELM_GITHUB_TOKEN_FILE`,
 `HELM_GITHUB_REPOSITORIES` (comma-separated owner/name allowlist). Credential
-is read from protected file, never a raw-token environment variable. Fixed
+is read from protected file, never a raw-token environment variable. Without
+a token file, sign-in supplies the credential and the allowlist
+([GitHub sign-in](GITHUB_DEVICE_FLOW.md#settings)). Fixed
 production API origin `https://api.github.com`; fake clients are injected by
 test code, not an unrestricted production origin setting.
 

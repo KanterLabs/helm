@@ -66,11 +66,16 @@ See [LUNA_TASK_ASSIST.md](LUNA_TASK_ASSIST.md).
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HELM_GITHUB_ENABLED` | `false` | Enable optional read-only GitHub integration and server audit evidence. Missing credentials leave it unconfigured without affecting normal Helm readiness. |
-| `HELM_GITHUB_TOKEN_FILE` | empty | Absolute path to a protected regular file containing a fine-grained read-only token. The provider reads it directly; group/other permission bits must be unset. Never supply a raw token in an environment variable. |
-| `HELM_GITHUB_REPOSITORIES` | empty | Comma-separated `owner/name` allowlist, normalized and deduplicated, at most 50 repositories. Project administrators select at most ten allowed repository/ref pairs. |
+| `HELM_GITHUB_TOKEN_FILE` | empty | Absolute path to a protected regular file containing a fine-grained read-only token. The provider reads it directly; group/other permission bits must be unset. Never supply a raw token in an environment variable. Set, it selects `operator_token` mode; unset, `device_flow` (sign-in from Settings). |
+| `HELM_GITHUB_REPOSITORIES` | empty | Comma-separated `owner/name` allowlist, normalized and deduplicated, at most 50 repositories. In `device_flow` mode it is an optional ceiling on the repositories the App is installed on. Project administrators select at most ten allowed repository/ref pairs. |
+| `HELM_GITHUB_APP_CLIENT_ID` | empty | Client ID of the GitHub App used for device-flow sign-in (letters, digits, `.`, `_`, `-`; at most 100). Empty turns sign-in off. |
+| `HELM_GITHUB_APP_SLUG` | empty | The App's slug (`https://github.com/apps/<slug>`); lowercase letters, digits and single hyphens. Needed for the install links. |
+| `HELM_GITHUB_STATE_DIR` | `github` beside `HELM_DB` | Directory of the device-flow credential file `connection.json`. Must belong to the Helm user and be closed to group and others (0700). |
 
-The API origin is fixed to `https://api.github.com`; runtime configuration
-cannot redirect authenticated requests to another origin. Audit start also
+The API origin is fixed to `https://api.github.com` (sign-in also uses
+`https://github.com`); runtime configuration cannot redirect authenticated
+requests to another origin. Device-flow sign-in, its credential file and
+backups are described in [GitHub sign-in](GITHUB_DEVICE_FLOW.md). Audit start also
 requires the requesting human's personal AI connection. See the
 [GitHub beta API](GITHUB_BETA_API.md) for readiness, PR linking, audit jobs
 and explicit portable v3 history.
