@@ -5,12 +5,11 @@ package helmdocs
 
 import "embed"
 
-//go:embed GITEA_OAUTH.md PUBLIC_ACCESS.md TICKET_WEBHOOKS.md
+//go:embed PUBLIC_ACCESS.md TICKET_WEBHOOKS.md
 var files embed.FS
 
 // Pages maps help page names (used in /api/v1/docs/{page}) to guides.
 var Pages = map[string]string{
-	"gitea-oauth":     "GITEA_OAUTH.md",
 	"public-access":   "PUBLIC_ACCESS.md",
 	"ticket-webhooks": "TICKET_WEBHOOKS.md",
 }

@@ -142,9 +142,6 @@ func main() {
 	}
 	api := httpapi.NewWithBetaSwitch(data, manager, cfg, betaSwitchClient, codexManager)
 	api.StartGithubServices(ctx)
-	// The optional Gitea connection: its keep-alive runs for the server's
-	// lifetime and is stopped below, after requests have drained.
-	api.StartGiteaConnection(ctx)
 	var hooksServer *http.Server
 	if cfg.PublicEndpoints.HooksAddr != "" {
 		api.PublicEndpoints = publicendpoint.NewManager(publicendpoint.Config{
@@ -240,7 +237,6 @@ func main() {
 	if err := api.StopGithubServices(shutdownCtx); err != nil {
 		errorLog("GitHub background services shutdown failed", err)
 	}
-	api.StopGiteaConnection()
 	if err := codexManager.Close(shutdownCtx); err != nil {
 		errorLog("Codex shutdown failed", err)
 	}
