@@ -11,21 +11,22 @@ import (
 // replaces, deletes, or restores the database.
 
 const (
-	PortableFormat         = "helm.portable"
-	PortableVersion        = 2 // Retained v2 constant for legacy callers.
-	PortableVersionCurrent = 4
-	portableMaxProjects    = 100
-	portableMaxColumns     = 1000
-	portableMaxTasks       = 10000
-	portableMaxReleases    = 1000
-	portableMaxLabels      = 5000
-	portableMaxComments    = 50000
-	portableMaxAgentNotes  = 50000
-	portableMaxRelations   = 50000
-	portableMaxEvents      = 100000
-	portableMaxActivity    = 100000
-	portableConflictRemap  = "remap"
-	portableConflictFail   = "fail"
+	PortableFormat          = "helm.portable"
+	PortableVersion         = 2 // Retained v2 constant for legacy callers.
+	PortableVersionMetadata = 4 // Checklist, hierarchy and project policy.
+	PortableVersionCurrent  = 5 // Offline links on GitHub and other forges.
+	portableMaxProjects     = 100
+	portableMaxColumns      = 1000
+	portableMaxTasks        = 10000
+	portableMaxReleases     = 1000
+	portableMaxLabels       = 5000
+	portableMaxComments     = 50000
+	portableMaxAgentNotes   = 50000
+	portableMaxRelations    = 50000
+	portableMaxEvents       = 100000
+	portableMaxActivity     = 100000
+	portableConflictRemap   = "remap"
+	portableConflictFail    = "fail"
 )
 
 // PortableSource identifies the producer without carrying deployment or

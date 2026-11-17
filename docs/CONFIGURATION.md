@@ -63,7 +63,9 @@ See [LUNA_TASK_ASSIST.md](LUNA_TASK_ASSIST.md).
 
 ## GitHub beta
 
-The GitHub product integration and Branches view were removed in TC-391.
+The connected GitHub integration and Branches view were removed in TC-391.
+The only GitHub/Gitea feature is [PR URL linking](PULL_REQUEST_LINKS.md), which
+requires no credentials or runtime configuration.
 All `HELM_GITHUB_*` runtime settings are ignored. Remove them and retire
 associated credentials when upgrading; see [feature removal](GITHUB_REMOVAL.md).
 Historical SQLite/import records remain for compatibility and ordinary Board

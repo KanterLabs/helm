@@ -28,7 +28,9 @@ portable suites cover Focus, dependency, bug, agent and v3 history preservation.
 
 Version and compatibility decisions:
 
-- Default store, HTTP and UI archive selection is v4. `PortableVersion` remains
+- V4 introduced the complete checklist/hierarchy archive. TC-392 advances the
+  default store, HTTP and UI archive selection to v5 for offline Gitea PR links;
+  see [PR links](PULL_REQUEST_LINKS.md). `PortableVersion` remains
   the exported v2 constant for callers explicitly opting into the old format;
   `PortableVersionCurrent` identifies the complete current default.
 - V4 adds project `checklist_completion_policy`, task `parent_task_id` and

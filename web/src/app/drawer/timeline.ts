@@ -88,7 +88,7 @@ export function refreshDrawerTimelineAfterMutation(taskId: string) {
 }
 
 export function setDrawerView(next: DrawerView) {
-  if (!drawer.drawerTask) return;
+  if (!drawer.drawerTask || drawer.pullRequestPending) return;
   drawer.drawerView = next;
   drawer.taskRouteIntent = next;
   const route = getTaskRouteFromLocation();

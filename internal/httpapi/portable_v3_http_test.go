@@ -14,7 +14,7 @@ import (
 	"github.com/KanterLabs/helm/internal/store"
 )
 
-// HTTP failure scenarios: implicit exports must select complete v4; explicit
+// HTTP failure scenarios: implicit exports must select complete current format; explicit
 // v3 must identify its body/download correctly; unsupported, empty, or repeated
 // versions must fail closed. Retired GitHub evidence must remain denied with
 // zero findings, live jobs, retained imported history, or cached review responses.
@@ -35,7 +35,7 @@ func TestPortableHTTPExportVersionNegotiation(t *testing.T) {
 		for _, tc := range []struct {
 			query   string
 			version int
-		}{{"", 4}, {"?version=2", 2}, {"?version=3", 3}, {"?version=4", 4}} {
+		}{{"", 5}, {"?version=2", 2}, {"?version=3", 3}, {"?version=4", 4}, {"?version=5", 5}} {
 			response := request(t, s, http.MethodGet, route+tc.query, nil, nil)
 			if response.Code != http.StatusOK {
 				t.Fatalf("export %s%s: status=%d body=%s", route, tc.query, response.Code, response.Body.String())
@@ -52,7 +52,7 @@ func TestPortableHTTPExportVersionNegotiation(t *testing.T) {
 				t.Fatalf("export headers=%v", response.Header())
 			}
 		}
-		for _, query := range []string{"?version=1", "?version=5", "?version=three", "?version=", "?version=3&version=2", "?version=3&version=3"} {
+		for _, query := range []string{"?version=1", "?version=6", "?version=three", "?version=", "?version=3&version=2", "?version=3&version=3"} {
 			response := request(t, s, http.MethodGet, route+query, nil, nil)
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("invalid version %s: status=%d body=%s", query, response.Code, response.Body.String())

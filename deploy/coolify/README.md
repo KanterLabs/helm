@@ -89,7 +89,8 @@ after a release and inspect the `verified.json` artifacts. These backups have
 no automatic deletion policy; monitor disk usage and archive them separately.
 Retain copies off the application host for host-loss recovery.
 
-The GitHub product integration is retired. Preserve historical data, remove
+Connected GitHub features are retired; only offline GitHub/Gitea PR URL links
+remain, without credentials. Preserve historical data, remove
 its runtime settings/credentials, and keep retained private source evidence
 inaccessible; see [feature removal](../../docs/GITHUB_REMOVAL.md).
 

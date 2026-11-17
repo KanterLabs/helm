@@ -104,8 +104,8 @@ func decodePortableBundle(data []byte, root string, limits attachments.Limits) (
 	if e = bundleJSON(b, &archive); e != nil {
 		return fail(e)
 	}
-	if archive.Version != 4 {
-		return fail(bundleInvalid("bundle requires portable v4 JSON"))
+	if archive.Version != PortableVersionMetadata && archive.Version != PortableVersionCurrent {
+		return fail(bundleInvalid("bundle requires portable v4 or v5 JSON"))
 	}
 	if len(files) != len(manifest.Attachments)+2 {
 		return fail(bundleInvalid("unexpected archive members"))

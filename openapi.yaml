@@ -193,6 +193,7 @@ x-helm-fragments:
   - openapi/paths/tasks-agent-notes.yaml
   - openapi/paths/tasks-ancestors.yaml
   - openapi/paths/tasks-block.yaml
+  - openapi/paths/tasks-pull-requests.yaml
   - openapi/paths/tasks-checklist.yaml
   - openapi/paths/tasks-children.yaml
   - openapi/paths/tasks-claim.yaml
@@ -273,6 +274,7 @@ x-helm-fragments:
   - openapi/schemas/task-mutations.yaml
   - openapi/schemas/task-notes.yaml
   - openapi/schemas/task-writes.yaml
+  - openapi/schemas/pull-request-links.yaml
   - openapi/schemas/tasks.yaml
   - openapi/schemas/ticket-webhooks.yaml
   - openapi/schemas/tickets.yaml

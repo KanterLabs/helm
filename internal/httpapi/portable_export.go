@@ -27,14 +27,17 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 	}
 	version := store.PortableVersionCurrent
 	if values, present := r.URL.Query()["version"]; present {
-		if len(values) != 1 || (values[0] != "2" && values[0] != "3" && values[0] != "4") {
-			s.writeError(w, http.StatusBadRequest, "invalid_request", "portable export version must be 2, 3 or 4", nil)
+		if len(values) != 1 || (values[0] != "2" && values[0] != "3" && values[0] != "4" && values[0] != "5") {
+			s.writeError(w, http.StatusBadRequest, "invalid_request", "portable export version must be 2, 3, 4 or 5", nil)
 			return
 		}
 		if values[0] == "2" {
 			version = store.PortableVersion
 		}
 		if values[0] == "4" {
+			version = store.PortableVersionMetadata
+		}
+		if values[0] == "5" {
 			version = store.PortableVersionCurrent
 		}
 		if values[0] == "3" {

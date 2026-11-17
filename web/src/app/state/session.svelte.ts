@@ -47,7 +47,7 @@ class SessionState {
   workspaceAdmin = $derived(isWorkspaceAdmin(this.authStatus, this.user));
   updateBlocked = $derived(Boolean(pendingMutationCountStore.current || creation.projectCreating || taskModal.taskModalCreating || bugModal.bugModalCreating || creation.quickAddCreating
     || creation.projectCreation || creation.taskCreation || creation.bugCreation || creation.quickCreation || drawer.drawerSaving || drawer.commentSending
-    || drawer.editedCommentPending || drawer.checklistPending || drawer.taskActionLoading || releasePlan.releaseModalSaving || admin.adminSaving || admin.adminColumnSaving
+    || drawer.editedCommentPending || drawer.pullRequestPending || drawer.checklistPending || drawer.taskActionLoading || releasePlan.releaseModalSaving || admin.adminSaving || admin.adminColumnSaving
     || admin.adminColumnCreating || tokens.creating || tokens.agent || tokens.reveal || settings.agentSaving || portable.portableBusy || bulk.bulkSubmitting || search.savedViewSaving));
   protectedDrafts = $derived(drawer.drawerDraftDirty || drawer.editedCommentDirty || drawer.checklistDirty || workspace.ticketsDirty || Boolean(
     taskModal.showTaskModal && (taskModal.taskModalTitle || taskModal.taskModalDescription || taskModal.taskModalIdea || taskModal.taskModalDueDate || taskModal.taskModalAssignee || taskModal.taskModalPriority !== 'normal' || taskModal.taskModalReleaseId)

@@ -11,7 +11,7 @@ func planPortableTasks(ctx context.Context, q portableSQL, archive PortableArchi
 	usedNumbers := map[string]map[int]struct{}{}
 	for _, source := range archive.Tasks {
 		projectID := plan.projectMap[source.ProjectID]
-		if archive.Version < PortableVersionCurrent {
+		if archive.Version < PortableVersionMetadata {
 			if err := rejectLegacyRichTaskRetry(q, source.ID, projectID, plan.report); err != nil {
 				return plan, err
 			}

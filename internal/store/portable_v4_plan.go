@@ -8,7 +8,7 @@ import (
 // Resolve parent edges only after all task/bug remaps have stabilized. Reused
 // task rows are immutable; mismatched hierarchy is a conflict, never an update.
 func planPortableMetadata(ctx context.Context, q portableSQL, plan *portableImportPlan, actorMap map[string]string) error {
-	if plan.archive.Version < PortableVersionCurrent {
+	if plan.archive.Version < PortableVersionMetadata {
 		return nil
 	}
 	plan.checklistMap = map[string]string{}
@@ -72,7 +72,7 @@ func planPortableMetadata(ctx context.Context, q portableSQL, plan *portableImpo
 }
 
 func executePortableMetadata(ctx context.Context, tx *sql.Tx, plan *portableImportPlan) error {
-	if plan.archive.Version < PortableVersionCurrent {
+	if plan.archive.Version < PortableVersionMetadata {
 		return nil
 	}
 	// Insert tasks with no parent first, then set parent edges from roots down.

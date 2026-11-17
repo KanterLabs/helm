@@ -10,6 +10,8 @@ class DrawerState {
   editedCommentPending = $state.raw(false);
   checklistDirty = $state.raw(false);
   checklistPending = $state.raw(false);
+  pullRequestUrlDraft = $state.raw('');
+  pullRequestPending = $state.raw(false);
   drawerDependencyPanel = $state.raw<{ refreshRelationships: () => Promise<boolean> } | null>(null);
   drawerDependencyRefresh = $state.raw(0);
   drawerHierarchyPanel = $state.raw<{ refreshRelationships: () => Promise<boolean> } | null>(null);
@@ -91,7 +93,7 @@ class DrawerState {
   drawerTaskDraftDirty = $derived(Boolean(drawer.drawerTask && drawer.drawerTaskDraftFingerprintValue !== drawer.drawerSavedTaskDraftFingerprint));
   drawerDraftDirty = $derived(Boolean(
     drawer.drawerTask
-    && (drawer.screenshotDrafts.length > 0 || drawer.drawerTaskDraftDirty || drawer.drawerActionDraftFingerprintValue !== drawer.drawerSavedActionDraftFingerprint)
+    && (drawer.screenshotDrafts.length > 0 || drawer.pullRequestUrlDraft.trim() || drawer.drawerTaskDraftDirty || drawer.drawerActionDraftFingerprintValue !== drawer.drawerSavedActionDraftFingerprint)
   ));
 }
 

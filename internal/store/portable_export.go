@@ -40,7 +40,7 @@ func (s *Store) ExportPortable(ctx context.Context, projectIDs []string) (Portab
 
 // ExportPortableVersion explicitly opts into a newer portability envelope.
 func (s *Store) ExportPortableVersion(ctx context.Context, projectIDs []string, version int) (PortableArchive, error) {
-	if version != PortableVersion && version != PortableVersionGithub && version != PortableVersionCurrent {
+	if version != PortableVersion && version != PortableVersionGithub && version != PortableVersionMetadata && version != PortableVersionCurrent {
 		return PortableArchive{}, invalid("unsupported portable export version", nil)
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
@@ -66,6 +66,11 @@ func (s *Store) ExportPortableVersion(ctx context.Context, projectIDs []string, 
 // exportPortableVersionSnapshot composes every JSON section through the same
 // caller-owned read snapshot. Bundle exports add image metadata before commit.
 func exportPortableVersionSnapshot(ctx context.Context, q portableSQL, projectIDs []string, version int) (PortableArchive, error) {
+	if version < PortableVersionCurrent {
+		if err := rejectLegacyForgeLinks(ctx, q, projectIDs); err != nil {
+			return PortableArchive{}, err
+		}
+	}
 	archive, err := exportPortable(ctx, q, projectIDs)
 	if err == nil {
 		archive.Version = version
@@ -75,7 +80,7 @@ func exportPortableVersionSnapshot(ctx context.Context, q portableSQL, projectID
 		archive.Version = version
 		archive.Github, err = exportPortableGithub(ctx, q, archive)
 	}
-	if err == nil && version < PortableVersionCurrent {
+	if err == nil && version < PortableVersionMetadata {
 		portableOmitMetadata(&archive)
 	}
 	return archive, err

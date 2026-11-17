@@ -90,7 +90,7 @@ func validatePortableArchive(archive *PortableArchive, report *PortableImportRep
 	if archive.Format != PortableFormat {
 		addPortableIssue(report, "archive", "", "format", "format must be helm.portable")
 	}
-	if archive.Version != 1 && archive.Version != PortableVersion && archive.Version != PortableVersionGithub && archive.Version != PortableVersionCurrent {
+	if archive.Version != 1 && archive.Version != PortableVersion && archive.Version != PortableVersionGithub && archive.Version != PortableVersionMetadata && archive.Version != PortableVersionCurrent {
 		addPortableIssue(report, "archive", "", "version", fmt.Sprintf("version %d is not supported", archive.Version))
 	}
 	if archive.ExportedAt != "" && !portableTimestamp(archive.ExportedAt, false) {

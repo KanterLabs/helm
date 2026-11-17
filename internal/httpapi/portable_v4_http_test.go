@@ -73,7 +73,7 @@ func TestPortableV4PreservationRoundtrip(t *testing.T) {
 	if _, err := data.DB.ExecContext(ctx, `INSERT INTO events(id,type,actor_id,project_id,task_id,payload,created_at) VALUES ('synthetic-checklist-event','task.checklist_item_added',?,?,?, ?,?)`, actor.ID, project.ID, child.ID, `{"item_id":"synthetic-open","item_ids":["synthetic-open","synthetic-done"]}`, timestamp); err != nil {
 		t.Fatal(err)
 	}
-	response := request(t, source, http.MethodGet, "/api/v1/projects/"+project.ID+"/export", nil, nil)
+	response := request(t, source, http.MethodGet, "/api/v1/projects/"+project.ID+"/export?version=4", nil, nil)
 	if response.Code != 200 {
 		t.Fatal(response.Body.String())
 	}
@@ -82,7 +82,7 @@ func TestPortableV4PreservationRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if archive["version"] != float64(4) {
-		t.Fatalf("default export version=%v; expected lossless v4", archive["version"])
+		t.Fatalf("explicit export version=%v; expected lossless v4", archive["version"])
 	}
 	projects := archive["projects"].([]any)
 	if projects[0].(map[string]any)["checklist_completion_policy"] != "require" {

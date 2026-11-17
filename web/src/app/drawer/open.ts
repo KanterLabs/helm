@@ -57,6 +57,8 @@ export async function openTask(
   drawer.drawerTask = task;
   drawer.drawerError = '';
   drawer.commentBody = '';
+  drawer.pullRequestUrlDraft = '';
+  drawer.pullRequestPending = false;
   drawer.drawerTimelineItems = [];
   drawer.drawerTimelineNextCursor = '';
   drawer.drawerTimelineTaskId = task.id;
