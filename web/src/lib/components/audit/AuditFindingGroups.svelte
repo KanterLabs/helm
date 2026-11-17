@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuditFinding, AuditVerdict, AuditReviewState, Column, GithubEvidenceItem, SemanticState } from '../../types';
+  import type { AuditFinding, AuditVerdict, AuditReviewState, Column, SemanticState } from '../../types';
   import { taskDeepLink } from '../../state';
   import AuditCitations from './AuditCitations.svelte';
   import { stateLabels, verdictLabels, reviewLabels, semanticStates } from './helpers';
@@ -17,7 +17,6 @@
   export let dismissFinding: (finding: AuditFinding) => Promise<void>;
   export let openPreview: (finding: AuditFinding) => void;
   export let projectSlug = '';
-  export let evidenceItems: Map<string, GithubEvidenceItem> = new Map();
   /** Optional in-app task opener; the link's href still works without it. */
   export let onOpenTask: ((finding: AuditFinding) => void) | null = null;
   /** TC-316: false renders recorded findings with links only, no review actions. */
@@ -29,9 +28,8 @@
     return verdict === 'needs_attention' ? 'Review the evidence and decide whether this finding is useful.' : 'Approve a destination, then preview and explicitly apply the move.';
   }
 
-  // `current` is passed from the template so the link updates when captured evidence arrives later.
   function taskHref(finding: AuditFinding, current: AuditHelpers): string {
-    const key = current.findingTask(finding)?.key || current.capturedTask(finding)?.key;
+    const key = current.findingTask(finding)?.key;
     return projectSlug && key ? taskDeepLink(projectSlug, key) : '';
   }
 
@@ -54,7 +52,7 @@
                     <h3>{helpers.taskTitle(finding)}</h3>
                     <div class="audit-route"><span>{helpers.sourceLabel(finding)}</span><span aria-hidden="true">→</span><strong>{helpers.destinationLabel(finding)}</strong></div>
                     <p class="audit-reason">{finding.reason || 'No reason provided.'}</p>
-                    <AuditCitations findingId={finding.id} refs={helpers.evidenceFor(finding)} items={evidenceItems} />
+                    <AuditCitations refs={helpers.evidenceFor(finding)} />
                     <div class="audit-finding-meta"><span>{helpers.confidenceLabel(finding.confidence)}</span><span>Captured <strong>{helpers.findingVersionLabel(finding)}</strong></span><span>Current <strong>{helpers.currentVersionLabel(finding)}</strong></span><span>{helpers.changedSinceAudit(finding) ? 'Changed since audit' : `Current: ${helpers.currentLabel(finding)}`}</span></div>
                     {#if helpers.changedSinceAudit(finding)}<div class="audit-changed-warning" role="alert"><span aria-hidden="true">!</span><span>This task changed after the audit.{actionsAvailable ? ' Approval and apply are locked until a fresh audit captures the current version.' : ' The recorded finding describes an earlier version.'}</span></div>{/if}
                   </div>

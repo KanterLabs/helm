@@ -11,7 +11,7 @@ and fake Go executable; they never build Helm or start application servers.
   never expose a usable, overwritten, or partially prepared bundle.
 - A binary with changed bytes, missing execute permission, mismatched Go build
   settings, or missing race instrumentation cannot pass verification.
-- A changed Go toolchain, build flags, GitHub harness requirement, run ID, or
+- A changed Go toolchain, build flags, run ID, or
   run attempt cannot reuse an earlier bundle. Revision environment variables do
   not establish provenance.
 - Source or assets changing during compilation abort preparation.

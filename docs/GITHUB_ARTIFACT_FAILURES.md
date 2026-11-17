@@ -1,5 +1,8 @@
 # GitHub artifact failure inventory
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Written before implementation. Synthetic store/HTTP fixtures cover these boundaries;
 provider-specific transport cases belong to the provider isolation inventory.
 

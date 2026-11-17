@@ -1,5 +1,8 @@
 # Portable archive v3: GitHub records and retained audits
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Failure inventory recorded before implementation and isolation tests:
 
 - Adding GitHub records silently to v2 breaks older strict decoders. Default

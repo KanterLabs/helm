@@ -1,5 +1,8 @@
 # GitHub audit beta operations
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 This prototype reads the GitHub mirror. Gitea remains the canonical source.
 It runs in private Helm beta; production configuration is unchanged.
 
@@ -87,7 +90,7 @@ database to work around it.
 ## Repeatable verification
 
 - Provider/config/runtime and backend race tests use synthetic credentials.
-- `test/githubbeta/run.sh` exercises the real HTTP/store/worker path with fake
+- `the retired GitHub runtime fixture/run.sh` exercises the real HTTP/store/worker path with fake
   external GitHub and inference adapters. Build current frontend assets and
   the harness first, then supply `HELM_GITHUB_BETA_BINARY`. The complete
   `test/e2e/run.sh` suite builds and executes this harness automatically;

@@ -10,6 +10,5 @@ export * from './types/activity';
 export * from './types/admin';
 export * from './types/portable';
 export * from './types/audits';
-export * from './types/github';
 export * from './types/membership';
 export * from './types/attachments';

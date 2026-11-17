@@ -1,11 +1,9 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/KanterLabs/helm/internal/auth"
 	"github.com/KanterLabs/helm/internal/store"
@@ -83,7 +81,7 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 	if format == "bundle" {
 		sourceDenied := false
 		body, err := s.Store.ExportPortableBundleChecked(r.Context(), projectIDs, s.attachmentRoot(), func(archive store.PortableArchive) error {
-			if !s.portableGithubSourceRead(w, r, archive) {
+			if !s.portableSourceRead(w, r, archive) {
 				sourceDenied = true
 				return fmt.Errorf("portable source access denied")
 			}
@@ -110,7 +108,7 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 		s.writeStoreError(w, err)
 		return
 	}
-	if !s.portableGithubSourceRead(w, r, archive) {
+	if !s.portableSourceRead(w, r, archive) {
 		return
 	}
 	if err := s.portableTextScreenshotComments(r, &archive); err != nil {
@@ -132,47 +130,4 @@ func (s *Server) exportPortable(w http.ResponseWriter, r *http.Request, identity
 	w.Header().Set("X-Helm-Portable-Version", fmt.Sprintf("%d", archive.Version))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
-}
-
-// portableGithubSourceRead authorizes every retained source manifest before any
-// archive bytes are written. A run with no findings can still retain private
-// source text, so evidence checks are independent of finding access checks.
-func (s *Server) portableGithubSourceRead(w http.ResponseWriter, r *http.Request, archive store.PortableArchive) bool {
-	if archive.Github == nil {
-		return true
-	}
-	projects := make(map[string]string, len(archive.Github.AuditRuns))
-	for _, run := range archive.Github.AuditRuns {
-		projects[run.ID] = run.ProjectID
-	}
-	unavailable := func() bool {
-		s.writeError(w, http.StatusConflict, "evidence_unavailable", "Source access must be restored before exporting audit evidence", nil)
-		return false
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	for _, evidence := range archive.Github.AuditEvidence {
-		projectID := projects[evidence.AuditID]
-		if projectID == "" || s.GithubAudits == nil {
-			return unavailable()
-		}
-		if err := s.GithubAudits.evidenceAccess(ctx, projectID, evidence); err != nil {
-			return unavailable()
-		}
-	}
-	checked := make(map[string]bool)
-	for _, finding := range archive.Github.AuditFindings {
-		if checked[finding.AuditID] {
-			continue
-		}
-		projectID := projects[finding.AuditID]
-		if projectID == "" {
-			return unavailable()
-		}
-		if !s.githubAuditSourceRead(w, r.WithContext(ctx), finding.AuditID, projectID) {
-			return false
-		}
-		checked[finding.AuditID] = true
-	}
-	return true
 }

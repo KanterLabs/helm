@@ -1,5 +1,8 @@
 # Evidence inference transport failure inventory
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Recorded before the transport fix and its regression test.
 
 - The isolated evidence subprocess can lose the server's HTTP(S)/SOCKS proxy

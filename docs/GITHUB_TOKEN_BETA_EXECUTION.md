@@ -1,5 +1,8 @@
 # Server-run GitHub audits for beta
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Scope decision: TC-299. Implementation: TC-300; user flow/review: TC-293.
 Companions: [plan](GITHUB_TOKEN_BETA_PLAN.md) and
 [validation and rollout](GITHUB_TOKEN_BETA_VALIDATION.md).

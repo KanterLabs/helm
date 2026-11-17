@@ -89,9 +89,9 @@ after a release and inspect the `verified.json` artifacts. These backups have
 no automatic deletion policy; monitor disk usage and archive them separately.
 Retain copies off the application host for host-loss recovery.
 
-GitHub audit beta has a separate first-activation and legacy-image access
-boundary. Follow [its operations guide](../../docs/GITHUB_BETA_OPERATIONS.md)
-before enabling source capture or rolling back an instance with audit history.
+The GitHub product integration is retired. Preserve historical data, remove
+its runtime settings/credentials, and keep retained private source evidence
+inaccessible; see [feature removal](../../docs/GITHUB_REMOVAL.md).
 
 CT106 and CT103 were deleted on 2026-10-19 under INFRA-240. Verified full
 archives retain their final source datasets, release binaries and configuration

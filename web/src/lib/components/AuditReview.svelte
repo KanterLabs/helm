@@ -13,9 +13,7 @@
   import AuditFindingGroups from './audit/AuditFindingGroups.svelte';
   import AuditApplyFlow from './audit/AuditApplyFlow.svelte';
   import AuditRunList from './audit/AuditRunList.svelte';
-  import AuditEvidenceManifest from './audit/AuditEvidenceManifest.svelte';
-  import GithubAuditJobPanel from './audit/GithubAuditJob.svelte';
-  import { evidenceIndex, loadMissingTasks } from './audit/githubAudit';
+  import { loadMissingTasks } from './audit/loadMissingTasks';
   import { createAuditHelpers, verdicts, verdictLabels } from './audit/helpers';
   import { auditReviewActionsAvailable as actionsAvailable } from './audit/capability';
   import {
@@ -26,8 +24,6 @@
     type AuditReviewState,
     type AuditRun,
     type Column,
-    type GithubAuditEvidence,
-    type GithubAuditJob,
     type Project,
     type SemanticState,
     type Task
@@ -55,13 +51,8 @@
   let detailLoading = false;
   let listError = '';
   let detailError = '';
-  // Server-run GitHub audits: job, immutable evidence and guarded apply preview.
-  let job: GithubAuditJob | null = null;
-  let serverRun = false;
-  let evidence: GithubAuditEvidence | null = null;
   let extraTasks: Task[] = [];
   let detailFor = '';
-  let evidenceRevision = 0;
   let applyFlow: AuditApplyFlow;
   let activeMutation = '';
   let listRequest = 0;
@@ -72,10 +63,7 @@
   let destinationDraft: SemanticState | '' = '';
 
   let helpers = createAuditHelpers({ currentProjectId: project?.id || '', selectedAuditId, selectedAudit, tasks, columns });
-  $: captured = new Map((evidence?.tasks || []).map((item) => [item.id, item]));
-  $: evidenceItems = evidenceIndex(evidence);
-  $: helpers = createAuditHelpers({ currentProjectId, selectedAuditId, selectedAudit, tasks: extraTasks.length ? [...tasks, ...extraTasks] : tasks, columns, captured });
-  $: evidenceReady = serverRun && Boolean(job && ['analyzing', 'validating', 'finished'].includes(job.stage));
+  $: helpers = createAuditHelpers({ currentProjectId, selectedAuditId, selectedAudit, tasks: extraTasks.length ? [...tasks, ...extraTasks] : tasks, columns });
 
   $: currentProjectId = project?.id || '';
   $: routeKey = `${currentProjectId}:${initialAuditId || ''}:${sessionGeneration}:${refreshToken}`;
@@ -135,9 +123,6 @@
     const requestedSession = sessionGeneration;
     if (auditId !== detailFor) {
       detailFor = auditId;
-      job = null;
-      serverRun = false;
-      evidence = null;
       extraTasks = [];
     }
     selectedAuditId = auditId;
@@ -148,7 +133,7 @@
       if (!isCurrent(requestedSession, requestId, 'detail')) return;
       const detail = helpers.normalizeDetail(result);
       selectedAudit = detail;
-      evidenceRevision += 1;
+      void loadOffPageTasks(detail, requestedSession, requestId);
       audits = audits.map((audit) => audit.id === detail.id ? { ...audit, ...detail, findings: detail.findings } : audit);
     } catch (error) {
       if (isCurrent(requestedSession, requestId, 'detail')) clearProtectedContent(helpers.friendlyError(error, 'This audit could not be loaded.'));
@@ -165,40 +150,16 @@
     mutationRequest += 1;
     activeMutation = '';
     selectedAudit = null;
-    evidence = null;
     extraTasks = [];
-    job = null;
-    serverRun = false;
     audits = audits.map((audit) => ({ ...audit, findings: undefined }));
     detailError = message;
   }
 
-  function onJob(next: GithubAuditJob | null): void {
-    job = next;
-    serverRun = Boolean(next);
-    // External-agent runs have no manifest: look up off-page task identities.
-    if (!next) void loadOffPageTasks();
-  }
-
-  async function loadOffPageTasks(): Promise<void> {
-    const auditId = selectedAuditId;
-    const missing = findings.filter((finding) => finding.task_id && !helpers.findingTask(finding)).map((finding) => finding.task_id);
+  async function loadOffPageTasks(detail: AuditDetail, requestedSession: number, requestId: number): Promise<void> {
+    const missing = detail.findings.filter((finding) => finding.task_id && !helpers.findingTask(finding)).map((finding) => finding.task_id);
     if (!missing.length) return;
     const found = await loadMissingTasks(missing, (id) => api.getTask(id));
-    if (auditId === selectedAuditId) extraTasks = [...extraTasks.filter((task) => !found.some((item) => item.id === task.id)), ...found];
-  }
-
-  function showAudit(auditId: string): void {
-    selectedAuditId = auditId;
-    onNavigate(`/p/${encodeURIComponent(project.slug)}/audits/${encodeURIComponent(auditId)}`);
-    void loadAuditList(auditId);
-  }
-
-  function onStarted(auditId: string): void {
-    if (!actionsAvailable) return;
-    onNotice('success', 'Audit started on the server. You can leave this page; nothing moves until you apply it.');
-    auditFocus.announce('Audit started. No task moves were applied.');
-    showAudit(auditId);
+    if (detail.id === selectedAuditId && isCurrent(requestedSession, requestId, 'detail') && selectedAudit) extraTasks = [...extraTasks.filter((task) => !found.some((item) => item.id === task.id)), ...found];
   }
 
   function openAudit(audit: AuditRun): void {
@@ -296,10 +257,6 @@
     if (actionsAvailable) applyFlow?.openPreview(finding);
   }
 
-  function rememberTask(task: Task): void {
-    extraTasks = [...extraTasks.filter((item) => item.id !== task.id), task];
-  }
-
   onDestroy(auditFocus.destroy);
 
 </script>
@@ -307,9 +264,7 @@
 <section class="audit-review" aria-labelledby="audit-heading">
   {#if selectedAuditId && selectedAudit}
     <AuditDetailHeading {helpers} {selectedAudit} {selectedAuditId} {detailLoading} {listLoading}
-      {detailError} {refresh} {showList} {loadAuditDetail} {serverRun} {actionsAvailable} />
-    <GithubAuditJobPanel auditId={selectedAuditId} {actionsAvailable} {onJob} onFinished={() => void refresh()} onRetried={showAudit} />
-    <AuditEvidenceManifest auditId={selectedAuditId} enabled={evidenceReady} reloadKey={`${evidenceRevision}:${job?.stage === 'finished' ? 'final' : 'capture'}`} onEvidence={(next) => { evidence = next; }} onUnavailable={clearProtectedContent} />
+      {detailError} {refresh} {showList} {loadAuditDetail} {actionsAvailable} />
     {#if detailLoading && !findings.length}
       <div class="audit-loading" aria-label="Loading audit findings"><div></div><div></div><div></div></div>
     {:else}
@@ -319,7 +274,7 @@
       </section>
       <AuditFindingGroups {helpers} {groupedFindings} {columns} {editingFindingId} bind:destinationDraft
         {activeMutation} {saveDestination} {cancelDestination} {editDestination} {approveFinding}
-        {dismissFinding} {openPreview} projectSlug={project.slug} {evidenceItems} {onOpenTask} {actionsAvailable} />
+        {dismissFinding} {openPreview} projectSlug={project.slug} {onOpenTask} {actionsAvailable} />
     {/if}
   {:else if selectedAuditId && detailError}
     <section class="page-heading audit-heading">
@@ -329,15 +284,15 @@
     <div class="inline-alert error content-alert" role="alert"><span>{detailError}</span><button class="text-button" type="button" on:click={() => loadAuditDetail(selectedAuditId)}>Retry</button></div>
   {:else}
     <AuditRunList {helpers} {project} {audits} {listLoading} {listError}
-      {refresh} {openAudit} {onStarted} onOpenExisting={showAudit} {actionsAvailable} />
+      {refresh} {openAudit} {actionsAvailable} />
   {/if}
 </section>
 
 {#if selectedAudit && actionsAvailable}
 {#key `${currentProjectId}:${sessionGeneration}:${selectedAuditId}`}
-<AuditApplyFlow bind:this={applyFlow} {helpers} {columns} auditId={selectedAuditId} {serverRun} focus={auditFocus}
+<AuditApplyFlow bind:this={applyFlow} {helpers} {columns} focus={auditFocus}
   sessionKey={`${currentProjectId}:${sessionGeneration}`} {onTaskUpdated} {onNotice}
-  onBlocked={(message) => { detailError = message; }} onUnavailable={clearProtectedContent} onTaskLoaded={rememberTask} />
+  onBlocked={(message) => { detailError = message; }} />
 {/key}
 {/if}
 

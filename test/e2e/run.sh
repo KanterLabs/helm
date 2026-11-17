@@ -106,7 +106,6 @@ if ! command -v go >/dev/null 2>&1 && [[ -z "${HELM_E2E_GO_COMMAND:-}" ]]; then
   export HELM_E2E_GO_COMMAND
 fi
 prepare_args=(--root "$root" --output "$bundle" "--go-flags=${HELM_E2E_GOFLAGS:-}")
-[[ "$#" != 0 ]] || prepare_args+=(--github)
 prepare_action=prepare
 [[ ! -e "$bundle" ]] || prepare_action=verify
 python3 "$root/test/e2e/prepare.py" "$prepare_action" "${prepare_args[@]}" > "$work_dir/prepared-paths.json" &
@@ -124,7 +123,6 @@ fi
 cp "$bundle/metadata.json" "$artifact_dir/build-provenance.json"
 suite_args=(--workers "$workers" --base-port "$base_port" --work-dir "$work_dir/suites"
   --artifact-dir "$artifact_dir/suites" --binary "$binary")
-[[ "$#" != 0 ]] || suite_args+=(--github-binary "$bundle/helm-githubbeta")
 [[ "$include_deadlines" != true ]] || suite_args+=(--include-deadline)
 python3 "$root/test/e2e/run-suites.py" "${suite_args[@]}" -- "$@" &
 supervisor_pid=$!

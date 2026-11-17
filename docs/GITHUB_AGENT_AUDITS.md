@@ -1,5 +1,8 @@
 # Agent access to GitHub audits
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 ## Failure inventory before implementation
 
 An ordinary read token must not spend a human's AI account. An authorization

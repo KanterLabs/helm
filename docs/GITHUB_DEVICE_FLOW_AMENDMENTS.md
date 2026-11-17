@@ -1,5 +1,8 @@
 # GitHub device-flow sign-in: amendments to the plan
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Status: active, 2026-11-14. Read with [the plan](GITHUB_DEVICE_FLOW_PLAN.md).
 Where the two differ, this file wins. These come from running the removed
 Gitea connection on beta.

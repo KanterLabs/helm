@@ -67,16 +67,6 @@ type Config struct {
 	CoolifyIntake CoolifyIntake
 	// PublicEndpoints configures Cloudflare-tunnel public webhook endpoints.
 	PublicEndpoints PublicEndpoints
-	// GitHub credentials are read only by the optional read-only provider.
-	GitHubEnabled      bool
-	GitHubTokenFile    string
-	GitHubRepositories []string
-	// Device-flow sign-in (docs/GITHUB_DEVICE_FLOW_PLAN.md). An empty client
-	// ID turns sign-in off. The state directory holds the connection file and
-	// defaults to a "github" directory beside the database.
-	GitHubAppClientID string
-	GitHubAppSlug     string
-	GitHubStateDir    string
 }
 
 func FromEnv() (Config, error) {
@@ -281,9 +271,6 @@ func FromEnv() (Config, error) {
 		c.LunaDisabled = !parsed
 	}
 	if err := attachmentLimitsFromEnv(&c); err != nil {
-		return Config{}, err
-	}
-	if err := githubFromEnv(&c); err != nil {
 		return Config{}, err
 	}
 	return validateEnvironment(c, tailnetAllowedPeers)

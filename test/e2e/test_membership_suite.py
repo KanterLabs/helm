@@ -28,7 +28,7 @@ class MembershipSuiteProof(unittest.TestCase):
         status, phases = self.finish(self.start(extra=("--include-deadline",)))
         self.assertEqual(status, 0, self.log())
         starts = self.starts()
-        self.assertEqual(set(starts), {"main", "onboarding", "github", "deadline", "membership"})
+        self.assertEqual(set(starts), {"main", "onboarding", "deadline", "membership"})
         member = starts["membership"]
         self.assertTrue(phases["membership"]["required"])
         self.assertEqual(phases["membership"]["status"], "passed")
@@ -38,14 +38,10 @@ class MembershipSuiteProof(unittest.TestCase):
         self.assertIsNone(member["stall"])
         self.assertEqual(starts["onboarding"]["args"], ["--", "e2e/onboarding.spec.ts"])
         self.assertEqual(int(member["port"]), 21080 + 3 * 100 + 50)
-        self.assertEqual(len({s["port"] for s in starts.values()}), 5)
-        self.assertEqual(len({s["work"] for s in starts.values()}), 5)
+        self.assertEqual(len({s["port"] for s in starts.values()}), 4)
+        self.assertEqual(len({s["work"] for s in starts.values()}), 4)
         main_end = float((self.artifacts / "main/finished").read_text())
         self.assertGreaterEqual(member["start"], main_end)
-        # Three workers cannot host four ancillary fixtures at once.
-        first_end = min(float((self.artifacts / n / "finished").read_text())
-                        for n in ("onboarding", "github", "deadline"))
-        self.assertGreaterEqual(member["start"], first_end)
         summary = json.loads((self.artifacts / "suites.json").read_text())
         self.assertIn("membership", [p["name"] for p in summary["phases"]])
 
@@ -53,7 +49,7 @@ class MembershipSuiteProof(unittest.TestCase):
         status, _ = self.finish(self.start(workers=1))
         self.assertEqual(status, 0, self.log())
         starts = self.starts()
-        for name in ("onboarding", "github"):
+        for name in ("onboarding",):
             finished = float((self.artifacts / name / "finished").read_text())
             self.assertGreaterEqual(starts["membership"]["start"], finished)
 
@@ -72,7 +68,7 @@ class MembershipSuiteProof(unittest.TestCase):
         self.assertEqual(set(starts), {"main", "onboarding", "membership"})
         self.assertEqual(starts["main"]["args"], ["--", SPEC])
         self.assertEqual(starts["membership"]["mode"], "local")
-        self.assertEqual(phases["github"]["status"], "skipped")
+        self.assertNotIn("github", phases)
 
     def test_membership_failure_fails_closed_and_keeps_siblings(self):
         self.env = {"FAKE_FAIL": "membership"}
@@ -80,7 +76,7 @@ class MembershipSuiteProof(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertEqual(phases["membership"]["status"], "failed")
         self.assertEqual(phases["membership"]["exit_status"], 9)
-        for name in ("main", "onboarding", "github"):
+        for name in ("main", "onboarding"):
             self.assertEqual(phases[name]["status"], "passed")
 
     def test_required_auth_marker_is_owned_by_membership_phase(self):
