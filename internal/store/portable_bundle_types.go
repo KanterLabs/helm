@@ -8,7 +8,7 @@ const (
 	portableBundleMaxJSON  int64 = 32 << 20
 )
 
-// PortableBundleManifest wraps the stable v4 JSON contract. Only visible,
+// PortableBundleManifest wraps the versioned portable JSON contract. Only visible,
 // published images are portable; deleted, staged and deleted-comment images
 // remain local. Previews are regenerated from verified original bytes.
 type PortableBundleManifest struct {

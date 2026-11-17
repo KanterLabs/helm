@@ -89,7 +89,7 @@ for retention, consistent backups, verification and restore.
 ## Portable transfer
 
 Use `GET /api/v1/export?format=bundle` or the project export equivalent for
-an image-bearing `helm.portable.bundle` v5 ZIP. It contains a v4 JSON archive,
+an image-bearing `helm.portable.bundle` v5 ZIP. It contains a current v5 JSON archive (v4 bundles remain importable),
 a checksummed manifest and published originals. Staged, deleted and images
 hidden by deleted comments stay local. Thumbnail files are regenerated.
 Legacy JSON export continues to work and warns when image evidence is omitted.

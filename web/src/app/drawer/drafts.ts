@@ -3,6 +3,7 @@ import { clearScreenshotDrafts } from '../../lib/components/attachments/drafts';
 import { actorId, toInputDate } from '../../lib/state';
 import type { Task } from '../../lib/types';
 import { restoreDialogFocus } from '../dialogs';
+import { toast } from '../feedback';
 import { isTaskLocation, navigate } from '../routing';
 import { drawer } from '../state/drawer.svelte';
 import { live } from '../state/live.svelte';
@@ -94,6 +95,10 @@ export function drawerDraftFingerprint(): string {
 }
 
 export function confirmDrawerDiscard(): boolean {
+  if (drawer.pullRequestPending) {
+    toast('info', 'Wait for the pull request link to finish saving.');
+    return false;
+  }
   if (!drawer.drawerDraftDirty) return true;
   return window.confirm('You have unsaved task details. Discard them and close the drawer?');
 }
@@ -115,6 +120,8 @@ export function closeDrawer(force = false, skipRouteNavigation = false): boolean
   drawer.editedCommentPending = false;
   drawer.checklistDirty = false;
   drawer.checklistPending = false;
+  drawer.pullRequestUrlDraft = '';
+  drawer.pullRequestPending = false;
   drawer.drawerDependencyPanel = null;
   drawer.drawerHierarchyPanel = null;
   drawer.taskRouteOrigin = '';

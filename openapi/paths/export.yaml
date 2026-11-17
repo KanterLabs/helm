@@ -8,7 +8,7 @@ paths:
         PR/audit history. Explicit versions 2 and 3 remain available with omission warnings. Credentials,
         repository selections, provider caches and executable jobs are excluded. Requires projects:read,
         tasks:read and events:read. Source access is revalidated before private retained evidence is exported.
-        Select format=bundle for a helm.portable.bundle v5 ZIP containing the v4 JSON archive and published
+        Select format=bundle for a helm.portable.bundle v5 ZIP containing the v5 JSON archive and published
         image originals. JSON exports omit image bytes and report an omission warning. Staged, deleted
         and deleted-comment images are excluded. Bundle export accepts version 4 only.
       tags:
@@ -23,15 +23,17 @@ paths:
         - name: version
           in: query
           required: false
-          description: Defaults to complete version 4. Versions 2 and 3 omit checklists, hierarchy and
-            completion policy and include warnings.
+          description: Defaults to version 5, including GitHub and Gitea PR links. Versions 2 and 3 omit
+            checklists, hierarchy and completion policy with warnings. Versions 2–4 reject
+            exports containing Gitea PR links rather than silently losing them.
           schema:
             type: integer
             enum:
               - 2
               - 3
               - 4
-            default: 4
+              - 5
+            default: 5
         - name: format
           in: query
           schema:

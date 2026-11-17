@@ -12,3 +12,4 @@ export * from './types/portable';
 export * from './types/audits';
 export * from './types/membership';
 export * from './types/attachments';
+export * from './types/pullRequests';

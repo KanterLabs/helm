@@ -3,7 +3,7 @@ package store
 import "strings"
 
 func validatePortableMetadata(archive *PortableArchive, report *PortableImportReport, tasks map[string]PortableTask) {
-	if archive.Version < PortableVersionCurrent {
+	if archive.Version < PortableVersionMetadata {
 		report.Warnings = append(report.Warnings, portableLegacyWarning)
 		if archive.Version < 3 {
 			report.Warnings = append(report.Warnings, "portable versions 1-2 omit GitHub PR associations and audit history")

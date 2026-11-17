@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/KanterLabs/helm/internal/githubprovider"
+	"github.com/KanterLabs/helm/internal/prlinks"
 )
 
 func validatePortableGithub(archive *PortableArchive, report *PortableImportReport, projects map[string]PortableProject, tasks map[string]PortableTask) {
@@ -26,9 +26,12 @@ func validatePortableGithub(archive *PortableArchive, report *PortableImportRepo
 	artifacts := map[string]PortableGithubArtifact{}
 	identities := map[string]bool{}
 	for _, a := range g.Artifacts {
-		identity, err := githubprovider.ParsePullRequestURL(a.URL)
-		if err != nil || identity.Repository != a.Repository || identity.Number != a.Number || identity.URL != a.URL {
-			issue("artifact", a.ID, "url", "artifact must contain a canonical GitHub pull request identity")
+		identity, err := prlinks.Parse(a.URL)
+		if err != nil || identity.StorageRepository() != a.Repository || identity.Number != a.Number || identity.URL != a.URL {
+			issue("artifact", a.ID, "url", "artifact must contain a canonical pull request identity")
+		}
+		if err == nil && identity.Provider != "github" && (archive.Version < PortableVersionCurrent || a.RepositoryID != nil) {
+			issue("artifact", a.ID, "identity", "Gitea links require portable version 5 and cannot have GitHub repository IDs")
 		}
 		if !portableSafeID(a.ID) || !portableTimestamp(a.CreatedAt, false) || a.Number <= 0 || (a.RepositoryID != nil && *a.RepositoryID <= 0) {
 			issue("artifact", a.ID, "identity", "invalid artifact identity or timestamp")

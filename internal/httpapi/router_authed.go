@@ -187,6 +187,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		}
 		if len(parts) == 3 {
 			switch parts[2] {
+			case "pull-requests":
+				s.taskPullRequestLinks(w, r, identity, parts[1], "")
 			case "comments":
 				s.comments(w, r, identity, parts[1])
 			case "agent-notes":
@@ -226,6 +228,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 			default:
 				s.writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
 			}
+			return
+		}
+		if len(parts) == 4 && parts[2] == "pull-requests" {
+			s.taskPullRequestLinks(w, r, identity, parts[1], parts[3])
 			return
 		}
 		if len(parts) == 4 && parts[2] == "dependencies" {

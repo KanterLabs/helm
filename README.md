@@ -67,6 +67,9 @@ docker compose down -v                                     # stop AND delete all
 
 ## ✨ Features
 
+Link GitHub and Gitea pull requests to tasks by URL, without connecting an account.
+See [PR links](docs/PULL_REQUEST_LINKS.md).
+
 <table>
 <tr>
 <td width="50%" valign="top">

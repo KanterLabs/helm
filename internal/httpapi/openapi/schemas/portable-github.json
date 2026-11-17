@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "PortableGithubArtifact": {
+        "description": "Durable PR identity. Versions 3–4 accept GitHub only. Version 5 also accepts Gitea URLs, storing repository as host/owner/repo; GitHub keeps owner/repo. Cached remote metadata and credentials are excluded.",
         "type": "object",
         "required": [
           "id",

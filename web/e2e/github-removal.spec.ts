@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test.use({ trace: 'on' });
 
-test('GitHub features are gone while ordinary project and task work remains usable', async ({ page }, info) => {
+test('retired GitHub automation stays gone while task PR URL linking remains available', async ({ page }, info) => {
   await page.goto('/');
   const origin = new URL(page.url()).origin;
   const headers = { Origin: origin, 'Content-Type': 'application/json' };
@@ -40,8 +40,10 @@ test('GitHub features are gone while ordinary project and task work remains usab
   await page.goto(`/p/${project.slug}`);
   await expect(page.getByRole('button', { name: 'Branches', exact: true })).toHaveCount(0);
   await page.goto(`/p/${project.slug}/tasks/${task.key}`);
-  await expect(page.getByLabel(/Pull request URL/i)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Link pull request/i })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pull requests', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Pull request URL', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Link pull request', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Refresh (pull request|GitHub)|Check GitHub/i })).toHaveCount(0);
   await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Synthetic retained task');
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();

@@ -1,12 +1,13 @@
-# GitHub feature removal
+# Retired GitHub integration and remaining PR links
 
-TC-391 removes the Branches view and GitHub product integration from beta.
+TC-391 removed the Branches view and connected GitHub integration from beta.
+TC-392 keeps only offline [GitHub and Gitea PR URL links](PULL_REQUEST_LINKS.md).
 GitHub remains a source mirror and CI/registry provider for this repository;
 that infrastructure is independent of the removed product feature.
 
 Failure cases and acceptance, written before implementation:
 
-- Branches, GitHub settings, pull-request linking/badges, or GitHub audit
+- Branches, GitHub settings, remote PR checks/review state, or GitHub audit
   controls remain accessible through normal navigation or a saved URL.
 - Removed integration, branch, repository selection, artifact, authorization,
   or audit-start endpoints still perform work, including mutation requests.
@@ -25,7 +26,8 @@ Failure cases and acceptance, written before implementation:
 removed endpoints and attaches screenshots plus captured HTTP status evidence.
 Run with `test/e2e/run.sh e2e/github-removal.spec.ts`. Deployment additionally
 requires exact image provenance, verified fresh backups, populated candidate
-and retained recovery tests, live readiness, and live absence of the feature.
+and retained recovery tests, live readiness, and live absence of the retired features. PR linking has separate end-to-end coverage
+in `web/e2e/pull-request-links.spec.ts`.
 Historical SQLite tables and retained import/export representations remain
 for compatibility; no schema reset, destructive migration or data restore is
 part of this removal.

@@ -1,0 +1,78 @@
+components:
+  schemas:
+    PullRequestLink:
+      type: object
+      required:
+      - id
+      - task_id
+      - provider
+      - host
+      - repository
+      - number
+      - url
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        task_id:
+          $ref: '#/components/schemas/Identifier'
+        provider:
+          type: string
+          enum:
+          - github
+          - gitea
+        host:
+          type: string
+        repository:
+          type: string
+          description: Owner/repository display name; the host is a separate field.
+        number:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+      additionalProperties: false
+    PullRequestLinkCollection:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PullRequestLink'
+      additionalProperties: false
+    PullRequestLinkRequest:
+      type: object
+      required:
+      - url
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+      additionalProperties: false
+    PullRequestLinkMutation:
+      type: object
+      required:
+      - link
+      - task
+      properties:
+        link:
+          $ref: '#/components/schemas/PullRequestLink'
+        task:
+          $ref: '#/components/schemas/TaskMutationResponse'
+      additionalProperties: false
+    PullRequestUnlinkMutation:
+      type: object
+      required:
+      - task
+      properties:
+        task:
+          $ref: '#/components/schemas/TaskMutationResponse'
+      additionalProperties: false

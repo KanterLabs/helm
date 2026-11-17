@@ -228,7 +228,7 @@ export function handlePopState() {
     if (creation.pendingCreationRoute) window.history.replaceState(creation.pendingCreationRoute.state, '', creation.pendingCreationRoute.url);
     return;
   }
-  if (drawer.drawerTask && drawer.drawerDraftDirty) {
+  if (drawer.drawerTask && (drawer.drawerDraftDirty || drawer.pullRequestPending)) {
     if (!confirmDrawerDiscard()) {
       restoreDirtyTaskRoute();
       return;

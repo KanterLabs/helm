@@ -146,7 +146,7 @@
           "activity",
           "comments"
         ],
-        "description": "Version 4 preserves checklist items, parent hierarchy and project completion policy together with v3 GitHub PR/audit history and v2 Focus/release membership. Versions 1-3 remain readable with explicit omission warnings. Version 1 has no releases. Credentials, repository selections, caches and executable jobs are excluded. Unknown versions are rejected.",
+        "description": "Version 5 adds offline Gitea PR identities. Version 4 preserves checklist items, parent hierarchy and project completion policy together with v3 GitHub PR/audit history and v2 Focus/release membership. Versions 1-3 remain readable with explicit omission warnings. Version 1 has no releases. Credentials, repository selections, caches and executable jobs are excluded. Unknown versions are rejected.",
         "properties": {
           "format": {
             "type": "string",
@@ -158,7 +158,8 @@
               1,
               2,
               3,
-              4
+              4,
+              5
             ]
           },
           "exported_at": {
@@ -258,7 +259,8 @@
                 "version": {
                   "enum": [
                     3,
-                    4
+                    4,
+                    5
                   ]
                 }
               }
