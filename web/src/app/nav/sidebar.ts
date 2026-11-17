@@ -5,7 +5,6 @@ import type { ProjectNavView } from '../../lib/navigation';
 import type { ProjectOrderMode } from '../../lib/state';
 import type { Project } from '../../lib/types';
 import { closeBetaSwitcher } from '../beta';
-import { openProjectBranches } from '../branches';
 import { openBugModal } from '../bugModal';
 import { openProjectModal } from '../creation';
 import { openProjectReleases } from '../releases/load';
@@ -108,8 +107,7 @@ export function openProjectNavItem(item: ProjectNavView) {
     : item === 'timeline' ? openProjectTimeline()
       : item === 'releases' ? openProjectReleases()
         : item === 'roadmap' ? openProjectRoadmap()
-          : item === 'audits' ? openProjectAudits()
-            : openProjectBranches());
+          : openProjectAudits());
 }
 
 export function createFromMenu(kind: 'task' | 'bug' | 'project') {

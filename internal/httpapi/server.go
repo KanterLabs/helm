@@ -8,7 +8,6 @@ import (
 	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
-	"github.com/KanterLabs/helm/internal/githubconnect"
 	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 	"net/http"
@@ -20,13 +19,6 @@ type Server struct {
 	Auth  *auth.Manager
 	Cfg   config.Config
 	Codex CodexAccountService
-	// GitHub services keep remote evidence and background audit execution
-	// separate from ordinary task reads and the external audit submission API.
-	Github       *GithubService
-	GithubAudits *GithubAuditService
-	// GithubConnection holds the device-flow sign-in; nil in operator_token
-	// mode or when GitHub is disabled.
-	GithubConnection *githubconnect.Manager
 	// BetaSwitch is an injected client for the root-owned beta switch broker.
 	// The HTTP layer never invokes deployment commands or accesses release
 	// paths directly.
@@ -80,7 +72,6 @@ func NewWithBetaSwitch(s *store.Store, manager *auth.Manager, cfg config.Config,
 		codexManager = codexManagers[0]
 	}
 	server := &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry(), adminActivity: newAdminActivityTracker(), projectIntelligenceCache: make(map[string]projectIntelligenceCacheEntry), projectIntelligenceRunning: make(map[string]bool)}
-	server.configureGithubServices()
 	server.startAttachmentRuntime()
 	return server
 }

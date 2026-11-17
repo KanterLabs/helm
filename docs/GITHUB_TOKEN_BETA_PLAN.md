@@ -1,5 +1,8 @@
 # GitHub token prototype for Helm beta
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Status: planned, 2026-10-26. Planning: TC-295, revised by TC-299.
 Implementation: TC-296, TC-297, TC-291, TC-292, TC-300, TC-293, TC-298,
 all unclaimed Backlog work.

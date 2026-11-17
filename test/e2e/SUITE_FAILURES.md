@@ -28,9 +28,6 @@ Recorded before implementing the suite coordinator or its proofs.
 - A crashed supervisor leaves an uncooperative descendant holding its log open.
   Log directly to regular files and continue bounded owned-descendant cleanup
   even after a supervisor exits.
-- GitHub startup reaches an unrelated listener or loses evidence on TERM. Probe
-  its assigned port before startup, retain phase/server metadata and bound
-  requests; use a fresh state directory and one Playwright worker.
 - Build parallelism leaks into each Go server. Apply the optional fixture
   GOMAXPROCS setting at server launch only, preserving the parent build env.
 
@@ -38,8 +35,7 @@ Proofs use executable synthetic harnesses and retain JSON phase receipts and
 logs in a disposable directory. They exercise process trees and argument/env
 boundaries without compiling, starting real servers or launching browsers.
 
-Run `python3 test/e2e/test_run_suites.py` and
-`python3 test/e2e/test_github_runtime.py`. Set
+Run `python3 test/e2e/test_run_suites.py`. Set
 `HELM_E2E_PROOF_ARTIFACT_DIR` to a fresh directory to retain each proof's
 synthetic receipts, inputs and logs after the run. Per-suite subprocess
 wrappers keep slots occupied through nested descendant cleanup, so an exited

@@ -13,8 +13,6 @@
   export let refresh: () => Promise<void>;
   export let showList: () => void;
   export let loadAuditDetail: (auditId: string) => Promise<void>;
-  /** Server-run audits explain progress in their job panel instead. */
-  export let serverRun = false;
   /** TC-316: false shows recorded history with the paused explanation. */
   export let actionsAvailable = false;
 </script>
@@ -30,4 +28,4 @@
 
     {#if !actionsAvailable}<AuditPausedNotice />{/if}
     {#if detailError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{detailError}</span><button class="text-button" type="button" on:click={() => loadAuditDetail(selectedAuditId)}>Retry</button></div>{/if}
-    {#if !serverRun && !helpers.auditReadyForReview()}<div class="inline-alert content-alert" role="status"><span>…</span><span>{#if actionsAvailable}{selectedAudit.status === 'failed' ? 'This audit failed. Run a fresh audit before reviewing or applying findings.' : 'An agent is still processing this audit. Review and apply unlock only after it finishes.'}{:else}{selectedAudit.status === 'failed' ? 'This audit failed. Its recorded findings may be incomplete.' : 'This audit has not finished. Its recorded findings may be incomplete.'}{/if}</span></div>{/if}
+    {#if !helpers.auditReadyForReview()}<div class="inline-alert content-alert" role="status"><span>…</span><span>{#if actionsAvailable}{selectedAudit.status === 'failed' ? 'This audit failed. Run a fresh audit before reviewing or applying findings.' : 'An agent is still processing this audit. Review and apply unlock only after it finishes.'}{:else}{selectedAudit.status === 'failed' ? 'This audit failed. Its recorded findings may be incomplete.' : 'This audit has not finished. Its recorded findings may be incomplete.'}{/if}</span></div>{/if}

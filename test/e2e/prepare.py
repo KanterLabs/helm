@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build and verify immutable E2E executables after the owner embeds web assets.
 
-Usage: prepare.py prepare --root REPO --output BUNDLE [--github]
-       prepare.py verify  --root REPO --output BUNDLE [--github]
+Usage: prepare.py prepare --root REPO --output BUNDLE
+       prepare.py verify  --root REPO --output BUNDLE
 
 Both commands print JSON executable paths. Flags default to HELM_E2E_GOFLAGS;
 CI should use --go-flags=-race. This tool never builds or restores frontend
@@ -257,14 +257,11 @@ def bundle_lock(output):
         yield lock_path
 
 
-def paths_for(output, github):
-    paths = {"helm": str(output / "helm"), "metadata": str(output / "metadata.json")}
-    if github:
-        paths["github"] = str(output / "helm-githubbeta")
-    return paths
+def paths_for(output):
+    return {"helm": str(output / "helm"), "metadata": str(output / "metadata.json")}
 
 
-def prepare(root, output, github, flags, lock_path):
+def prepare(root, output, flags, lock_path):
     if output.exists():
         raise InvalidBundle("bundle already exists; verify it or prepare a new output directory")
     stage = Path(tempfile.mkdtemp(prefix=f".{output.name}.prepare-", dir=output.parent))
@@ -274,8 +271,6 @@ def prepare(root, output, github, flags, lock_path):
         snapshot, assets = source(root, excluded), frontend(root)
         binaries = {}
         targets = {"helm": "./cmd/helm"}
-        if github:
-            targets["helm-githubbeta"] = "./test/githubbeta"
         # Build limits apply to compiler children only, never runtime servers.
         env = {**os.environ, "GOMAXPROCS": str(config["jobs"])}
         for name, target in targets.items():
@@ -293,10 +288,10 @@ def prepare(root, output, github, flags, lock_path):
     finally:
         if stage.exists():
             shutil.rmtree(stage)
-    return paths_for(output, github)
+    return paths_for(output)
 
 
-def verify(root, output, github, flags, lock_path):
+def verify(root, output, flags, lock_path):
     if output.is_symlink():
         raise InvalidBundle("prepared bundle may not be a symlink")
     metadata_path = output / "metadata.json"
@@ -315,14 +310,12 @@ def verify(root, output, github, flags, lock_path):
     records = metadata.get("binaries")
     if not isinstance(records, dict) or "helm" not in records:
         raise InvalidBundle("bundle is missing Helm binary metadata")
-    if set(records) - {"helm", "helm-githubbeta"}:
+    if set(records) - {"helm"}:
         raise InvalidBundle("bundle contains unexpected binary metadata")
-    if github and "helm-githubbeta" not in records:
-        raise InvalidBundle("bundle is missing the required GitHub harness")
     for name, record in records.items():
         if binary_record(root, output / name, config) != record:
             raise InvalidBundle(f"prepared binary hash or build settings changed: {name}")
-    return paths_for(output, github)
+    return paths_for(output)
 
 
 def main():
@@ -330,7 +323,6 @@ def main():
     parser.add_argument("action", choices=("prepare", "verify"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--github", action="store_true")
     parser.add_argument("--go-flags", default=os.environ.get("HELM_E2E_GOFLAGS", ""))
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, cancel)
@@ -342,7 +334,7 @@ def main():
         flags = parse_flags(args.go_flags)
         with bundle_lock(output) as lock_path:
             operation = prepare if args.action == "prepare" else verify
-            result = operation(root, output, args.github, flags, lock_path)
+            result = operation(root, output, flags, lock_path)
         print(json.dumps(result, sort_keys=True))
     except Cancelled as error:
         print(f"E2E preparation canceled by signal {error.signum}", file=sys.stderr)

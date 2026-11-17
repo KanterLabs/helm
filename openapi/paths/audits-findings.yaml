@@ -13,7 +13,7 @@ paths:
         `changed_since_audit` from the current task version and source column.
 
         Reading findings never changes a task.
-         Server GitHub audit findings additionally require current source access; unavailable or revoked access returns 409 evidence_unavailable before private reasons or review responses are returned.
+         Retained legacy GitHub-source audit findings are unavailable after integration retirement and return 409 evidence_unavailable before private reasons or review responses are returned.
       tags:
         - Audits
       parameters:

@@ -106,19 +106,27 @@ class PreparedBuildProof(unittest.TestCase):
         return result
 
     def test_build_once_verify_exact_outputs_and_build_budget(self):
-        paths = self.prepare("--github")
+        paths = self.prepare()
         self.assertEqual(paths["helm"], str(self.bundle / "helm"))
-        self.assertEqual(paths["github"], str(self.bundle / "helm-githubbeta"))
-        result = self.run_cli("verify", "--github")
+        self.assertEqual(set(paths), {"helm", "metadata"})
+        result = self.run_cli("verify")
         self.assertEqual(result.returncode, 0, result.stderr)
         builds = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(len(builds), 2)
+        self.assertEqual(len(builds), 1)
         for build in builds:
             self.assertEqual(build["gomaxprocs"], "6")
             self.assertIn("-p=6", build["args"])
             self.assertIn("-race", build["args"])
-        self.reject("prepare", "--github")
-        self.assertEqual(len(self.log.read_text().splitlines()), 2)
+        self.reject("prepare")
+        self.assertEqual(len(self.log.read_text().splitlines()), 1)
+
+    def test_bundle_with_unexpected_binary_metadata_is_rejected(self):
+        self.prepare()
+        path = self.bundle / "metadata.json"
+        metadata = json.loads(path.read_text())
+        metadata["binaries"]["retired-harness"] = metadata["binaries"]["helm"]
+        path.write_text(json.dumps(metadata))
+        self.reject()
 
     def test_source_changes_and_revision_environment_do_not_authorize_reuse(self):
         self.prepare()
@@ -235,13 +243,12 @@ class PreparedBuildProof(unittest.TestCase):
         self.reject("prepare", env={"FAKE_BUILD_FAIL": "1"})
         self.assertFalse(self.bundle.exists())
 
-    def test_toolchain_flags_run_attempt_and_required_harness_must_match(self):
+    def test_toolchain_flags_and_run_attempt_must_match(self):
         self.prepare()
         self.reject(env={"FAKE_VERSION": "go1.27.0"})
         self.reject(env={"GITHUB_RUN_ATTEMPT": "2"})
         self.reject(env={"GITHUB_RUN_ID": "456"})
         self.reject(env={"CGO_CFLAGS": "-DSYNTHETIC_CHANGED=1"})
-        self.reject("verify", "--github")
         command = self.command("verify")
         command[-1] = "--go-flags="
         result = subprocess.run(command, env=self.env, capture_output=True, text=True)

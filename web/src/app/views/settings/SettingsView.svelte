@@ -4,7 +4,6 @@
   // Settings: your account, human members (admins), project administration,
   // Luna, agents and tokens (admins) and appearance.
   import LunaRunHistory from '../../../lib/components/LunaRunHistory.svelte';
-  import GitHubIntegrationSettings from '../../../lib/components/github/GitHubIntegrationSettings.svelte';
   import AccountSecurity from '../../../lib/components/membership/AccountSecurity.svelte';
   import MembersAdmin from '../../../lib/components/membership/MembersAdmin.svelte';
   import { helmStorageKeys } from '../../../lib/state';
@@ -36,7 +35,6 @@
 {/if}
 {#if session.workspaceAdmin}
   <ProjectAdminSection />
-  <GitHubIntegrationSettings projects={workspace.projects} defaultProjectId={workspace.activeProject?.id || ''} />
 {/if}
 <section class="settings-section codex-section">
   <div class="settings-section-heading"><div><span class="eyebrow">Luna assistant</span><h2>Your Codex subscription</h2><p>Connect your own Codex-enabled ChatGPT account. Helm stores it only in your private user runtime and never shares it with another user.</p></div>{#if settings.codexAccount?.connected}<span class="codex-connected">✓ Connected</span>{/if}</div>

@@ -192,7 +192,8 @@ requires INFRA-275. Future implementation cards remain unclaimed.
 
 Files to review during implementation include infrastructure
 `homelab/ci-runners/helm/{render.py,homelab-heavy.yaml,homelab.yaml,PLAN.md}`,
-Helm `.github/workflows/ci.yml`, `test/e2e/` and `test/githubbeta/`. Measure before
+Helm `.github/workflows/ci.yml` and `test/e2e/`. The historical GitHub-specific
+harness was retired in TC-391. Measure before
 editing and at handoff; keep every maintained file at or below 20,000 bytes,
 splitting by responsibility near 16,000. Preserve unrelated dirty checkouts.
 

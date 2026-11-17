@@ -1,5 +1,8 @@
 # GitHub token beta validation and rollout
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Companion to [the implementation plan](GITHUB_TOKEN_BETA_PLAN.md).
 Acceptance owner: TC-298, with feature coverage in TC-291 through TC-293 and
 server execution in TC-300. See [execution design](GITHUB_TOKEN_BETA_EXECUTION.md).

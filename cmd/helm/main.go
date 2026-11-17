@@ -50,12 +50,6 @@ func main() {
 	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "audit-access":
-			if err := runAuditAccess(context.Background(), os.Args[2:], os.Stdout); err != nil {
-				errorLog("audit access failed", err)
-				os.Exit(1)
-			}
-			return
 		case "healthcheck":
 			if len(os.Args) != 2 {
 				fatalLog("healthcheck does not accept arguments", "invalid_arguments")
@@ -141,7 +135,6 @@ func main() {
 		betaSwitchClient = client
 	}
 	api := httpapi.NewWithBetaSwitch(data, manager, cfg, betaSwitchClient, codexManager)
-	api.StartGithubServices(ctx)
 	var hooksServer *http.Server
 	if cfg.PublicEndpoints.HooksAddr != "" {
 		api.PublicEndpoints = publicendpoint.NewManager(publicendpoint.Config{
@@ -233,9 +226,6 @@ func main() {
 	// An interrupted pass commits nothing and the next start resumes.
 	if err := api.StopTaskActivitySignalProjector(shutdownCtx); err != nil {
 		errorLog("task activity signal projector shutdown failed", err)
-	}
-	if err := api.StopGithubServices(shutdownCtx); err != nil {
-		errorLog("GitHub background services shutdown failed", err)
 	}
 	if err := codexManager.Close(shutdownCtx); err != nil {
 		errorLog("Codex shutdown failed", err)

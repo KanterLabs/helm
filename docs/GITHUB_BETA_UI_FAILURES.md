@@ -1,5 +1,8 @@
 # GitHub beta UI failure inventory
 
+> Retired in TC-391: this is historical documentation. The GitHub product
+> integration and Branches view are removed. See [removal and preservation](GITHUB_REMOVAL.md).
+
 Written before the TC-291/292/293/297 web implementation. Contract:
 [GITHUB_BETA_API.md](GITHUB_BETA_API.md). Browser coverage lives in
 `web/e2e/pr-links-ui.spec.ts` and `web/e2e/github-audit-ui.spec.ts`; both use

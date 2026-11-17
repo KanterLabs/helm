@@ -18,14 +18,14 @@ for key in ("mode", "workers", "base-port", "work-dir", "artifact-dir", "binary"
     p.add_argument("--" + key)
 p.add_argument("args", nargs=argparse.REMAINDER)
 a = p.parse_args()
-artifacts = pathlib.Path(a.artifact_dir or os.environ["HELM_E2E_ARTIFACT_DIR"])
+artifacts = pathlib.Path(a.artifact_dir)
 artifacts.mkdir(parents=True, exist_ok=True)
 name = artifacts.name
-work = pathlib.Path(a.work_dir or os.environ["HELM_GITHUB_BETA_WORK_DIR"])
+work = pathlib.Path(a.work_dir)
 assert work.is_dir() and not list(work.iterdir())
 (work / "private").touch()
 state = {"name": name, "pid": os.getpid(), "start": time.monotonic(),
-         "work": str(work), "port": a.base_port or os.environ.get("HELM_GITHUB_BETA_PORT"),
+         "work": str(work), "port": a.base_port,
          "workers": a.workers or "1", "args": a.args,
          "stall": os.environ.get("HELM_E2E_CODEX_STALL_ACCOUNT"), "binary": a.binary}
 if os.environ.get("FAKE_NESTED"):
@@ -64,8 +64,7 @@ class SuiteProof(unittest.TestCase):
         return [sys.executable, str(RUNNER), "--workers", str(workers),
                 "--base-port", "21080", "--work-dir", str(self.root / "state"),
                 "--artifact-dir", str(self.artifacts), "--binary", "/bin/true",
-                "--github-binary", "/bin/true", "--browser-script", str(self.fake),
-                "--github-script", str(self.fake), "--cleanup-grace", ".3",
+                "--browser-script", str(self.fake), "--cleanup-grace", ".3",
                 *extra, "--", *selection]
 
     def start(self, **kwargs):
@@ -117,14 +116,14 @@ class SuiteProof(unittest.TestCase):
         os.kill(int(stat[1]), signal.SIGKILL)
         deadline = time.monotonic() + 6
         while process.poll() is None:
-            self.assertFalse((self.artifacts / "github/started.json").exists(),
+            self.assertFalse((self.artifacts / "membership/started.json").exists(),
                              "A killed wrapper must not release a live fixture's slot")
             self.assertLess(time.monotonic(), deadline)
             time.sleep(.02)
         status, phases = self.finish(process)
         self.assertNotEqual(status, 0)
         self.assertEqual(phases["onboarding"]["exit_status"], -signal.SIGKILL)
-        self.assertEqual(phases["github"]["status"], "skipped")
+        self.assertEqual(phases["membership"]["status"], "skipped")
         self.assertFalse(Path(f"/proc/{state['pid']}").exists())
         self.assertFalse(Path(f"/proc/{state['child']}").exists())
 
@@ -142,19 +141,19 @@ class SuiteProof(unittest.TestCase):
 
     def test_full_ci_orders_main_then_bounds_overlap_and_isolates(self):
         self.env = {"HELM_E2E_CODEX_STALL_ACCOUNT": "true"}
-        # Four workers let all four ancillary fixtures overlap after main.
-        status, phases = self.finish(self.start(workers=4, extra=("--include-deadline",)))
+        # Three workers let all three ancillary fixtures overlap after main.
+        status, phases = self.finish(self.start(workers=3, extra=("--include-deadline",)))
         self.assertEqual(status, 0, (self.root / "proof.log").read_text())
         starts = self.starts()
-        self.assertEqual(set(starts), {"main", "onboarding", "github", "deadline", "membership"})
-        self.assertEqual(len({s["work"] for s in starts.values()}), 5)
-        self.assertEqual(len({s["port"] for s in starts.values()}), 5)
+        self.assertEqual(set(starts), {"main", "onboarding", "deadline", "membership"})
+        self.assertEqual(len({s["work"] for s in starts.values()}), 4)
+        self.assertEqual(len({s["port"] for s in starts.values()}), 4)
         main_end = float((self.artifacts / "main/finished").read_text())
         self.assertTrue(all(s["start"] >= main_end for n, s in starts.items() if n != "main"))
         side_end = min(float((self.artifacts / n / "finished").read_text())
-                       for n in ("onboarding", "github", "deadline", "membership"))
+                       for n in ("onboarding", "deadline", "membership"))
         self.assertLess(max(s["start"] for n, s in starts.items() if n != "main"), side_end)
-        self.assertEqual(starts["main"]["workers"], "4")
+        self.assertEqual(starts["main"]["workers"], "3")
         self.assertTrue(all(s["stall"] is None for n, s in starts.items() if n != "deadline"))
         self.assertEqual(starts["deadline"]["stall"], "true")
         for phase in phases.values():
@@ -168,7 +167,7 @@ class SuiteProof(unittest.TestCase):
         self.assertEqual(phases["deadline"]["status"], "skipped")
         self.assertFalse(phases["deadline"]["required"])
         starts = self.starts()
-        self.assertGreaterEqual(starts["github"]["start"],
+        self.assertGreaterEqual(starts["membership"]["start"],
                                 float((self.artifacts / "onboarding/finished").read_text()))
 
     def test_focus_keeps_arguments_and_onboarding_compatibility(self):
@@ -177,7 +176,7 @@ class SuiteProof(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(self.starts()["main"]["args"], ["--", *selected])
         self.assertEqual(set(self.starts()), {"main", "onboarding"})
-        self.assertEqual(phases["github"]["status"], "skipped")
+        self.assertNotIn("github", phases)
 
     def test_failure_keeps_siblings_and_fails_closed(self):
         self.env = {"FAKE_FAIL": "onboarding"}
@@ -185,16 +184,16 @@ class SuiteProof(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertEqual(phases["onboarding"]["exit_status"], 9)
         self.assertEqual(phases["onboarding"]["status"], "failed")
-        self.assertEqual(phases["github"]["status"], "passed")
+        self.assertEqual(phases["membership"]["status"], "passed")
         self.assertEqual(phases["deadline"]["status"], "passed")
 
-    def test_spawn_error_retains_all_phase_results(self):
-        process = self.start(extra=("--github-script", str(self.root / "missing"),))
+    def test_missing_browser_script_retains_all_phase_results(self):
+        process = self.start(extra=("--browser-script", str(self.root / "missing"),))
         status, phases = self.finish(process)
         self.assertNotEqual(status, 0)
-        self.assertEqual(phases["github"]["status"], "failed")
-        self.assertIn("error", phases["github"])
-        self.assertEqual(phases["onboarding"]["status"], "passed")
+        self.assertEqual(set(phases), {"main", "onboarding", "deadline", "membership"})
+        for name in ("main", "onboarding", "membership"):
+            self.assertEqual(phases[name]["status"], "failed")
 
     def assert_dead(self, pid):
         path = Path(f"/proc/{pid}/stat")
@@ -267,8 +266,8 @@ class SuiteProof(unittest.TestCase):
         starts = self.starts()
         # Each wrapper must finish its .3s escalation before the next starts;
         # otherwise a completed supervisor incorrectly frees a still-live slot.
-        for previous, following in (("main", "onboarding"), ("onboarding", "github"),
-                                    ("github", "deadline")):
+        for previous, following in (("main", "onboarding"), ("onboarding", "deadline"),
+                                    ("deadline", "membership")):
             finished = float((self.artifacts / previous / "finished").read_text())
             self.assertGreaterEqual(starts[following]["start"] - finished, .25)
         for state in starts.values():

@@ -26,10 +26,8 @@ def arguments():
     parser.add_argument("--base-port", type=int, required=True)
     for name in ("work-dir", "artifact-dir", "binary"):
         parser.add_argument("--" + name, type=Path, required=True)
-    parser.add_argument("--github-binary", type=Path)
     parser.add_argument("--include-deadline", action="store_true")
     parser.add_argument("--browser-script", type=Path, default=HERE / "run-browsers.py")
-    parser.add_argument("--github-script", type=Path, default=HERE.parent / "githubbeta/run.sh")
     parser.add_argument("--cleanup-grace", type=float, default=22)
     parser.add_argument("playwright", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -38,7 +36,7 @@ def arguments():
     if not 1 <= args.workers <= 8:
         parser.error("workers must be 1..8")
     # Ancillary blocks start after the entire main allocation. Every browser
-    # fixture consumes base,+10,+20,+30; GitHub owns its entire block as well.
+    # fixture consumes base,+10,+20,+30. Preserve the deadline port block.
     if args.base_port < 1024 or args.base_port + (args.workers + 2) * 100 + 30 > 65535:
         parser.error("suite port blocks are outside the allowed range")
     if args.cleanup_grace <= 0 or args.cleanup_grace > 60:
@@ -56,15 +54,12 @@ def arguments():
     if (args.work_dir == args.artifact_dir or args.work_dir in args.artifact_dir.parents or
             args.artifact_dir in args.work_dir.parents):
         parser.error("state and evidence directories must be separate")
-    for name in ("binary", "github_binary", "browser_script", "github_script"):
+    for name in ("binary", "browser_script"):
         value = getattr(args, name)
         if value is not None:
             setattr(args, name, value.resolve())
     if not os.access(args.binary, os.X_OK):
         parser.error("Helm binary must be executable")
-    if not args.playwright and (args.github_binary is None or
-                               not os.access(args.github_binary, os.X_OK)):
-        parser.error("full suites require an executable prepared GitHub binary")
     return args
 
 
@@ -90,11 +85,13 @@ def run(args):
     membership_focus = MEMBERSHIP in option_tokens(args.playwright)
     single_membership_focus = membership_focus and all(
         value.startswith("-") or value == MEMBERSHIP for value in option_tokens(args.playwright))
-    for index, name in enumerate(("main", "onboarding", "github", "deadline", "membership")):
-        required = name in ("main", "onboarding") or (name == "github" and full) or (
+    for index, name in enumerate(("main", "onboarding", "deadline", "membership")):
+        required = name in ("main", "onboarding") or (
             name == "deadline" and args.include_deadline) or (
             name == "membership" and (full or membership_focus))
         port = args.base_port if name == "main" else args.base_port + (args.workers + index - 1) * 100
+        if name == "deadline":
+            port = args.base_port + (args.workers + 2) * 100
         if name == "membership":
             # Onboarding's fixture binds +0..+30 of its block; membership owns
             # the unused upper half so existing range checks stay unchanged.
@@ -134,20 +131,13 @@ def run(args):
         if name == "deadline" or (name == "main" and deadline_focus and
                                   os.environ.get("HELM_E2E_CODEX_STALL_ACCOUNT") == "true"):
             env["HELM_E2E_CODEX_STALL_ACCOUNT"] = "true"
-        if name == "github":
-            env.update(HELM_GITHUB_BETA_BINARY=str(args.github_binary),
-                       HELM_GITHUB_BETA_PORT=str(phase["base_port"]),
-                       HELM_GITHUB_BETA_WORK_DIR=str(work),
-                       HELM_E2E_ARTIFACT_DIR=str(artifacts))
-            command = [str(args.github_script)]
-        else:
-            selection = args.playwright if name == "main" or (
-                name == "membership" and single_membership_focus) else [LOCAL_SPECS.get(name, DEADLINE)]
-            command = [sys.executable, str(args.browser_script), "--mode",
-                       "local" if name in LOCAL_SPECS else "disabled", "--workers",
-                       str(phase["workers"]), "--base-port", str(phase["base_port"]),
-                       "--work-dir", str(work), "--artifact-dir", str(artifacts),
-                       "--binary", str(args.binary), "--", *selection]
+        selection = args.playwright if name == "main" or (
+            name == "membership" and single_membership_focus) else [LOCAL_SPECS.get(name, DEADLINE)]
+        command = [sys.executable, str(args.browser_script), "--mode",
+                   "local" if name in LOCAL_SPECS else "disabled", "--workers",
+                   str(phase["workers"]), "--base-port", str(phase["base_port"]),
+                   "--work-dir", str(work), "--artifact-dir", str(artifacts),
+                   "--binary", str(args.binary), "--", *selection]
         phase.update(status="running", started_at_epoch=time.time())
         started = time.monotonic()
         log = (args.artifact_dir / f"{name}.console.log").open("wb")
