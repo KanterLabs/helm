@@ -171,6 +171,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		s.codexAccount(w, r, identity, parts[1:])
 		return
 	}
+	if len(parts) == 2 && parts[0] == "openai" && parts[1] == "connection" {
+		s.openAIConnection(w, r, identity)
+		return
+	}
 	if parts[0] == "project-intelligence" && len(parts) == 2 && parts[1] == "analyze" {
 		s.projectIntelligence(w, r, identity, "analyze")
 		return
@@ -190,6 +194,8 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		}
 		if len(parts) == 3 {
 			switch parts[2] {
+			case "triage-suggestion":
+				s.taskTriageSuggestion(w, r, identity, parts[1])
 			case "comments":
 				s.comments(w, r, identity, parts[1])
 			case "agent-notes":

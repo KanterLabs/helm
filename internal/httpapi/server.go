@@ -4,10 +4,13 @@ package httpapi
 
 import (
 	"context"
+	"os"
+
 	"github.com/KanterLabs/helm/internal/auth"
 	"github.com/KanterLabs/helm/internal/betaswitch"
 	"github.com/KanterLabs/helm/internal/codexruntime"
 	"github.com/KanterLabs/helm/internal/config"
+	"github.com/KanterLabs/helm/internal/decisions"
 	"github.com/KanterLabs/helm/internal/publicendpoint"
 	"github.com/KanterLabs/helm/internal/store"
 	"net/http"
@@ -15,10 +18,11 @@ import (
 )
 
 type Server struct {
-	Store *store.Store
-	Auth  *auth.Manager
-	Cfg   config.Config
-	Codex CodexAccountService
+	Store           *store.Store
+	Auth            *auth.Manager
+	Cfg             config.Config
+	Codex           CodexAccountService
+	openAIDecisions *decisions.Service
 	// GitHub services keep remote evidence and background audit execution
 	// separate from ordinary task reads and the external audit submission API.
 	Github       *GithubService
@@ -78,5 +82,6 @@ func NewWithBetaSwitch(s *store.Store, manager *auth.Manager, cfg config.Config,
 	server := &Server{Store: s, Auth: manager, Cfg: cfg, Codex: codexManager, BetaSwitch: betaClient, betaSwitchIdem: make(map[string]betaSwitchReplay), mutationLimiter: newDefaultMutationRateLimiter(), agentRequestLimiter: newDefaultAgentRequestLimiter(), bearerCredentialLimiter: newDefaultBearerCredentialLimiter(), bodyBufferPool: processBodyBufferPool, bearerAuthSlots: processBearerAuthSlots, metrics: newMetricsRegistry(), adminActivity: newAdminActivityTracker(), projectIntelligenceCache: make(map[string]projectIntelligenceCacheEntry), projectIntelligenceRunning: make(map[string]bool)}
 	server.configureGithubServices()
 	server.startAttachmentRuntime()
+	server.openAIDecisions = decisions.New(cfg.DB+".openai-decisions", cfg.PublicOrigin, os.Getenv("HELM_OPENAI_DECISIONS_TEST_ORIGIN"))
 	return server
 }

@@ -1,0 +1,71 @@
+paths:
+  /api/v1/openai/connection:
+    get:
+      operationId: getOpenAIConnection
+      summary: Get the signed-in human's OpenAI connection status
+      tags: [Authentication]
+      security: &human
+      - cookieAuth: []
+      - cloudflareAccess: []
+      responses:
+        '200': &connectionStatus
+          description: Connection status for the current human
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [connected]
+                additionalProperties: false
+                properties:
+                  connected:
+                    type: boolean
+        '401': &unauthorized
+          $ref: '#/components/responses/Unauthorized'
+        '403': &forbidden
+          $ref: '#/components/responses/Forbidden'
+        '503': &unavailable
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: saveOpenAIConnection
+      summary: Validate and store a personal OpenAI project key
+      description: A synthetic Decisions request validates the key before it replaces any existing credential.
+      tags: [Authentication]
+      security: *human
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key]
+              additionalProperties: false
+              properties:
+                api_key:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                  writeOnly: true
+      responses:
+        '200': *connectionStatus
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401': *unauthorized
+        '403': *forbidden
+        '422':
+          description: OpenAI rejected the key or project access
+        '429': &limited
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503': *unavailable
+    delete:
+      operationId: removeOpenAIConnection
+      summary: Remove the signed-in human's OpenAI key
+      tags: [Authentication]
+      security: *human
+      responses:
+        '200': *connectionStatus
+        '401': *unauthorized
+        '403': *forbidden
+        '429': *limited
+        '503': *unavailable
