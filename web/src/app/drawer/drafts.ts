@@ -53,6 +53,15 @@ export function syncCleanDrawerDrafts(authoritative: Task) {
   }
 }
 
+export function syncAppliedPriority(authoritative: Task) {
+  if (drawer.drawerTask?.id !== authoritative.id || !drawer.drawerSavedTaskDraftFingerprint) return;
+  // A title or description edit made while the priority PATCH was in flight
+  // keeps its original baseline. Rebase only the priority that was applied.
+  const [title, description, previousPriority, ...remaining] = JSON.parse(drawer.drawerSavedTaskDraftFingerprint);
+  if (drawer.draftPriority === previousPriority) drawer.draftPriority = authoritative.priority;
+  drawer.drawerSavedTaskDraftFingerprint = JSON.stringify([title, description, authoritative.priority, ...remaining]);
+}
+
 export function drawerTaskDraftFingerprint(): string {
   return JSON.stringify(drawerTaskDraftValues());
 }

@@ -16,6 +16,7 @@
   import { workspace } from '../../state/workspace.svelte';
   import { applyTheme } from '../../theme';
   import AgentsSection from './AgentsSection.svelte';
+  import OpenAIConnection from './OpenAIConnection.svelte';
   import ProjectAdminSection from './ProjectAdminSection.svelte';
 
   // Destructive account actions return focus to the main content if their
@@ -29,6 +30,9 @@
 <section class="page-heading"><div><div class="breadcrumbs"><span>Workspace</span><span>/</span><span>Preferences</span></div><h1>Settings</h1><p>Your account, the people and agents in this workspace, and how Helm looks on this device.</p></div></section>
 {#if session.user}
   <AccountSecurity user={session.user} authStatus={session.authStatus} projects={workspace.projects} {confirmAction} onSignedOut={endAuthenticatedSession} />
+  {#if session.authStatus?.mode !== 'disabled'}
+    {#key session.sessionGeneration}<OpenAIConnection />{/key}
+  {/if}
 {/if}
 {#if session.user && session.workspaceAdmin}
   <MembersAdmin authStatus={session.authStatus} currentUser={session.user} projects={grantProjects} {confirmAction} onSelfChanged={refreshSignedInActor} />

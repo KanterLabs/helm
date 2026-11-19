@@ -61,6 +61,22 @@ Never distribute assertion or TLS signing keys to owner/agent clients.
 
 See [LUNA_TASK_ASSIST.md](LUNA_TASK_ASSIST.md).
 
+## OpenAI task triage
+
+In **Settings → OpenAI**, save an OpenAI project API key with access to
+`POST /v1/decisions`. Helm validates it using a synthetic request. From a
+saved task, **Suggest triage** sends its title and up to 4,096 bytes of its
+description using the signed-in user's key. The drawer shows an advisory
+readiness status and lets the user edit and apply the suggested priority.
+OpenAI bills the key's project.
+
+Credential files live in the private directory `<HELM_DB>.openai-decisions`.
+It contains per-user encrypted credentials and a separate installation seal
+file. Keep the directory permissions private. To preserve connections across
+host recovery, include that directory in protected host backups. Ordinary
+database backups and project exports exclude it. Each user can alternatively
+reconnect their own key after recovery. This feature adds no database migration.
+
 ## GitHub beta
 
 The connected GitHub integration and Branches view were removed in TC-391.

@@ -133,6 +133,7 @@ x-helm-fragments:
   - openapi/paths/cloudflare-zones.yaml
   - openapi/paths/cloudflare.yaml
   - openapi/paths/codex-account.yaml
+  - openapi/paths/openai-connection.yaml
   - openapi/paths/codex-login-cancel.yaml
   - openapi/paths/codex-login.yaml
   - openapi/paths/codex-logout.yaml
@@ -194,6 +195,7 @@ x-helm-fragments:
   - openapi/paths/tasks-ancestors.yaml
   - openapi/paths/tasks-block.yaml
   - openapi/paths/tasks-pull-requests.yaml
+  - openapi/paths/tasks-triage-suggestion.yaml
   - openapi/paths/tasks-checklist.yaml
   - openapi/paths/tasks-children.yaml
   - openapi/paths/tasks-claim.yaml
