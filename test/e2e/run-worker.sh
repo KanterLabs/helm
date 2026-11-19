@@ -174,6 +174,7 @@ done
   cd "$root/web"
   export HELM_E2E_BASE_URL="$origin" ROADMAP_E2E_BASE_URL="$origin"
   export HELM_E2E_DB="$server_db" HELM_E2E_SERVER_LOG="$server_log"
+  export HELM_E2E_FIXTURE_BINARY="$binary"
   export HELM_E2E_HOOKS_URL="$hooks_origin" HELM_E2E_FAKE_CF_URL="$cf_origin"
   export HELM_E2E_FAKE_CF_TOKEN="$fake_cf_token"
   export HELM_E2E_FAKE_CF_ZONELESS_TOKEN="$fake_cf_zoneless"
