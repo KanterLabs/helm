@@ -48,7 +48,7 @@
 
 
   {#if workspace.view === 'board'}
-  <BoardToolbar {overflow} onMoveColumns={moveColumns} />
+  <BoardToolbar project={workspace.activeProject} {overflow} onMoveColumns={moveColumns} />
   <ProjectCapacity project={workspace.activeProject} />
 
   {#if board.boardFilterChips.length}<div class="board-filter-chips" aria-label="Active board filters">{#each board.boardFilterChips as chip (chip.id)}<button type="button" on:click={chip.clear} aria-label={`Remove ${chip.label} filter`}>{chip.label} <span aria-hidden="true">×</span></button>{/each}</div>{/if}
