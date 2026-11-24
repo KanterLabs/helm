@@ -161,6 +161,7 @@ x-helm-fragments:
   - openapi/paths/notifications.yaml
   - openapi/paths/project-intelligence-analyze.yaml
   - openapi/paths/project-intelligence.yaml
+  - openapi/paths/projects-agent-work.yaml
   - openapi/paths/projects-audits.yaml
   - openapi/paths/projects-boards.yaml
   - openapi/paths/projects-columns.yaml
@@ -232,6 +233,7 @@ x-helm-fragments:
   - openapi/responses/mutation-conflicts.yaml
   - openapi/responses/request-errors.yaml
   - openapi/schemas/administration.yaml
+  - openapi/schemas/agent-admission.yaml
   - openapi/schemas/agent-work.yaml
   - openapi/schemas/agents.yaml
   - openapi/schemas/membership.yaml

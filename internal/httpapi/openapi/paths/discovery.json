@@ -283,7 +283,7 @@
       "get": {
         "operationId": "getApiDiscovery",
         "summary": "Discover the Helm API",
-        "description": "Returns the API name, version, and optional deployed revision.",
+        "description": "Returns the API name, version, supported agent admission capability, and optional deployed revision.",
         "tags": [
           "Health"
         ],
@@ -309,6 +309,7 @@
                 "example": {
                   "name": "helm",
                   "version": "v1",
+                  "agent_work_admission": true,
                   "revision": "0123456789abcdef0123456789abcdef01234567"
                 }
               }

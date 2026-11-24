@@ -22,6 +22,8 @@ type Task struct {
 	Labels            []Label              `json:"labels"`
 	CommentCount      int                  `json:"comment_count"`
 	Bug               *Bug                 `json:"bug,omitempty"`
+	NextAction        string               `json:"next_action,omitempty"`
+	FinishCondition   string               `json:"finish_condition,omitempty"`
 	AgentWork         *AgentWork           `json:"agent_work,omitempty"`
 	DependencySummary DependencySummary    `json:"dependency_summary"`
 	Checklist         []TaskChecklistItem  `json:"checklist"`

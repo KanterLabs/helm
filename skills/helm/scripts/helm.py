@@ -27,6 +27,8 @@ _MODULE_NAMES = (
     "helm_notifications",
     "helm_activity",
     "helm_knowledge",
+    "helm_admission_state",
+    "helm_admission",
     "helm_task_lifecycle",
     "helm_progress",
     "helm_parser_projects",

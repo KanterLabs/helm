@@ -30,7 +30,14 @@ trust boundaries. A beta branch push alone does not update installed copies.
    Focus areas before proposing new Backlog work, even when the user has not
    named Focus. Resume owned work first. An explicit task keeps its existing
    scope; discovery does not authorize another workstream.
-2. Search for an existing open task before creating one. Preserve the existing project key and task IDs when resuming work:
+   When choosing the next assignment yourself, inspect the work already
+   underway. Resume an eligible card, run its outstanding check, or clear a
+   prerequisite within scope. Continue while you can advance that work.
+2. Search for an existing open task before creating one. On a server with
+   agent admission, use `select-next --project TC` when choosing your next
+   task. It reads Helm's recommendation without taking a slot. If the
+   recommendation is outside your assignment, keep the assignment scoped.
+   Preserve existing task keys when resuming work.
 
    ```sh
    python3 scripts/helm.py tasks --project TC --query "short task title"
@@ -41,6 +48,8 @@ trust boundaries. A beta branch push alone does not update installed copies.
    ```sh
    python3 scripts/helm.py resume \
      --task TC-1 \
+     --next-action "Validate the skill" \
+     --finish-condition "The published skill and updater pass verification" \
      --operation-id "stable-session-local-id"
    ```
 
@@ -56,10 +65,13 @@ trust boundaries. A beta branch push alone does not update installed copies.
      --operation-id "stable-session-local-id"
    ```
 
-   Resume is a claim-and-activate operation: the task must be claimed by this
-   session and placed in the project's Active/In progress column before work
-   continues. Keep the returned task key. Mention it in normal progress
-   updates when useful.
+   On a server with agent admission, both commands obtain and verify a live
+   session fence before returning success. Begin work after that succeeds.
+   If Helm points to existing eligible work, resolve that work within scope
+   before starting another task. Capacity and claim denials leave the board
+   unchanged. Keep the returned task key for progress updates. See
+   [agent admission](references/agent-admission.md) for session setup, plan
+   defaults and older server compatibility.
 
 4. On a machine where the lifecycle hook is not already installed, run
    `python3 scripts/install_hooks.py`. The installer merges only the Helm
@@ -85,7 +97,10 @@ python3 scripts/helm.py backlog \
 Do not use `backlog` for the work currently being performed; the current
 workstream still needs one active, claimed task.
 
-If the correct project is missing or credentials do not permit the work, report that clearly and continue the underlying task when safe. Do not widen token scopes or create credentials without Shane's authorization.
+If the correct project is missing or credentials do not permit the work, report
+that clearly. Where Helm requires admission, wait for an authorized live
+admission before executing the work. Do not widen token scopes or create
+credentials without Shane's authorization.
 
 ## Share visual evidence
 
@@ -291,3 +306,5 @@ python3 scripts/helm.py auth-check
 Additional client workflows are available without hand-written HTTP. Read
 [workflow commands](references/workflow-commands.md) for dependency, activity,
 bug, watch and notification commands and their replay rules.
+Use the [isolated worker runner](references/worker-runner.md) when launching
+an opted-in unattended worker under a live admission.

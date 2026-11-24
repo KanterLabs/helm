@@ -55,6 +55,13 @@ func idempotencyRequestHash(r *http.Request, identity auth.Identity) string {
 		}
 		sort.Strings(authority.Scopes)
 	}
+	// A retry for one execution fence cannot replay a different fence's receipt.
+	if session := r.Header.Get(agentAdmissionSessionHeader); session != "" {
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(session))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(r.Header.Get(agentAdmissionFenceHeader)))
+	}
 	encoded, _ := json.Marshal(authority)
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(encoded)

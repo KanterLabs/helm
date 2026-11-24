@@ -63,7 +63,7 @@ func (s *Store) GetTaskForRestore(ctx context.Context, reference string) (Task, 
 	return task, deletedAt.Valid, nil
 }
 
-func txExecTaskCreate(ctx context.Context, tx *sql.Tx, id, projectID string, number int, columnID, kind, title, description, priority string, position float64, assignee, dueAt string, completedAt any, created, parentID, releaseID string) error {
+func txExecTaskCreate(ctx context.Context, tx dependencySQL, id, projectID string, number int, columnID, kind, title, description, priority string, position float64, assignee, dueAt string, completedAt any, created, parentID, releaseID string) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO tasks(id, project_id, number, column_id, kind, title, description, priority, position, assignee_id, due_at, version, completed_at, created_at, updated_at, parent_task_id, release_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), 1, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`, id, projectID, number, columnID, kind, title, description, priority, position, assignee, dueAt, completedAt, created, created, parentID, releaseID)
 	return err
 }
@@ -107,7 +107,9 @@ func (s *Store) enrichTask(ctx context.Context, task *Task) error {
 
 func (s *Store) enrichTaskAt(ctx context.Context, task *Task, at time.Time) error {
 	var key string
-	if err := s.DB.QueryRowContext(ctx, `SELECT key FROM projects WHERE id = ?`, task.ProjectID).Scan(&key); err != nil {
+	if err := s.DB.QueryRowContext(ctx, `SELECT p.key, COALESCE(a.next_action,''), COALESCE(a.finish_condition,'')
+		FROM projects p LEFT JOIN task_agent_admissions a ON a.task_id=? WHERE p.id=?`,
+		task.ID, task.ProjectID).Scan(&key, &task.NextAction, &task.FinishCondition); err != nil {
 		return err
 	}
 	task.Key = fmt.Sprintf("%s-%d", key, task.Number)

@@ -63,6 +63,42 @@ docker compose down -v                                     # stop AND delete all
 
 </details>
 
+## Keeping a board current
+
+Each project has five In Progress slots. A card occupies a slot until it
+leaves In Progress, including when its agent lease expires. Agents can take
+over eligible work on a full board. A project with seven existing cards can
+start another once three cards leave In Progress and the count reaches four.
+
+An agent can hold one active assignment. Use `select-next` to find eligible
+work, then resume it with a concrete next action and a finish condition.
+The [Docker worker](skills/helm/references/worker-runner.md) checks that
+assignment before it runs a command and while the command is executing.
+
+Before adding a task, check whether an open card already covers the outcome.
+Create a card when someone expects to pick up the work. Keep longer-term ideas
+in the Focus description until the team chooses the next piece.
+
+- **Choosing what to do next.** Before pulling a Ready card, look for work
+  already underway that you can advance. Finish the review, run the missing
+  check, or clear the dependency. If an outside decision is holding it up,
+  record who will follow up and when. Pull new work once the existing work
+  you can help with has moved on or has a genuine wait.
+- **Starting work.** Set the assignee and say what will count as done. The
+  assignee can find the card across projects in **My work → Assigned**.
+- **Handing off.** Name who has the next action and what they need to do.
+  If work is blocked, use **Block** and give a point to check back. For example,
+  “Maya will run the Windows test on Thursday and attach the screenshot.”
+- **Finishing.** Whoever verifies delivery records the result on the original
+  card and selects **Complete**. If a release includes several cards, check
+  each card’s acceptance criteria against the release.
+
+At the team's weekly planning check, review **In progress** and **Blocked**
+before pulling from **Ready**. Include unassigned cards on the project board.
+For each quiet card, agree who picks it up next, record when to revisit it,
+or close it with delivery evidence. **Roadmap** shows upcoming and overdue
+deadlines for cards that have a due date.
+
 <a id="features"></a>
 
 ## ✨ Features

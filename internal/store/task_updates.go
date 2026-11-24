@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"strings"
 )
 
@@ -11,29 +9,10 @@ func (s *Store) UpdateTask(ctx context.Context, id string, input TaskInput, expe
 	return s.UpdateTaskWithClaimOverride(ctx, id, input, expected, actorID, false)
 }
 
-func validateTaskBugLifecycleTx(ctx context.Context, tx dependencySQL, taskID, kind, destinationState string) error {
-	if kind != bugKind {
-		return nil
-	}
-	var resolution sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT resolution FROM bug_details WHERE task_id=?`, taskID).Scan(&resolution)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	resolved := err == nil && resolution.Valid && strings.TrimSpace(resolution.String) != ""
-	if destinationState == "completed" && !resolved {
-		return invalid("bugs must be resolved before entering a completed column", nil)
-	}
-	if destinationState != "completed" && resolved {
-		return invalid("resolved bugs must be reopened before leaving a completed column", nil)
-	}
-	return nil
-}
-
 // UpdateTaskWithClaimOverride applies a task patch while atomically honoring
 // an active claim owned by another actor. The override is deliberately
 // explicit so a bearer token cannot inherit a human administrator's power.
-func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, input TaskInput, expected int64, actorID string, allowClaimOverride bool) (Task, error) {
+func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, input TaskInput, expected int64, actorID string, allowClaimOverride bool, session ...AgentAdmissionSession) (Task, error) {
 	validated, err := validateTaskInput(input, false)
 	if err != nil {
 		return Task{}, err
@@ -196,7 +175,10 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		}
 	}
 	updated := now()
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if err := checkAgentAdmissionSessionTx(ctx, tx, id, actorID, session); err != nil {
+			return err
+		}
 		checklistStatus := checklistCompletionStatus{}
 		// Derive completion from the authoritative column rows inside the write.
 		// The target column can be reclassified by an administrator between the
@@ -214,7 +196,8 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 			}
 		}
 		query := `UPDATE tasks SET kind=?, title=?, description=?, priority=?, column_id=?, position=CASE WHEN ? THEN (SELECT COALESCE(MAX(candidate.position)+1, 0) FROM tasks candidate WHERE candidate.column_id=? AND candidate.deleted_at IS NULL AND candidate.id<>?) ELSE ? END, assignee_id=NULLIF(?, ''), due_at=NULLIF(?, ''), parent_task_id=NULLIF(?, ''), release_id=NULLIF(?, ''), version=version+1, completed_at=CASE WHEN (SELECT semantic_state FROM columns WHERE id=?) = 'completed' THEN CASE WHEN (SELECT semantic_state FROM columns WHERE id=tasks.column_id) = 'completed' THEN tasks.completed_at ELSE ? END ELSE NULL END, updated_at=? WHERE id=? AND version=? AND deleted_at IS NULL`
-		args := []any{kind, title, description, priority, columnID, appendToDestination, columnID, id, position, assignee, dueAt, parentID, releaseID, columnID, updated, updated, id, expected}
+		query += ` AND project_id=? AND column_id=?`
+		args := []any{kind, title, description, priority, columnID, appendToDestination, columnID, id, position, assignee, dueAt, parentID, releaseID, columnID, updated, updated, id, expected, current.ProjectID, current.ColumnID}
 		if !allowClaimOverride {
 			query += ` AND (claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at) <= julianday(?) OR claimed_by=?)`
 			args = append(args, updated, actorID)
@@ -256,6 +239,9 @@ func (s *Store) UpdateTaskWithClaimOverride(ctx context.Context, id string, inpu
 		}
 		if autoBugIntake && (sourceState != "backlog" || destinationState != "backlog") {
 			return conflict("bug intake column changed semantic state", map[string]any{"column_id": columnID})
+		}
+		if err := checkTaskEnteringActiveTx(ctx, tx, id, current.ProjectID, actorID, sourceState, destinationState); err != nil {
+			return err
 		}
 		if err := validateTaskBugLifecycleTx(ctx, tx, id, kind, destinationState); err != nil {
 			return err

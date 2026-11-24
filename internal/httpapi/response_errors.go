@@ -80,6 +80,20 @@ func (s *Server) writeStoreErrorForIdentity(w http.ResponseWriter, identity auth
 		status, code, message = http.StatusConflict, "release_frozen", err.Error()
 	case errors.Is(err, store.ErrReleaseQueueChanged):
 		status, code, message = http.StatusConflict, "release_queue_changed", err.Error()
+	case errors.Is(err, store.ErrProjectCapacityReached):
+		status, code, message = http.StatusConflict, "project_capacity_reached", err.Error()
+	case errors.Is(err, store.ErrAgentAlreadyActive):
+		status, code, message = http.StatusConflict, "agent_already_active", err.Error()
+	case errors.Is(err, store.ErrAgentAdmissionRequired):
+		status, code, message = http.StatusConflict, "agent_admission_required", err.Error()
+	case errors.Is(err, store.ErrAgentEligibleTaskExists):
+		status, code, message = http.StatusConflict, "eligible_task_exists", err.Error()
+	case errors.Is(err, store.ErrAgentTaskNotEligible):
+		status, code, message = http.StatusConflict, "task_not_eligible", err.Error()
+	case errors.Is(err, store.ErrAgentSessionInUse):
+		status, code, message = http.StatusConflict, "agent_session_in_use", err.Error()
+	case errors.Is(err, store.ErrAgentAdmissionNotFound):
+		status, code, message = http.StatusNotFound, "agent_admission_not_found", err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, code, message = http.StatusBadRequest, "invalid_request", err.Error()
 	case errors.Is(err, store.ErrNotFound):
@@ -105,7 +119,7 @@ func (s *Server) writeStoreErrorForIdentity(w http.ResponseWriter, identity auth
 		if strings.Contains(strings.ToLower(err.Error()), "idempotency") {
 			code = "idempotency_key_reused"
 		}
-		if typed != nil {
+		if code == "conflict" && typed != nil {
 			if detailMap, ok := typed.Details.(map[string]any); ok {
 				if _, hasCurrent := detailMap["current"]; hasCurrent {
 					code = "stale_task"
@@ -119,6 +133,9 @@ func (s *Server) writeStoreErrorForIdentity(w http.ResponseWriter, identity auth
 	details = redactTaskConflictDetails(identity, details)
 	details = redactDependencyDetails(identity, err, details)
 	details = redactReleaseDetails(identity, err, details)
+	if errors.Is(err, store.ErrAgentEligibleTaskExists) && identity.IsToken && !identity.HasScope("tasks:read") {
+		details = map[string]any{}
+	}
 	s.writeError(w, status, code, message, details)
 }
 

@@ -104,7 +104,7 @@ func (s *Store) ReopenBugWithClaimOverride(ctx context.Context, id, reason strin
 	return s.GetTask(ctx, id)
 }
 
-func (s *Store) resolveDuplicateTargetTx(ctx context.Context, tx *sql.Tx, projectID, sourceID, reference string) (string, error) {
+func (s *Store) resolveDuplicateTargetTx(ctx context.Context, tx dependencySQL, projectID, sourceID, reference string) (string, error) {
 	var targetID, targetProject, targetKind string
 	err := tx.QueryRowContext(ctx, `SELECT t.id, t.project_id, t.kind FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.deleted_at IS NULL AND (t.id=? OR lower(p.key || '-' || CAST(t.number AS TEXT))=lower(?)) LIMIT 1`, reference, reference).Scan(&targetID, &targetProject, &targetKind)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -136,7 +136,7 @@ func (s *Store) resolveDuplicateTargetTx(ctx context.Context, tx *sql.Tx, projec
 	return targetID, nil
 }
 
-func bugMutationFailure(ctx context.Context, tx *sql.Tx, id, actorID string, expected int64, timestamp string, current Task, allowClaimOverride bool) error {
+func bugMutationFailure(ctx context.Context, tx dependencySQL, id, actorID string, expected int64, timestamp string, current Task, allowClaimOverride bool) error {
 	if !allowClaimOverride {
 		claimed, details, err := activeClaimByOtherTx(ctx, tx, id, actorID, timestamp)
 		if err != nil {

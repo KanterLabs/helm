@@ -81,7 +81,7 @@ func (s *Store) agentWorkAt(ctx context.Context, taskID string, at time.Time) (*
 // the snapshot must belong to both the caller and operation ID. Keeping all
 // predicates in the UPDATE makes expiry safe when this transaction waits for
 // SQLite's single writer lock; a failed heartbeat performs no write.
-func (s *Store) HeartbeatAgentWork(ctx context.Context, taskID, operationID, actorID string) (Task, error) {
+func (s *Store) HeartbeatAgentWork(ctx context.Context, taskID, operationID, actorID string, session ...AgentAdmissionSession) (Task, error) {
 	validatedOperationID, err := validateAgentWorkOperationID(operationID)
 	if err != nil {
 		return Task{}, err
@@ -102,7 +102,7 @@ func (s *Store) HeartbeatAgentWork(ctx context.Context, taskID, operationID, act
 			return err
 		}
 		if changed != 0 {
-			return nil
+			return checkAgentAdmissionSessionTx(ctx, tx, taskID, actorID, session)
 		}
 
 		// Classify the failed guard without issuing any write. These checks are
@@ -145,7 +145,7 @@ func (s *Store) HeartbeatAgentWork(ctx context.Context, taskID, operationID, act
 // agent-work snapshot, comment, and progress event. The guarded task UPDATE
 // is the authorization boundary: a pulse requires an unexpired claim owned by
 // actorID, the expected task version, and an unfinished task.
-func (s *Store) PublishAgentWork(ctx context.Context, taskID string, input AgentWorkInput, expectedTaskVersion int64, actorID string) (Task, error) {
+func (s *Store) PublishAgentWork(ctx context.Context, taskID string, input AgentWorkInput, expectedTaskVersion int64, actorID string, session ...AgentAdmissionSession) (Task, error) {
 	validated, err := validateAgentWorkInput(input)
 	if err != nil {
 		return Task{}, err
@@ -196,6 +196,18 @@ func (s *Store) PublishAgentWork(ctx context.Context, taskID string, input Agent
 				return conflict("task is already finished", nil)
 			}
 			return forbidden("an active claim owned by this actor is required")
+		}
+
+		if err := checkAgentAdmissionSessionTx(ctx, tx, taskID, actorID, session); err != nil {
+			return err
+		}
+		if validated.NextAction != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE task_agent_admissions SET next_action=?
+				WHERE task_id=? AND actor_id=? AND ended_at IS NULL
+				AND EXISTS (SELECT 1 FROM tasks t WHERE t.id=task_agent_admissions.task_id AND t.claimed_by=task_agent_admissions.actor_id)`,
+				validated.NextAction, taskID, actorID); err != nil {
+				return err
+			}
 		}
 
 		// Capture the application timestamp only after the guarded UPDATE has

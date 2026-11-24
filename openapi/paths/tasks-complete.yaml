@@ -12,6 +12,8 @@ paths:
       tags:
         - Tasks
       parameters:
+        - $ref: "#/components/parameters/AgentAdmissionSession"
+        - $ref: "#/components/parameters/AgentAdmissionFence"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:

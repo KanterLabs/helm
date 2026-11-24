@@ -2,6 +2,7 @@
 
 <script lang="ts">
   // Bulk change review dialog.
+  import { capacityRefusal } from '../../../lib/capacity';
   import { bulkResultLabel, closeBulkModal, submitBulkChanges } from '../../bulk';
   import { focusTrap } from '../../dialogs';
   import { board } from '../../state/board.svelte';
@@ -30,10 +31,10 @@
       {:else if bulk.bulkOperation === 'complete'}
         <label>Completion note <span class="optional">Optional · added to activity</span><textarea aria-label="Bulk completion note" rows="2" bind:value={bulk.bulkReason} placeholder="Shipped in this release"></textarea></label>
       {:else if bulk.bulkOperation === 'block'}
-        <label>Blocking reason<textarea aria-label="Bulk blocking reason" rows="2" bind:value={bulk.bulkReason} placeholder="Waiting on a decision" required></textarea></label>
+        <label>Blocking reason<textarea aria-label="Bulk blocking reason" rows="2" bind:value={bulk.bulkReason} placeholder="Who will follow up, on what, and when?" required></textarea></label>
       {/if}
       <section class="bulk-review-list" aria-labelledby="bulk-review-heading"><div class="section-heading-inline"><h3 id="bulk-review-heading">Tasks in this change</h3><span class="optional">{bulk.bulkReviewTasks.length} of 100 maximum</span></div>{#if bulk.bulkReviewTasks.length}<ul>{#each bulk.bulkReviewTasks as task (task.id)}<li><span class="task-key">{task.key}</span><span>{task.title}</span><span class="bulk-review-version">v{task.version}</span></li>{/each}</ul>{:else}<p class="bulk-empty-review">Applied tasks have been cleared from the selection. Close this review or select more tasks.</p>{/if}</section>
-      {#if bulk.bulkResult}<section class="bulk-result" aria-labelledby="bulk-result-heading" role="status" aria-live="polite"><div class="section-heading-inline"><h3 id="bulk-result-heading">Result summary</h3><span>{bulk.bulkResult.applied} applied · {bulk.bulkResult.conflicts} conflicts · {bulk.bulkResult.skipped} skipped</span></div><ul>{#each bulk.bulkResult.results as result (result.reference)}<li><span class={`bulk-result-status ${result.status}`}>{bulkResultLabel(result.status)}</span><span class="task-key">{result.reference}</span>{#if result.error}<span class="bulk-result-error">{result.error.message}</span>{/if}</li>{/each}</ul></section>{/if}
+      {#if bulk.bulkResult}<section class="bulk-result" aria-labelledby="bulk-result-heading" role="status" aria-live="polite"><div class="section-heading-inline"><h3 id="bulk-result-heading">Result summary</h3><span>{bulk.bulkResult.applied} applied · {bulk.bulkResult.conflicts} conflicts · {bulk.bulkResult.skipped} skipped</span></div><ul>{#each bulk.bulkResult.results as result (result.reference)}<li><span class={`bulk-result-status ${result.status}`}>{bulkResultLabel(result.status)}</span><span class="task-key">{result.reference}</span>{#if result.error}<span class="bulk-result-error">{capacityRefusal(result.error) || result.error.message}</span>{/if}</li>{/each}</ul></section>{/if}
       <div class="modal-actions"><button class="text-button" type="button" on:click={closeBulkModal}>Close</button><button class="button primary" type="submit" disabled={bulk.bulkSubmitting || !bulk.bulkReviewTasks.length}>{#if bulk.bulkSubmitting}<span class="button-spinner"></span>{/if}{bulk.bulkResult ? 'Retry remaining changes' : `Apply changes to ${bulk.bulkReviewTasks.length} tasks`}</button></div>
     </form>
   </div>

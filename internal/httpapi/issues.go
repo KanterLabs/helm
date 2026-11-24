@@ -158,13 +158,13 @@ func (s *Server) issueAction(w http.ResponseWriter, r *http.Request, identity au
 			if parseErr != nil {
 				return 0, nil, "", parseErr
 			}
-			updated, mutationErr = s.Store.TriageBugWithClaimOverride(r.Context(), current.ID, input, version, identity.Actor.ID, allowClaimOverride)
+			updated, mutationErr = s.Store.TriageBugWithClaimOverride(r.Context(), current.ID, input, version, identity.Actor.ID, allowClaimOverride, agentAdmissionSession(r, identity)...)
 		case "resolve":
 			input, parseErr := parseResolveBugInput(fields)
 			if parseErr != nil {
 				return 0, nil, "", parseErr
 			}
-			updated, mutationErr = s.Store.ResolveBugWithClaimOverride(r.Context(), current.ID, input, version, identity.Actor.ID, allowClaimOverride)
+			updated, mutationErr = s.Store.ResolveBugWithClaimOverride(r.Context(), current.ID, input, version, identity.Actor.ID, allowClaimOverride, agentAdmissionSession(r, identity)...)
 		case "reopen":
 			reason, parseErr := parseReopenBugReason(fields)
 			if parseErr != nil {

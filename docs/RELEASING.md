@@ -38,6 +38,10 @@ the explicitly reported remote beta SHA, not an implicit snapshot of disk.
    fast-forwards canonical Gitea `main` to that protected merge, publishes
    matching version tags and release notes on both hosts, and records the
    deployed immutable image digest in the release notes.
+6. Check the Helm cards covered by the release, including work integrated
+   through an earlier PR. On each card whose acceptance criteria passed,
+   record the release tag and the verifying check, then select **Complete**.
+   For an outstanding check, record who will run it and when to follow up.
 
 The final command does not deploy anything. It refuses to tag a newer,
 unrelated `main` commit or publish after a failed deployment. Repeating it

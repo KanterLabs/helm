@@ -15,6 +15,7 @@ import { workspace } from '../state/workspace.svelte';
 import { mutationsForRequest } from '../taskSync';
 import type { BoardColumnLoadOptions, BoardColumnPage, BoardLoadOptions } from '../types';
 import { refreshBoardInBackground } from './backgroundRefresh';
+import { refreshProjectCapacity } from './capacity';
 import { beginBoardColumnRefresh, boardTaskParams, claimBoardColumnRequestGeneration, emptyBoardColumnPage, endBoardColumnRefresh, flattenBoardPages, invalidateBoardColumnRequests, mergeBoardPageTasks, sortBoardTasks, syncBoardReleaseURL } from './pages';
 
 export async function loadBoard(options: BoardLoadOptions = {}): Promise<boolean> {
@@ -41,6 +42,7 @@ export async function loadBoard(options: BoardLoadOptions = {}): Promise<boolean
     if (requestedCriteriaRevision === board.boardCriteriaRevision) board.boardCriteriaTransition = false;
     return true;
   }
+  void refreshProjectCapacity(project.id);
   // Release metadata is intentionally independent from board columns so a
   // retained API can still render cached board work while release support
   // rolls out. The release-aware task request below remains authoritative.

@@ -19,6 +19,9 @@ paths:
         version. `Idempotency-Key` is not supported; omit it.
       tags:
         - Tasks
+      parameters:
+        - $ref: "#/components/parameters/AgentAdmissionSession"
+        - $ref: "#/components/parameters/AgentAdmissionFence"
       requestBody:
         required: true
         content:

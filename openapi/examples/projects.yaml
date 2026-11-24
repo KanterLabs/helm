@@ -15,6 +15,8 @@ components:
         task_count: 42
         completed_task_count: 18
         open_task_count: 24
+        active_task_count: 4
+        active_task_limit: 5
         overdue_task_count: 2
         column_count: 5
     ProjectCollectionExample:
@@ -32,4 +34,6 @@ components:
             updated_at: 2026-08-27T10:00:00Z
             task_count: 42
             completed_count: 18
+            active_task_count: 4
+            active_task_limit: 5
         next_cursor: ""

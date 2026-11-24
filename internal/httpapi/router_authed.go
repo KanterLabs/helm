@@ -110,6 +110,10 @@ func (s *Server) dispatchAuthed(w http.ResponseWriter, r *http.Request, identity
 		return
 	}
 	if parts[0] == "projects" {
+		if len(parts) == 4 && parts[2] == "agent-work" && (parts[3] == "admit" || parts[3] == "eligibility") {
+			s.agentAdmission(w, r, identity, parts[1], parts[3])
+			return
+		}
 		if len(parts) == 2 {
 			s.project(w, r, identity, parts[1])
 			return

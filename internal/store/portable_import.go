@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 )
 
@@ -59,7 +58,7 @@ func (s *Store) ImportPortable(ctx context.Context, archive PortableArchive, opt
 	}
 	archive.normalize()
 	report := PortableImportReport{Format: archive.Format, Version: archive.Version, Conflict: options.Conflict, Remaps: []PortableImportRemap{}, Warnings: []string{}, Errors: []PortableImportIssue{}}
-	err := s.withTx(ctx, func(tx *sql.Tx) error {
+	err := s.withImmediateTx(ctx, func(tx dependencySQL) error {
 		plan, planErr := buildPortableImportPlan(ctx, tx, archive, options)
 		report = plan.report
 		if planErr != nil {

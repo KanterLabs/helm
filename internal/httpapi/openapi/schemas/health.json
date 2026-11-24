@@ -156,6 +156,10 @@
           "version": {
             "const": "v1"
           },
+          "agent_work_admission": {
+            "type": "boolean",
+            "description": "Set to true when the atomic agent-work admission API is available."
+          },
           "revision": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$",
