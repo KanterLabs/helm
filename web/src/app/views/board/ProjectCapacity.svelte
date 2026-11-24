@@ -3,23 +3,23 @@
   import type { Project } from '../../../lib/types';
   import { reviewActiveTasks } from '../../board/capacity';
 
-  let { project }: { project: Project } = $props();
+  let { project, compact = false }: { project: Project; compact?: boolean } = $props();
   const capacity = $derived(projectCapacity(project));
 </script>
 
-{#if capacity}
-  <section class="project-capacity" class:full={capacity.count >= capacity.limit} aria-label="In Progress capacity">
+{#if capacity && compact && capacity.count < capacity.limit}
+  <section aria-label="In Progress capacity">
+    <div role="status">In Progress · {capacity.count} of {capacity.limit}</div>
+  </section>
+{:else if capacity && !compact && capacity.count >= capacity.limit}
+  <section class="project-capacity" aria-label="In Progress capacity">
     <div role="status">
       <strong>In Progress</strong>
       <span>{capacity.count} of {capacity.limit}</span>
-      {#if capacity.count >= capacity.limit}
-        <strong class="capacity-state">{capacity.count > capacity.limit ? 'Over limit' : 'Full'}</strong>
-        <p>{projectCapacityAction(capacity.count, capacity.limit)}</p>
-      {/if}
+      <strong class="capacity-state">{capacity.count > capacity.limit ? 'Over limit' : 'Full'}</strong>
+      <p>{projectCapacityAction(capacity.count, capacity.limit)}</p>
     </div>
-    {#if capacity.count >= capacity.limit}
-      <button class="button quiet-button" type="button" onclick={reviewActiveTasks}>Review In Progress tasks</button>
-    {/if}
+    <button class="button quiet-button" type="button" onclick={reviewActiveTasks}>Review In Progress tasks</button>
   </section>
 {/if}
 
@@ -27,14 +27,12 @@
   .project-capacity {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     flex-wrap: wrap;
     gap: 8px 16px;
     margin-bottom: 12px;
     color: var(--ink-soft);
     font-size: var(--text-xs);
-  }
-  .project-capacity.full {
-    justify-content: space-between;
     padding: 9px 12px;
     border: 1px solid var(--border-strong);
     border-left: 3px solid var(--semantic-amber);
