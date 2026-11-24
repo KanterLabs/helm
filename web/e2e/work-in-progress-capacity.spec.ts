@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page, type TestInfo } from '@playwright/test';
 import { columns, headers, json, suffix, taskModal, type Project } from './creation-safety-helpers';
-import { expireTaskClaimInPayload } from './support/agentWorkApi';
+import { drainAgentWorkRoutes, routeAgentWork } from './support/agentWorkRoutes';
 
 // Record these journeys before their implementation. A filter must not invent
 // an available slot, a denied drag/keyboard/form action must leave the source
@@ -9,8 +9,11 @@ import { expireTaskClaimInPayload } from './support/agentWorkApi';
 // The service worker bypasses API reads. Keep registration enabled so the
 // screenshots show the same status surfaces people see on an online board.
 test.use({ serviceWorkers: 'allow' });
+test.afterEach(async ({ page }) => {
+  await drainAgentWorkRoutes(page);
+});
 
-type Task = { id: string; key: string; title: string; version: number; column_id: string };
+type Task = { id: string; key: string; title: string; version: number; column_id: string; claim_expires_at?: string };
 
 async function fixture(request: APIRequestContext) {
   const run = suffix();
@@ -117,7 +120,7 @@ test('shares capacity across filtered board actions and recovers by finishing a 
 
   // Simulate the authoritative count returned for a project carried over
   // from before enforcement. Creating that state through writes is refused.
-  await page.route(`**/api/v1/projects/${project.id}`, async (route) => {
+  await routeAgentWork(page, `**/api/v1/projects/${project.id}`, async (route) => {
     const response = await route.fetch();
     await route.fulfill({ response, json: { ...(await response.json()), active_task_count: 7 } });
   });
@@ -131,22 +134,14 @@ test('shares capacity across filtered board actions and recovers by finishing a 
 test('keeps occupied work and expired claims actionable on a phone', async ({ page, request }, info) => {
   const { project, occupied } = await fixture(request);
   const task = occupied[2];
-  await json<Task>(await request.post(`/api/v1/tasks/${task.id}/claim`, {
+  const claimed = await json<Task>(await request.post(`/api/v1/tasks/${task.id}/claim`, {
     headers: { ...headers(), 'If-Match': `"v${task.version}"` }, data: { lease_seconds: 3600 }
   }));
-  // Age only the read boundary. The server has no clock-setting route, and
-  // this case verifies what the owner sees when a shown lease has expired.
-  await page.route('**/api/v1/**', async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (route.request().method() !== 'GET' || ![`/api/v1/tasks/${task.id}`, `/api/v1/projects/${project.id}/tasks`].includes(path)) {
-      await route.continue();
-      return;
-    }
-    const response = await route.fetch();
-    const payload: unknown = await response.json();
-    expireTaskClaimInPayload(payload, task.id, '2020-01-01T00:00:00Z');
-    await route.fulfill({ response, json: payload });
-  });
+  const expiry = Date.parse(claimed.claim_expires_at ?? '');
+  expect(Number.isFinite(expiry), 'the server returned a claim expiry').toBe(true);
+  // Render the real server response as it would appear after expiry. Freeze
+  // only Date so app timers run normally and polling needs no route rewrites.
+  await page.clock.setFixedTime(expiry + 60_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/p/${project.slug}`);
   const capacity = page.getByRole('region', { name: 'In Progress capacity' });
