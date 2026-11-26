@@ -36,6 +36,11 @@ when safe; do not guess a project, widen credentials, or invent membership.
 
 ## Recommend a coherent goal
 
+When the user leaves the planning horizon open, review existing In progress
+and Blocked work with the team before proposing another batch. Make cards for
+the work people expect to pick up next. Keep later possibilities together in
+the plan until someone chooses them. Honor a request for a full task breakdown.
+
 For broad planning or work discovery, use the user's goal and task descriptions
 to explain why cards belong together. Prefer an existing active Focus whose
 goal and finish condition fit. Do not create a duplicate merely because its
@@ -109,6 +114,11 @@ activity are not neglected and are omitted. Focus members are all reviewed.
 When `activity_coverage.complete` is false or a warning says
 `activity_coverage_incomplete`, report the review as partial; never say
 nothing is neglected.
+
+At handoff, identify who owns the next action and the date or event that
+brings it back for review. If a later delivery covers an earlier handoff,
+check the original card's finish condition against the delivered artifact.
+When authorized, close the original card with that evidence.
 
 ## Authority and execution
 

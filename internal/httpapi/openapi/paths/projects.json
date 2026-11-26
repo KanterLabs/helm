@@ -4,6 +4,7 @@
       "get": {
         "operationId": "listProjects",
         "summary": "List projects",
+        "description": "Each project includes its current Active task count and limit.",
         "tags": [
           "Projects"
         ],
@@ -173,6 +174,7 @@
       "get": {
         "operationId": "getProject",
         "summary": "Get a project",
+        "description": "Includes the current Active task count and limit for the project.",
         "tags": [
           "Projects"
         ],

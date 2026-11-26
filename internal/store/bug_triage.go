@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 )
 
@@ -10,7 +11,7 @@ func (s *Store) TriageBug(ctx context.Context, id string, input TriageBugInput, 
 	return s.TriageBugWithClaimOverride(ctx, id, input, expected, actorID, false)
 }
 
-func (s *Store) TriageBugWithClaimOverride(ctx context.Context, id string, input TriageBugInput, expected int64, actorID string, allowClaimOverride bool) (Task, error) {
+func (s *Store) TriageBugWithClaimOverride(ctx context.Context, id string, input TriageBugInput, expected int64, actorID string, allowClaimOverride bool, session ...AgentAdmissionSession) (Task, error) {
 	if expected <= 0 {
 		return Task{}, ErrPrecondition
 	}
@@ -86,13 +87,17 @@ func (s *Store) TriageBugWithClaimOverride(ctx context.Context, id string, input
 		return Task{}, invalid("task is assigned to an archived column", nil)
 	}
 	timestamp := now()
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if err := checkAgentAdmissionSessionTx(ctx, tx, id, actorID, session); err != nil {
+			return err
+		}
 		// Derive completion from the authoritative destination row in the guarded
 		// UPDATE. The destination can be reclassified or archived while this
 		// operation waits for SQLite's writer lock, so the preflight snapshot is
 		// only an early validation hint.
 		query := `UPDATE tasks SET priority=?, assignee_id=NULLIF(?, ''), column_id=?, completed_at=CASE WHEN (SELECT semantic_state FROM columns WHERE id=?)='completed' THEN CASE WHEN (SELECT semantic_state FROM columns WHERE id=tasks.column_id)='completed' THEN tasks.completed_at ELSE ? END ELSE NULL END, version=version+1, updated_at=? WHERE id=? AND kind='bug' AND version=? AND deleted_at IS NULL`
-		args := []any{priority, assignee, columnID, columnID, timestamp, timestamp, id, expected}
+		query += ` AND project_id=? AND column_id=?`
+		args := []any{priority, assignee, columnID, columnID, timestamp, timestamp, id, expected, current.ProjectID, current.ColumnID}
 		if !allowClaimOverride {
 			query += ` AND (claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at)<=julianday(?) OR claimed_by=?)`
 			args = append(args, timestamp, actorID)
@@ -115,6 +120,9 @@ func (s *Store) TriageBugWithClaimOverride(ctx context.Context, id string, input
 			if err != nil {
 				return err
 			}
+		}
+		if err := checkTaskEnteringActiveTx(ctx, tx, id, current.ProjectID, actorID, sourceState, destinationState); err != nil {
+			return err
 		}
 		if err := validateTaskBugLifecycleTx(ctx, tx, id, bugKind, destinationState); err != nil {
 			return err
@@ -158,4 +166,23 @@ func (s *Store) TriageBugWithClaimOverride(ctx context.Context, id string, input
 		return Task{}, err
 	}
 	return s.GetTask(ctx, id)
+}
+
+func validateTaskBugLifecycleTx(ctx context.Context, tx dependencySQL, taskID, kind, destinationState string) error {
+	if kind != bugKind {
+		return nil
+	}
+	var resolution sql.NullString
+	err := tx.QueryRowContext(ctx, `SELECT resolution FROM bug_details WHERE task_id=?`, taskID).Scan(&resolution)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	resolved := err == nil && resolution.Valid && strings.TrimSpace(resolution.String) != ""
+	if destinationState == "completed" && !resolved {
+		return invalid("bugs must be resolved before entering a completed column", nil)
+	}
+	if destinationState != "completed" && resolved {
+		return invalid("resolved bugs must be reopened before leaving a completed column", nil)
+	}
+	return nil
 }

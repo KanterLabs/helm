@@ -79,13 +79,13 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request, identity aut
 			task, err = s.Store.ClaimTask(r.Context(), id, identity.Actor.ID, duration, version)
 		case "renew":
 			if identity.IsToken {
-				task, err = s.Store.RenewTaskWithClaim(r.Context(), id, identity.Actor.ID, duration, version)
+				task, err = s.Store.RenewTaskWithClaim(r.Context(), id, identity.Actor.ID, duration, version, agentAdmissionSession(r, identity)...)
 			} else {
 				task, err = s.Store.RenewTask(r.Context(), id, identity.Actor.ID, duration, version)
 			}
 		case "release":
 			if identity.IsToken {
-				task, err = s.Store.ReleaseTaskWithClaim(r.Context(), id, identity.Actor.ID, version)
+				task, err = s.Store.ReleaseTaskWithClaim(r.Context(), id, identity.Actor.ID, version, agentAdmissionSession(r, identity)...)
 			} else {
 				task, err = s.Store.ReleaseTask(r.Context(), id, identity.Actor.ID, version)
 			}
@@ -95,7 +95,7 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request, identity aut
 				comment = *payload.Comment
 			}
 			if identity.IsToken {
-				task, err = s.Store.CompleteTaskWithCommentWithClaim(r.Context(), id, identity.Actor.ID, version, comment)
+				task, err = s.Store.CompleteTaskWithCommentWithClaim(r.Context(), id, identity.Actor.ID, version, comment, agentAdmissionSession(r, identity)...)
 			} else {
 				task, err = s.Store.CompleteTaskWithComment(r.Context(), id, identity.Actor.ID, version, comment)
 			}
@@ -105,7 +105,7 @@ func (s *Server) taskAction(w http.ResponseWriter, r *http.Request, identity aut
 				reason = *payload.Reason
 			}
 			if identity.IsToken {
-				task, err = s.Store.BlockTaskWithReasonWithClaim(r.Context(), id, identity.Actor.ID, version, reason)
+				task, err = s.Store.BlockTaskWithReasonWithClaim(r.Context(), id, identity.Actor.ID, version, reason, agentAdmissionSession(r, identity)...)
 			} else {
 				task, err = s.Store.BlockTaskWithReason(r.Context(), id, identity.Actor.ID, version, reason)
 			}

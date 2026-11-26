@@ -16,6 +16,8 @@ type Project struct {
 	CompletedCount            int     `json:"completed_count,omitempty"`
 	CompletedTaskCount        int     `json:"completed_task_count,omitempty"`
 	OpenTaskCount             int     `json:"open_task_count,omitempty"`
+	ActiveTaskCount           *int    `json:"active_task_count,omitempty"`
+	ActiveTaskLimit           int     `json:"active_task_limit,omitempty"`
 	OverdueTaskCount          int     `json:"overdue_task_count,omitempty"`
 	ColumnCount               int     `json:"column_count,omitempty"`
 	Version                   int64   `json:"version,omitempty"`

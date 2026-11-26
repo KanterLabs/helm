@@ -118,7 +118,7 @@ func (s *Store) FileTicket(ctx context.Context, taskID, projectRef, actorID stri
 	if destination.SystemKind != "" || destination.ArchivedAt != nil {
 		return Task{}, invalid("choose an active project", map[string]any{"field": "project"})
 	}
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
 		var sourceProject, sourceKey, columnID, state, kind string
 		var number int
 		var parent, release, claimedBy, claimExpires sql.NullString
@@ -167,6 +167,18 @@ func (s *Store) FileTicket(ctx context.Context, taskID, projectRef, actorID stri
 		if _, err := tx.ExecContext(ctx, `INSERT INTO project_counters(project_id, next_number) VALUES (?, 2) ON CONFLICT(project_id) DO UPDATE SET next_number = project_counters.next_number + 1`, destination.ID); err != nil {
 			return err
 		}
+		targetState, err := authoritativeColumnStateTx(ctx, tx, target, destination.ID)
+		if err != nil {
+			return err
+		}
+		if targetState == "active" {
+			if err := checkProjectActiveCapacityTx(ctx, tx, destination.ID, 1); err != nil {
+				return err
+			}
+			if err := requireLegacyActivePlacementTx(ctx, tx, actorID); err != nil {
+				return err
+			}
+		}
 		var newNumber int
 		if err := tx.QueryRowContext(ctx, `SELECT next_number - 1 FROM project_counters WHERE project_id = ?`, destination.ID).Scan(&newNumber); err != nil {
 			return err
@@ -204,7 +216,7 @@ func (s *Store) FileTicket(ctx context.Context, taskID, projectRef, actorID stri
 
 // fileDestinationColumnTx keeps the ticket's status: the destination's first
 // live column with the same state, else its Backlog.
-func fileDestinationColumnTx(ctx context.Context, tx *sql.Tx, projectID, state string) (string, error) {
+func fileDestinationColumnTx(ctx context.Context, tx dependencySQL, projectID, state string) (string, error) {
 	var id string
 	err := tx.QueryRowContext(ctx, `SELECT id FROM columns WHERE project_id = ? AND archived_at IS NULL AND semantic_state IN (?, 'backlog')
 		ORDER BY semantic_state = ? DESC, CASE WHEN semantic_state = 'backlog' AND lower(trim(name)) = 'bugs' THEN 1 ELSE 0 END, position, id LIMIT 1`, projectID, state, state).Scan(&id)
@@ -216,7 +228,7 @@ func fileDestinationColumnTx(ctx context.Context, tx *sql.Tx, projectID, state s
 
 // fileTicketLabelsTx returns the ticket's label names, creating any the
 // destination project lacks (same name and color).
-func fileTicketLabelsTx(ctx context.Context, tx *sql.Tx, taskID, projectID string) ([]string, error) {
+func fileTicketLabelsTx(ctx context.Context, tx dependencySQL, taskID, projectID string) ([]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT l.name, l.color FROM task_labels tl JOIN labels l ON l.id = tl.label_id WHERE tl.task_id = ? ORDER BY l.name`, taskID)
 	if err != nil {
 		return nil, err

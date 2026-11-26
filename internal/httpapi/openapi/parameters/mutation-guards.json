@@ -84,6 +84,24 @@
           "pattern": "^\"v[1-9][0-9]*\"$"
         },
         "example": "\"v3\""
+      },
+      "AgentAdmissionSession": {
+        "name": "X-Helm-Agent-Session",
+        "in": "header",
+        "required": false,
+        "description": "The session ID is required when an admitted agent mutates its fenced claim.",
+        "schema": {
+          "$ref": "#/components/schemas/AgentAdmissionSessionId"
+        }
+      },
+      "AgentAdmissionFence": {
+        "name": "X-Helm-Agent-Fence",
+        "in": "header",
+        "required": false,
+        "description": "The original private fence is required when an admitted agent mutates its fenced claim.",
+        "schema": {
+          "type": "string"
+        }
       }
     }
   }

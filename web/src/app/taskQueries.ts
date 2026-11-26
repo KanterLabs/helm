@@ -85,6 +85,15 @@ export function claimIsActive(task: Task, now = live.pulseClock): boolean {
   return Number.isNaN(expires) || expires > now;
 }
 
+export function activeTaskOwner(task: Task, now: number): string {
+  const owner = claimIsActive(task, now) ? task.claimed_by : task.assignee;
+  const id = actorId(owner);
+  if (!id) return 'Unassigned';
+  return (id === session.user?.id ? session.user.name : '')
+    || settings.agents.find((agent) => agent.id === id)?.name
+    || actorName(owner);
+}
+
 export function claimCountdown(task: Task, now = live.pulseClock): string {
   if (!task.claim_expires_at) return '';
   const expires = Date.parse(task.claim_expires_at);

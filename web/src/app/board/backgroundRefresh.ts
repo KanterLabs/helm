@@ -11,6 +11,7 @@ import { session } from '../state/session.svelte';
 import { workspace } from '../state/workspace.svelte';
 import { mutationsForRequest } from '../taskSync';
 import type { BoardColumnPage } from '../types';
+import { refreshProjectCapacity } from './capacity';
 import { boardTaskParams, emptyBoardColumnPage, flattenBoardPagesForColumns, sortBoardTasks } from './pages';
 
 /**
@@ -35,6 +36,7 @@ export async function refreshBoardInBackground(): Promise<boolean> {
   const requestedSession = session.sessionGeneration;
   const requestedSlug = workspace.activeProjectSlug;
   const requestedProjectId = workspace.activeProject.id;
+  void refreshProjectCapacity(requestedProjectId);
   const requestedBoardRequest = board.boardRequest;
   const requestedCriteriaRevision = board.boardCriteriaRevision;
   const requestedLivenessRequest = ++live.boardLivenessRequest;

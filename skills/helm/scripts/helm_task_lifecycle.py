@@ -26,13 +26,23 @@ def cmd_start(client: Client, args: argparse.Namespace) -> Any:
     args.operation_id = _command_operation_id(getattr(args, "operation_id", None))
     project = _project(client, args.project)
     project_id = str(project["id"])
+    description = "Goal: " + args.goal.strip()
+    if args.step:
+        description += "\n\nCheckpoints\n" + "\n".join(f"- [ ] {step.strip()}" for step in args.step)
+    if _uses_agent_admission(client):
+        intent = _admission_intent(
+            args,
+            next_action=next((step.strip() for step in args.step if step.strip()), ""),
+            finish_condition=args.goal,
+        )
+        return _admit_agent_work(client, args, project_id, {
+            "title": args.title.strip(), "description": description, "priority": args.priority,
+        }, intent)
+
     columns, _ = client.call("GET", f"/projects/{parse.quote(project_id, safe='')}/columns?limit=200")
     active = next((item for item in _data(columns) if item.get("semantic_state") == "active"), None)
     if not active:
         raise HelmError(f"project has no active column: {args.project}")
-    description = "Goal: " + args.goal.strip()
-    if args.step:
-        description += "\n\nCheckpoints\n" + "\n".join(f"- [ ] {step.strip()}" for step in args.step)
     create_path = f"/projects/{parse.quote(project_id, safe='')}/tasks"
     create_body = {
         "title": args.title.strip(),
@@ -90,6 +100,15 @@ def cmd_backlog(client: Client, args: argparse.Namespace) -> Any:
 def cmd_resume(client: Client, args: argparse.Namespace) -> Any:
     args.operation_id = _command_operation_id(getattr(args, "operation_id", None))
     current = _task(client, args.task)
+    if _uses_agent_admission(client):
+        project_id = _admission_text(current.get("project_id"))
+        task_key = _admission_text(current.get("key"))
+        if not project_id or not task_key:
+            raise HelmError("Helm returned an unexpected task identity")
+        next_action, finish_condition = _existing_admission_intent(current)
+        intent = _admission_intent(args, next_action=next_action, finish_condition=finish_condition)
+        return _admit_agent_work(client, args, project_id, {"task_key": task_key}, intent)
+
     # The claim endpoint is intentionally used for both an unclaimed task and
     # a same-owner reclaim. The server treats a same-owner POST /claim as a
     # lease renewal, which makes a retry safe after a lost response and avoids

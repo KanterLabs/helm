@@ -68,6 +68,12 @@
         ],
         "parameters": [
           {
+            "$ref": "#/components/parameters/AgentAdmissionSession"
+          },
+          {
+            "$ref": "#/components/parameters/AgentAdmissionFence"
+          },
+          {
             "$ref": "#/components/parameters/IfMatch"
           },
           {
@@ -151,6 +157,12 @@
           "Tasks"
         ],
         "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentAdmissionSession"
+          },
+          {
+            "$ref": "#/components/parameters/AgentAdmissionFence"
+          },
           {
             "$ref": "#/components/parameters/IfMatch"
           },

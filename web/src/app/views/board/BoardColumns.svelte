@@ -28,7 +28,8 @@
   import { drawer } from '../../state/drawer.svelte';
   import { live } from '../../state/live.svelte';
   import { workspace } from '../../state/workspace.svelte';
-  import { agentLabelForTask, showAgentPulse, taskDueClass, taskReleaseName } from '../../taskQueries';
+  import { activeTaskOwner, agentLabelForTask, claimIsActive, showAgentPulse, taskDueClass, taskReleaseName } from '../../taskQueries';
+  import ActiveTaskSummary from '../drawer/ActiveTaskSummary.svelte';
 
   // Column arrows render in the toolbar; this reports when the board overflows.
   let { onOverflow }: { onOverflow?: (state: BoardOverflowState, move: ((direction: BoardOverflowDirection) => void) | null) => void } = $props();
@@ -64,12 +65,13 @@
       class:bug-intake={isBugIntake(column)}
       class:drop-target={board.dragOverColumnId === column.id}
       aria-label={`${column.name} column`}
+      data-active-column={column.semantic_state === 'active' ? '' : undefined}
       aria-dropeffect="move"
       on:dragover={(event) => dragOverColumn(event, column.id)}
       on:dragleave={(event) => dragLeaveColumn(event, column.id)}
       on:drop={(event) => dropTask(event, column.id)}
     >
-        <header class="column-header"><div class="column-name"><span class="column-dot" style={`--column-color: ${columnColor(column)}`}></span><h2>{column.name}</h2><span class="column-count">{board.tasksByColumn[column.id].length}{board.boardPages[column.id]?.nextCursor ? '+' : ''}</span></div></header>
+        <header class="column-header"><div class="column-name"><span class="column-dot" style={`--column-color: ${columnColor(column)}`}></span><h2 tabindex="-1">{column.name}</h2><span class="column-count">{board.tasksByColumn[column.id].length}{board.boardPages[column.id]?.nextCursor ? '+' : ''}</span></div></header>
         {#if isBugIntake(column)}<p class="bug-intake-hint">Review reports, then triage into Ready</p>{/if}
         <div class="column-progress"><span style={`width: ${Math.min(100, board.tasksByColumn[column.id].length * 4)}%; --column-color: ${columnColor(column)}`}></span></div>
         <div class="column-cards" use:columnScroll={{ scope: `${boardProject.id}:${board.boardCriteriaRevision}`, column: column.id, page: cardOffset, ready: !board.boardLoading }}>
@@ -87,15 +89,17 @@
                   <span class="task-select-box" aria-hidden="true"></span>
                 </label>
                 <button class="task-drag-handle" type="button" draggable="true" aria-label={`Drag ${task.key}, ${task.title}`} title="Drag task" on:click|stopPropagation={() => undefined} on:dragstart|stopPropagation={(event) => dragStart(event, task)}>⠿</button>
-                <button class="task-main" type="button" data-task-trigger={task.id} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
-                  <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="task-bug-meta"><span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{:else}<span class="severity-badge untriaged">Needs triage</span>{/if}</span>{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if taskReleaseName(task)}<span class="release-chip" title={`Target focus: ${taskReleaseName(task)}`}>◈ {taskReleaseName(task)}</span>{/if}{#if task.claimed_by}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
+                <button class="task-main" type="button" data-task-trigger={task.id} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight Alt+Home Alt+End" on:click={() => openTask(task)} on:keydown={(event) => keyboardMove(event, task)}>
+                  <span class="task-card-top"><span class="task-key">{task.key}</span>{#if task.kind === 'bug'}<span class="task-bug-meta"><span class="issue-kind-badge">Bug</span>{#if task.bug?.severity}<span class="severity-badge">{task.bug.severity.toUpperCase()}</span>{:else}<span class="severity-badge untriaged">Needs triage</span>{/if}</span>{/if}<span class={`priority-dot priority-${task.priority}`} title={`${priorityLabels[task.priority]} priority`}></span>{#if taskReleaseName(task)}<span class="release-chip" title={`Target focus: ${taskReleaseName(task)}`}>◈ {taskReleaseName(task)}</span>{/if}{#if claimIsActive(task, live.pulseClock)}<span class="claim-mini" title={`Claimed by ${actorName(task.claimed_by) || 'another actor'}`}>●</span>{/if}</span>
                   <strong class="task-title">{task.title}</strong>
+                  {#if column.semantic_state === 'active' && !board.expandedBoardTaskIds.has(task.id)}<span class="active-card-owner">{activeTaskOwner(task, live.pulseClock)}</span>{/if}
                   {#if task.description}<span class="task-excerpt">{task.description.replace(/[#*_`]/g, '').slice(0, 92)}{task.description.length > 92 ? '…' : ''}</span>{/if}
 	                              {#if task.labels?.length}<span class="task-labels">{#each task.labels.slice(0, 3) as label}<span class="label-chip" style={`--label-color: ${label.color || '#8b7cf6'}`}>{label.name}</span>{/each}{#if task.labels.length > 3}<span class="label-more">+{task.labels.length - 3}</span>{/if}</span>{/if}
 	                              <TaskDependencyStatus {task} />
 	                              {#if task.checklist_summary?.total}<span class="checklist-card-progress" title={`${task.checklist_summary.completed} of ${task.checklist_summary.total} checklist items complete`} aria-label={`${task.checklist_summary.completed} of ${task.checklist_summary.total} checklist items complete`}>☑ {task.checklist_summary.completed}/{task.checklist_summary.total}</span>{/if}
 	                              {#if hierarchyBadgeLabel(task)}<span class="hierarchy-badge" aria-label={`Hierarchy: ${hierarchyBadgeLabel(task)}`}><span aria-hidden="true">⌘</span>{hierarchyBadgeLabel(task)}</span>{/if}
                 </button>
+                {#if column.semantic_state === 'active' && board.expandedBoardTaskIds.has(task.id)}<ActiveTaskSummary {task} onCard />{/if}
                 {#if showAgentPulse(task)}<AgentPulse {task} now={live.pulseClock} actorLabel={agentLabelForTask(task)} compact />{/if}
                 <div class="task-card-footer"><button class="card-expand-toggle" type="button" aria-expanded={board.expandedBoardTaskIds.has(task.id)} aria-label={`${board.expandedBoardTaskIds.has(task.id) ? 'Hide' : 'Show'} details for ${task.key}`} on:click|stopPropagation={() => toggleBoardTaskExpanded(task.id)}><span class="card-expand-icon" aria-hidden="true"></span>Details</button><span class={`due-date ${taskDueClass(task)}`}>{#if task.due_at}<span aria-hidden="true">◷</span>{formatDate(task.due_at)}{/if}</span><PullRequestBadge {task} onOpen={() => openTask(task)} /><span class="card-footer-spacer"></span>{#if task.assignee}<span class="mini-avatar" title={`Assigned to ${actorName(task.assignee) || actorId(task.assignee)}`}>{(actorName(task.assignee) || actorId(task.assignee)).slice(0, 1).toUpperCase()}</span>{/if}{#if task.comment_count}<span class="comment-count" title={`${task.comment_count} comments`}>◌ {task.comment_count}</span>{/if}<BoardCardActions taskKey={task.key} actions={boardCardActions(task, orderedColumnTasks, orderingGate, drawer.taskActionLoading === task.id)} /></div>
               </article>
@@ -122,4 +126,6 @@
 <style>
   .bug-intake { border-top: 2px solid var(--semantic-amber); }
   .bug-intake-hint { margin: -2px 14px 8px; color: var(--muted); font-size: var(--text-xs); }
+  .active-card-owner { align-self: stretch; overflow: hidden; color: var(--muted); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+  .task-main:has(.active-card-owner) .task-title { -webkit-line-clamp: 2; }
 </style>

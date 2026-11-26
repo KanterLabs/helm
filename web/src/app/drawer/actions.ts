@@ -4,9 +4,11 @@ import { clearScreenshotDrafts, prepareScreenshots } from '../../lib/components/
 import { key } from '../../lib/api/client';
 import { session } from '../state/session.svelte';
 import { api } from '../../lib/api';
+import { capacityRefusal } from '../../lib/capacity';
 import { dependencyActionExplanation, dependencyBlocked } from '../../lib/dependencies';
 import { ApiError } from '../../lib/types';
 import type { Comment, Task } from '../../lib/types';
+import { refreshProjectCapacity } from '../board/capacity';
 import { requestConfirm, restoreDialogFocus } from '../dialogs';
 import { friendlyError, toast } from '../feedback';
 import { drawer } from '../state/drawer.svelte';
@@ -54,6 +56,10 @@ export async function runTaskAction(action: 'claim' | 'renew' | 'release' | 'com
     toast('success', `${updated.key} ${actionLabel}.`);
   } catch (error) {
     drawer.drawerError = friendlyError(error, 'That task action could not be completed.');
+    if (error instanceof ApiError && capacityRefusal(error) && drawer.drawerTask) {
+      void refreshProjectCapacity(drawer.drawerTask.project_id);
+      return;
+    }
     if (error instanceof ApiError && error.details.current) {
       replaceTask(error.details.current as Task);
       drawer.drawerError = action === 'claim'

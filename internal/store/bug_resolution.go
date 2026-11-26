@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 )
 
@@ -10,7 +9,7 @@ func (s *Store) ResolveBug(ctx context.Context, id string, input ResolveBugInput
 	return s.ResolveBugWithClaimOverride(ctx, id, input, expected, actorID, false)
 }
 
-func (s *Store) ResolveBugWithClaimOverride(ctx context.Context, id string, input ResolveBugInput, expected int64, actorID string, allowClaimOverride bool) (Task, error) {
+func (s *Store) ResolveBugWithClaimOverride(ctx context.Context, id string, input ResolveBugInput, expected int64, actorID string, allowClaimOverride bool, session ...AgentAdmissionSession) (Task, error) {
 	if expected <= 0 {
 		return Task{}, ErrPrecondition
 	}
@@ -50,8 +49,13 @@ func (s *Store) ResolveBugWithClaimOverride(ctx context.Context, id string, inpu
 	if err != nil {
 		return Task{}, err
 	}
-	timestamp := now()
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if !allowClaimOverride {
+			if err := checkAgentAdmissionSessionTx(ctx, tx, id, actorID, session); err != nil {
+				return err
+			}
+		}
+		timestamp := now()
 		checklistStatus := checklistCompletionStatus{}
 		duplicateTargetID := ""
 		query := `UPDATE tasks SET column_id=?, completed_at=CASE WHEN (SELECT semantic_state FROM columns WHERE id=tasks.column_id)='completed' AND tasks.completed_at IS NOT NULL THEN tasks.completed_at ELSE ? END, claimed_by=NULL, claim_expires_at=NULL, version=version+1, updated_at=? WHERE id=? AND kind='bug' AND version=? AND deleted_at IS NULL`
@@ -68,11 +72,8 @@ func (s *Store) ResolveBugWithClaimOverride(ctx context.Context, id string, inpu
 		if count == 0 {
 			return bugMutationFailure(ctx, tx, id, actorID, expected, timestamp, current, allowClaimOverride)
 		}
-		// Resolve duplicate targets only after the guarded task UPDATE has
-		// acquired SQLite's writer lock. A pre-write lookup in a deferred
-		// transaction can retain a stale WAL snapshot and fail with
-		// SQLITE_BUSY_SNAPSHOT when the writer arrives; any invalid target still
-		// rolls back the task update through withTx.
+		// Resolve duplicate links under the same writer lock as the task and
+		// rollback the guarded transition if the target is invalid.
 		if resolution == "duplicate" {
 			target, targetErr := s.resolveDuplicateTargetTx(ctx, tx, current.ProjectID, id, duplicateOf)
 			if targetErr != nil {

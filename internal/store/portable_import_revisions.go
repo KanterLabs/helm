@@ -2,11 +2,10 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"sort"
 )
 
-func bumpPortableTaskCollectionRevisions(ctx context.Context, tx *sql.Tx, plan *portableImportPlan) error {
+func bumpPortableTaskCollectionRevisions(ctx context.Context, tx dependencySQL, plan *portableImportPlan) error {
 	changedProjects := make(map[string]struct{})
 	addProject := func(projectID string) {
 		if projectID != "" {

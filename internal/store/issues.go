@@ -44,7 +44,7 @@ func stringOrEmpty(value *string) string {
 	return *value
 }
 
-func insertBugDetailsTx(ctx context.Context, tx *sql.Tx, taskID, reporterID string, input BugInput) error {
+func insertBugDetailsTx(ctx context.Context, tx dependencySQL, taskID, reporterID string, input BugInput) error {
 	if err := validateBugCreateInput(input); err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func insertBugDetailsTx(ctx context.Context, tx *sql.Tx, taskID, reporterID stri
 	return nil
 }
 
-func updateBugDetailsTx(ctx context.Context, tx *sql.Tx, taskID string, input BugInput) error {
+func updateBugDetailsTx(ctx context.Context, tx dependencySQL, taskID string, input BugInput) error {
 	row := tx.QueryRowContext(ctx, `SELECT reporter_id, severity, actual_behavior, expected_behavior, reproduction_steps, environment, affected_version, resolution, resolved_by, resolved_at, duplicate_of FROM bug_details WHERE task_id=?`, taskID)
 	current, err := bugFromRow(row)
 	if errors.Is(err, sql.ErrNoRows) {

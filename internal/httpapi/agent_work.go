@@ -83,7 +83,7 @@ func (s *Server) taskProgress(w http.ResponseWriter, r *http.Request, identity a
 		return
 	}
 	s.mutation(w, r, identity, func() (int, []byte, string, error) {
-		updated, err := s.Store.PublishAgentWork(r.Context(), task.ID, input, version, identity.Actor.ID)
+		updated, err := s.Store.PublishAgentWork(r.Context(), task.ID, input, version, identity.Actor.ID, agentAdmissionSession(r, identity)...)
 		if err != nil {
 			return 0, nil, "", err
 		}
@@ -130,7 +130,7 @@ func (s *Server) taskHeartbeat(w http.ResponseWriter, r *http.Request, identity 
 	if !s.admitHeartbeat(w, r, identity) {
 		return
 	}
-	updated, err := s.Store.HeartbeatAgentWork(r.Context(), task.ID, operationID, identity.Actor.ID)
+	updated, err := s.Store.HeartbeatAgentWork(r.Context(), task.ID, operationID, identity.Actor.ID, agentAdmissionSession(r, identity)...)
 	if err != nil {
 		s.writeStoreErrorForIdentity(w, identity, err)
 		return

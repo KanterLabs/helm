@@ -105,6 +105,14 @@
             "$ref": "#/components/schemas/AgentWork",
             "description": "Latest structured agent progress snapshot; omitted when no pulse has been published."
           },
+          "next_action": {
+            "type": "string",
+            "description": "Latest next action recorded for the agent admission, when present."
+          },
+          "finish_condition": {
+            "type": "string",
+            "description": "Completion condition recorded for the agent admission, when present."
+          },
           "priority": {
             "$ref": "#/components/schemas/Priority"
           },

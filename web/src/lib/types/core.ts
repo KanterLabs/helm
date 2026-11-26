@@ -46,6 +46,9 @@ export interface Project {
   created_at?: string;
   updated_at?: string;
   task_count?: number;
+  /** Project-wide occupancy across all unarchived In Progress columns. */
+  active_task_count?: number;
+  active_task_limit?: number;
   completed_task_count?: number;
   completed_count?: number;
   version?: number;

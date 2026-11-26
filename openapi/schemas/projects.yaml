@@ -59,6 +59,14 @@ components:
         open_task_count:
           type: integer
           minimum: 0
+        active_task_count:
+          type: integer
+          minimum: 0
+          description: Number of nondeleted cards across all nonarchived Active columns in the project.
+        active_task_limit:
+          type: integer
+          const: 5
+          description: Maximum number of cards allowed to enter Active in the project.
         overdue_task_count:
           type: integer
           minimum: 0

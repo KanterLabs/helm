@@ -2,12 +2,11 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"strconv"
 )
 
-func executePortableGithub(ctx context.Context, tx *sql.Tx, plan *portableImportPlan) error {
+func executePortableGithub(ctx context.Context, tx dependencySQL, plan *portableImportPlan) error {
 	for _, record := range plan.github.artifacts {
 		if !record.create {
 			continue

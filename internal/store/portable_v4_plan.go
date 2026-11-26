@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 )
 
 // Resolve parent edges only after all task/bug remaps have stabilized. Reused
@@ -71,7 +70,7 @@ func planPortableMetadata(ctx context.Context, q portableSQL, plan *portableImpo
 	return nil
 }
 
-func executePortableMetadata(ctx context.Context, tx *sql.Tx, plan *portableImportPlan) error {
+func executePortableMetadata(ctx context.Context, tx dependencySQL, plan *portableImportPlan) error {
 	if plan.archive.Version < PortableVersionCurrent {
 		return nil
 	}

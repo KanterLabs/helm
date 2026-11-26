@@ -1,8 +1,10 @@
 // Saving and deleting drawer tasks and resolving their labels.
 import { api } from '../../lib/api';
+import { capacityRefusal } from '../../lib/capacity';
 import { dateToIso } from '../../lib/state';
 import { ApiError } from '../../lib/types';
 import type { Label, Task } from '../../lib/types';
+import { refreshProjectCapacity } from '../board/capacity';
 import { removeTaskFromBoardPages } from '../board/pages';
 import { labelPalette } from '../constants';
 import { requestConfirm, restoreDialogFocus } from '../dialogs';
@@ -186,7 +188,7 @@ export async function saveTask(silent = false): Promise<boolean> {
       replaceTask(error.details.current as Task);
     }
     if (drawerIsCurrent()) {
-      drawer.drawerError = error instanceof ApiError && error.details.current
+      drawer.drawerError = error instanceof ApiError && error.details.current && !capacityRefusal(error)
         ? 'This task changed in another session. Your draft was not overwritten.'
         : friendlyError(error, 'The task changed elsewhere. Refresh and try again.');
     } else if (!silent) {
@@ -212,6 +214,7 @@ export async function deleteDrawerTask() {
   drawer.drawerError = '';
   try {
     await api.deleteTask(task.id, task.version);
+    void refreshProjectCapacity(task.project_id);
     recordTaskMutation(task.id, 'remove', ['board', 'issues', 'my-work-live', 'my-work-assigned']);
     board.tasks = board.tasks.filter((item) => item.id !== task.id);
     removeTaskFromBoardPages(task.id);

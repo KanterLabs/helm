@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 )
 
@@ -18,8 +17,8 @@ func (s *Store) CompleteTaskWithClaim(ctx context.Context, id, actorID string, e
 	return s.CompleteTaskWithCommentWithClaim(ctx, id, actorID, expected, "")
 }
 
-func (s *Store) CompleteTaskWithCommentWithClaim(ctx context.Context, id, actorID string, expected int64, comment string) (Task, error) {
-	return s.transitionTask(ctx, id, actorID, expected, "completed", "task.completed", comment, true)
+func (s *Store) CompleteTaskWithCommentWithClaim(ctx context.Context, id, actorID string, expected int64, comment string, session ...AgentAdmissionSession) (Task, error) {
+	return s.transitionTask(ctx, id, actorID, expected, "completed", "task.completed", comment, true, session...)
 }
 
 func (s *Store) BlockTask(ctx context.Context, id, actorID string, expected int64) (Task, error) {
@@ -34,11 +33,11 @@ func (s *Store) BlockTaskWithClaim(ctx context.Context, id, actorID string, expe
 	return s.BlockTaskWithReasonWithClaim(ctx, id, actorID, expected, "")
 }
 
-func (s *Store) BlockTaskWithReasonWithClaim(ctx context.Context, id, actorID string, expected int64, reason string) (Task, error) {
-	return s.transitionTask(ctx, id, actorID, expected, "blocked", "task.blocked", reason, true)
+func (s *Store) BlockTaskWithReasonWithClaim(ctx context.Context, id, actorID string, expected int64, reason string, session ...AgentAdmissionSession) (Task, error) {
+	return s.transitionTask(ctx, id, actorID, expected, "blocked", "task.blocked", reason, true, session...)
 }
 
-func (s *Store) transitionTask(ctx context.Context, id, actorID string, expected int64, state, eventType, note string, requireActiveClaim bool) (Task, error) {
+func (s *Store) transitionTask(ctx context.Context, id, actorID string, expected int64, state, eventType, note string, requireActiveClaim bool, session ...AgentAdmissionSession) (Task, error) {
 	current, err := s.GetTask(ctx, id)
 	if err != nil {
 		return Task{}, err
@@ -53,7 +52,12 @@ func (s *Store) transitionTask(ctx context.Context, id, actorID string, expected
 	if err != nil {
 		return Task{}, err
 	}
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if requireActiveClaim {
+			if err := checkAgentAdmissionSessionTx(ctx, tx, id, actorID, session); err != nil {
+				return err
+			}
+		}
 		checklistStatus := checklistCompletionStatus{}
 		// Compare the task's pre-update column state inside the guarded UPDATE.
 		// Repeating complete while already completed must preserve its original

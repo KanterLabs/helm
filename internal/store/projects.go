@@ -32,7 +32,17 @@ type ColumnInput struct {
 	Archived      *bool
 }
 
-const projectSelect = `SELECT id, key, slug, name, description, color, favorite, archived_at, checklist_completion_policy, created_at, updated_at, version, COALESCE(system_kind, '') FROM projects`
+const projectFields = `id, key, slug, name, description, color, favorite, archived_at, checklist_completion_policy, created_at, updated_at, version, COALESCE(system_kind, '')`
+const projectSelect = `SELECT ` + projectFields + ` FROM projects`
+const projectSelectWithCounts = `SELECT ` + projectFields + `,
+	(SELECT COUNT(*) FROM tasks WHERE project_id = projects.id AND deleted_at IS NULL),
+	(SELECT COUNT(*) FROM tasks t JOIN columns c ON c.id = t.column_id
+	 WHERE t.project_id = projects.id AND t.deleted_at IS NULL AND c.semantic_state = 'completed'),
+	(SELECT COUNT(*) FROM columns WHERE project_id = projects.id AND archived_at IS NULL),
+	(SELECT COUNT(*) FROM tasks WHERE project_id = projects.id AND deleted_at IS NULL AND due_at < ? AND completed_at IS NULL),
+	(SELECT COUNT(*) FROM columns c JOIN tasks t ON t.project_id = c.project_id AND t.column_id = c.id
+	 WHERE c.project_id = projects.id AND ` + activeCardPredicate + `)
+	FROM projects`
 const columnSelect = `SELECT id, project_id, name, semantic_state, position, archived_at, ordering_version, created_at, updated_at, version FROM columns`
 
 func validateProjectInput(input ProjectInput, creating bool) (ProjectInput, error) {
@@ -192,18 +202,12 @@ func deriveKey(name string) string {
 
 func (s *Store) GetProject(ctx context.Context, reference string) (Project, error) {
 	reference = strings.TrimSpace(reference)
-	row := s.DB.QueryRowContext(ctx, projectSelect+` WHERE id = ? OR slug = ? OR key = ? LIMIT 1`, reference, strings.ToLower(reference), strings.ToUpper(reference))
-	p, err := projectFromRow(row)
+	row := s.DB.QueryRowContext(ctx, projectSelectWithCounts+` WHERE id = ? OR slug = ? OR key = ? LIMIT 1`, now(), reference, strings.ToLower(reference), strings.ToUpper(reference))
+	p, err := scanProject(row, true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, notFound("project not found")
 	}
-	if err != nil {
-		return Project{}, err
-	}
-	if err := s.populateProjectCounts(ctx, &p); err != nil {
-		return Project{}, err
-	}
-	return p, nil
+	return p, err
 }
 
 func (s *Store) ListProjects(ctx context.Context, limit, offset int) ([]Project, error) {
@@ -232,8 +236,8 @@ func (s *Store) listProjectsFiltered(ctx context.Context, limit, offset int, fil
 	if limit > maxLimit {
 		limit = maxLimit
 	}
-	query := projectSelect + ` WHERE 1=1`
-	args := make([]any, 0, 4)
+	query := projectSelectWithCounts + ` WHERE 1=1`
+	args := []any{now()}
 	if !filter.IncludeArchived {
 		query += ` AND archived_at IS NULL`
 	}
@@ -260,34 +264,13 @@ func (s *Store) listProjectsFiltered(ctx context.Context, limit, offset int, fil
 	defer rows.Close()
 	result := make([]Project, 0)
 	for rows.Next() {
-		p, err := projectFromRow(rows)
+		p, err := scanProject(rows, true)
 		if err != nil {
-			return nil, err
-		}
-		if err := s.populateProjectCounts(ctx, &p); err != nil {
 			return nil, err
 		}
 		result = append(result, p)
 	}
 	return result, rows.Err()
-}
-
-func (s *Store) populateProjectCounts(ctx context.Context, project *Project) error {
-	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM tasks WHERE project_id = ? AND deleted_at IS NULL`, project.ID).Scan(&project.TaskCount); err != nil {
-		return err
-	}
-	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM tasks t JOIN columns c ON c.id=t.column_id WHERE t.project_id = ? AND t.deleted_at IS NULL AND c.semantic_state='completed'`, project.ID).Scan(&project.CompletedCount); err != nil {
-		return err
-	}
-	project.CompletedTaskCount = project.CompletedCount
-	project.OpenTaskCount = project.TaskCount - project.CompletedCount
-	if project.OpenTaskCount < 0 {
-		project.OpenTaskCount = 0
-	}
-	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM columns WHERE project_id = ? AND archived_at IS NULL`, project.ID).Scan(&project.ColumnCount); err != nil {
-		return err
-	}
-	return s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM tasks WHERE project_id=? AND deleted_at IS NULL AND due_at IS NOT NULL AND due_at < ? AND completed_at IS NULL`, project.ID, now()).Scan(&project.OverdueTaskCount)
 }
 
 func (s *Store) UpdateProject(ctx context.Context, id string, input ProjectInput, actorID string) (Project, error) {
@@ -316,7 +299,7 @@ func (s *Store) UpdateProjectWithVersion(ctx context.Context, id string, input P
 	}
 	key, slug, name := current.Key, current.Slug, current.Name
 	description, color := current.Description, current.Color
-	favorite, archived := current.Favorite, current.ArchivedAt != nil
+	favorite := current.Favorite
 	if validated.Key != nil {
 		key = *validated.Key
 	}
@@ -335,14 +318,22 @@ func (s *Store) UpdateProjectWithVersion(ctx context.Context, id string, input P
 	if validated.Favorite != nil {
 		favorite = *validated.Favorite
 	}
-	if validated.Archived != nil {
-		archived = *validated.Archived
-	}
 	if !projectKeyPattern.MatchString(key) || !projectSlugPattern.MatchString(slug) {
 		return Project{}, invalid("project key or slug is invalid", nil)
 	}
 	updated := now()
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		var wasArchived bool
+		if err := tx.QueryRowContext(ctx, `SELECT archived_at IS NOT NULL FROM projects WHERE id=?`, current.ID).Scan(&wasArchived); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		archived := wasArchived
+		if validated.Archived != nil {
+			archived = *validated.Archived
+		}
 		var archivedValue any
 		if archived {
 			archivedValue = updated
@@ -379,6 +370,11 @@ func (s *Store) UpdateProjectWithVersion(ctx context.Context, id string, input P
 				return conflict("project has changed", map[string]any{"project_id": current.ID, "expected_version": *expected, "current_version": currentVersion})
 			}
 			return ErrNotFound
+		}
+		if wasArchived && !archived {
+			if err := checkUnarchivedProjectAgentClaimsTx(ctx, tx, current.ID); err != nil {
+				return err
+			}
 		}
 		returnEvent := map[string]any{"key": key, "slug": slug, "name": name, "archived": archived, "checklist_completion_policy": checklistPolicy, "version": current.Version + 1}
 		_, err = insertEvent(ctx, tx, "project.updated", actorID, current.ID, "", returnEvent)
