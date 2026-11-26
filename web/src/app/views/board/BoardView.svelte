@@ -18,6 +18,7 @@
   import { openTaskModal } from '../../taskModal';
   import BoardColumns from './BoardColumns.svelte';
   import BoardToolbar from './BoardToolbar.svelte';
+  import ProjectCapacity from './ProjectCapacity.svelte';
 
   // The columns measure their own overflow; the toolbar row shows the arrows.
   let overflow = $state.raw<BoardOverflowState>(defaultBoardOverflowState);
@@ -47,7 +48,8 @@
 
 
   {#if workspace.view === 'board'}
-  <BoardToolbar {overflow} onMoveColumns={moveColumns} />
+  <BoardToolbar project={workspace.activeProject} {overflow} onMoveColumns={moveColumns} />
+  <ProjectCapacity project={workspace.activeProject} />
 
   {#if board.boardFilterChips.length}<div class="board-filter-chips" aria-label="Active board filters">{#each board.boardFilterChips as chip (chip.id)}<button type="button" on:click={chip.clear} aria-label={`Remove ${chip.label} filter`}>{chip.label} <span aria-hidden="true">×</span></button>{/each}</div>{/if}
   {#if board.boardError}<div class="inline-alert error content-alert" role="alert"><span>!</span><span>{board.boardError}</span><button class="text-button" type="button" on:click={() => loadBoard()}>Retry</button></div>{/if}

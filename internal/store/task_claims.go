@@ -12,7 +12,7 @@ import (
 // activeClaimByOtherTx reads the current row after a guarded mutation did not
 // match. The mutation's SQL predicate is the authorization boundary; this
 // follow-up only gives callers a useful error distinction from a stale version.
-func activeClaimByOtherTx(ctx context.Context, tx *sql.Tx, id, actorID, timestamp string) (bool, map[string]any, error) {
+func activeClaimByOtherTx(ctx context.Context, tx dependencySQL, id, actorID, timestamp string) (bool, map[string]any, error) {
 	var claimedBy, claimExpiry sql.NullString
 	err := tx.QueryRowContext(ctx, `SELECT claimed_by, claim_expires_at FROM tasks WHERE id=? AND deleted_at IS NULL`, id).Scan(&claimedBy, &claimExpiry)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -37,7 +37,7 @@ func activeClaimByOtherTx(ctx context.Context, tx *sql.Tx, id, actorID, timestam
 // taskClaimStateTx returns the current version and whether actorID owns an
 // active lease. It is used only after a guarded UPDATE matched zero rows, so
 // the authorization decision itself remains in the UPDATE predicate.
-func taskClaimStateTx(ctx context.Context, tx *sql.Tx, id, actorID string) (int64, bool, error) {
+func taskClaimStateTx(ctx context.Context, tx dependencySQL, id, actorID string) (int64, bool, error) {
 	var version int64
 	var claimedBy, claimExpiry sql.NullString
 	err := tx.QueryRowContext(ctx, `SELECT version, claimed_by, claim_expires_at FROM tasks WHERE id=? AND deleted_at IS NULL`, id).Scan(&version, &claimedBy, &claimExpiry)
@@ -107,8 +107,23 @@ func (s *Store) ClaimTask(ctx context.Context, id, actorID string, duration time
 	// expiry or updated_at value in Go here would let lock wait time age both
 	// values before the claim is authorized.
 	expiresModifier := fmt.Sprintf("+%.9f seconds", duration.Seconds())
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE tasks SET claimed_by=?, claim_expires_at=strftime('%Y-%m-%dT%H:%M:%fZ','now',?), version=version+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND version=? AND deleted_at IS NULL AND completed_at IS NULL AND (claimed_by=? OR claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at) <= julianday('now'))`, actorID, expiresModifier, id, expected, actorID)
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if err := rejectFencedLegacyClaimTx(ctx, tx, id, actorID); err != nil {
+			return err
+		}
+		// Only a current lease owner can use the legacy claim path on Active.
+		// Evaluate lease expiry in the UPDATE so an expired lease cannot be
+		// presented as a grandfathered renewal.
+		const requiresAdmission = `EXISTS (
+			SELECT 1 FROM actors a JOIN columns c ON c.id=tasks.column_id
+			WHERE a.id=? AND a.kind='agent' AND c.archived_at IS NULL AND c.semantic_state='active'
+		) AND NOT COALESCE(tasks.claimed_by=? AND julianday(tasks.claim_expires_at)>julianday('now'), 0)`
+		result, err := tx.ExecContext(ctx, `UPDATE tasks
+			SET claimed_by=?, claim_expires_at=strftime('%Y-%m-%dT%H:%M:%fZ','now',?),
+				version=version+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+			WHERE id=? AND version=? AND deleted_at IS NULL AND completed_at IS NULL
+				AND (claimed_by=? OR claimed_by IS NULL OR claim_expires_at IS NULL OR julianday(claim_expires_at)<=julianday('now'))
+				AND NOT (`+requiresAdmission+`)`, actorID, expiresModifier, id, expected, actorID, actorID, actorID)
 		if err != nil {
 			return mapDependencyLifecycleError(ctx, tx, err, dependencyLifecycleTarget{TaskID: id})
 		}
@@ -120,10 +135,23 @@ func (s *Store) ClaimTask(ctx context.Context, id, actorID string, duration time
 			if current.CompletedAt != nil {
 				return conflict("task is already finished", nil)
 			}
+			var admissionRequired bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+				SELECT 1 FROM tasks WHERE id=? AND version=? AND deleted_at IS NULL AND completed_at IS NULL
+				AND `+requiresAdmission+`
+			)`, id, expected, actorID, actorID).Scan(&admissionRequired); err != nil {
+				return err
+			}
+			if admissionRequired {
+				return agentAdmissionRequired()
+			}
 			return &Error{Kind: ErrClaimUnavailable, Message: "task is currently claimed", Details: map[string]any{"current": current}}
 		}
 		var expires string
 		if err := tx.QueryRowContext(ctx, `SELECT claim_expires_at FROM tasks WHERE id=?`, id).Scan(&expires); err != nil {
+			return err
+		}
+		if err := detachAgentAdmissionForLegacyClaimTx(ctx, tx, id); err != nil {
 			return err
 		}
 		_, err = insertEvent(ctx, tx, "task.claimed", actorID, current.ProjectID, id, map[string]any{"expires_at": expires})
@@ -136,17 +164,17 @@ func (s *Store) ClaimTask(ctx context.Context, id, actorID string, duration time
 }
 
 func (s *Store) RenewTask(ctx context.Context, id, actorID string, duration time.Duration, expected int64) (Task, error) {
-	return s.renewTask(ctx, id, actorID, duration, expected, false)
+	return s.renewTask(ctx, id, actorID, duration, expected, false, nil)
 }
 
 // RenewTaskWithClaim is the bearer-token variant. RenewTask already checks
 // ownership and lease expiry in SQL; this variant additionally reports a
 // missing/expired lease as forbidden rather than a generic version conflict.
-func (s *Store) RenewTaskWithClaim(ctx context.Context, id, actorID string, duration time.Duration, expected int64) (Task, error) {
-	return s.renewTask(ctx, id, actorID, duration, expected, true)
+func (s *Store) RenewTaskWithClaim(ctx context.Context, id, actorID string, duration time.Duration, expected int64, session ...AgentAdmissionSession) (Task, error) {
+	return s.renewTask(ctx, id, actorID, duration, expected, true, session)
 }
 
-func (s *Store) renewTask(ctx context.Context, id, actorID string, duration time.Duration, expected int64, requireActiveClaim bool) (Task, error) {
+func (s *Store) renewTask(ctx context.Context, id, actorID string, duration time.Duration, expected int64, requireActiveClaim bool, session []AgentAdmissionSession) (Task, error) {
 	var err error
 	duration, err = NormalizeTaskClaimDuration(duration)
 	if err != nil {
@@ -159,7 +187,10 @@ func (s *Store) renewTask(ctx context.Context, id, actorID string, duration time
 	// The expiry modifier is fixed input; SQLite supplies the clock when the
 	// guarded UPDATE executes after writer-lock acquisition.
 	expiresModifier := fmt.Sprintf("+%.9f seconds", duration.Seconds())
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if err := checkAgentAdmissionSessionTx(ctx, tx, id, actorID, session); err != nil {
+			return err
+		}
 		result, err := tx.ExecContext(ctx, `UPDATE tasks SET claim_expires_at=strftime('%Y-%m-%dT%H:%M:%fZ','now',?), version=version+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND version=? AND claimed_by=? AND julianday(claim_expires_at) > julianday('now') AND deleted_at IS NULL AND completed_at IS NULL`, expiresModifier, id, expected, actorID)
 		if err != nil {
 			return mapDependencyLifecycleError(ctx, tx, err, dependencyLifecycleTarget{TaskID: id})
@@ -194,21 +225,24 @@ func (s *Store) renewTask(ctx context.Context, id, actorID string, duration time
 }
 
 func (s *Store) ReleaseTask(ctx context.Context, id, actorID string, expected int64) (Task, error) {
-	return s.releaseTask(ctx, id, actorID, expected, false)
+	return s.releaseTask(ctx, id, actorID, expected, false, nil)
 }
 
 // ReleaseTaskWithClaim requires the caller to own an unexpired lease. Human
 // callers use ReleaseTask so the UI can clean up an expired lease as well.
-func (s *Store) ReleaseTaskWithClaim(ctx context.Context, id, actorID string, expected int64) (Task, error) {
-	return s.releaseTask(ctx, id, actorID, expected, true)
+func (s *Store) ReleaseTaskWithClaim(ctx context.Context, id, actorID string, expected int64, session ...AgentAdmissionSession) (Task, error) {
+	return s.releaseTask(ctx, id, actorID, expected, true, session)
 }
 
-func (s *Store) releaseTask(ctx context.Context, id, actorID string, expected int64, requireActiveClaim bool) (Task, error) {
+func (s *Store) releaseTask(ctx context.Context, id, actorID string, expected int64, requireActiveClaim bool, session []AgentAdmissionSession) (Task, error) {
 	current, err := s.GetTask(ctx, id)
 	if err != nil {
 		return Task{}, err
 	}
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if err := checkAgentAdmissionSessionTx(ctx, tx, id, actorID, session); err != nil {
+			return err
+		}
 		query := `UPDATE tasks SET claimed_by=NULL, claim_expires_at=NULL, version=version+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND version=? AND claimed_by=? AND deleted_at IS NULL`
 		args := []any{id, expected, actorID}
 		if requireActiveClaim {

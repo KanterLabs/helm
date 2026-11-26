@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	"github.com/KanterLabs/helm/internal/attachments"
@@ -59,7 +58,7 @@ func (s *Store) ImportPortableBundle(ctx context.Context, data []byte, root stri
 		return report, bundleReportError(e, report)
 	}
 	installed := []string{}
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
 		plan, e := buildPortableImportPlan(ctx, tx, archive, options)
 		if e != nil {
 			finish(plan)

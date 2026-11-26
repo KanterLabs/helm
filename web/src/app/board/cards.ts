@@ -2,8 +2,10 @@
 import { tick } from 'svelte';
 import { api } from '../../lib/api';
 import type { BoardOrderingGate } from '../../lib/boardOrdering';
+import { capacityRefusal } from '../../lib/capacity';
 import type { BoardCardAction } from '../../lib/components/BoardCardActions.svelte';
 import type { Column, Task } from '../../lib/types';
+import { ApiError } from '../../lib/types';
 import { plannedReleaseIdForAssignment } from '../appHelpers';
 import { ambiguousCreation, creationError, creationOperationKey, hasPendingCreation, reconcileCreation, rememberCreationRoute } from '../creation';
 import { isFocusableVisible } from '../dialogs';
@@ -15,6 +17,7 @@ import { releasePlan } from '../state/releasePlan.svelte';
 import { session } from '../state/session.svelte';
 import { workspace } from '../state/workspace.svelte';
 import { recordTaskMutation } from '../taskSync';
+import { refreshProjectCapacity } from './capacity';
 import { moveTask, reorderTaskAt } from './moves';
 import { adjacentTaskColumn, cardMoveLabel, cardMoveReason, currentBoardOrderingGate, moveTaskBy, moveTaskToPosition, orderingMoveDisabled, orderingMoveLabel, orderingMoveUnavailableReason, physicalOrderingEnabled, visualOrderingUnavailableMessage } from './ordering';
 import { syncBoardTaskPages } from './pages';
@@ -151,6 +154,9 @@ export async function submitQuickAdd(columnId: string) {
   try {
     const created = await reconcileCreation(() => api.createTask(operation.projectId, operation.input, operation.key));
     if (actor !== session.user?.id || creation.quickCreation !== operation) return;
+    if (board.columns.some((column) => column.id === created.column_id && column.semantic_state === 'active')) {
+      void refreshProjectCapacity(operation.projectId);
+    }
     recordTaskMutation(created.id, 'upsert', ['board']);
     if (operation.projectId === workspace.activeProject?.id) {
       board.tasks = [...board.tasks.filter((task) => task.id !== created.id), created];
@@ -164,6 +170,7 @@ export async function submitQuickAdd(columnId: string) {
   } catch (error) {
     if (actor !== session.user?.id || creation.quickCreation !== operation) return;
     if (!ambiguousCreation(error)) creation.quickCreation = null;
+    if (error instanceof ApiError && capacityRefusal(error)) void refreshProjectCapacity(operation.projectId);
     creation.quickAddError = creationError(error, 'The task could not be created.');
   } finally {
     if (actor === session.user?.id) {

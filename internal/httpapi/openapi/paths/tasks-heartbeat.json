@@ -13,6 +13,14 @@
         "tags": [
           "Tasks"
         ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AgentAdmissionSession"
+          },
+          {
+            "$ref": "#/components/parameters/AgentAdmissionFence"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {

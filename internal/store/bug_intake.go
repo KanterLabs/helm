@@ -22,7 +22,7 @@ func (s *Store) backlogIntakeColumn(ctx context.Context, projectID, kind string)
 
 // bugIntakeColumnTx returns only the optional preferred bug destination.
 // Callers retain their existing status-matching fallback when it is absent.
-func bugIntakeColumnTx(ctx context.Context, tx *sql.Tx, projectID string) (string, bool, error) {
+func bugIntakeColumnTx(ctx context.Context, tx dependencySQL, projectID string) (string, bool, error) {
 	var id string
 	err := tx.QueryRowContext(ctx, `SELECT id FROM columns WHERE project_id = ?
 		AND archived_at IS NULL AND semantic_state = 'backlog' AND lower(trim(name)) = 'bugs'

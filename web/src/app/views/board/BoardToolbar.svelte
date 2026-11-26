@@ -6,6 +6,7 @@
   import BoardFilterPanel from '../../../lib/components/BoardFilterPanel.svelte';
   import BoardOverflowControls from '../../../lib/components/BoardOverflowControls.svelte';
   import { actorId, actorName } from '../../../lib/state';
+  import type { Project } from '../../../lib/types';
   import { loadBoard } from '../../board/load';
   import { boardFiltersActive, clearFilters, scheduleBoardReload, syncBoardReleaseURL } from '../../board/pages';
   import { clearTaskSelection, openBulkModal, selectVisibleTasks } from '../../bulk';
@@ -15,8 +16,9 @@
   import { bulk } from '../../state/bulk.svelte';
   import { portable } from '../../state/portable.svelte';
   import { releasePlan } from '../../state/releasePlan.svelte';
+  import ProjectCapacity from './ProjectCapacity.svelte';
 
-  let { overflow, onMoveColumns }: { overflow: BoardOverflowState; onMoveColumns: (direction: BoardOverflowDirection) => void } = $props();
+  let { project, overflow, onMoveColumns }: { project: Project; overflow: BoardOverflowState; onMoveColumns: (direction: BoardOverflowDirection) => void } = $props();
 </script>
 
 <section class="board-toolbar" aria-label="Board filters">
@@ -25,4 +27,12 @@
   {#if boardFiltersActive()}<button class="clear-filters" type="button" on:click={clearFilters}>Clear filters</button>{/if}
   <details class="board-secondary-actions"><summary data-board-actions-trigger>Actions</summary><div class="board-secondary-panel"><div class="portable-actions" role="group" aria-label="Project archive"><button class="text-button" type="button" disabled={portable.portableBusy} on:click={() => void exportActiveProject()}>Export project</button><button class="text-button" type="button" disabled={portable.portableBusy} on:click={() => portable.portableFileInput?.click()}>Import archive</button></div><div class="bulk-selection-actions" role="group" aria-label="Bulk task selection"><button class="text-button" type="button" aria-label="Select all loaded filtered tasks" on:click={selectVisibleTasks} disabled={board.boardCriteriaTransition || board.boardLoading || !board.visibleTasks.length || bulk.allVisibleTasksSelected}>Select loaded tasks</button></div>
   <button class="icon-button" type="button" aria-label="Refresh board" on:click={() => loadBoard()}>↻</button>
-</div></details><div class="bulk-selection-actions">{#if bulk.selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{bulk.selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div><div class="board-toolbar-meta"><span class="task-total">{board.visibleTasks.length} loaded {board.visibleTasks.length === 1 ? 'task' : 'tasks'}</span>{#if overflow.hasOverflow}<BoardOverflowControls state={overflow} onMove={onMoveColumns} />{/if}</div></section>
+</div></details><div class="bulk-selection-actions">{#if bulk.selectedTaskIds.size}<span class="bulk-selection-count" aria-live="polite">{bulk.selectedTaskIds.size} selected</span><button class="text-button" type="button" on:click={clearTaskSelection}>Clear selection</button><button class="button primary compact-button" type="button" data-bulk-review-trigger on:click={openBulkModal}>Review bulk changes</button>{/if}</div>
+  <div class="board-toolbar-meta">
+    <div class="task-total">
+      <div>{board.visibleTasks.length} loaded {board.visibleTasks.length === 1 ? 'task' : 'tasks'}</div>
+      <ProjectCapacity {project} compact />
+    </div>
+    {#if overflow.hasOverflow}<BoardOverflowControls state={overflow} onMove={onMoveColumns} />{/if}
+  </div>
+</section>

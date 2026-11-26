@@ -224,6 +224,8 @@ export interface Task {
   comment_count?: number;
   /** Structured progress published by the current agent, when present. */
   agent_work?: AgentWork | null;
+  next_action?: string;
+  finish_condition?: string;
   /** Present on current servers; optional keeps retained-server fixtures usable. */
   dependency_summary?: DependencySummary;
   /** Ordered acceptance criteria; omitted by retained-server fixtures. */

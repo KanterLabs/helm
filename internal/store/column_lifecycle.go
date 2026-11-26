@@ -14,7 +14,7 @@ func nullableTimeValue(enabled bool, timestamp string) any {
 	return nil
 }
 
-func liveColumnIDsTx(ctx context.Context, tx *sql.Tx, projectID string) ([]string, error) {
+func liveColumnIDsTx(ctx context.Context, tx dependencySQL, projectID string) ([]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM columns WHERE project_id=? AND archived_at IS NULL ORDER BY position, id`, projectID)
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func liveColumnIDsTx(ctx context.Context, tx *sql.Tx, projectID string) ([]strin
 	return ids, rows.Err()
 }
 
-func assignLiveColumnPositionsTx(ctx context.Context, tx *sql.Tx, projectID string, ids []string, timestamp string, unchangedVersionID ...string) error {
+func assignLiveColumnPositionsTx(ctx context.Context, tx dependencySQL, projectID string, ids []string, timestamp string, unchangedVersionID ...string) error {
 	// SQLite checks the partial unique index as each row is updated. Move every
 	// live position into a disjoint negative range first; a simple sign flip
 	// would collide with the row currently occupying the destination slot.
@@ -73,7 +73,7 @@ func moveColumnID(ids []string, target string, position int) []string {
 	return ordered
 }
 
-func liveColumnForStateTx(ctx context.Context, tx *sql.Tx, projectID, state, excludeID string) (Column, error) {
+func liveColumnForStateTx(ctx context.Context, tx dependencySQL, projectID, state, excludeID string) (Column, error) {
 	row := tx.QueryRowContext(ctx, columnSelect+` WHERE project_id=? AND semantic_state=? AND archived_at IS NULL AND id<>? ORDER BY position, id LIMIT 1`, projectID, state, excludeID)
 	column, err := columnFromRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -82,7 +82,7 @@ func liveColumnForStateTx(ctx context.Context, tx *sql.Tx, projectID, state, exc
 	return column, err
 }
 
-func taskIDsInColumnTx(ctx context.Context, tx *sql.Tx, columnID string) ([]string, error) {
+func taskIDsInColumnTx(ctx context.Context, tx dependencySQL, columnID string) ([]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM tasks WHERE column_id=? AND deleted_at IS NULL ORDER BY position, id`, columnID)
 	if err != nil {
 		return nil, err
@@ -99,7 +99,7 @@ func taskIDsInColumnTx(ctx context.Context, tx *sql.Tx, columnID string) ([]stri
 	return ids, rows.Err()
 }
 
-func activeClaimInColumnTx(ctx context.Context, tx *sql.Tx, columnID, timestamp string) (bool, map[string]any, error) {
+func activeClaimInColumnTx(ctx context.Context, tx dependencySQL, columnID, timestamp string) (bool, map[string]any, error) {
 	var taskID, claimedBy, expiresAt string
 	err := tx.QueryRowContext(ctx, `SELECT id, claimed_by, claim_expires_at FROM tasks WHERE column_id=? AND deleted_at IS NULL AND claimed_by IS NOT NULL AND claim_expires_at IS NOT NULL AND julianday(claim_expires_at) > julianday(?) ORDER BY id LIMIT 1`, columnID, timestamp).Scan(&taskID, &claimedBy, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -138,7 +138,7 @@ func authoritativeColumnStateTx(ctx context.Context, tx dependencySQL, columnID,
 // resolution and its column mapping when an administrator changes a live
 // column's semantic state. Returning an error rolls back the guarded column
 // update and every derived task change in the same transaction.
-func validateColumnBugLifecycleTransitionTx(ctx context.Context, tx *sql.Tx, columnID, state string) error {
+func validateColumnBugLifecycleTransitionTx(ctx context.Context, tx dependencySQL, columnID, state string) error {
 	var taskID string
 	var err error
 	if state == "completed" {

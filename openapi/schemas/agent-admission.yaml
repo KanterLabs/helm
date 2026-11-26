@@ -1,0 +1,143 @@
+components:
+  schemas:
+    AgentAdmissionSessionId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: ^[A-Za-z0-9][A-Za-z0-9_.:/-]*$
+      description: Unique identifier for the requesting execution session.
+    AgentAdmissionRequest:
+      type: object
+      required: [session_id, next_action, finish_condition]
+      oneOf:
+        - required: [title]
+          not:
+            required: [task_key]
+        - required: [task_key]
+          not:
+            anyOf:
+              - required: [title]
+              - required: [description]
+              - required: [priority]
+      properties:
+        session_id:
+          $ref: "#/components/schemas/AgentAdmissionSessionId"
+        next_action:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        finish_condition:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        description:
+          type: string
+          maxLength: 100000
+        priority:
+          $ref: "#/components/schemas/Priority"
+        task_key:
+          $ref: "#/components/schemas/Identifier"
+        lease_seconds:
+          type: integer
+          minimum: 30
+          maximum: 604800
+          default: 1800
+      additionalProperties: false
+    AgentAdmission:
+      type: object
+      required: [task, action, session_id, fence, next_action, finish_condition]
+      properties:
+        task:
+          $ref: "#/components/schemas/AgentAdmissionTask"
+        action:
+          type: string
+          enum: [started, resumed]
+        session_id:
+          $ref: "#/components/schemas/AgentAdmissionSessionId"
+        fence:
+          type: string
+          description: |
+            Opaque execution fence private to the admitted credential and
+            session. Pass the original values in X-Helm-Agent-Session and
+            X-Helm-Agent-Fence when mutating work protected by this admission.
+            Keep the fence out of logs and operator-facing output.
+        next_action:
+          type: string
+        finish_condition:
+          type: string
+      additionalProperties: false
+    AgentAdmissionTask:
+      type: object
+      required: [id, version, claim_expires_at]
+      description: Task claim metadata. Extra task fields require tasks:read.
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        version:
+          type: integer
+          minimum: 1
+        claim_expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        title:
+          type: string
+        key:
+          type: string
+        project_id:
+          $ref: "#/components/schemas/Identifier"
+        column_id:
+          $ref: "#/components/schemas/Identifier"
+        claimed_by:
+          $ref: "#/components/schemas/Identifier"
+      additionalProperties: false
+    AgentAdmissionCandidate:
+      type: object
+      required: [id, key, title]
+      properties:
+        id:
+          $ref: "#/components/schemas/Identifier"
+        key:
+          type: string
+        title:
+          type: string
+        next_action:
+          type: string
+        finish_condition:
+          type: string
+      additionalProperties: false
+  responses:
+    AgentAdmissionReceipt:
+      description: Agent admission receipt with the private fence and lease deadline
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/XRequestID"
+        X-Roadmap-Revision:
+          $ref: "#/components/headers/XRoadmapRevision"
+        ETag:
+          $ref: "#/components/headers/ETag"
+        Cache-Control:
+          schema:
+            const: no-store
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                $ref: "#/components/schemas/AgentAdmission"
+            additionalProperties: false
+    AgentAdmissionConflict:
+      description: |
+        The requested work cannot be admitted. Codes include
+        project_capacity_reached, agent_already_active, eligible_task_exists,
+        task_not_eligible, task_already_claimed, agent_session_in_use, and
+        idempotency_key_reused. Details may include project counts and visible
+        task keys. Tasks outside the caller's scope are never identified.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

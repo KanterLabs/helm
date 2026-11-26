@@ -28,8 +28,19 @@ class _NoRedirect(request.HTTPRedirectHandler):
 
 
 class Client:
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, *, agent_session_id: str = "") -> None:
         self.config = config
+        self.agent_session_id = agent_session_id
+
+    def agent_work_admission(self) -> bool:
+        payload, _ = self.call("GET", "/")
+        if not isinstance(payload, dict) or payload.get("name") != "helm" or payload.get("version") != "v1":
+            raise HelmError("Helm returned an unexpected API discovery response")
+        if "agent_work_admission" not in payload:
+            return False
+        if payload["agent_work_admission"] is not True:
+            raise HelmError("Helm advertised an unsupported agent admission capability", error_code="admission_unavailable")
+        return True
 
     @staticmethod
     def _retry_safe(method: str, path: str, idempotency_key: str | None) -> bool:
@@ -85,6 +96,18 @@ class Client:
             data = json.dumps(body, separators=(",", ":")).encode("utf-8")
         target = self.config.base_url + "/api/v1" + path
         retry_safe = self._retry_safe(method, path, idempotency_key)
+        agent_session_id = ""
+        agent_fence = ""
+        parts = path.split("/")
+        fenced_task = len(parts) == 3 and method.upper() in {"PATCH", "DELETE"}
+        fenced_action = len(parts) == 4 and method.upper() == "POST" and parts[-1] in {
+            "progress", "heartbeat", "renew", "release", "complete", "block", "triage", "resolve",
+        }
+        if (fenced_task or fenced_action) and parts[1] == "tasks":
+            agent_session_id = self.agent_session_id or _agent_session_id()
+            if agent_session_id:
+                reference = parse.unquote(parts[2])
+                agent_fence = _read_agent_fence(self.config, agent_session_id, reference)
         for attempt in range(MAX_TRANSIENT_RETRIES + 1):
             headers = {
                 "Accept": "application/json",
@@ -100,6 +123,9 @@ class Client:
                 headers["If-Match"] = f'"v{if_match}"'
             if idempotency_key:
                 headers["Idempotency-Key"] = idempotency_key
+            if agent_fence:
+                headers["X-Helm-Agent-Session"] = agent_session_id
+                headers["X-Helm-Agent-Fence"] = agent_fence
             req = request.Request(target, method=method, headers=headers, data=data)
             try:
                 with request.build_opener(_NoRedirect).open(req, timeout=15) as response:
@@ -121,7 +147,7 @@ class Client:
                 message, error_code = _error_details(raw)
                 message = _redact_secrets(
                     message,
-                    (self.config.token, self.config.cf_access_client_id, self.config.cf_access_client_secret),
+                    (self.config.token, self.config.cf_access_client_id, self.config.cf_access_client_secret, agent_fence),
                 )
                 raise HelmError(
                     f"Helm returned HTTP {exc.code}: {message}",

@@ -13,7 +13,7 @@ func (s *Store) DeleteTask(ctx context.Context, id string, expected int64, actor
 
 // DeleteTaskWithClaimOverride is the delete counterpart to
 // UpdateTaskWithClaimOverride.
-func (s *Store) DeleteTaskWithClaimOverride(ctx context.Context, id string, expected int64, actorID string, allowClaimOverride bool) error {
+func (s *Store) DeleteTaskWithClaimOverride(ctx context.Context, id string, expected int64, actorID string, allowClaimOverride bool, session ...AgentAdmissionSession) error {
 	if expected <= 0 {
 		return ErrPrecondition
 	}
@@ -21,7 +21,10 @@ func (s *Store) DeleteTaskWithClaimOverride(ctx context.Context, id string, expe
 	if err != nil {
 		return err
 	}
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
+		if err := checkAgentAdmissionSessionTx(ctx, tx, id, actorID, session); err != nil {
+			return err
+		}
 		updated := now()
 		query := `UPDATE tasks SET deleted_at=?, updated_at=?, version=version+1 WHERE id=? AND version=? AND deleted_at IS NULL`
 		args := []any{updated, updated, id, expected}
@@ -89,7 +92,7 @@ func (s *Store) RestoreTask(ctx context.Context, id string, expected int64, acto
 				version=version+1,
 				updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 			WHERE id=? AND version=? AND deleted_at IS NOT NULL
-				AND version < 9223372036854775807`, id, expected)
+				AND version < 9223372036854775807 AND project_id=?`, id, expected, current.ProjectID)
 		if updateErr != nil {
 			return mapDependencyLifecycleError(ctx, tx, updateErr, dependencyLifecycleTarget{TaskID: id})
 		}
@@ -103,6 +106,20 @@ func (s *Store) RestoreTask(ctx context.Context, id string, expected int64, acto
 				return latestErr
 			}
 			return conflict("task has changed", map[string]any{"current": latest})
+		}
+		var active bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+			SELECT 1 FROM tasks t JOIN columns c ON c.id=t.column_id WHERE t.id=? AND `+activeCardPredicate+`
+		)`, id).Scan(&active); err != nil {
+			return err
+		}
+		if active {
+			if err := checkAddedActiveCardsTx(ctx, tx, current.ProjectID, 1); err != nil {
+				return err
+			}
+			if err := requireLegacyActivePlacementTx(ctx, tx, actorID); err != nil {
+				return err
+			}
 		}
 		_, eventErr := insertEvent(ctx, tx, "task.restored", actorID, current.ProjectID, id, map[string]any{
 			"number":  current.Number,

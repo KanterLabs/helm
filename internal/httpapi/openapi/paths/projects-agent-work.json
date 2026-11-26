@@ -1,0 +1,205 @@
+{
+  "paths": {
+    "/api/v1/projects/{project}/agent-work/admit": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "post": {
+        "operationId": "admitAgentWork",
+        "summary": "Start or resume agent work atomically",
+        "description": "Requires an agent bearer token with tasks:write and tasks:claim in the project.\nA new card, board placement, claim, execution fence, and receipt commit together.\nA new card is refused when there is a matching open title or eligible Ready or\nrecoverable Active work. Resume takes an explicit project-local task key or ID.\nAn exact retry returns the original receipt, which may describe an expired\nadmission. Read the current admission before starting or continuing execution.\n",
+        "tags": [
+          "Agents",
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAdmissionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AgentAdmissionReceipt"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AgentAdmissionConflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getCurrentAgentAdmission",
+        "summary": "Verify a session still owns its execution admission",
+        "description": "Returns the fence and live claim deadline only to the original agent\nbearer credential holding the unexpired Active task claim. Verify that\nthe returned fence matches the original receipt. HTTP 404 with\nagent_admission_not_found means the session has no live claim in this project.\n",
+        "tags": [
+          "Agents",
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AgentAdmissionSessionId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AgentAdmissionReceipt"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/agent-work/eligibility": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectPath"
+        }
+      ],
+      "get": {
+        "operationId": "listAgentAdmissionCandidates",
+        "summary": "Find existing work eligible for agent admission",
+        "description": "Advisory project-local Ready and recoverable Active tasks for the\nauthenticated agent, ordered by ownership, state, priority, and task\nnumber. Completed, blocked, archived, assigned-to-others and held tasks\nare excluded. Unmet prerequisites prevent admission. Requires\ntasks:read, tasks:write and tasks:claim. Use the admission endpoint to\nobtain an execution fence for an explicit choice.\n",
+        "tags": [
+          "Agents",
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Up to ten eligible task suggestions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "tasks"
+                      ],
+                      "properties": {
+                        "tasks": {
+                          "type": "array",
+                          "maxItems": 10,
+                          "items": {
+                            "$ref": "#/components/schemas/AgentAdmissionCandidate"
+                          }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AgentAdmissionConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  }
+}

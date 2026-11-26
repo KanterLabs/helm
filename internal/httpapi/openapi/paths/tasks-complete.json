@@ -15,6 +15,12 @@
         ],
         "parameters": [
           {
+            "$ref": "#/components/parameters/AgentAdmissionSession"
+          },
+          {
+            "$ref": "#/components/parameters/AgentAdmissionFence"
+          },
+          {
             "$ref": "#/components/parameters/IfMatch"
           },
           {

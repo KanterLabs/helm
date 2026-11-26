@@ -4,10 +4,12 @@
 import { tick } from 'svelte';
 import { api } from '../lib/api';
 import { dateToIso } from '../lib/state';
+import { capacityRefusal } from '../lib/capacity';
 import { ApiError } from '../lib/types';
 import type { Priority, TaskDraftSuggestion } from '../lib/types';
 import { plannedReleaseIdForAssignment } from './appHelpers';
 import { syncBoardTaskPages } from './board/pages';
+import { refreshProjectCapacity } from './board/capacity';
 import { ambiguousCreation, creationError, creationOperationKey, hasPendingCreation, openProjectModal, reconcileCreation, rememberCreationRoute } from './creation';
 import { rememberDialogFocus, restoreDialogFocus } from './dialogs';
 import { friendlyError, toast } from './feedback';
@@ -104,6 +106,7 @@ export async function loadTaskModalColumns(projectId: string) {
   taskModal.taskModalError = '';
   if (!projectId) return;
   const requestedProjectId = projectId;
+  void refreshProjectCapacity(projectId);
   taskModal.taskModalLoading = true;
   try {
     const nextColumns = projectId === workspace.activeProject?.id && board.columns.length ? [...board.columns] : (await api.listAllColumns(projectId)).data;
@@ -249,6 +252,9 @@ export async function createGlobalTask() {
   try {
     const created = await reconcileCreation(() => api.createTask(operation.projectId, operation.input, operation.key));
     if (actor !== session.user?.id || instance !== creation.taskModalInstance) return;
+    if (taskModal.taskModalColumns.some((column) => column.id === created.column_id && column.semantic_state === 'active')) {
+      void refreshProjectCapacity(operation.projectId);
+    }
     recordTaskMutation(created.id, 'upsert', ['board']);
     if (operation.projectId === workspace.activeProject?.id) {
       board.tasks = [...board.tasks.filter((task) => task.id !== created.id), created];
@@ -261,6 +267,7 @@ export async function createGlobalTask() {
   } catch (error) {
     if (actor !== session.user?.id || instance !== creation.taskModalInstance) return;
     if (!ambiguousCreation(error)) creation.taskCreation = null;
+    if (error instanceof ApiError && capacityRefusal(error)) void refreshProjectCapacity(operation.projectId);
     taskModal.taskModalError = creationError(error, 'The task could not be created.');
   } finally {
     if (actor === session.user?.id && instance === creation.taskModalInstance) taskModal.taskModalCreating = false;

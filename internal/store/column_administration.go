@@ -33,7 +33,7 @@ func (s *Store) UpdateColumnWithVersion(ctx context.Context, id string, input Co
 		return Column{}, ErrPrecondition
 	}
 	updated := now()
-	err = s.withTx(ctx, func(tx *sql.Tx) error {
+	err = s.withImmediateTx(ctx, func(tx dependencySQL) error {
 		row := tx.QueryRowContext(ctx, columnSelect+` WHERE id=?`, id)
 		current, err := columnFromRow(row)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -105,6 +105,11 @@ func (s *Store) UpdateColumnWithVersion(ctx context.Context, id string, input Co
 				return conflict("column has changed", map[string]any{"column_id": id, "expected_version": *expected, "current_version": currentVersion})
 			}
 			return ErrNotFound
+		}
+		if willBeLive && state == "active" && (!wasLive || stateChanged) {
+			if err := checkColumnEnteringActiveTx(ctx, tx, current.ProjectID, id, actorID); err != nil {
+				return err
+			}
 		}
 		var dependencyChanges []dependencyStateChange
 		checklistStatus := checklistCompletionStatus{}

@@ -198,5 +198,8 @@ func buildPortableImportPlan(ctx context.Context, q portableSQL, archive Portabl
 	if len(plan.report.Errors) > 0 {
 		return plan, portableImportError(plan.report, "portable destination validation failed")
 	}
+	if err := checkPortableActiveCapacity(ctx, q, plan); err != nil {
+		return plan, err
+	}
 	return plan, nil
 }

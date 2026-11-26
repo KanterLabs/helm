@@ -325,7 +325,7 @@ func (s *Server) task(w http.ResponseWriter, r *http.Request, identity auth.Iden
 			}
 		}
 		s.mutation(w, r, identity, func() (int, []byte, string, error) {
-			updated, err := s.Store.UpdateTaskWithClaimOverride(r.Context(), id, input, version, identity.Actor.ID, !identity.IsToken && identity.Actor.Admin)
+			updated, err := s.Store.UpdateTaskWithClaimOverride(r.Context(), id, input, version, identity.Actor.ID, !identity.IsToken && identity.Actor.Admin, agentAdmissionSession(r, identity)...)
 			if err != nil {
 				return 0, nil, "", err
 			}
@@ -337,7 +337,7 @@ func (s *Server) task(w http.ResponseWriter, r *http.Request, identity auth.Iden
 		})
 	case http.MethodDelete:
 		s.mutation(w, r, identity, func() (int, []byte, string, error) {
-			if err := s.Store.DeleteTaskWithClaimOverride(r.Context(), id, version, identity.Actor.ID, !identity.IsToken && identity.Actor.Admin); err != nil {
+			if err := s.Store.DeleteTaskWithClaimOverride(r.Context(), id, version, identity.Actor.ID, !identity.IsToken && identity.Actor.Admin, agentAdmissionSession(r, identity)...); err != nil {
 				return 0, nil, "", err
 			}
 			return http.StatusNoContent, nil, "", nil

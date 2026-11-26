@@ -78,10 +78,19 @@ func actorFromRow(scanner interface{ Scan(...any) error }) (Actor, error) {
 }
 
 func projectFromRow(scanner interface{ Scan(...any) error }) (Project, error) {
+	return scanProject(scanner, false)
+}
+
+func scanProject(scanner interface{ Scan(...any) error }, includeCounts bool) (Project, error) {
 	var p Project
 	var archived sql.NullString
 	var favorite int
-	if err := scanner.Scan(&p.ID, &p.Key, &p.Slug, &p.Name, &p.Description, &p.Color, &favorite, &archived, &p.ChecklistCompletionPolicy, &p.CreatedAt, &p.UpdatedAt, &p.Version, &p.SystemKind); err != nil {
+	fields := []any{&p.ID, &p.Key, &p.Slug, &p.Name, &p.Description, &p.Color, &favorite, &archived, &p.ChecklistCompletionPolicy, &p.CreatedAt, &p.UpdatedAt, &p.Version, &p.SystemKind}
+	if includeCounts {
+		fields = append(fields, &p.TaskCount, &p.CompletedCount, &p.ColumnCount, &p.OverdueTaskCount, &p.ActiveTaskCount)
+		p.ActiveTaskLimit = ProjectActiveTaskLimit
+	}
+	if err := scanner.Scan(fields...); err != nil {
 		return Project{}, err
 	}
 	if p.ChecklistCompletionPolicy == "" {
@@ -89,6 +98,8 @@ func projectFromRow(scanner interface{ Scan(...any) error }) (Project, error) {
 		p.ChecklistCompletionPolicy = "warn"
 	}
 	p.Favorite, p.ArchivedAt = boolValue(favorite), nullableString(archived)
+	p.CompletedTaskCount = p.CompletedCount
+	p.OpenTaskCount = max(0, p.TaskCount-p.CompletedCount)
 	return p, nil
 }
 

@@ -22,6 +22,11 @@ import helm_session
 
 
 
+def _add_admission_intent_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--next-action", help="First concrete action after admission")
+    parser.add_argument("--finish-condition", help="Verifiable outcome that finishes the work")
+
+
 def register(subparsers):
     start = subparsers.add_parser("start", help="Create and claim an active task")
     start.add_argument("--project", required=True)
@@ -31,6 +36,7 @@ def register(subparsers):
     start.add_argument("--priority", choices=("low", "normal", "high", "urgent"), default="normal")
     start.add_argument("--lease-seconds", type=int, choices=range(30, 604801), default=604800)
     start.add_argument("--operation-id", help="UUIDv4 for new work; explicit legacy IDs remain deterministic")
+    _add_admission_intent_arguments(start)
     start.set_defaults(handler=cmd_start)
 
     backlog = subparsers.add_parser("backlog", help="Create an unclaimed backlog task")
@@ -46,7 +52,12 @@ def register(subparsers):
     resume.add_argument("--task", required=True)
     resume.add_argument("--lease-seconds", type=int, choices=range(30, 604801), default=604800)
     resume.add_argument("--operation-id", help="UUIDv4 for new work; explicit legacy IDs remain deterministic")
+    _add_admission_intent_arguments(resume)
     resume.set_defaults(handler=cmd_resume)
+
+    select_next = subparsers.add_parser("select-next", help="Read the next eligible task without claiming it")
+    select_next.add_argument("--project", required=True)
+    select_next.set_defaults(handler=cmd_select_next)
 
     notes = subparsers.add_parser("notes", aliases=("agent-notes",), help="Read or curate bounded agent task notes")
     note_actions = notes.add_subparsers(dest="note_action", required=True)

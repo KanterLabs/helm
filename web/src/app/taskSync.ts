@@ -3,6 +3,7 @@ import { mergeAuthoritativeTask, taskMutationsAfter } from '../lib/liveness';
 import type { TaskMutationKind, TaskMutationRecord, TaskMutationScope } from '../lib/liveness';
 import { actorId, agentWorkState as workState, isAgentWorkStale as isWorkStale } from '../lib/state';
 import type { Task } from '../lib/types';
+import { refreshCapacityAfterTaskChange } from './board/capacity';
 import { syncBoardTaskPages } from './board/pages';
 import { announce, workTransitionKey } from './feedback';
 import { board } from './state/board.svelte';
@@ -97,6 +98,7 @@ export function replaceTask(updated: Task, localMutation = false, announceChange
     ? !nextTask.completed_at && Boolean(nextTask.agent_work)
     : belongsToUser;
   if (localMutation) {
+    refreshCapacityAfterTaskChange(nextTask, previous);
     const mutations: Partial<Record<TaskMutationScope, TaskMutationKind>> = {};
     if (belongsToActiveBoard) mutations.board = 'upsert';
     if (issueHasTask || nextTask.kind === 'bug') mutations.issues = 'upsert';

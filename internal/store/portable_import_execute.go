@@ -2,13 +2,12 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
 )
 
-func executePortableImportPlan(ctx context.Context, tx *sql.Tx, plan *portableImportPlan) error {
+func executePortableImportPlan(ctx context.Context, tx dependencySQL, plan *portableImportPlan) error {
 	for _, project := range plan.projects {
 		if !project.create {
 			continue

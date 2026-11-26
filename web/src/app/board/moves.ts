@@ -11,6 +11,7 @@ import { board } from '../state/board.svelte';
 import { drawer } from '../state/drawer.svelte';
 import { workspace } from '../state/workspace.svelte';
 import { replaceTask } from '../taskSync';
+import { reportBoardCapacityRefusal } from './capacity';
 import { reloadBoardColumns } from './load';
 import { boardColumnPageComplete, currentBoardOrderingGate, normalizedOrderingIndex, orderingPlacementLabel, physicalOrderingEnabled, visualOrderingUnavailableMessage } from './ordering';
 import { beginBoardMutation, boardMutationIsCurrent } from './pages';
@@ -28,12 +29,10 @@ export async function moveTask(task: Task, destinationColumnId: string) {
   if (!mutationContext) return;
   drawer.taskActionLoading = task.id;
   try {
-    // Column moves remain append-only and are safe with cursor pagination:
-    // the guarded endpoint computes the destination tail under its writer
-    // lock, rather than treating the loaded page as the whole column. The
-    // legacy move route owns backlog/ready moves; precise last-placement
-    // handles active/blocked columns, while completed transitions retain
-    // the existing checklist/lifecycle patch path.
+    // Append-only moves carry the task version and expected source column.
+    // The server chooses the current tail under its writer lock, so a
+    // neighboring insert or completion can change either ordering revision
+    // without changing the requested placement.
     const updated = destination && ['backlog', 'ready'].includes(destination.semantic_state)
       ? await api.moveTask(task.id, {
           destination_column_id: destinationColumnId,
@@ -47,9 +46,7 @@ export async function moveTask(task: Task, destinationColumnId: string) {
             expected_source_column_id: task.column_id,
             source: 'board',
             reason: 'board column move',
-            placement: 'last',
-            ...(board.columns.find((column) => column.id === task.column_id)?.ordering_version ? { expected_source_ordering_version: board.columns.find((column) => column.id === task.column_id)?.ordering_version } : {}),
-            ...(destination?.ordering_version ? { expected_destination_ordering_version: destination.ordering_version } : {})
+            placement: 'last'
           }, task.version);
     if (!boardMutationIsCurrent(mutationContext)) return;
     replaceTask(updated, true, false);
@@ -64,6 +61,7 @@ export async function moveTask(task: Task, destinationColumnId: string) {
     announce(`${task.key} moved to ${destinationName}.`);
   } catch (error) {
     if (!boardMutationIsCurrent(mutationContext)) return;
+    if (reportBoardCapacityRefusal(error, task)) return;
     if (error instanceof ApiError && error.status === 409) {
       if (error.details?.current) replaceTask(error.details.current as Task, false, false);
       mutationContext.mutationRevision = board.taskMutationRevision;
@@ -150,6 +148,7 @@ export async function reorderTaskAt(task: Task, destinationColumnId: string, tar
     announce(`${task.key} moved to ${spokenPlacement || orderingPlacementLabel(anchors.placement)} position.`);
   } catch (error) {
     if (!boardMutationIsCurrent(mutationContext)) return;
+    if (reportBoardCapacityRefusal(error, task)) return;
     if (error instanceof ApiError && error.status === 409) {
       if (error.details?.current) replaceTask(error.details.current as Task, false, false);
       mutationContext.mutationRevision = board.taskMutationRevision;
@@ -183,6 +182,7 @@ export async function undoTaskMove(previous: Task, moved: Task) {
     announce(`${restored.key} moved back to ${board.columns.find((column) => column.id === previous.column_id)?.name || 'its previous column'}.`);
   } catch (error) {
     if (!boardMutationIsCurrent(mutationContext)) return;
+    if (reportBoardCapacityRefusal(error, moved)) return;
     toast('error', friendlyError(error, 'Undo could not be applied because the task changed elsewhere.'));
   }
 }

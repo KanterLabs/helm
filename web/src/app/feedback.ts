@@ -1,4 +1,5 @@
 // Screen-reader announcements, work-state transitions, toasts and friendly errors.
+import { capacityRefusal } from '../lib/capacity';
 import { agentWorkForTask as agentWorkFor, agentWorkState as workState, isAgentWorkStale as isWorkStale } from '../lib/state';
 import { ApiError } from '../lib/types';
 import type { Task } from '../lib/types';
@@ -79,7 +80,7 @@ export function friendlyError(error: unknown, fallback: string): string {
       release_frozen: 'Completed focus areas cannot accept new task assignments',
       release_queue_changed: 'The focus task list changed; refresh and try again.'
     };
-    return focusErrors[error.code] || error.message;
+    return capacityRefusal(error) || focusErrors[error.code] || error.message;
   }
   if (error instanceof Error) return error.message;
   return fallback;

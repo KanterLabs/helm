@@ -151,7 +151,7 @@ def _heartbeat(store: helm_session.StateStore, *, now: datetime | None = None) -
         # confirmed that a heartbeat is due. Not-due hooks therefore do not
         # touch credentials or emit avoidable configuration warnings.
         config = helm.load_config()
-        client = helm.Client(config)
+        client = helm.Client(config, agent_session_id=helm._agent_session_id(fallback=store.key))
         # Heartbeat is intentionally no-If-Match and no-idempotency. The
         # endpoint only touches an agent-work liveness timestamp and is safe to
         # replay.

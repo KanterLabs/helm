@@ -33,7 +33,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 			return
 		}
-		response := map[string]any{"name": "helm", "version": "v1"}
+		response := map[string]any{"name": "helm", "version": "v1", "agent_work_admission": true}
 		if s.Cfg.ReleaseSHA != "" {
 			response["revision"] = s.Cfg.ReleaseSHA
 		}

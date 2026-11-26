@@ -121,6 +121,14 @@ func (s *Store) createTask(ctx context.Context, projectID string, input TaskInpu
 		if kind == bugKind && destinationState == "completed" {
 			return invalid("bugs must be resolved before entering a completed column", nil)
 		}
+		if destinationState == "active" {
+			if err := checkProjectActiveCapacityTx(ctx, tx, project.ID, 1); err != nil {
+				return err
+			}
+			if err := requireLegacyActivePlacementTx(ctx, tx, actorID); err != nil {
+				return err
+			}
+		}
 		var completedAt any
 		if destinationState == "completed" {
 			completedAt = created
